@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
 from onlyalpha.runtime.generation import (
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,
@@ -26,6 +27,7 @@ class OnlyTestRuntimeGenerationAuthority:
         self.available_generations = {generation_fingerprint: catalog_generation_fingerprint}
         self.bindings: dict[str, str] = {}
         self.inactive_work_ids: set[str] = set()
+        self.binding_evidence: dict[str, OnlyRuntimeWorkBindingEvidence] = {}
 
     def activate(self, generation_fingerprint: str, *, catalog_generation_fingerprint: str | None = None) -> None:
         catalog = catalog_generation_fingerprint or self.catalog_generation_fingerprint
@@ -37,13 +39,43 @@ class OnlyTestRuntimeGenerationAuthority:
         self.bindings.setdefault(work_id, self.generation_fingerprint)
         return self.require_work_binding(work_id)
 
-    def bind_new_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
+    def bind_new_work_exact(
+        self, work_id: str, runtime_generation_fingerprint: str, *, owner: str, **kwargs: object
+    ) -> object:
         if work_id in self.bindings:
-            if self.bindings[work_id] != runtime_generation_fingerprint or work_id in self.inactive_work_ids:
+            evidence = self.require_work_binding_evidence(work_id)
+            if (
+                self.bindings[work_id] != runtime_generation_fingerprint
+                or work_id in self.inactive_work_ids
+                or evidence.binding_kind != "NEW_WORK"
+                or evidence.binding_owner != owner
+            ):
                 raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
             return self.require_work_binding(work_id)
         self.require_new_work_generation(runtime_generation_fingerprint)
-        return self.bind_work_exact(work_id, runtime_generation_fingerprint)
+        self.bindings[work_id] = runtime_generation_fingerprint
+        self.binding_evidence[work_id] = OnlyRuntimeWorkBindingEvidence(
+            work_id,
+            runtime_generation_fingerprint,
+            "NEW_WORK",
+            owner,
+            str(kwargs.get("actor", "test")),
+            "a" * 64,
+            1,
+            True,
+        )
+        return self.require_work_binding(work_id)
+
+    def require_work_binding_evidence(self, work_id: str) -> OnlyRuntimeWorkBindingEvidence:
+        from dataclasses import replace
+
+        self.require_work_binding(work_id)
+        evidence = self.binding_evidence.get(work_id)
+        if evidence is None:
+            evidence = OnlyRuntimeWorkBindingEvidence(
+                work_id, self.bindings[work_id], "EXACT", None, "test", "a" * 64, 1, True
+            )
+        return replace(evidence, active=work_id not in self.inactive_work_ids)
 
     def bind_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
         if runtime_generation_fingerprint not in self.available_generations:

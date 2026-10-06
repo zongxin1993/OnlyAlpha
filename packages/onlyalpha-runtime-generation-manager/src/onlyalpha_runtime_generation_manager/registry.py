@@ -15,6 +15,7 @@ from threading import RLock
 from types import MappingProxyType
 from typing import Any, cast
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.runtime.generation import (
     OnlyRuntimeGenerationManifest,
@@ -304,18 +305,27 @@ class OnlyRuntimeGenerationRegistry:
         work_id: str,
         runtime_generation_fingerprint: str,
         *,
+        owner: str,
         actor: str,
         occurred_at: datetime,
     ) -> OnlyRuntimeWorkBinding:
         """Atomically compare new-work activation and bind, without falling forward."""
 
-        if not work_id.strip():
+        if type(work_id) is not str or not work_id.strip():
             raise ValueError("RUNTIME_WORK_ID_INVALID")
+        if type(owner) is not str or not owner.strip():
+            raise ValueError("RUNTIME_WORK_BINDING_OWNER_INVALID")
         with self._locked():
             projection, events = self._replay()
             existing = projection.work_bindings.get(work_id)
             if existing is not None:
-                if not existing.active or existing.runtime_generation_fingerprint != runtime_generation_fingerprint:
+                evidence = self._binding_evidence(work_id, projection, events)
+                if (
+                    not existing.active
+                    or existing.runtime_generation_fingerprint != runtime_generation_fingerprint
+                    or evidence.binding_kind != "NEW_WORK"
+                    or evidence.binding_owner != owner
+                ):
                     raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
                 return existing
             if projection.active_for_new_work != runtime_generation_fingerprint:
@@ -329,6 +339,7 @@ class OnlyRuntimeGenerationRegistry:
                     actor,
                     occurred_at,
                     work_id=work_id,
+                    reason=owner,
                 )
             )
             return OnlyRuntimeWorkBinding(work_id, runtime_generation_fingerprint, True)
@@ -470,6 +481,41 @@ class OnlyRuntimeGenerationRegistry:
             except KeyError as exc:
                 raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND") from exc
             return binding
+
+    def require_work_binding_evidence(self, work_id: str) -> OnlyRuntimeWorkBindingEvidence:
+        with self._locked(shared=True):
+            projection, events = self._replay()
+            return self._binding_evidence(work_id, projection, events)
+
+    @staticmethod
+    def _binding_evidence(
+        work_id: str, projection: OnlyGenerationProjection, events: tuple[OnlyGenerationEvent, ...]
+    ) -> OnlyRuntimeWorkBindingEvidence:
+        binding = projection.work_bindings.get(work_id)
+        if binding is None:
+            raise ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+        origins = [
+            event
+            for event in events
+            if event.work_id == work_id
+            and event.kind in {_EventKind.WORK_BOUND.value, _EventKind.EXACT_WORK_BOUND.value}
+        ]
+        if len(origins) != 1 or origins[0].generation_fingerprint != binding.runtime_generation_fingerprint:
+            raise ValueError("RUNTIME_GENERATION_EVENT_CHAIN_CORRUPT")
+        origin = origins[0]
+        try:
+            return OnlyRuntimeWorkBindingEvidence(
+                work_id,
+                binding.runtime_generation_fingerprint,
+                "NEW_WORK" if origin.kind == _EventKind.WORK_BOUND.value else "EXACT",
+                origin.reason if origin.kind == _EventKind.WORK_BOUND.value else None,
+                origin.actor,
+                origin.event_fingerprint,
+                origin.sequence,
+                binding.active,
+            )
+        except ValueError as exc:
+            raise ValueError("RUNTIME_GENERATION_EVENT_CHAIN_CORRUPT") from exc
 
     def work_ids_for_generation(self, process_generation_fingerprint: str) -> tuple[str, ...]:
         with self._locked(shared=True):

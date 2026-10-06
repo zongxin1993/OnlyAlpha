@@ -14,7 +14,7 @@ import pytest
 from onlyalpha.application.chart_calculation import OnlyChartCalculationRequestV1
 from onlyalpha.application.chart_calculation_preparation import OnlyChartCalculationPreparationService
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority, OnlyRuntimeWorkBindingEvidence
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.market import OnlyBarSemantic
 from onlyalpha.domain.time import OnlyTimestamp
@@ -32,6 +32,40 @@ pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.require
 WORKER = OnlyProductCommandId("00000000-0000-4000-8000-000000000711")
 OTHER = OnlyProductCommandId("00000000-0000-4000-8000-000000000712")
 GENERATION = "b" * 64
+
+
+def test_claimed_historical_exact_binding_is_never_adopted(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    claim = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+    system.runtime.bind_work_exact(system.operation.reserved_run_id.value, GENERATION, actor="foreign", occurred_at=NOW)
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == claim
+    system.runtime.release_work.assert_not_called()
+
+
+def test_stale_fence_after_runtime_bind_cannot_select_market_input(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    original = system.runtime.bind_new_work_exact.side_effect
+
+    def late_bind(*args, **kwargs):
+        result = original(*args, **kwargs)
+        system.clock[0] += timedelta(minutes=3)
+        system.adapter.claim(system.operation, OTHER, GENERATION, lease_duration=timedelta(minutes=2))
+        return result
+
+    system.runtime.bind_new_work_exact.side_effect = late_bind
+    selection = Mock(wraps=system.market.service.plan_selection)
+    monkeypatch.setattr(system.market.service, "plan_selection", selection)
+    with pytest.raises(ValueError, match="CHART_PREPARATION_FENCE_LOST"):
+        prepare(system)
+    selection.assert_not_called()
+    assert not (tmp_path / "dataset").exists()
+    assert system.runtime.require_work_binding(system.operation.reserved_run_id.value).active
 
 
 def test_claim_lease_restart_and_fencing(postgres_dsn: str) -> None:
@@ -139,7 +173,16 @@ def prepared_system(
         existing = bindings.get(work)
         if existing is not None and existing.runtime_generation_fingerprint != generation:
             raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
-        binding = existing or SimpleNamespace(work_id=work, runtime_generation_fingerprint=generation, active=True)
+        binding = existing or SimpleNamespace(
+            work_id=work,
+            runtime_generation_fingerprint=generation,
+            active=True,
+            binding_kind="EXACT",
+            binding_owner=None,
+            binding_actor=kwargs.get("actor", "test"),
+            binding_event_fingerprint="d" * 64,
+            binding_sequence=1,
+        )
         bindings[work] = binding
         return binding
 
@@ -150,6 +193,15 @@ def prepared_system(
         return runtime.require_runtime_generation(generation)
 
     runtime.require_work_binding.side_effect = load_binding
+
+    def load_evidence(work):
+        binding = load_binding(work)
+        try:
+            return OnlyRuntimeWorkBindingEvidence(**vars(binding))
+        except (ValueError, TypeError):
+            return binding  # Simulate a malformed Authority response, not certified absence.
+
+    runtime.require_work_binding_evidence.side_effect = load_evidence
     runtime.require_work_generation.side_effect = require_work
     catalog = operation.catalog_witness.to_dict()["context"]["catalog_generation_fingerprint"]
     runtime.require_runtime_generation.return_value = SimpleNamespace(
@@ -159,9 +211,7 @@ def prepared_system(
 
     def release(work, **kwargs):
         binding = load_binding(work)
-        bindings[work] = SimpleNamespace(
-            work_id=binding.work_id, runtime_generation_fingerprint=binding.runtime_generation_fingerprint, active=False
-        )
+        bindings[work] = SimpleNamespace(**{**vars(binding), "active": False})
         return bindings[work]
 
     runtime.release_work.side_effect = release
@@ -169,9 +219,30 @@ def prepared_system(
     active_generation = [GENERATION]
 
     def bind_new_exact(work, generation, **kwargs):
+        existing = bindings.get(work)
+        if existing is not None:
+            if (
+                existing.runtime_generation_fingerprint != generation
+                or not existing.active
+                or existing.binding_kind != "NEW_WORK"
+                or existing.binding_owner != kwargs["owner"]
+            ):
+                raise ValueError("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")
+            return existing
         if generation != active_generation[0]:
             raise ValueError("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK")
-        return bind_exact(work, generation, **kwargs)
+        binding = SimpleNamespace(
+            work_id=work,
+            runtime_generation_fingerprint=generation,
+            active=True,
+            binding_kind="NEW_WORK",
+            binding_owner=kwargs["owner"],
+            binding_actor=kwargs["actor"],
+            binding_event_fingerprint="e" * 64,
+            binding_sequence=1,
+        )
+        bindings[work] = binding
+        return binding
 
     runtime.bind_new_work_exact = Mock(side_effect=bind_new_exact)
     dataset = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "dataset")
@@ -300,7 +371,11 @@ def test_exact_native_input_pin_and_verified_lineage(
     assert lineage.dataset_snapshot_fingerprint == result.dataset_snapshot_fingerprint
     assert lineage.market_data_revision_bindings[0].revision_id == pin.revision_id
     system.runtime.bind_new_work_exact.assert_called_with(
-        system.operation.reserved_run_id.value, GENERATION, actor="chart-input-preparation", occurred_at=NOW
+        system.operation.reserved_run_id.value,
+        GENERATION,
+        owner="CHART_CALCULATION_INPUT",
+        actor="chart-input-preparation",
+        occurred_at=NOW,
     )
     assert system.market.provider.bar_fetches == fetched
     assert prepare(system) == result
@@ -413,10 +488,15 @@ def test_exact_active_binding_recovery_ignores_current_activation(
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
     system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
-    system.runtime.bind_work_exact(
-        system.operation.reserved_run_id.value, GENERATION, actor="recovery", occurred_at=NOW
+    system.runtime.bind_new_work_exact(
+        system.operation.reserved_run_id.value,
+        GENERATION,
+        owner="CHART_CALCULATION_INPUT",
+        actor="recovery",
+        occurred_at=NOW,
     )
     system.runtime.bind_work_exact.reset_mock()
+    system.runtime.bind_new_work_exact.reset_mock()
     system.runtime.require_new_work_generation.side_effect = AssertionError("bound recovery read activation")
     result = prepare(system)
     assert result.state == "INPUT_READY"
@@ -436,8 +516,12 @@ def test_nonterminal_or_input_ready_inactive_binding_fails_closed(
         previous = prepare(system)
     else:
         previous = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
-        system.runtime.bind_work_exact(
-            system.operation.reserved_run_id.value, GENERATION, actor="recovery", occurred_at=NOW
+        system.runtime.bind_new_work_exact(
+            system.operation.reserved_run_id.value,
+            GENERATION,
+            owner="CHART_CALCULATION_INPUT",
+            actor="recovery",
+            occurred_at=NOW,
         )
     system.runtime.release_work(system.operation.reserved_run_id.value, actor="operator", occurred_at=NOW)
     system.runtime.bind_work_exact.reset_mock()
@@ -724,8 +808,8 @@ def test_conflicting_or_released_existing_work_binding_never_creates_claim(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, active: bool, generation: str
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
-    system.runtime.require_work_binding.side_effect = None
-    system.runtime.require_work_binding.return_value = SimpleNamespace(
+    system.runtime.require_work_binding_evidence.side_effect = None
+    system.runtime.require_work_binding_evidence.return_value = SimpleNamespace(
         work_id=system.operation.reserved_run_id.value, runtime_generation_fingerprint=generation, active=active
     )
     with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
@@ -741,8 +825,8 @@ def test_malformed_whole_binding_response_never_proves_unbound(
 ) -> None:
     system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
     previous = prepare(system) if terminal else None
-    system.runtime.require_work_binding.side_effect = None
-    system.runtime.require_work_binding.return_value = response
+    system.runtime.require_work_binding_evidence.side_effect = None
+    system.runtime.require_work_binding_evidence.return_value = response
     system.runtime.bind_work_exact.reset_mock()
     system.runtime.release_work.reset_mock()
     with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
@@ -829,6 +913,7 @@ def test_claimed_unbound_recovery_uses_atomic_new_work_admission(
     system.runtime.bind_new_work_exact.assert_called_once_with(
         system.operation.reserved_run_id.value,
         GENERATION,
+        owner="CHART_CALCULATION_INPUT",
         actor="chart-input-preparation",
         occurred_at=NOW,
     )
@@ -849,4 +934,144 @@ def test_unknown_failure_phase_cannot_authorize_binding_release(
     with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
         prepare(system)
     assert system.adapter.load_verified(system.operation) == failed
+    system.runtime.release_work.assert_not_called()
+
+
+@pytest.mark.parametrize("terminal", (False, True))
+@pytest.mark.parametrize("kind,owner", (("EXACT", None), ("NEW_WORK", "OTHER_FAMILY")))
+def test_foreign_binding_family_cannot_be_adopted_or_released(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal: bool, kind: str, owner: str | None
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    if terminal:
+        previous = prepare(system)
+    else:
+        previous = system.adapter.claim(system.operation, WORKER, GENERATION, lease_duration=timedelta(minutes=2))
+        system.runtime.bind_work_exact(
+            system.operation.reserved_run_id.value, GENERATION, actor="foreign", occurred_at=NOW
+        )
+    binding = system.bindings[system.operation.reserved_run_id.value]
+    binding.binding_kind, binding.binding_owner = kind, owner
+    system.runtime.release_work.reset_mock()
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation) == previous
+    system.runtime.release_work.assert_not_called()
+
+
+def test_late_chart_owned_binding_after_prebind_failure_is_compensated_and_retires(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
+    from tests.runtime_support.generation_support import only_ready_test_generation
+
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    registry = OnlyRuntimeGenerationRegistry(tmp_path / "runtime")
+    other = only_ready_test_generation(registry, "a", NOW)
+    manifest = replace(
+        registry.load_manifest(other),
+        catalog_generation_fingerprint=system.operation.catalog_witness.to_dict()["context"][
+            "catalog_generation_fingerprint"
+        ],
+    )
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    registry.admit_ready(OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest), actor="test", occurred_at=NOW)
+    generation = manifest.runtime_generation_fingerprint
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    system.service._runtime = registry
+    original = OnlyRuntimeGenerationRegistry.bind_new_work_exact
+
+    def stale_bind(self, *args, **kwargs):
+        system.clock[0] += timedelta(minutes=3)
+        registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
+        winner = system.adapter.claim(system.operation, OTHER, generation, lease_duration=timedelta(minutes=2))
+        system.adapter.fail(system.operation, winner, "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE")
+        registry.activate_for_new_work(expected_current=other, target=generation, actor="operator", occurred_at=NOW)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "bind_new_work_exact", stale_bind)
+    selection = Mock(side_effect=AssertionError("stale worker read Market"))
+    monkeypatch.setattr(system.market.service, "plan_selection", selection)
+    failed = system.service.prepare(
+        system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=NOW
+    )
+    assert failed.failure_code == "CHART_RUNTIME_GENERATION_NOT_ELIGIBLE"
+    proof = registry.require_work_binding_evidence(system.operation.reserved_run_id.value)
+    assert proof.binding_kind == "NEW_WORK" and proof.binding_owner == "CHART_CALCULATION_INPUT" and not proof.active
+    selection.assert_not_called()
+    assert not (tmp_path / "dataset").exists()
+    registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
+    registry.retire(generation, actor="operator", occurred_at=NOW)
+    system.service._runtime = OnlyRuntimeGenerationRegistry(tmp_path / "runtime")
+    assert (
+        system.service.prepare(
+            system.operation, worker_id=OTHER, runtime_generation_fingerprint=generation, occurred_at=NOW
+        )
+        == failed
+    )
+
+
+def test_crash_after_binding_before_claim_recheck_recovers_owned_work(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    original = system.runtime.bind_new_work_exact.side_effect
+
+    def crash(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("process loss after append")
+
+    system.runtime.bind_new_work_exact.side_effect = crash
+    with pytest.raises(ValueError, match="CHART_EXECUTION_GENERATION_UNAVAILABLE"):
+        prepare(system)
+    system.runtime.bind_new_work_exact.side_effect = original
+    system.runtime.require_new_work_generation.side_effect = AssertionError("bound retry read activation")
+    system.clock[0] += timedelta(minutes=3)
+    assert prepare(system, OTHER).state == "INPUT_READY"
+    system.runtime.release_work.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field,value", (("binding_event_fingerprint", "f" * 64), ("binding_sequence", 2), ("binding_actor", "other"))
+)
+def test_terminal_release_reread_must_preserve_original_event_evidence(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch, acquire=False)
+    original = system.runtime.release_work.side_effect
+
+    def changed_release(work, **kwargs):
+        result = original(work, **kwargs)
+        setattr(system.bindings[work], field, value)
+        return result
+
+    system.runtime.release_work.side_effect = changed_release
+    with pytest.raises(ValueError, match="CHART_RUNTIME_BINDING_CONFLICT"):
+        prepare(system)
+    assert system.adapter.load_verified(system.operation).state == "FAILED"
+
+
+def test_fence_loss_after_binding_replays_winners_input_ready_without_stale_reads(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = prepared_system(postgres_dsn, tmp_path, monkeypatch)
+    original = system.runtime.bind_new_work_exact.side_effect
+    selection = Mock(wraps=system.market.service.plan_selection)
+    monkeypatch.setattr(system.market.service, "plan_selection", selection)
+    winner = []
+
+    def bind_then_complete(*args, **kwargs):
+        result = original(*args, **kwargs)
+        system.clock[0] += timedelta(minutes=3)
+        winner.append(prepare(system, OTHER))
+        return result
+
+    system.runtime.bind_new_work_exact.side_effect = bind_then_complete
+    assert prepare(system) == winner[0]
+    assert winner[0].state == "INPUT_READY"
+    assert selection.call_count == 1
     system.runtime.release_work.assert_not_called()

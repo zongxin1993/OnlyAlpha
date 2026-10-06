@@ -87,7 +87,7 @@ def test_incompatible_generation_is_rejected_before_preparation_claim() -> None:
     store.load_verified.return_value = None
     store.claim.return_value = OnlyChartCalculationPreparationV1(command, 1, 1, command, NOW, "b" * 64, work.value)
     runtime = Mock()
-    runtime.require_work_binding.side_effect = ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
+    runtime.require_work_binding_evidence.side_effect = ValueError("RUNTIME_WORK_GENERATION_UNBOUND")
     runtime.require_runtime_generation.return_value = SimpleNamespace(
         runtime_generation_fingerprint="b" * 64, catalog_generation_fingerprint="f" * 64
     )
@@ -105,5 +105,40 @@ def test_no_claim_runtime_authority_rejects_atomic_exact_admission() -> None:
 
     with pytest.raises(RuntimeError, match="RUNTIME_GENERATION_WORK_AUTHORITY_UNAVAILABLE"):
         OnlyNoClaimRuntimeGenerationWorkAuthority().bind_new_work_exact(
-            "chart", "b" * 64, actor="chart", occurred_at=NOW
+            "chart", "b" * 64, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
         )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("work_id", ""),
+        ("work_id", 1),
+        ("runtime_generation_fingerprint", "A" * 64),
+        ("binding_kind", "UNKNOWN"),
+        ("binding_kind", []),
+        ("binding_owner", None),
+        ("binding_owner", ""),
+        ("binding_actor", None),
+        ("binding_event_fingerprint", "A" * 64),
+        ("binding_sequence", True),
+        ("binding_sequence", 0),
+        ("active", 1),
+    ),
+)
+def test_runtime_binding_evidence_rejects_incomplete_or_malformed_proof(field: str, value: object) -> None:
+    from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
+
+    fields = dict(
+        work_id="chart",
+        runtime_generation_fingerprint="b" * 64,
+        binding_kind="NEW_WORK",
+        binding_owner="CHART_CALCULATION_INPUT",
+        binding_actor="chart",
+        binding_event_fingerprint="c" * 64,
+        binding_sequence=1,
+        active=True,
+    )
+    fields[field] = value
+    with pytest.raises(ValueError, match="RUNTIME_WORK_BINDING_EVIDENCE_INVALID"):
+        OnlyRuntimeWorkBindingEvidence(**fields)

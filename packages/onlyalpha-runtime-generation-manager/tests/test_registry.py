@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from threading import Barrier, Event, Thread
 
@@ -22,6 +23,62 @@ from onlyalpha.runtime.generation import (
 from tests.strategy.product_support import strategy_product_case
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
+
+
+def test_atomic_new_work_replay_rejects_historical_exact_binding(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_work_exact("chart", generation, actor="foreign", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_new_work_exact(
+            "chart", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+        )
+
+
+def test_new_work_evidence_preserves_owner_original_event_and_release(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_new_work_exact(
+        "chart", generation, owner="CHART_CALCULATION_INPUT", actor="original", occurred_at=NOW
+    )
+    proof = registry.require_work_binding_evidence("chart")
+    assert proof.binding_kind == "NEW_WORK" and proof.binding_owner == "CHART_CALCULATION_INPUT"
+    assert proof.binding_actor == "original" and type(proof.binding_sequence) is int
+    assert len(proof.binding_event_fingerprint) == 64
+    ledger = (tmp_path / "generation-events.jsonl").read_bytes()
+    registry.bind_new_work_exact("chart", generation, owner="CHART_CALCULATION_INPUT", actor="retry", occurred_at=NOW)
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == ledger
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_new_work_exact("chart", generation, owner="OTHER", actor="retry", occurred_at=NOW)
+    registry.release_work("chart", actor="terminal", occurred_at=NOW)
+    recovered = OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding_evidence("chart")
+    assert recovered == replace(proof, active=False)
+    registry.bind_work_exact("historical", generation, actor="foreign", occurred_at=NOW)
+    exact = registry.require_work_binding_evidence("historical")
+    assert exact.binding_kind == "EXACT" and exact.binding_owner is None
+
+
+def test_ownerless_new_work_history_cannot_supply_ownership_proof(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    binding = registry.bind_new_work("legacy", actor="legacy", occurred_at=NOW)
+    assert OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding("legacy") == binding
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_EVENT_CHAIN_CORRUPT"):
+        registry.require_work_binding_evidence("legacy")
+
+
+def test_binding_evidence_rejects_duplicate_original_event(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_new_work_exact("chart", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW)
+    event = registry._read_events()[-1]
+    registry._append(replace(event, sequence=event.sequence + 1, previous_event_fingerprint=event.event_fingerprint))
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_EVENT_ORDER_INVALID"):
+        OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding_evidence("chart")
 
 
 def _manifest(seed: str, implementations: tuple[str, ...] = ()) -> OnlyRuntimeGenerationManifest:
@@ -80,7 +137,7 @@ def test_bind_new_work_exact_requires_active_generation_and_replays_exactly(tmp_
     registry = OnlyRuntimeGenerationRegistry(tmp_path)
     g1 = _ready(registry, _manifest("a"), 0)
     g2 = _ready(registry, _manifest("b"), 2)
-    bind = registry.bind_new_work_exact
+    bind = partial(registry.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
     with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
         bind("chart", g1, actor="chart", occurred_at=NOW)
     registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
@@ -111,7 +168,7 @@ def test_bind_new_work_exact_and_activation_have_one_atomic_commit_order(
     g1 = _ready(registry, _manifest("a"), 0)
     g2 = _ready(registry, _manifest("b"), 2)
     registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
-    bind = registry.bind_new_work_exact
+    bind = partial(registry.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
     holding, release, second_started = Event(), Event(), Event()
     original = OnlyRuntimeGenerationRegistry._append
 
@@ -127,7 +184,11 @@ def test_bind_new_work_exact_and_activation_have_one_atomic_commit_order(
     def perform(action, authority):
         try:
             if action == "bind":
-                method = bind if authority is registry else authority.bind_new_work_exact
+                method = (
+                    bind
+                    if authority is registry
+                    else partial(authority.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
+                )
                 outcomes[action] = method("chart", g1, actor="chart", occurred_at=NOW)
             else:
                 authority.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)

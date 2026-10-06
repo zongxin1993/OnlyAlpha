@@ -19,7 +19,14 @@ open WAL, fetch reference instruments, acquire data or write Market Data authori
  Recovery of an exact active binding may continue in its historical READY/ACTIVE/DRAINING generation without consulting current
  activation. A binding without a preparation claim is an orphan/conflict, never adopted or released by this service.
  Reentry must provide the same fingerprint. Conflicting bindings, or inactive bindings for nonterminal/`INPUT_READY`
- preparation, require intervention and are never reactivated.
+  preparation, require intervention and are never reactivated.
+
+Binding adoption and release require `OnlyRuntimeWorkBindingEvidence`, reconstructed from the verified Runtime event chain:
+one original binding event, canonical event fingerprint/sequence, original audit actor, current active state, exact work/generation,
+`NEW_WORK` event family and stable owner `CHART_CALCULATION_INPUT`. The atomic API persists owner in the event's existing `reason`;
+actor may change on retry, but owner and original event evidence cannot. `RuntimeExactWorkBound`, another owner, or legacy ownerless
+new-work history cannot satisfy chart ownership. Historical APIs and event bytes remain unchanged; missing ownership proof is never
+backfilled or inferred from equal UUID text.
 
 For admitted SMA period `p`, display support `[s,e)` requires materialization support `[s-(p-1)*900000000000,e)` in nanoseconds.
 Selection requires one exact sealed Revision with precisely this scope. Missing coverage yields durable
@@ -36,6 +43,9 @@ Each fact has a monotonic revision. Claim increments the fence; heartbeat keeps 
 leases, bounded to two minutes. A live claim belongs to one worker; an expired claim cannot be renewed. Pin, failure and ready
 publication require that worker, fence, generation and an unexpired lease in a short serialized transaction. No transaction spans
 Dataset work. Stale semantic work may finish, but cannot publish operational progress.
+Immediately after Runtime binding, before the first Market Data/Dataset read, a bounded heartbeat verifies the current PostgreSQL
+fence and lease. A stale worker stops if another fence is materializing; if the durable state is FAILED it reconciles terminal
+ownership, and if INPUT_READY it returns only after exact active binding/pin verification. No second lease Authority is introduced.
 
 Only the committed pin can construct `OnlySealedMarketDataMaterializationPlan`. The official
 `OnlySealedMarketDataDatasetMaterializer.materialize_with_lineage` produces and verifies Snapshot and lineage using its existing
@@ -52,8 +62,9 @@ lease recovery rather than manufacturing successful completion.
 
 Pre-Run `FAILED` owns Runtime binding closure: append the failure under the current fence before idempotently releasing its exact work
 with actor `chart-input-preparation-failed`. Failure phase is an explicit closed classification, not inferred from pin absence:
-`CHART_RUNTIME_GENERATION_NOT_ELIGIBLE` is PRE_BIND and requires proved UNBOUND; any binding conflicts and must not be released.
-`CHART_SEALED_COVERAGE_UNAVAILABLE` is POST_BIND and requires the exact historical binding, active or inactive; UNBOUND conflicts.
+`CHART_RUNTIME_GENERATION_NOT_ELIGIBLE` is PRE_BIND and normally requires proved UNBOUND. A late chart-owned NEW_WORK binding from
+a stale worker is compensatable: release active or accept inactive. Foreign/EXACT bindings conflict and are never released.
+`CHART_SEALED_COVERAGE_UNAVAILABLE` is POST_BIND and requires exact chart-owned NEW_WORK evidence, active or inactive; UNBOUND conflicts.
 Unknown failure codes fail closed until their producer ordering is explicitly classified. Return post-bind failure only after verifying
 an exact inactive binding. Lost/unavailable release responses leave the durable failure intact and report
 `CHART_RUNTIME_BINDING_RELEASE_UNAVAILABLE`. Retry loads FAILED first and reconciles historical binding without reading current
