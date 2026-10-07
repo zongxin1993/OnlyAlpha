@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
+
+if TYPE_CHECKING:
+    from .calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
 
 from onlyalpha.application.search_generation_execution import (
     OnlyHistoricalGenerationExecutionMismatch,
@@ -181,6 +184,11 @@ class OnlyResearchHostedRuntimeGenerationResolver:
         specification: OnlyResearchSpecification,
     ) -> OnlyResearchAdmissionResolutionEvidence:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+        if strict.schema_version not in {1, 2}:
+            raise OnlyResearchRunAdmissionError(
+                "generic admission requires Specification V1/V2",
+                code="RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED",
+            )
         request = OnlySearchGenerationExecutionRequestV1(
             runtime_generation_fingerprint,
             OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
@@ -204,6 +212,34 @@ class OnlyResearchHostedRuntimeGenerationResolver:
                 code="RESEARCH_ADMISSION_EVIDENCE_SPECIFICATION_MISMATCH",
             )
         return evidence
+
+    def resolve_calculation_publication(
+        self,
+        runtime_generation_fingerprint: str,
+        specification: OnlyResearchSpecification,
+    ) -> OnlyResearchCalculationRuntimeResolutionV1:
+        from .calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
+
+        strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+        if strict.schema_version != 3:
+            raise ValueError("calculation publication resolution requires Specification V3")
+        request = OnlySearchGenerationExecutionRequestV1(
+            runtime_generation_fingerprint,
+            OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION,
+            {"specification": strict.to_dict(), "dataset_store_root": self._dataset_store_root},
+        )
+        response = OnlySearchGenerationExecutionResponseV1.from_dict(self._execution.execute(request).to_dict())
+        if (
+            response.runtime_generation_fingerprint != runtime_generation_fingerprint
+            or response.operation_kind is not request.operation_kind
+        ):
+            raise OnlyHistoricalGenerationExecutionMismatch(
+                "Calculation publication response generation/operation differs"
+            )
+        result = OnlyResearchCalculationRuntimeResolutionV1.from_dict(response.result_payload)
+        if result.runtime_generation_fingerprint != runtime_generation_fingerprint or result.specification != strict:
+            raise OnlyHistoricalGenerationExecutionMismatch("Calculation publication response request differs")
+        return result
 
     def resolve_definition(
         self,

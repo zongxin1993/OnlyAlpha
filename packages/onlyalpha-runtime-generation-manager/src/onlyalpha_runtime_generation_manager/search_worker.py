@@ -82,6 +82,7 @@ from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract, OnlyStr
 from .hosted import only_load_hosted_quant_asset_catalog, only_verify_hosted_runtime_generation
 
 _CAPABILITIES = (
+    OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION,
     OnlySearchGenerationOperationV1.RESOLVE_STRATEGY_TRADING_ADMISSION,
@@ -155,6 +156,38 @@ def _execute(
     catalog: OnlyQuantAssetCatalogGeneration,
     evidence: OnlyRuntimeGenerationValidationEvidence,
 ) -> Mapping[str, object]:
+    if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION:
+        from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+        from onlyalpha.research.run.calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
+
+        payload = request.request_payload
+        _exact(payload, {"specification", "dataset_store_root"})
+        specification = OnlyResearchSpecification.from_dict(_mapping(payload["specification"], "specification"))
+        if specification.schema_version != 3:
+            raise OnlyHistoricalGenerationExecutionMismatch("calculation publication requires Specification V3")
+        OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
+            specification.dataset_snapshot_fingerprint
+        )
+        registry = _calculation_registry(catalog.calculation_registry())
+        resolution = OnlyResearchSpecificationResolver(registry).resolve(specification)
+        job = resolution.workload.direct_jobs[0]
+        assert job.publication is not None
+        manifest = (
+            OnlyResearchCalculationBackendResolver(registry)
+            .resolve_readiness(job.calculation_graph.nodes[0].definition, job.publication)
+            .implementation_manifest
+        )
+        return OnlyResearchCalculationRuntimeResolutionV1(
+            evidence.runtime_generation_fingerprint,
+            specification,
+            resolution.specification_fingerprint,
+            job,
+            resolution.workload.result_plan,
+            specification.calculations[0].calculation_id,
+            resolution.candidates[0].node_fingerprints,
+            resolution.research_implementation_bindings,
+            manifest,
+        ).to_dict()
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION:
         payload = request.request_payload
         _exact(payload, {"definition", "dataset_store_root"})
@@ -207,6 +240,8 @@ def _execute(
         payload = request.request_payload
         _exact(payload, {"specification", "dataset_store_root"})
         specification = OnlyResearchSpecification.from_dict(_mapping(payload["specification"], "specification"))
+        if specification.schema_version not in {1, 2}:
+            raise OnlyHistoricalGenerationExecutionMismatch("generic admission requires Specification V1/V2")
         OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
             specification.dataset_snapshot_fingerprint
         )

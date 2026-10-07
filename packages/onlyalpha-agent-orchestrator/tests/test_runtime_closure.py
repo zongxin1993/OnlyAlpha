@@ -526,7 +526,7 @@ assert 'onlyalpha.research.calculation.execution_evidence_v2' not in sys.modules
 
     assert len(onlyalpha.__all__) == 17
     # Readiness contracts, Result V2 and exactly two Evidence V2 exports are canonical.
-    assert len(research.__all__) == 549
+    assert len(research.__all__) == 551
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     for name, canonical in (

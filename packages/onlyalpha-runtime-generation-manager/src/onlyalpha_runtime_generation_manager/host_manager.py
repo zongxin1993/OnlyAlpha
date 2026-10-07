@@ -28,6 +28,7 @@ from onlyalpha.application.search_generation_execution import (
     OnlySearchGenerationExecutionFailureV1,
     OnlySearchGenerationExecutionRequestV1,
     OnlySearchGenerationExecutionResponseV1,
+    OnlySearchGenerationOperationV1,
     OnlySearchGenerationWorkerHandshakeV1,
 )
 from onlyalpha.canonical import only_canonical_json
@@ -72,7 +73,11 @@ class OnlyHistoricalGenerationHostManager:
         self,
         request: OnlySearchGenerationExecutionRequestV1,
     ) -> OnlySearchGenerationExecutionResponseV1:
-        worker = self.acquire(request.runtime_generation_fingerprint)
+        worker = (
+            self._acquire(request.runtime_generation_fingerprint, historical_compilation=True)
+            if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION
+            else self.acquire(request.runtime_generation_fingerprint)
+        )
         with worker.lock:
             if request.operation_kind not in worker.handshake.supported_capabilities:
                 raise OnlyHistoricalGenerationCapabilityUnsupported(request.operation_kind.value)
@@ -109,15 +114,24 @@ class OnlyHistoricalGenerationHostManager:
             return response
 
     def acquire(self, generation_fingerprint: str) -> _HostedWorker:
+        return self._acquire(generation_fingerprint, historical_compilation=False)
+
+    def _acquire(self, generation_fingerprint: str, *, historical_compilation: bool) -> _HostedWorker:
         lock = self._generation_lock(generation_fingerprint)
         with lock:
+            # Revalidate before cache reuse: a compilation worker is not permission
+            # for any legacy operation to execute against a retired Generation.
+            manifest, evidence = (
+                self._load_exact(generation_fingerprint, historical_compilation=True)
+                if historical_compilation
+                else self._load_exact(generation_fingerprint)
+            )
             with self._guard:
                 existing = self._workers.get(generation_fingerprint)
             if existing is not None and existing.process.poll() is None:
                 return existing
             if existing is not None:
                 self._forget(generation_fingerprint, existing)
-            manifest, evidence = self._load_exact(generation_fingerprint)
             environment = self._environment_root(generation_fingerprint)
             if not environment.exists():
                 self._rebuild(manifest, evidence, environment)
@@ -156,9 +170,15 @@ class OnlyHistoricalGenerationHostManager:
     def _load_exact(
         self,
         generation_fingerprint: str,
+        *,
+        historical_compilation: bool = False,
     ) -> tuple[OnlyRuntimeGenerationManifest, OnlyRuntimeGenerationValidationEvidence]:
         try:
-            manifest = self._registry.require_runtime_generation(generation_fingerprint)
+            manifest = (
+                self._registry.require_historical_generation(generation_fingerprint)
+                if historical_compilation
+                else self._registry.require_runtime_generation(generation_fingerprint)
+            )
             evidence = self._registry.load_validation_evidence(generation_fingerprint)
         except Exception as exc:
             code = str(exc)

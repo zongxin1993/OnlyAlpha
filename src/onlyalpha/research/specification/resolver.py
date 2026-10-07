@@ -14,10 +14,15 @@ from onlyalpha.calculation import (
     OnlyCalculationBackendKind,
     OnlyCalculationKind,
     OnlyCalculationScalar,
+    OnlyFactorKind,
     OnlyOutputDefinition,
+    only_calculation_execution_shape,
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
+from onlyalpha.research.calculation.execution import OnlyResearchCalculationImplementationBinding
 from onlyalpha.research.calculation.predicate import only_register_research_predicate_primitives
 from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
 from onlyalpha.research.evaluation.reference import (
@@ -100,6 +105,7 @@ class OnlyResearchSpecificationResolution:
     statistics: tuple[OnlyResearchStatisticsLineage, ...]
     published_series: tuple[OnlyResearchPublishedSeriesLineage, ...] = ()
     signals: tuple[OnlyResearchSignalLineage, ...] = ()
+    research_implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +241,8 @@ class OnlyResearchSpecificationResolver:
                 "RESEARCH_SPEC_INVALID",
                 "resolve requires a Research Specification",
             )
+        if specification.schema_version == 3:
+            return self._resolve_calculation_publication(specification)
         direct_job_values, sweep_values, candidates = self._resolve_calculations(
             specification.dataset_snapshot_fingerprint,
             specification.calculations,
@@ -374,6 +382,69 @@ class OnlyResearchSpecificationResolver:
             tuple(statistics_lineage),
             published_series,
             signals,
+        )
+
+    def _resolve_calculation_publication(
+        self, specification: OnlyResearchSpecification
+    ) -> OnlyResearchSpecificationResolution:
+        # Use the same exact compiler and selector proof as legacy Specifications.
+        jobs, sweeps, candidates = self._resolve_calculations(
+            specification.dataset_snapshot_fingerprint, specification.calculations
+        )
+        job = jobs[0]
+        graph = job.calculation_graph
+        if (
+            sweeps
+            or len(graph.nodes) != 1
+            or only_calculation_execution_shape(graph.nodes[0].definition) is not OnlyFactorKind.TIME_SERIES
+        ):
+            self._fail(
+                OnlyResearchSpecificationPhase.GRAPH_RESOLUTION,
+                "RESEARCH_SPEC_READINESS_GRAPH_UNSUPPORTED",
+                "publication requires one TIME_SERIES node",
+            )
+        assert specification.publication is not None
+        contract = specification.publication.execution_contract
+        try:
+            backend = OnlyResearchCalculationBackendResolver(self._registry).resolve_readiness(
+                graph.nodes[0].definition, contract
+            )
+        except (ValueError, OnlyResearchCalculationError) as exc:
+            self._fail(
+                OnlyResearchSpecificationPhase.TYPE_RESOLUTION,
+                "RESEARCH_SPEC_READINESS_BACKEND_UNAVAILABLE",
+                str(exc),
+                exc,
+            )
+        published = self._resolve_published_series(candidates, specification.published_series)
+        job = replace(job, schema_version=2, publication=contract)
+        plan = OnlyResearchResultPlan(
+            (),
+            4,
+            specification.dataset_snapshot_fingerprint,
+            (OnlyResearchResultCalculationPlan(job.calculation_fingerprint, graph.fingerprint),),
+            (),
+            tuple(
+                OnlyResearchResultSeriesPlan(
+                    None, item.calculation_fingerprint, item.node_fingerprint, item.output_name
+                )
+                for item in published
+            ),
+            (),
+            specification.publication,
+        )
+        return OnlyResearchSpecificationResolution(
+            specification.specification_fingerprint,
+            OnlyResearchWorkloadPlan((job,), (), (), plan),
+            tuple(candidates[specification.calculations[0].calculation_id]),
+            (),
+            published,
+            (),
+            (
+                OnlyResearchCalculationImplementationBinding(
+                    graph.nodes[0].fingerprint, backend.implementation_manifest.implementation_fingerprint
+                ),
+            ),
         )
 
     def _resolve_calculations(

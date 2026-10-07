@@ -71,6 +71,11 @@ def only_research_admission_resolution_fingerprint(resolution: OnlyResearchSpeci
 def _resolution_payload(resolution: OnlyResearchSpecificationResolution) -> dict[str, object]:
     if not isinstance(resolution, OnlyResearchSpecificationResolution):
         raise TypeError("admission evidence requires a Specification Resolution")
+    if resolution.workload.result_plan.schema_version not in {1, 2}:
+        raise OnlyResearchRunAdmissionError(
+            "generic admission requires legacy Specification resolution",
+            code="RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED",
+        )
     scientific = resolution.workload.result_plan.schema_version == 2
     candidates: list[dict[str, object]] = [
         {

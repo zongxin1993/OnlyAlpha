@@ -9,8 +9,10 @@ from typing import cast
 
 from onlyalpha.calculation import OnlyCalculationScalar
 from onlyalpha.canonical import only_canonical_payload
+from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationSelectionV1
 
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION,
     RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     RESEARCH_RESULT_PLAN_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_PLAN_SCHEMA_VERSION,
@@ -138,8 +140,18 @@ class OnlyResearchResultPlan:
     candidates: tuple[OnlyResearchResultCandidatePlan, ...] = ()
     published_series: tuple[OnlyResearchResultSeriesPlan, ...] = ()
     signals: tuple[OnlyResearchResultSignalPlan, ...] = ()
+    publication: OnlyResearchCalculationPublicationSelectionV1 | None = None
 
     def __post_init__(self) -> None:
+        readiness = self.schema_version == RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION
+        if readiness:
+            if (
+                type(self.schema_version) is not int
+                or type(self.publication) is not OnlyResearchCalculationPublicationSelectionV1
+            ):
+                raise ValueError("Result Plan V4 requires exact publication selection")
+        elif self.publication is not None:
+            raise ValueError("legacy Result Plan cannot contain publication selection")
         if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION and (
             isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int)
         ):
@@ -148,12 +160,17 @@ class OnlyResearchResultPlan:
             RESEARCH_RESULT_PLAN_SCHEMA_VERSION,
             RESEARCH_RESULT_SCIENTIFIC_PLAN_SCHEMA_VERSION,
             RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION,
         }:
             raise ValueError(f"unsupported Research Result Plan schema version: {self.schema_version}")
         _canonical_sha_tuple(
             self.statistics_fingerprints,
             "Research Result Plan Statistics identities",
-            nonempty=self.schema_version != RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            nonempty=self.schema_version
+            not in {
+                RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+                RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION,
+            },
         )
         object.__setattr__(self, "statistics_fingerprints", tuple(sorted(self.statistics_fingerprints)))
         if self.schema_version == RESEARCH_RESULT_PLAN_SCHEMA_VERSION:
@@ -222,7 +239,10 @@ class OnlyResearchResultPlan:
         signal_keys = tuple((item.candidate_fingerprint, item.role) for item in self.signals)
         if len(signal_keys) != len(set(signal_keys)):
             raise ValueError("Scientific Result Plan Candidate and role identify more than one Signal series")
-        if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION:
+        if self.schema_version in {
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION,
+        }:
             if self.statistics_fingerprints or self.candidates or self.signals:
                 raise ValueError("Calculation-only Result Plan forbids Statistics, Candidates and Signals")
             if not self.published_series or any(
@@ -237,6 +257,15 @@ class OnlyResearchResultPlan:
         return only_research_result_plan_fingerprint(self.to_dict())
 
     def to_dict(self) -> dict[str, object]:
+        if self.schema_version == RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION:
+            assert self.publication is not None
+            return {
+                "schema_version": self.schema_version,
+                "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+                "calculations": [item.to_dict() for item in self.calculations],
+                "published_series": [item.to_dict() for item in self.published_series],
+                "publication": self.publication.to_dict(),
+            }
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "statistics_fingerprints": list(self.statistics_fingerprints),
@@ -259,6 +288,25 @@ class OnlyResearchResultPlan:
         version = payload.get("schema_version")
         if isinstance(version, bool) or not isinstance(version, int):
             raise ValueError("Research Result Plan schema_version must be an integer")
+        if version == RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION:
+            _exact(
+                payload,
+                {"schema_version", "dataset_snapshot_fingerprint", "calculations", "published_series", "publication"},
+                "Result Plan V4",
+            )
+            return cls(
+                (),
+                version,
+                _sha(payload["dataset_snapshot_fingerprint"], "Dataset Snapshot"),
+                tuple(
+                    OnlyResearchResultCalculationPlan.from_dict(_mapping(item))
+                    for item in _array(payload["calculations"])
+                ),
+                (),
+                tuple(_series_from_dict(_mapping(item)) for item in _array(payload["published_series"])),
+                (),
+                OnlyResearchCalculationPublicationSelectionV1.from_dict(_mapping(payload["publication"])),
+            )
         if version == RESEARCH_RESULT_PLAN_SCHEMA_VERSION:
             _exact(payload, {"schema_version", "statistics_fingerprints"}, "Research Result Plan")
             return cls(_sha_array(payload["statistics_fingerprints"], "Statistics identities"), version)

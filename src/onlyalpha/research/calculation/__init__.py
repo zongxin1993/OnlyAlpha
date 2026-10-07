@@ -42,6 +42,7 @@ from .predicate import (
 from .publication import (
     RESEARCH_CALCULATION_PUBLICATION_CONTRACT_SCHEMA_VERSION,
     OnlyResearchCalculationPublicationContract,
+    OnlyResearchCalculationPublicationSelectionV1,
 )
 from .readiness import (
     RESEARCH_CALCULATION_READINESS_CONTRACT_VERSION,
