@@ -258,6 +258,14 @@ class OnlyPostgresChartCalculationPreparationStore:
             self._lock(connection, operation)
             return self._load(connection, operation)[0]
 
+    @staticmethod
+    def load_verified_in_transaction(
+        connection: psycopg.Connection[dict[str, object]], operation: OnlyChartCalculationOperationV1
+    ) -> OnlyChartCalculationPreparationV1 | None:
+        """Verify T1 and the complete preparation chain inside the caller transaction."""
+        OnlyPostgresChartCalculationPreparationStore._lock(connection, operation)
+        return OnlyPostgresChartCalculationPreparationStore._load(connection, operation)[0]
+
     def claim(
         self,
         operation: OnlyChartCalculationOperationV1,

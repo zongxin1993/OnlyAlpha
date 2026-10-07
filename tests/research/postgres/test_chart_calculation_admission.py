@@ -569,6 +569,10 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
     operation = admit(store(postgres_dsn)).operation
     # Reconstruct exactly the preceding additive schema, retaining all audited 0043 facts.
     with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("DROP TABLE chart_calculation_compilation")
+        connection.execute(
+            "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0047_chart_calculation_compilation_relation'"
+        )
         connection.execute("DROP TABLE chart_calculation_preparation_fact")
         connection.execute(
             "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0046_chart_calculation_runtime_binding_relation'"
@@ -603,6 +607,7 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
             "0044_research_run_id_reservation",
             "0045_chart_calculation_input_preparation",
             "0046_chart_calculation_runtime_binding_relation",
+            "0047_chart_calculation_compilation_relation",
         )
         assert (
             OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))
