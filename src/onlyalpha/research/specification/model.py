@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import cast
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
+from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationSelectionV1
 from onlyalpha.research.dataset.strict import require_sha256
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsDefinition
 from onlyalpha.research.sweep.definition import OnlyResearchSweepParameterDimension
@@ -18,6 +19,7 @@ from .errors import OnlyResearchSpecificationError, OnlyResearchSpecificationPha
 
 RESEARCH_SPECIFICATION_SCHEMA_VERSION = 1
 RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION = 2
+RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION = 3
 
 
 class OnlyResearchStatisticsExpansion(StrEnum):
@@ -241,12 +243,16 @@ class OnlyResearchSpecification:
     statistics: tuple[OnlyResearchStatisticsSpec, ...]
     evidence: OnlyResearchScientificEvidenceSpec | None = None
     schema_version: int = RESEARCH_SPECIFICATION_SCHEMA_VERSION
+    purpose: str | None = None
+    published_series: tuple[OnlyResearchSeriesSelector, ...] = ()
+    publication: OnlyResearchCalculationPublicationSelectionV1 | None = None
 
     def __post_init__(self) -> None:
         try:
             if isinstance(self.schema_version, bool) or self.schema_version not in {
                 RESEARCH_SPECIFICATION_SCHEMA_VERSION,
                 RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
+                RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION,
             }:
                 raise ValueError(f"unsupported Research Specification schema version: {self.schema_version!r}")
             if self.schema_version == RESEARCH_SPECIFICATION_SCHEMA_VERSION and self.evidence is not None:
@@ -264,7 +270,31 @@ class OnlyResearchSpecification:
                 not isinstance(item, OnlyResearchCalculationSpec) for item in self.calculations
             ):
                 raise ValueError("Specification requires Calculation Specs")
-            if not self.statistics or any(not isinstance(item, OnlyResearchStatisticsSpec) for item in self.statistics):
+            if self.schema_version == RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION:
+                if type(self.schema_version) is not int or self.purpose != "CALCULATION_PUBLICATION":
+                    raise ValueError("Specification V3 requires CALCULATION_PUBLICATION purpose")
+                if self.statistics != () or self.evidence is not None:
+                    raise ValueError("Specification V3 forbids scientific facts")
+                if (
+                    type(self.calculations) is not tuple
+                    or len(self.calculations) != 1
+                    or self.calculations[0].sweep_dimensions
+                ):
+                    raise ValueError("Specification V3 requires one fixed Calculation")
+                if (
+                    type(self.published_series) is not tuple
+                    or len(self.published_series) != 1
+                    or not isinstance(self.published_series[0], OnlyResearchSeriesSelector)
+                    or self.published_series[0].calculation_id != self.calculations[0].calculation_id
+                ):
+                    raise ValueError("Specification V3 requires one exact Calculation selector")
+                if type(self.publication) is not OnlyResearchCalculationPublicationSelectionV1:
+                    raise ValueError("Specification V3 requires exact publication selection")
+            elif self.purpose is not None or self.published_series != () or self.publication is not None:
+                raise ValueError("legacy Specification cannot contain publication fields")
+            if self.schema_version != 3 and (
+                not self.statistics or any(not isinstance(item, OnlyResearchStatisticsSpec) for item in self.statistics)
+            ):
                 raise ValueError("Specification requires Statistics Specs")
             ids = tuple(item.calculation_id for item in self.calculations)
             if len(ids) != len(set(ids)):
@@ -298,6 +328,21 @@ class OnlyResearchSpecification:
         return only_canonical_fingerprint(self.to_dict())
 
     def to_dict(self) -> Mapping[str, object]:
+        if self.schema_version == RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION:
+            assert self.publication is not None
+            return cast(
+                Mapping[str, object],
+                only_canonical_payload(
+                    {
+                        "schema_version": self.schema_version,
+                        "purpose": self.purpose,
+                        "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
+                        "calculations": [item.to_dict() for item in self.calculations],
+                        "published_series": [item.to_dict() for item in self.published_series],
+                        "publication": self.publication.to_dict(),
+                    }
+                ),
+            )
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "dataset_snapshot_fingerprint": self.dataset_snapshot_fingerprint,
@@ -318,6 +363,37 @@ class OnlyResearchSpecification:
             version, dataset = payload["schema_version"], payload["dataset_snapshot_fingerprint"]
             if isinstance(version, bool) or not isinstance(version, int):
                 raise ValueError("Research Specification fields are invalid")
+            if version == RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION:
+                _exact(
+                    payload,
+                    {
+                        "schema_version",
+                        "purpose",
+                        "dataset_snapshot_fingerprint",
+                        "calculations",
+                        "published_series",
+                        "publication",
+                    },
+                    "Research Specification V3",
+                )
+                calculations, published = payload["calculations"], payload["published_series"]
+                if not isinstance(calculations, list) or not isinstance(published, list):
+                    raise ValueError("Specification V3 Calculation and selector arrays are required")
+                return cls(
+                    cast(str, dataset),
+                    tuple(
+                        OnlyResearchCalculationSpec.from_dict(_mapping(item, "Calculation")) for item in calculations
+                    ),
+                    (),
+                    schema_version=version,
+                    purpose=cast(str, payload["purpose"]),
+                    published_series=tuple(
+                        OnlyResearchSeriesSelector.from_dict(_mapping(item, "selector")) for item in published
+                    ),
+                    publication=OnlyResearchCalculationPublicationSelectionV1.from_dict(
+                        _mapping(payload["publication"], "publication")
+                    ),
+                )
             expected = {"schema_version", "dataset_snapshot_fingerprint", "calculations", "statistics"}
             if version == RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION:
                 expected.add("evidence")

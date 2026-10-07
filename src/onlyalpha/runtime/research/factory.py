@@ -23,10 +23,12 @@ from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatis
 from onlyalpha.research.job import OnlyResearchJobExecutor
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
+from onlyalpha.research.runtime_errors import OnlyResearchRuntimeError
 from onlyalpha.research.sweep.executor import OnlyResearchSweepExecutor
 from onlyalpha.runtime.assembler import OnlyComponentFactoryRegistries
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeBuildResult
 
+from .environment import _only_require_research_runtime_execution
 from .planning import OnlyResearchRuntimePlan
 from .runtime import OnlyResearchRuntime
 
@@ -115,6 +117,10 @@ class OnlyResearchRuntimeFactory:
                 failure_code="RESEARCH_RUNTIME_PLAN_REQUIRED",
                 failure_message="Research factory requires OnlyResearchRuntimePlan",
             )
+        try:
+            _only_require_research_runtime_execution(request.plan.workload)
+        except OnlyResearchRuntimeError as exc:
+            return OnlyRuntimeBuildResult(failure_code=exc.code, failure_message=exc.detail)
         if not isinstance(request.components, OnlyComponentFactoryRegistries):
             return OnlyRuntimeBuildResult(
                 failure_code="RESEARCH_RUNTIME_COMPONENTS_INVALID",

@@ -4,6 +4,7 @@
 from .assembler import OnlyResearchResultAssembler
 from .errors import OnlyResearchResultError, OnlyResearchResultStoreError
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_READINESS_PLAN_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_PLAN_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
     only_research_result_content_fingerprint,

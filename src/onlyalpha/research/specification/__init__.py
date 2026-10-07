@@ -4,6 +4,7 @@
 from .errors import OnlyResearchSpecificationError, OnlyResearchSpecificationPhase
 from .identity import only_research_candidate_fingerprint
 from .model import (
+    RESEARCH_SPECIFICATION_CALCULATION_PUBLICATION_SCHEMA_VERSION,
     RESEARCH_SPECIFICATION_SCHEMA_VERSION,
     RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
     OnlyResearchCalculationSpec,

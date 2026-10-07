@@ -167,6 +167,26 @@ def test_unadvertised_operation_fails_before_worker_write(tmp_path: Path, monkey
         )
 
 
+def test_generation_without_publication_operation_never_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = _manager(tmp_path)
+    _manifest, _evidence, handshake = _identity()
+    worker = _HostedWorker(cast(object, _Process()), handshake, Lock())
+
+    def acquired(generation, *, historical_compilation):
+        assert generation == G and historical_compilation is True
+        return worker
+
+    monkeypatch.setattr(manager, "_acquire", acquired)
+    with pytest.raises(OnlyHistoricalGenerationCapabilityUnsupported):
+        manager.execute(
+            OnlySearchGenerationExecutionRequestV1(
+                G, OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION, {}
+            )
+        )
+
+
 def test_hosted_worker_resolves_strict_strategy_trading_admission(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

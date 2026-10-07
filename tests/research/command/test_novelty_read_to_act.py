@@ -27,6 +27,7 @@ from onlyalpha.research.novelty import (
 from onlyalpha.research.run import OnlyResearchRunAdmissionService, OnlyResearchRunState
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
+from tests.research.command.test_historical_admission import PARENT, G, _assert_v3_submission_has_no_authority_effects
 from tests.research.command.test_service import (
     NOW,
     _DatasetStore,
@@ -39,6 +40,17 @@ from tests.research.novelty.test_decision import _projection, _projection_for_su
 from tests.research.novelty.test_policy import policy
 from tests.research.specification.support import registry
 from tests.runtime_support.generation_support import OnlyTestRuntimeGenerationAuthority
+
+
+@pytest.mark.parametrize("receipt_family", ["absent", "legacy", "novelty-single", "novelty-group"])
+@pytest.mark.parametrize("parent", [None, PARENT], ids=["standalone", "derived"])
+@pytest.mark.parametrize("generation", [None, G], ids=["implicit-generation", "exact-generation"])
+def test_product_submission_rejects_v3_before_any_authority_effect(
+    receipt_family: str, parent: str | None, generation: str | None
+) -> None:
+    _assert_v3_submission_has_no_authority_effects(
+        legacy=False, receipt_family=receipt_family, parent=parent, generation=generation
+    )
 
 
 def _manifest(frontier: int = 0) -> OnlyExperimentMemorySourceCutManifestV1:

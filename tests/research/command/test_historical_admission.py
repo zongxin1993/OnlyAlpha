@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+from onlyalpha.application.product_command_receipt import (
+    OnlyProductCommandKind,
+    OnlyProductCommandOutcomeKind,
+    OnlyProductCommandOutcomeRef,
+    OnlyProductCommandReceipt,
+)
 from onlyalpha.application.search_generation_execution import (
     OnlyHistoricalGenerationCapabilityUnsupported,
     OnlyHistoricalGenerationExecutionMismatch,
@@ -13,16 +20,107 @@ from onlyalpha.application.search_generation_execution import (
     OnlySearchGenerationOperationV1,
 )
 from onlyalpha.application.search_product import only_search_experiment_work_id
-from onlyalpha.research.command import OnlyResearchCommandService, only_derived_research_run_id
+from onlyalpha.research.command import (
+    OnlyDerivedResearchSubmitCommandV2,
+    OnlyResearchCommandService,
+    OnlyResearchSubmitCommand,
+    only_derived_research_run_id,
+)
+from onlyalpha.research.command.model import (
+    OnlyNoveltyGatedResearchSubmitCommandV3,
+    OnlyNoveltyGatedResearchSubmitCommandV4,
+)
 from onlyalpha.research.run import OnlyResearchRunAdmissionError, OnlyResearchRunAdmissionService
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from tests.research.command.test_service import KEY, NOW, _DatasetStore, _ProductAdmissions, _provenance, _Store
 from tests.research.specification.support import registry, specification
+from tests.research.specification.test_calculation_publication import publication_specification
 
 G = "a" * 64
 PARENT = only_search_experiment_work_id("b" * 64)
+
+
+def _assert_v3_submission_has_no_authority_effects(
+    *, legacy: bool, receipt_family: str, parent: str | None, generation: str | None
+) -> None:
+    spec = publication_specification()
+    effects = Mock()
+    effects.store = Mock(wraps=_Store())
+    effects.product = Mock(wraps=_ProductAdmissions())
+    effects.clock.return_value = NOW
+    effects.store.find_product_command_receipt.return_value = None
+    if receipt_family != "absent":
+        if receipt_family == "legacy":
+            command = (
+                OnlyResearchSubmitCommand(KEY, spec, G, runtime_generation_fingerprint=generation)
+                if parent is None
+                else OnlyDerivedResearchSubmitCommandV2(KEY, spec, parent, G, runtime_generation_fingerprint=generation)
+            )
+            fingerprint = command.command_fingerprint
+        elif receipt_family == "novelty-single":
+            fingerprint = OnlyNoveltyGatedResearchSubmitCommandV3(
+                KEY, spec, "c" * 64, parent, G, runtime_generation_fingerprint=generation
+            ).command_fingerprint
+        else:
+            fingerprint = OnlyNoveltyGatedResearchSubmitCommandV4(
+                KEY, spec, "c" * 64, parent, G, runtime_generation_fingerprint=generation
+            ).command_fingerprint
+        effects.store.find_product_command_receipt.return_value = OnlyProductCommandReceipt(
+            command_id=KEY,
+            command_kind=OnlyProductCommandKind.CREATE_RESEARCH_RUN,
+            command_fingerprint=fingerprint,
+            outcome_ref=OnlyProductCommandOutcomeRef(
+                OnlyProductCommandOutcomeKind.RESEARCH_RUN, only_derived_research_run_id(KEY).value
+            ),
+            accepted_at=NOW,
+        )
+    admission = OnlyResearchRunAdmissionService(
+        resolver=effects.resolver,
+        dataset_store=effects.dataset,
+        now_utc=effects.clock,
+        run_id_factory=effects.run_id,
+        authoring_generation_resolver=effects.authoring,
+    )
+    effects.admission = Mock(wraps=admission)
+    service = OnlyResearchCommandService(
+        admission=effects.admission,
+        store=effects.store,
+        now_utc=effects.clock,
+        runtime_generations=effects.runtime,
+        command_admissions=effects.product,
+        runtime_generation_resolver=effects.exact_resolver,
+        authoring_generation_reader=effects.authoring,
+        novelty_decisions=None if legacy else effects.decisions,
+        memory_builder=None if legacy else effects.memory_builder,
+        memory_revisions=None if legacy else effects.memory_revisions,
+        allow_legacy_ungated=legacy,
+        historical_seeder=effects.seeder if legacy else None,
+    )
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.submit_research_run(
+            KEY,
+            spec,
+            G,
+            runtime_generation_fingerprint=generation,
+            parent_runtime_work_id=parent,
+        )
+    assert caught.value.code == "RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED"
+    # Includes reads, receipt replay/writes, Product admission, Novelty/Memory,
+    # bind/release, both generation resolvers, Run preparation, seeding and time.
+    assert effects.mock_calls == []
+
+
+@pytest.mark.parametrize("receipt_family", ["absent", "legacy"])
+@pytest.mark.parametrize("parent", [None, PARENT], ids=["standalone", "derived"])
+@pytest.mark.parametrize("generation", [None, G], ids=["implicit-generation", "exact-generation"])
+def test_legacy_historical_submission_rejects_v3_before_any_authority_effect(
+    receipt_family: str, parent: str | None, generation: str | None
+) -> None:
+    _assert_v3_submission_has_no_authority_effects(
+        legacy=True, receipt_family=receipt_family, parent=parent, generation=generation
+    )
 
 
 class _Bindings:

@@ -27,7 +27,10 @@ from onlyalpha.research.evaluation.subject import (
     OnlyExactEvaluationIntentSubjectV1,
     OnlyResearchEvaluationSubjectSetV1,
 )
-from onlyalpha.research.run.admission import OnlyResearchRunAdmissionService
+from onlyalpha.research.run.admission import (
+    OnlyResearchRunAdmissionService,
+    _only_require_generic_research_specification,
+)
 from onlyalpha.research.run.errors import (
     OnlyResearchRunAdmissionError,
     OnlyResearchRunIntegrityError,
@@ -137,6 +140,7 @@ class OnlyResearchCommandService:
         strategy_research_composition_fingerprint: str | None = None,
     ) -> OnlyResearchSubmitOutcome:
         strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+        _only_require_generic_research_specification(strict)
         if self._allow_legacy_ungated:
             return self._submit_legacy(
                 submission_key,

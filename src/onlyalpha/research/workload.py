@@ -78,7 +78,7 @@ class OnlyResearchWorkloadPlan:
                 "RESEARCH_WORKLOAD_RESULT_STATISTICS_MISMATCH",
                 "Result Plan must reference exactly the supplied Statistics Plans",
             )
-        if self.result_plan.schema_version in {2, 3}:
+        if self.result_plan.schema_version in {2, 3, 4}:
             if self.result_plan.dataset_snapshot_fingerprint != self.dataset_snapshot_fingerprint:
                 self._fail("RESEARCH_WORKLOAD_RESULT_DATASET_MISMATCH", "Result Plan Dataset must match workload")
             if {item.calculation_fingerprint for item in self.result_plan.calculations} != closure:
@@ -86,10 +86,24 @@ class OnlyResearchWorkloadPlan:
                     "RESEARCH_WORKLOAD_RESULT_CALCULATION_MISMATCH",
                     "Result Plan must reference exactly the supplied Calculation Jobs",
                 )
-            if self.result_plan.schema_version == 3 and {
+            if self.result_plan.schema_version in {3, 4} and {
                 (item.calculation_fingerprint, item.graph_fingerprint) for item in self.result_plan.calculations
             } != {(item.calculation_fingerprint, item.calculation_graph.fingerprint) for item in jobs}:
                 self._fail("RESEARCH_WORKLOAD_RESULT_GRAPH_MISMATCH", "Result Plan Graph must match Calculation Job")
+        if self.result_plan.schema_version == 4:
+            if self.sweeps or self.statistics_plans or len(jobs) != 1:
+                self._fail(
+                    "RESEARCH_WORKLOAD_READINESS_UNSUPPORTED",
+                    "publication requires one direct Job and no scientific work",
+                )
+            assert self.result_plan.publication is not None
+            if any(
+                job.schema_version != 2 or job.publication != self.result_plan.publication.execution_contract
+                for job in jobs
+            ):
+                self._fail(
+                    "RESEARCH_WORKLOAD_PUBLICATION_MISMATCH", "Job and Result Plan publication must agree exactly"
+                )
 
     @staticmethod
     def _fail(code: str, detail: str) -> None:

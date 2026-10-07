@@ -34,7 +34,7 @@ from .control import (
     OnlyResearchRuntimeControlSignal,
     OnlyResearchRuntimeExecutionControl,
 )
-from .environment import OnlyResearchRuntimeEnvironmentIdentity
+from .environment import OnlyResearchRuntimeEnvironmentIdentity, _only_require_research_runtime_execution
 from .result import OnlyResearchRuntimeResult
 
 _T = TypeVar("_T")
@@ -69,6 +69,7 @@ class OnlyResearchRuntime:
         artifact_materializer: OnlyResearchArtifactMaterializer | OnlyResearchScientificArtifactMaterializer,
         artifact_store: OnlyParquetResearchArtifactStore | OnlyParquetResearchScientificArtifactStore,
     ) -> None:
+        _only_require_research_runtime_execution(workload)
         self.runtime_id = runtime_id
         self.environment = environment
         self.workload = workload
@@ -83,6 +84,7 @@ class OnlyResearchRuntime:
         self.state = OnlyResearchRuntimeState.CREATED
 
     def initialize(self) -> None:
+        _only_require_research_runtime_execution(self.workload)
         if self.state is OnlyResearchRuntimeState.READY:
             return
         if self.state is not OnlyResearchRuntimeState.CREATED:
@@ -102,6 +104,7 @@ class OnlyResearchRuntime:
         statistics: tuple[OnlyResearchStatisticsOutcome, ...] = ()
         result_outcome: OnlyResearchResultOutcome | None = None
         try:
+            _only_require_research_runtime_execution(self.workload)
             self._checkpoint(control, OnlyResearchRuntimeBoundary.BEFORE_DATASET_VERIFICATION)
             self._invoke(
                 OnlyResearchRuntimePhase.DATASET_VERIFICATION,

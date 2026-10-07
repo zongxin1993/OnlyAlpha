@@ -828,6 +828,12 @@ class OnlyRuntimeGenerationRegistry:
             raise ValueError("RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH")
         return manifest
 
+    def require_historical_generation(self, generation_fingerprint: str) -> OnlyRuntimeGenerationManifest:
+        """Verify immutable historical identity without granting execution eligibility."""
+        with self._locked(shared=True):
+            projection, _ = self._replay()
+            return self._load_generation_for_admission_closure(projection, generation_fingerprint)
+
     def _load_generation_for_admission_closure(
         self,
         projection: OnlyGenerationProjection,
