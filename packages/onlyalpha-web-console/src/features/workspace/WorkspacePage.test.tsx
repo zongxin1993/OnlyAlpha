@@ -1,7 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationApiClient } from "../../api/integrations/client";
-import { buildPlaceholderBars } from "../../charts/lightweight/placeholderBars";
 import { AppProviders } from "../../app/providers";
 import {
     dataSourceSummary,
@@ -57,52 +56,40 @@ it("collapses the tool rail and the bottom panel without losing the chart", asyn
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
 });
 
-it("exposes watchlist, inspector, runs, results and backtest views", async () => {
+it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
     const user = userEvent.setup();
     renderWorkspace();
     const contextPanel = screen.getByRole("complementary", { name: "上下文面板" });
-    expect(within(contextPanel).getByText("600519.SH")).toBeInTheDocument();
+    expect(within(contextPanel).getByText("选择真实标的后显示当前行情")).toBeInTheDocument();
     await user.click(within(contextPanel).getByRole("button", { name: "检查器" }));
-    expect(within(contextPanel).getByText("Strategy Revision")).toBeInTheDocument();
+    expect(within(contextPanel).getByText("尚未选择行情上下文")).toBeInTheDocument();
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });
     await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
-    expect(within(bottomPanel).getByText("res-4d81…a7c2")).toBeInTheDocument();
+    expect(within(bottomPanel).getByText("研究结果尚未接入工作区")).toBeInTheDocument();
     await user.click(within(bottomPanel).getByRole("button", { name: "回测" }));
-    expect(within(bottomPanel).getByText("bt-2f5e18")).toBeInTheDocument();
+    expect(within(bottomPanel).getByText("回测尚未接入工作区")).toBeInTheDocument();
+    expect(
+        screen.queryByText(/600519|rev-2c7d18|snap-1f0a|res-4d81|bt-2f5e18|fill-88c1/)
+    ).not.toBeInTheDocument();
 });
 
-it("keeps UNKNOWN visible instead of dressing it as success", () => {
+it("never presents absent API proof as synthetic business facts or success", async () => {
     renderWorkspace();
-    expect(screen.getAllByText("UNKNOWN").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("未知").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("synthetic").length).toBeGreaterThanOrEqual(2);
-});
-
-it("switches symbol and adds indicator and factor overlays from the top controls", async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "平安");
-    await user.click(screen.getByRole("button", { name: /000001\.SZ/ }));
-    expect(screen.getByText("000001.SZ · 平安银行")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /指标/ }));
-    await user.type(screen.getByRole("searchbox", { name: "搜索指标" }), "MA 20");
-    await user.click(screen.getByRole("button", { name: "MA 20" }));
-    expect(screen.getByRole("button", { name: /指标/ })).toHaveTextContent("1");
-
-    await user.click(screen.getByRole("button", { name: /因子/ }));
-    await user.type(screen.getByRole("searchbox", { name: "搜索因子" }), "动量");
-    await user.click(screen.getByRole("button", { name: "20 日动量" }));
-    expect(screen.getByRole("button", { name: /因子/ })).toHaveTextContent("1");
-});
-
-it("builds the same placeholder series for the same timeframe", () => {
-    const daily = buildPlaceholderBars("1D");
-    expect(daily).toEqual(buildPlaceholderBars("1D"));
-    const second = daily[1];
-    expect(second).toBeDefined();
-    expect(second?.time ?? 0).toBeGreaterThan(daily[0]?.time ?? 0);
-    expect(buildPlaceholderBars("1W").length).toBe(daily.length);
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "未配置可用的 Binance Spot LIVE 数据源"
+        );
+    });
+    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+    expect(
+        screen.queryByText(/synthetic|1486\.20|run-0f3a91|MA 20|20 日动量/)
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "指标" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "因子" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
 });
 
 const configuredClient = () =>
@@ -117,7 +104,7 @@ const configuredClient = () =>
 
 it("shows the data source entry with an unverified count that is not an error", async () => {
     renderWorkspace(configuredClient());
-    const trigger = await screen.findByRole("button", { name: /数据源/ });
+    const trigger = await screen.findByRole("button", { name: /^数据源/ });
     expect(await within(trigger).findByText("1 未验证")).toBeInTheDocument();
     expect(trigger.querySelector(".state-mark--unverified")).not.toBeNull();
     expect(trigger.querySelector(".state-mark--degraded")).toBeNull();
@@ -127,19 +114,19 @@ it("shows the data source entry with an unverified count that is not an error", 
 it("opens a quick status Popover that never claims a workspace source", async () => {
     const user = userEvent.setup();
     renderWorkspace(configuredClient());
-    await user.click(await screen.findByRole("button", { name: /数据源/ }));
+    await user.click(await screen.findByRole("button", { name: /^数据源/ }));
     const popover = screen.getByRole("dialog", { name: "数据源状态" });
     expect(within(popover).getByText("Fixture Source")).toBeInTheDocument();
     expect(within(popover).getByText("未验证")).toBeInTheDocument();
     expect(within(popover).getByText(/尚未有 canonical 来源绑定/)).toBeInTheDocument();
     expect(within(popover).queryByText(/历史：/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("synthetic").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/synthetic/)).not.toBeInTheDocument();
 });
 
 it("opens the manager modal from the Popover and closes it with Escape", async () => {
     const user = userEvent.setup();
     renderWorkspace(configuredClient());
-    await user.click(await screen.findByRole("button", { name: /数据源/ }));
+    await user.click(await screen.findByRole("button", { name: /^数据源/ }));
     await user.click(screen.getByRole("button", { name: "管理数据源…" }));
     const modal = screen.getByRole("dialog", { name: "管理数据源" });
     expect(within(modal).getByRole("tab", { name: /已配置/ })).toHaveAttribute(
@@ -166,7 +153,7 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
         </AppProviders>,
         { container }
     );
-    const trigger = await screen.findByRole("button", { name: /数据源/ });
+    const trigger = await screen.findByRole("button", { name: /^数据源/ });
     await user.click(trigger);
     await user.click(screen.getByRole("button", { name: "管理数据源…" }));
     expect(screen.getByRole("dialog", { name: "管理数据源" })).toHaveFocus();

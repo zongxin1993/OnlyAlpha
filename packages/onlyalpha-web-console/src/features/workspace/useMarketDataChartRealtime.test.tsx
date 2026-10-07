@@ -60,6 +60,11 @@ function resetStream() {
     stream.closed.count = 0;
 }
 
+async function selectFixtureSource(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "1m" }));
+}
+
 it.each(["merge", "stale", "mismatch"] as const)(
     "holds an older page across realtime BAR_CLOSED: %s",
     async (variant) => {
@@ -89,7 +94,7 @@ it.each(["merge", "stale", "mismatch"] as const)(
                 <Harness />
             </AppProviders>
         );
-        await user.click(screen.getByRole("button", { name: "source" }));
+        await selectFixtureSource(user);
         await user.click(screen.getByRole("button", { name: "btc" }));
         await waitFor(() => {
             expect(stream.requests).toHaveLength(1);
@@ -208,7 +213,7 @@ it.each(["initial", "reload"] as const)(
                 <Harness />
             </AppProviders>
         );
-        await user.click(screen.getByRole("button", { name: "source" }));
+        await selectFixtureSource(user);
         await user.click(screen.getByRole("button", { name: "btc" }));
         await waitFor(() => {
             expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
@@ -240,6 +245,9 @@ function Harness() {
                 onClick={() => void state.selectInstrument(marketDataInstrument())}
             >
                 btc
+            </button>
+            <button type="button" onClick={() => void state.selectBarDuration(1)}>
+                1m
             </button>
             <button type="button" onClick={() => void state.selectInstrument(eth)}>
                 eth
@@ -314,7 +322,7 @@ it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
                 <Harness />
             </AppProviders>
         );
-        await user.click(screen.getByRole("button", { name: "source" }));
+        await selectFixtureSource(user);
         await user.click(screen.getByRole("button", { name: "btc" }));
         if (path === "initial" || path === "reload") {
             await waitFor(() => {
@@ -383,7 +391,7 @@ it("retains exact history and idempotently projects preview updates and close", 
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.requests).toHaveLength(1);
@@ -451,7 +459,7 @@ it("keeps initial history, realtime closed Bars, and preview in one ledger proje
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
@@ -527,7 +535,7 @@ it("preserves current Bars when an older page fails", async () => {
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
@@ -554,7 +562,7 @@ it("fails the exact chart context on a conflicting realtime closed Bar", async (
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
@@ -610,7 +618,7 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
         </AppProviders>
     );
     const rendered = render(view("a".repeat(64)));
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
@@ -638,7 +646,7 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
     expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
 
     rendered.rerender(view("b".repeat(64)));
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
 
     await waitFor(() => {
@@ -669,7 +677,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
@@ -805,7 +813,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
@@ -885,7 +893,7 @@ it("fails a mismatched plan without reconnecting", async () => {
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);
@@ -924,7 +932,7 @@ it("reconnects transient closes with bounded exponential delays and the same res
             <Harness />
         </AppProviders>
     );
-    await user.click(screen.getByRole("button", { name: "source" }));
+    await selectFixtureSource(user);
     await user.click(screen.getByRole("button", { name: "btc" }));
     await waitFor(() => {
         expect(stream.callbacks).toHaveLength(1);

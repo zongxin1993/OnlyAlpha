@@ -155,6 +155,17 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
             `/api/v2/market/instruments?${params.toString()}`,
             read(signal)
         );
+        if (
+            value.source_selection.integration_id !== reference.integration_id ||
+            value.source_selection.integration_revision_fingerprint !==
+                reference.integration_revision_fingerprint ||
+            (reference.expected_type_id !== undefined &&
+                value.source_selection.type_id !== reference.expected_type_id)
+        )
+            throw new MarketDataWebError(
+                "CONTRACT_ERROR",
+                "Instrument response belongs to a different source reference"
+            );
         return value.instruments;
     }
     async queryBars(

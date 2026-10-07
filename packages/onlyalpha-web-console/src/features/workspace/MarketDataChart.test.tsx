@@ -8,9 +8,9 @@ import {
     fixedDurationMinutes,
     marketDataBarSemantic,
     type MarketDataAcquisition,
-    type MarketDataBars
+    type MarketDataBars,
+    type MarketDataSource
 } from "../../api/marketData/model";
-import { buildPlaceholderBars } from "../../charts/lightweight/placeholderBars";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import {
     dataSourceSummary,
@@ -47,9 +47,13 @@ const shiftBar = (bar: MarketDataChartBarProjection, seconds: number) => ({
 import { WorkspacePage } from "./WorkspacePage";
 import type { MarketDataStreamEvent } from "../../api/marketData/stream";
 
-const streams = vi.hoisted(() => ({ callbacks: [] as ((event: MarketDataStreamEvent) => void)[] }));
+const streams = vi.hoisted(() => ({
+    callbacks: [] as ((event: MarketDataStreamEvent) => void)[],
+    requests: [] as unknown[]
+}));
 vi.mock("../../api/marketData/stream", () => ({
-    openMarketDataStream: (_request: unknown, callback: (event: MarketDataStreamEvent) => void) => {
+    openMarketDataStream: (request: unknown, callback: (event: MarketDataStreamEvent) => void) => {
+        streams.requests.push(request);
         streams.callbacks.push(callback);
         return () => undefined;
     }
@@ -68,9 +72,8 @@ class NoopResizeObserver {
 }
 
 /**
- * Only the rendering library is mocked. The real `PriceChart`, the real chart-mode
- * decision and the real placeholder fallback all execute, so a synthetic price cannot
- * hide behind the mock.
+ * Only the rendering library is mocked. The shipping PriceChart executes, so
+ * invented candle/overlay values cannot hide behind a component mock.
  */
 const chartMocks = vi.hoisted(() => {
     const range = { value: { from: 30, to: 60 } as { from: number; to: number } | null };
@@ -168,6 +171,8 @@ async function selectSource(user: ReturnType<typeof userEvent.setup>) {
         screen.getByRole("combobox", { name: "数据源" }),
         "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     );
+    // These existing manual-context regressions explicitly request their 1m fixture.
+    await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "1");
 }
 
 async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
@@ -178,6 +183,7 @@ async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
     streams.callbacks.length = 0;
+    streams.requests.length = 0;
     chartMocks.candles.setData.mockClear();
     chartMocks.candles.update.mockClear();
     chartMocks.overlays.setData.mockClear();
@@ -196,6 +202,351 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+const binanceSource = (overrides: Partial<MarketDataSource> = {}) =>
+    marketDataSource({
+        type_id: "binance.spot.market_data",
+        source_id: "server-reported-binance-live",
+        environment: "LIVE",
+        integration_revision_fingerprint: "b".repeat(64),
+        ...overrides
+    });
+const binanceInstrument = () =>
+    marketDataInstrument({ instrument_id: "BTCUSDT.BINANCE", venue: "BINANCE" });
+const sourceSelection = (source: MarketDataSource) => ({
+    integration_id: source.integration_id,
+    integration_revision_fingerprint: source.integration_revision_fingerprint,
+    type_id: source.type_id,
+    source_id: source.source_id,
+    environment: source.environment
+});
+
+it("defaults to the exact server Binance LIVE source and BTCUSDT with first history and stream at 15m", async () => {
+    const source = binanceSource();
+    const instrument = binanceInstrument();
+    const reference = {
+        integration_id: source.integration_id,
+        integration_revision_fingerprint: source.integration_revision_fingerprint,
+        expected_type_id: source.type_id
+    };
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(() =>
+        Promise.resolve([instrument])
+    );
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () =>
+                Promise.resolve([marketDataSource({ integration_id: "other-provider" }), source]),
+            listInstruments,
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    expect(listInstruments).toHaveBeenCalledWith(reference, "BTCUSDT", expect.any(AbortSignal));
+    expect(queryBars).toHaveBeenCalledExactlyOnceWith(reference, {
+        instrument_id: instrument.instrument_id,
+        anchor_kind: "LATEST_CLOSED",
+        target_bar_count: 1440,
+        bar_semantic: marketDataBarSemantic(15)
+    });
+    expect(streams.requests[0]).toMatchObject({
+        source_reference: reference,
+        instrument_id: instrument.instrument_id,
+        bar_semantic: marketDataBarSemantic(15)
+    });
+    expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    expect(renderedPrices()).toEqual([101, 102.5]);
+    expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "指标" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "因子" })).toBeDisabled();
+});
+
+it.each([
+    ["empty", []],
+    ["other provider", [marketDataSource()]],
+    ["US", [binanceSource({ environment: "US" })]],
+    ["testnet", [binanceSource({ environment: "SPOT_TESTNET" })]],
+    ["TEST", [binanceSource({ environment: "TEST" })]]
+] as const)(
+    "defaults to an honest setup state without any default substitute: %s",
+    async (_name, sources) => {
+        const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(() =>
+            Promise.resolve([])
+        );
+        const queryBars = vi.fn<MarketDataApiClient["queryBars"]>();
+        renderWorkspace(
+            marketDataClient({
+                listSources: () => Promise.resolve(sources),
+                listInstruments,
+                queryBars
+            })
+        );
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+                "未配置可用的 Binance Spot LIVE 数据源"
+            );
+        });
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("");
+        expect(listInstruments).not.toHaveBeenCalled();
+        expect(queryBars).not.toHaveBeenCalled();
+        expect(streams.requests).toHaveLength(0);
+        expect(renderedPrices()).toEqual([]);
+        expect(screen.getByRole("button", { name: "管理数据源" })).toBeInTheDocument();
+        expect(screen.queryByText(/synthetic/)).not.toBeInTheDocument();
+    }
+);
+
+it("defaults to explicit source choice for multiple LIVE sources, then bootstraps only the manually chosen source", async () => {
+    const sources = [
+        binanceSource(),
+        binanceSource({
+            integration_id: "second-source",
+            source_id: "second-market-source",
+            integration_revision_fingerprint: "c".repeat(64)
+        })
+    ];
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((reference, query) => {
+        const source = sources.find((item) => item.integration_id === reference.integration_id);
+        if (source === undefined) throw new Error("Query must select a published fixture source");
+        return Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        );
+    });
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(() =>
+        Promise.resolve([binanceInstrument()])
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve(sources),
+            listInstruments,
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "请选择 Binance Spot LIVE 数据源"
+        );
+    });
+    expect(queryBars).not.toHaveBeenCalled();
+    expect(listInstruments).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "second-source");
+    await waitFor(() => {
+        expect(queryBars).toHaveBeenCalledTimes(1);
+    });
+    expect(queryBars.mock.calls[0]?.[0]).toMatchObject({
+        integration_id: "second-source",
+        integration_revision_fingerprint: "c".repeat(64)
+    });
+    expect(queryBars.mock.calls[0]?.[1].bar_semantic).toEqual(marketDataBarSemantic(15));
+});
+
+it.each([
+    ["missing", []],
+    ["wrong venue", [marketDataInstrument()]],
+    ["duplicate", [binanceInstrument(), binanceInstrument()]]
+] as const)(
+    "defaults fail closed before Bars when exact BTCUSDT is %s",
+    async (_name, instruments) => {
+        const queryBars = vi.fn<MarketDataApiClient["queryBars"]>();
+        renderWorkspace(
+            marketDataClient({
+                listSources: () => Promise.resolve([binanceSource()]),
+                listInstruments: () => Promise.resolve(instruments),
+                queryBars
+            })
+        );
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+                _name === "duplicate" ? "CONTRACT_ERROR" : "当前数据源未提供 BTCUSDT.BINANCE"
+            );
+        });
+        expect(queryBars).not.toHaveBeenCalled();
+        expect(streams.requests).toHaveLength(0);
+        expect(renderedPrices()).toEqual([]);
+    }
+);
+
+it("defaults show unavailable rather than missing configuration when source discovery fails", async () => {
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.reject(new MarketDataWebError("TRANSPORT_ERROR", "offline"))
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent("行情服务不可用");
+    });
+    expect(screen.getByTestId("market-data-status")).not.toHaveTextContent("未配置可用");
+    expect(renderedPrices()).toEqual([]);
+});
+
+it("defaults reject duplicate source ownership rather than choosing by array order", async () => {
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>();
+    renderWorkspace(
+        marketDataClient({
+            listSources: () =>
+                Promise.resolve([
+                    binanceSource(),
+                    binanceSource({ integration_revision_fingerprint: "c".repeat(64) })
+                ]),
+            listInstruments
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent("CONTRACT_ERROR");
+    });
+    expect(listInstruments).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("");
+});
+
+it("defaults discard a delayed bootstrap response after an explicit source change", async () => {
+    let release!: (instruments: ReturnType<typeof binanceInstrument>[]) => void;
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(
+        () =>
+            new Promise((resolve) => {
+                release = resolve;
+            })
+    );
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>();
+    renderWorkspace(
+        marketDataClient({
+            listSources: () =>
+                Promise.resolve([
+                    binanceSource(),
+                    marketDataSource({ integration_id: "other-source" })
+                ]),
+            listInstruments,
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(listInstruments).toHaveBeenCalledTimes(1);
+    });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "other-source");
+    await act(async () => {
+        release([binanceInstrument()]);
+        await Promise.resolve();
+    });
+    expect(queryBars).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("other-source");
+    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+});
+
+it("defaults ignore aborted source discovery during StrictMode effect replay", async () => {
+    const source = binanceSource();
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(() =>
+        Promise.resolve([binanceInstrument()])
+    );
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    const listSources = vi.fn<MarketDataApiClient["listSources"]>(() => Promise.resolve([source]));
+    render(
+        <StrictMode>
+            <AppProviders
+                client={researchClient()}
+                integrationClient={configuredSources()}
+                marketDataClient={marketDataClient({ listSources, listInstruments, queryBars })}
+            >
+                <WorkspacePage />
+            </AppProviders>
+        </StrictMode>
+    );
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(listInstruments).toHaveBeenCalledTimes(1);
+    expect(listSources.mock.calls[0]?.[0]?.aborted).toBe(true);
+    expect(queryBars.mock.calls[0]?.[1].bar_semantic).toEqual(marketDataBarSemantic(15));
+});
+
+it.each(["timeframe", "instrument"] as const)(
+    "invalidates Inspector proof on %s replacement before a held query or failure",
+    async (variant) => {
+        const source = binanceSource();
+        const initial = binanceInstrument();
+        const next = marketDataInstrument({
+            instrument_id: "ETHUSDT.BINANCE",
+            venue: "BINANCE",
+            display_symbol: "ETHUSDT"
+        });
+        let reject!: (reason: Error) => void;
+        const queryBars = vi
+            .fn<MarketDataApiClient["queryBars"]>()
+            .mockImplementationOnce((_reference, query) =>
+                Promise.resolve(
+                    marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+                )
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((_resolve, fail) => {
+                        reject = fail;
+                    })
+            );
+        renderWorkspace(
+            marketDataClient({
+                listSources: () => Promise.resolve([source]),
+                listInstruments: () => Promise.resolve([initial, next]),
+                queryBars
+            })
+        );
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+                "data-status",
+                "ready"
+            );
+        });
+        const user = userEvent.setup();
+        await user.click(
+            within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
+                name: "检查器"
+            })
+        );
+        const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+        expect(inspector.getByText("COMPLETE")).toBeInTheDocument();
+        expect(inspector.getByText("8".repeat(64))).toBeInTheDocument();
+        if (variant === "timeframe")
+            await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
+        else {
+            await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+            await user.keyboard("{Enter}");
+            await user.click(screen.getByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+        }
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(2);
+        });
+        expect(inspector.queryByText("COMPLETE")).not.toBeInTheDocument();
+        expect(inspector.queryByText("8".repeat(64))).not.toBeInTheDocument();
+        expect(inspector.getByText("尚未查询")).toBeInTheDocument();
+        expect(inspector.getByText("尚未验证")).toBeInTheDocument();
+        await act(async () => {
+            reject(new MarketDataWebError("TRANSPORT_ERROR", "offline"));
+            await Promise.resolve();
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+                "data-status",
+                "failed"
+            );
+        });
+        expect(inspector.queryByText("COMPLETE")).not.toBeInTheDocument();
+        expect(inspector.queryByText("8".repeat(64))).not.toBeInTheDocument();
+    }
+);
+
 it("replaces only the active price series, preserving range, preview and left-edge guard", () => {
     const bars = projectBars(marketDataBars().bars);
     const last = bars.at(-1);
@@ -205,7 +556,6 @@ it("replaces only the active price series, preserving range, preview and left-ed
     const semantic = marketDataBarSemantic(1);
     const chart = (chartType: "CANDLESTICK" | "LINE", liveBar = preview) => (
         <PriceChart
-            mode="real"
             barSemantic={semantic}
             bars={bars}
             liveBar={liveBar}
@@ -253,9 +603,7 @@ it("resolves crosshair time to current exact identity and unsubscribes on destru
     const first = bars[0];
     if (first === undefined) throw new Error("fixture requires a first Bar");
     const onSelection = vi.fn();
-    const view = render(
-        <PriceChart mode="real" bars={bars} contextKey="exact-a" onSelection={onSelection} />
-    );
+    const view = render(<PriceChart bars={bars} contextKey="exact-a" onSelection={onSelection} />);
     const handler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
     expect(handler).toBeTypeOf("function");
     const move = handler as (event: {
@@ -276,9 +624,7 @@ it("resolves crosshair time to current exact identity and unsubscribes on destru
     expect(onSelection).toHaveBeenLastCalledWith(null);
     move({ time: -1, point: { x: 20, y: 20 }, seriesData: new Map() });
     expect(onSelection).toHaveBeenLastCalledWith(null);
-    view.rerender(
-        <PriceChart mode="real" bars={bars} contextKey="exact-b" onSelection={onSelection} />
-    );
+    view.rerender(<PriceChart bars={bars} contextKey="exact-b" onSelection={onSelection} />);
     expect(onSelection).toHaveBeenLastCalledWith(null);
     move({ time: first.time, point: { x: 20, y: 20 }, seriesData: new Map() });
     expect(onSelection).toHaveBeenLastCalledWith({
@@ -436,7 +782,6 @@ it("updates realtime candles without recreating the chart", () => {
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(7)}
-            mode="real"
             bars={historical}
             contextKey="revision-a"
         />
@@ -449,7 +794,6 @@ it("updates realtime candles without recreating the chart", () => {
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(7)}
-            mode="real"
             bars={historical}
             contextKey="revision-a"
             liveBar={preview}
@@ -461,7 +805,6 @@ it("updates realtime candles without recreating the chart", () => {
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(37)}
-            mode="real"
             bars={historical.slice(1)}
             contextKey="revision-b"
         />
@@ -476,7 +819,6 @@ it("subscribes to the visible range and unsubscribes the same handler", () => {
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={projectBars(marketDataBars().bars)}
             contextKey="context-a"
         />
@@ -494,7 +836,6 @@ it("requests older history once per left-edge threshold crossing without recreat
     render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={projectBars(marketDataBars().bars)}
             contextKey="context-a"
             onNearLeftEdge={onNearLeftEdge}
@@ -522,7 +863,6 @@ it("initializes the first non-empty history once even after an empty context pub
     const history = projectBars(marketDataBars().bars);
     const chart = (key: string, bars: typeof history) => (
         <PriceChart
-            mode="real"
             barSemantic={marketDataBarSemantic(1)}
             bars={bars}
             contextKey={key}
@@ -554,7 +894,6 @@ it("replays effects with one current range handler and no mount history request"
     const chart = (callback: () => void) => (
         <StrictMode>
             <PriceChart
-                mode="real"
                 barSemantic={marketDataBarSemantic(1)}
                 bars={history}
                 contextKey="context-a"
@@ -589,19 +928,13 @@ it.each([
     const candle = (index: number) => shiftBar(first, index * 60);
     const prior = [candle(1), candle(2)];
     const view = render(
-        <PriceChart
-            mode="real"
-            barSemantic={marketDataBarSemantic(1)}
-            bars={prior}
-            contextKey="context-a"
-        />
+        <PriceChart barSemantic={marketDataBarSemantic(1)} bars={prior} contextKey="context-a" />
     );
     const created = chartMocks.createChart.mock.calls.length;
     chartMocks.range.value = { from: 5, to: 10 };
     chartMocks.timeScale.setVisibleLogicalRange.mockClear();
     view.rerender(
         <PriceChart
-            mode="real"
             barSemantic={marketDataBarSemantic(1)}
             bars={times.map(candle)}
             contextKey="context-a"
@@ -622,12 +955,7 @@ it("derives the visible anchor from renderer Bars and preserves it after a mixed
     const last = prior[1];
     if (first === undefined || last === undefined) throw new Error("fixture requires two Bars");
     const view = render(
-        <PriceChart
-            mode="real"
-            barSemantic={marketDataBarSemantic(1)}
-            bars={prior}
-            contextKey="context-a"
-        />
+        <PriceChart barSemantic={marketDataBarSemantic(1)} bars={prior} contextKey="context-a" />
     );
     act(() => {
         chartMocks.range.value = { from: 0.2, to: 1.2 };
@@ -637,7 +965,6 @@ it("derives the visible anchor from renderer Bars and preserves it after a mixed
     expect(chart).toHaveAttribute("data-visible-anchor-time", String(last.time));
     view.rerender(
         <PriceChart
-            mode="real"
             barSemantic={marketDataBarSemantic(1)}
             bars={[shiftBar(first, -60), ...prior, shiftBar(last, 60)]}
             contextKey="context-a"
@@ -655,7 +982,6 @@ it("shifts the logical range by the strict prepend count", () => {
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={historical}
             contextKey="context-a"
         />
@@ -666,7 +992,6 @@ it("shifts the logical range by the strict prepend count", () => {
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={[earlier, ...historical]}
             contextKey="context-a"
         />
@@ -683,7 +1008,6 @@ it("resets a changed context to the recent range", () => {
     const view = render(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={historical}
             contextKey="context-a"
         />
@@ -693,7 +1017,6 @@ it("resets a changed context to the recent range", () => {
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(1)}
-            mode="real"
             bars={historical}
             contextKey="context-b"
         />
@@ -712,17 +1035,11 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     if (first === undefined || last === undefined) throw new Error("fixture requires two bars");
     const specification = marketDataBarSemantic(1);
     const view = render(
-        <PriceChart
-            mode="real"
-            barSemantic={specification}
-            bars={historical}
-            contextKey="revision-a"
-        />
+        <PriceChart barSemantic={specification} bars={historical} contextKey="revision-a" />
     );
 
     view.rerender(
         <PriceChart
-            mode="real"
             barSemantic={specification}
             bars={historical}
             contextKey="revision-a"
@@ -734,7 +1051,6 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     const next = { ...shiftBar(last, 60), close: "103", numeric: { ...last.numeric, close: 103 } };
     view.rerender(
         <PriceChart
-            mode="real"
             barSemantic={specification}
             bars={historical}
             contextKey="revision-a"
@@ -745,7 +1061,6 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
 
     view.rerender(
         <PriceChart
-            mode="real"
             barSemantic={specification}
             bars={historical}
             contextKey="revision-a"
@@ -755,14 +1070,16 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
     expect(chartMocks.candles.update).toHaveBeenCalledTimes(1);
 });
 
-it("keeps the deterministic placeholder series only in the synthetic W0 context", async () => {
+it("renders no invented candles in an unconfigured workspace", async () => {
     renderWorkspace(marketDataClient({ listSources: () => Promise.resolve([]) }));
 
     await waitFor(() => {
-        expect(renderedPrices()).toEqual(buildPlaceholderBars("1D").map((bar) => bar.close));
+        expect(renderedPrices()).toEqual([]);
     });
-    expect(screen.getByTestId("market-data-status")).toHaveTextContent(/synthetic 占位/);
-    expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
+    expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+        "未配置可用的 Binance Spot LIVE 数据源"
+    );
+    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未接入正式 Catalog");
 });
 
 it("never renders a synthetic price once a real market data source is selected", async () => {
@@ -832,7 +1149,7 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(renderedPrices()).toEqual([101, 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.getByTestId("real-overlay-note")).toHaveTextContent(
-        "真实指标/因子将在 W3 接入 Product API"
+        "指标/因子目录尚未接入正式 Catalog"
     );
     expect(screen.getByRole("button", { name: /指标/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /因子/ })).toBeDisabled();

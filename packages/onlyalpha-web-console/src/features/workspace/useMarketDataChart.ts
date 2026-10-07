@@ -36,6 +36,9 @@ import {
 } from "./marketDataBarsAuthority";
 
 export const DEFAULT_TARGET_BAR_COUNT = 1_440;
+/** Presentation preference only; mutable source/Revision identities come from the server. */
+const DEFAULT_SOURCE_TYPE = "binance.spot.market_data";
+const DEFAULT_INSTRUMENT_ID = "BTCUSDT.BINANCE";
 export const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const;
 
 export type MarketDataChartStatus =
@@ -98,8 +101,8 @@ export function useMarketDataChart(): MarketDataChartState {
     const [sourceId, setSourceId] = useState("");
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
     const [instrument, setInstrument] = useState<MarketDataInstrument | null>(null);
-    const [barSemantic, setBarSemantic] = useState(marketDataBarSemantic(1));
-    const [status, setStatus] = useState<MarketDataChartStatus>("idle");
+    const [barSemantic, setBarSemantic] = useState(marketDataBarSemantic(15));
+    const [status, setStatus] = useState<MarketDataChartStatus>("loading");
     const [message, setMessage] = useState<string | null>(null);
     const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
     const [ledgerSnapshot, setLedgerSnapshot] = useState<MarketDataBarLedgerSnapshot | null>(null);
@@ -134,21 +137,6 @@ export function useMarketDataChart(): MarketDataChartState {
                 : projectMarketDataBar(ledgerSnapshot.preview),
         [ledgerSnapshot]
     );
-
-    useEffect(() => {
-        const controller = new AbortController();
-        client
-            .listSources(controller.signal)
-            .then((found) => {
-                setSources(found);
-            })
-            .catch(() => {
-                setSources([]);
-            });
-        return () => {
-            controller.abort();
-        };
-    }, [client]);
 
     const selectableSources = sources;
     const selectedSource = useMemo(
@@ -365,6 +353,9 @@ export function useMarketDataChart(): MarketDataChartState {
             setOlderHistoryStatus("idle");
             setOlderHistoryMessage(null);
             resume.current = null;
+            setCoverage(null);
+            setHistoryProjectionFingerprint(null);
+            setResolvedSourceId(null);
             setStatus("loading");
             setRealtimeStatus("disabled");
             setMessage(null);
@@ -616,7 +607,7 @@ export function useMarketDataChart(): MarketDataChartState {
         streamGeneration.current += 1;
         historyGeneration.current += 1;
         setSourceId(integrationId);
-        setBarSemantic(marketDataBarSemantic(1));
+        setBarSemantic(marketDataBarSemantic(15));
         setInstruments([]);
         setInstrument(null);
         setCoverage(null);
@@ -629,12 +620,105 @@ export function useMarketDataChart(): MarketDataChartState {
         setResolvedSourceId(null);
         setLastClosedCursor(null);
         resume.current = null;
+        previousRevision.current = null;
         setStreamId(null);
         setStreamError(null);
         setRealtimeStatus("disabled");
-        setStatus("idle");
-        setMessage(null);
+        setStatus(integrationId === "" ? "no-source" : "idle");
+        setMessage(integrationId === "" ? "请选择数据源" : null);
     }, []);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        client
+            .listSources(controller.signal)
+            .then((found) => {
+                if (controller.signal.aborted) return;
+                if (new Set(found.map((item) => item.integration_id)).size !== found.length)
+                    throw new MarketDataWebError(
+                        "CONTRACT_ERROR",
+                        "数据源 Integration identity 重复"
+                    );
+                setSources(found);
+                const matches = found.filter(
+                    (item) => item.type_id === DEFAULT_SOURCE_TYPE && item.environment === "LIVE"
+                );
+                if (matches.length === 1 && matches[0] !== undefined)
+                    selectSource(matches[0].integration_id);
+                else {
+                    selectSource("");
+                    setMessage(
+                        matches.length === 0
+                            ? "未配置可用的 Binance Spot LIVE 数据源"
+                            : "请选择 Binance Spot LIVE 数据源"
+                    );
+                }
+            })
+            .catch((error: unknown) => {
+                if (controller.signal.aborted) return;
+                setSources([]);
+                selectSource("");
+                apply(error);
+                if (error instanceof MarketDataWebError && error.code === "TRANSPORT_ERROR")
+                    setMessage("行情服务不可用：TRANSPORT_ERROR");
+            });
+        return () => {
+            controller.abort();
+        };
+    }, [apply, client, selectSource]);
+
+    useEffect(() => {
+        // Manual selections remain valid; the Binance default resolves an actual instrument,
+        // never a locally authored DTO or a first-row substitute.
+        if (
+            selectedSource?.type_id !== DEFAULT_SOURCE_TYPE ||
+            selectedSource.environment !== "LIVE"
+        )
+            return;
+        const controller = new AbortController();
+        const generation = historyGeneration.current;
+        const active = onlyMarketDataSourceReference(selectedSource);
+        client
+            .listInstruments(active, "BTCUSDT", controller.signal)
+            .then(async (found) => {
+                if (controller.signal.aborted || generation !== historyGeneration.current) return;
+                const matches = found.filter(
+                    (item) => item.instrument_id === DEFAULT_INSTRUMENT_ID
+                );
+                if (matches.length > 1)
+                    throw new MarketDataWebError("CONTRACT_ERROR", "BTCUSDT.BINANCE identity 重复");
+                setInstruments(found);
+                const target = matches[0];
+                if (target === undefined) {
+                    setStatus("idle");
+                    setMessage("当前数据源未提供 BTCUSDT.BINANCE");
+                    return;
+                }
+                if (
+                    selectedSource.time_bar_capability.minimum_window_minutes > 15 ||
+                    selectedSource.time_bar_capability.maximum_window_minutes < 15
+                )
+                    throw new MarketDataWebError(
+                        "CONTRACT_ERROR",
+                        "当前数据源未提供 15m Bar capability"
+                    );
+                setInstrument(target);
+                await load(
+                    active,
+                    selectedSource.source_id,
+                    target,
+                    marketDataBarSemantic(15),
+                    generation
+                );
+            })
+            .catch((error: unknown) => {
+                if (!controller.signal.aborted && generation === historyGeneration.current)
+                    apply(error);
+            });
+        return () => {
+            controller.abort();
+        };
+    }, [apply, client, load, selectedSource]);
 
     const searchInstruments = useCallback(
         async (query: string) => {

@@ -130,6 +130,16 @@ Source capability 显式报告是否提供该 Calendar，以及最小/最大 ste
 
 ## Browser Bar Ledger
 
+Web 工作区的开发默认偏好是 `binance.spot.market_data` / `LIVE`，不是持久化来源绑定或 Provider availability
+Authority。只有 Product sources 投影中恰有一个匹配来源时才自动选定；零个显示配置入口，多个要求显式选择。
+Integration ID、Revision fingerprint 与 Source ID 均来自服务端。选定匹配来源后，使用正式 Instrument query
+搜索 `BTCUSDT`，仅采用唯一的 `BTCUSDT.BINANCE` 成员；缺失或重复不得以其他标的代替。第一笔历史查询和
+实时订阅使用 `15m / LAST / RAW / SESSION_START`，不先加载 1m。非默认来源仍可通过显式来源、标的和周期选择使用。
+
+工作区只渲染 Product bars，未配置、不可用、缺少标的或尚未得到完整 Coverage 时不填充占位 K 线。自选读数与检查器
+只展示当前服务端行情上下文；未接入的 Research/Backtest 面板和 Indicator/Factor Catalog 显示缺口态，既不伪造
+业务行，也不生成本地指标/因子数值。默认偏好不写 localStorage，不改变 Query/Command、Ledger 或 Renderer 的 Authority。
+
 Web Console 的 Browser Bar Ledger 只是当前图表上下文内的 presentation state，不是 Market Data、Coverage 或 Revision Authority。
 服务端仍独占 canonical Coverage、Revision、history projection 与 acquisition planning；浏览器只按 exact Integration Revision、
 Instrument 和 Bar Semantic 合并 Product API 返回的 closed Bar，并单独维护最多一个 operational preview。
