@@ -5,7 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.research.runtime_errors import OnlyResearchRuntimeError, OnlyResearchRuntimePhase
 from onlyalpha.research.workload import OnlyResearchWorkloadPlan
+
+
+def _only_require_research_runtime_execution(workload: OnlyResearchWorkloadPlan) -> None:
+    if workload.result_plan.schema_version == 4:
+        raise OnlyResearchRuntimeError(
+            OnlyResearchRuntimePhase.PLAN_VALIDATION,
+            "RESEARCH_CALCULATION_PUBLICATION_EXECUTION_UNSUPPORTED",
+            "Calculation publication Result Plan V4 is compile-only",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +29,7 @@ class OnlyResearchRuntimeEnvironmentIdentity:
 
     @classmethod
     def from_workload(cls, workload: OnlyResearchWorkloadPlan) -> OnlyResearchRuntimeEnvironmentIdentity:
+        _only_require_research_runtime_execution(workload)
         return cls(
             workload.dataset_snapshot_fingerprint,
             tuple(sorted(item.calculation_fingerprint for item in workload.calculation_jobs)),

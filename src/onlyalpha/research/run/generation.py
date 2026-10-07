@@ -24,8 +24,10 @@ from onlyalpha.calculation.definition import (
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.research.definition.model import OnlyResearchDefinition
+from onlyalpha.research.job.errors import OnlyResearchJobError
 from onlyalpha.research.provenance import OnlyResearchAuthoringProvenance
 from onlyalpha.research.result.plan import OnlyResearchResultPlan
+from onlyalpha.research.runtime_errors import OnlyResearchRuntimeError
 from onlyalpha.research.specification.identity import only_research_candidate_fingerprint
 from onlyalpha.research.specification.model import OnlyResearchSpecification
 from onlyalpha.research.specification.resolver import (
@@ -236,10 +238,25 @@ class OnlyResearchHostedRuntimeGenerationResolver:
             raise OnlyHistoricalGenerationExecutionMismatch(
                 "Calculation publication response generation/operation differs"
             )
-        result = OnlyResearchCalculationRuntimeResolutionV1.from_dict(response.result_payload)
-        if result.runtime_generation_fingerprint != runtime_generation_fingerprint or result.specification != strict:
-            raise OnlyHistoricalGenerationExecutionMismatch("Calculation publication response request differs")
-        return result
+        try:
+            result = OnlyResearchCalculationRuntimeResolutionV1.from_dict(response.result_payload)
+            if (
+                result.runtime_generation_fingerprint != runtime_generation_fingerprint
+                or result.specification != strict
+            ):
+                raise OnlyHistoricalGenerationExecutionMismatch("Calculation publication response request differs")
+            return result
+        except OnlyHistoricalGenerationExecutionMismatch:
+            raise
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+            OnlyResearchRunAdmissionError,
+            OnlyResearchJobError,
+            OnlyResearchRuntimeError,
+        ) as exc:
+            raise OnlyHistoricalGenerationExecutionMismatch("Calculation publication response fields differ") from exc
 
     def resolve_definition(
         self,

@@ -26,6 +26,16 @@ from .generation import OnlyResearchAuthoringGenerationResolver
 from .model import OnlyResearchRun, OnlyResearchRunId
 
 
+def _only_require_generic_research_specification(specification: OnlyResearchSpecification) -> None:
+    """A compile-only document is not generic Run admission authority."""
+
+    if specification.schema_version not in {1, 2}:
+        raise OnlyResearchRunAdmissionError(
+            "Generic Research admission supports only Specification V1/V2",
+            code="RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED",
+        )
+
+
 class OnlyResearchRunAdmissionService:
     def __init__(
         self,
@@ -74,6 +84,7 @@ class OnlyResearchRunAdmissionService:
 
         try:
             strict = OnlyResearchSpecification.from_dict(specification.to_dict())
+            _only_require_generic_research_specification(strict)
             provenance = self._load_authoring_provenance(authoring_generation_fingerprint)
             if exact_admission_evidence is None:
                 evidence = OnlyResearchAdmissionResolutionEvidence.from_resolution(
@@ -131,8 +142,10 @@ class OnlyResearchRunAdmissionService:
         return run, evidence
 
     def verify_resolution(self, run: OnlyResearchRun) -> None:
+        strict = OnlyResearchSpecification.from_dict(run.specification.to_dict())
+        _only_require_generic_research_specification(strict)
         current = only_research_admission_resolution_fingerprint(
-            self._resolve(run.specification, run.authoring_generation_fingerprint)
+            self._resolve(strict, run.authoring_generation_fingerprint)
         )
         if current != run.admission_resolution_fingerprint:
             raise OnlyResearchRunAdmissionError("admission resolution evidence mismatch")

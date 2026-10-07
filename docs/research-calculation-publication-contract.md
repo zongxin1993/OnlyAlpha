@@ -34,3 +34,19 @@ existing Specification families; it cannot turn publication resolution into lega
 
 These contracts create no Chart database relation, Run, queue entry, Calculation output, Result or Artifact publication. Those
 owning authorities must be integrated separately. Normal legacy Research imports keep the hosted DTO implementation lazy.
+
+## Compile-only negative capability
+
+In D1, Specification V3 and Result Plan V4 are compile-only. Generic Run admission accepts only Specification V1/V2:
+both Run admission and Product submission reject V3 immediately after strict parsing, before receipts, supplied exact evidence,
+authoring provenance, Product/novelty admission, Runtime binding, Dataset reads, clocks or Run creation. Existing receipts and
+caller-supplied admission evidence do not bypass this schema gate.
+
+Existing finite Runtime planning/environment identity, Factory validation and direct Runtime construction reject Plan V4 as
+`RESEARCH_CALCULATION_PUBLICATION_EXECUTION_UNSUPPORTED` before Dataset or Job access. No Calculation Result2/Evidence2,
+Research Result or Artifact writes are permitted by the enclosing compile-only workload. Plan1/2/3 behavior is unchanged.
+
+Only `RESOLVE_RESEARCH_CALCULATION_PUBLICATION` may resolve V3 through the hosted resolver. Malformed or self-inconsistent
+compilation DTOs become `OnlyHistoricalGenerationExecutionMismatch`; transport and unavailable-host failures keep their own
+failure semantics. D2/D3 or later publication work must explicitly replace the relevant fences through separately authorized
+contracts; these fences do not implement Result V4 or Artifact V2 execution.

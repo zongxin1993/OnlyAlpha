@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.research.dataset import OnlyResearchDatasetCorruptError, OnlyResearchDatasetNotFoundError
+from onlyalpha.research.dataset import (
+    OnlyParquetResearchDatasetSnapshotStore,
+    OnlyResearchDatasetCorruptError,
+    OnlyResearchDatasetNotFoundError,
+)
 from onlyalpha.research.run import (
     OnlyResearchRun,
     OnlyResearchRunAdmissionError,
@@ -19,6 +25,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunStateConflictError,
     only_research_admission_resolution_fingerprint,
 )
+from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.specification import (
     RESEARCH_SPECIFICATION_SCIENTIFIC_SCHEMA_VERSION,
     OnlyResearchScientificEvidenceSpec,
@@ -29,7 +36,9 @@ from onlyalpha.research.specification import (
     OnlyResearchSpecificationPhase,
     OnlyResearchSpecificationResolver,
 )
+from tests.research.dataset.test_store_contract import _snapshot
 from tests.research.specification.support import registry, specification
+from tests.research.specification.test_calculation_publication import publication_registry, publication_specification
 
 NOW = datetime(2026, 8, 17, 1, 2, 3, tzinfo=UTC)
 RESULT = "b" * 64
@@ -273,6 +282,125 @@ def test_admission_prepares_verified_queued_run_without_durable_write() -> None:
     assert dataset.loaded == [spec.dataset_snapshot_fingerprint]
     assert run.state is OnlyResearchRunState.QUEUED
     service.verify_resolution(run)
+
+
+@pytest.mark.parametrize("exact_id", [False, True], ids=["generated-id", "exact-id"])
+@pytest.mark.parametrize("entrypoint", ["prepare", "prepare_with_evidence"])
+def test_generic_run_admission_rejects_specification_v3_even_with_exact_evidence(
+    tmp_path: Path, exact_id: bool, entrypoint: str
+) -> None:
+    snapshot, partitions = _snapshot()
+    dataset_store = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "dataset")
+    dataset_store.commit(snapshot, partitions)
+    spec = publication_specification(snapshot.snapshot_fingerprint)
+    payload = OnlyResearchAdmissionResolutionEvidence.from_resolution(
+        OnlyResearchSpecificationResolver(registry()).resolve(specification(snapshot.snapshot_fingerprint))
+    ).to_dict()
+    # This is a structurally valid evidence carrier, not provenance. On the old
+    # shortcut, exact Specification equality alone was enough to queue V3.
+    payload["specification_fingerprint"] = spec.specification_fingerprint
+    evidence = OnlyResearchAdmissionResolutionEvidence.from_dict(payload)
+    assert evidence.specification_fingerprint == spec.specification_fingerprint
+    effects = Mock()
+    effects.dataset = Mock(wraps=dataset_store)
+    effects.resolver = Mock(wraps=OnlyResearchSpecificationResolver(publication_registry()))
+    effects.clock.return_value = NOW
+    effects.run_id.return_value = OnlyResearchRunId("00000000-0000-4000-8000-000000000003")
+    service = OnlyResearchRunAdmissionService(
+        resolver=effects.resolver,
+        dataset_store=effects.dataset,
+        now_utc=effects.clock,
+        run_id_factory=effects.run_id,
+    )
+
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        getattr(service, entrypoint)(
+            spec,
+            exact_run_id=effects.run_id.return_value if exact_id else None,
+            exact_admission_evidence=evidence,
+        )
+    assert caught.value.code == "RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED"
+    assert effects.mock_calls == []
+
+
+@pytest.mark.parametrize("authoring_generation", [None, "a" * 64])
+def test_generic_run_admission_rejects_v3_before_resolution_or_authoring(
+    authoring_generation: str | None,
+) -> None:
+    effects = Mock()
+    effects.resolver = Mock(wraps=OnlyResearchSpecificationResolver(publication_registry()))
+    service = OnlyResearchRunAdmissionService(
+        resolver=effects.resolver,
+        dataset_store=effects.dataset,
+        now_utc=effects.clock,
+        run_id_factory=effects.run_id,
+        authoring_generation_resolver=effects.authoring,
+    )
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.prepare(publication_specification(), authoring_generation_fingerprint=authoring_generation)
+    assert caught.value.code == "RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED"
+    assert effects.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "queued",
+        "running",
+        "cancel-requested",
+        "completed",
+        "failed-without-result",
+        "failed-with-result",
+        "failed-with-artifact",
+        "cancelled-from-queued",
+        "cancelled-from-running",
+    ],
+)
+def test_verify_resolution_rejects_v3_before_resolver_for_every_run_state(variant: str) -> None:
+    spec = publication_specification()
+    run = OnlyResearchRun.queued(
+        run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000003"),
+        specification=spec,
+        canonical_specification_payload=only_canonical_json(spec.to_dict()),
+        admission_resolution_fingerprint="d" * 64,
+        queued_at=NOW,
+    )
+    if variant == "cancelled-from-queued":
+        run = run.transition(OnlyResearchRunState.CANCELLED, at=NOW)
+    elif variant != "queued":
+        run = run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+        if variant in {"cancel-requested", "cancelled-from-running"}:
+            run = run.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW)
+            if variant == "cancelled-from-running":
+                run = run.transition(OnlyResearchRunState.CANCELLED, at=NOW)
+        elif variant == "completed":
+            run = run.transition(
+                OnlyResearchRunState.COMPLETED,
+                at=NOW,
+                research_result_fingerprint=RESULT,
+                artifact_content_fingerprint=ARTIFACT,
+            )
+        elif variant.startswith("failed-"):
+            run = run.transition(
+                OnlyResearchRunState.FAILED,
+                at=NOW,
+                failure=OnlyResearchRunFailure(OnlyResearchRunFailurePhase.EXECUTION, "EXECUTION_FAILED", "detail"),
+                research_result_fingerprint=RESULT if variant != "failed-without-result" else None,
+                artifact_content_fingerprint=ARTIFACT if variant == "failed-with-artifact" else None,
+            )
+    effects = Mock()
+    effects.resolver = Mock(wraps=OnlyResearchSpecificationResolver(publication_registry()))
+    service = OnlyResearchRunAdmissionService(
+        resolver=effects.resolver,
+        dataset_store=effects.dataset,
+        now_utc=effects.clock,
+        run_id_factory=effects.run_id,
+        authoring_generation_resolver=effects.authoring,
+    )
+    with pytest.raises(OnlyResearchRunAdmissionError) as caught:
+        service.verify_resolution(run)
+    assert caught.value.code == "RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED"
+    assert effects.mock_calls == []
 
 
 def test_generation_neutral_admission_rejects_authoring_work_without_default_fallback() -> None:

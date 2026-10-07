@@ -201,6 +201,80 @@ def test_hosted_adapter_rejects_complete_alternative_response(mutation):
         adapter.resolve_calculation_publication("f" * 64, requested)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing",
+        "unknown",
+        "specification",
+        "job-schema",
+        "result-schema",
+        "graph",
+        "calculation",
+        "binding",
+        "generation",
+        "dataset",
+        "job-publication",
+    ),
+)
+def test_hosted_adapter_normalizes_malformed_publication_response(mutation):
+    from unittest.mock import Mock
+
+    from onlyalpha.application.search_generation_execution import (
+        OnlyHistoricalGenerationExecutionMismatch,
+        OnlySearchGenerationExecutionResponseV1,
+        OnlySearchGenerationOperationV1,
+    )
+    from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
+
+    proof = resolution()
+    raw = deepcopy(proof.to_dict())
+    if mutation == "missing":
+        del raw["implementation_manifest"]
+    elif mutation == "unknown":
+        raw["unknown"] = 1
+    elif mutation == "specification":
+        raw["specification"]["purpose"] = "SCIENTIFIC"
+    elif mutation == "job-schema":
+        raw["job_plan"]["schema_version"] = 1
+    elif mutation == "result-schema":
+        raw["result_plan"]["schema_version"] = 3
+    elif mutation == "graph":
+        raw["result_plan"]["calculations"][0]["graph_fingerprint"] = "e" * 64
+    elif mutation == "calculation":
+        raw["result_plan"]["calculations"][0]["calculation_fingerprint"] = "e" * 64
+    elif mutation == "binding":
+        raw["research_implementation_bindings"][0]["research_implementation_fingerprint"] = "e" * 64
+    elif mutation == "generation":
+        raw["runtime_generation_fingerprint"] = "e" * 64
+    elif mutation == "dataset":
+        raw["job_plan"]["dataset_snapshot_fingerprint"] = "e" * 64
+    else:
+        raw["job_plan"]["publication"]["readiness_contract_version"] = 0
+    execution = Mock()
+    execution.execute.return_value = OnlySearchGenerationExecutionResponseV1(
+        "f" * 64, OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION, raw
+    )
+    adapter = OnlyResearchHostedRuntimeGenerationResolver(execution=execution, dataset_store_root="fixture-datasets")
+    with pytest.raises(OnlyHistoricalGenerationExecutionMismatch):
+        adapter.resolve_calculation_publication("f" * 64, proof.specification)
+
+
+def test_publication_transport_failure_is_not_reclassified():
+    from unittest.mock import Mock
+
+    from onlyalpha.application.search_generation_execution import OnlyHistoricalGenerationWorkerUnavailable
+    from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
+
+    execution = Mock()
+    failure = OnlyHistoricalGenerationWorkerUnavailable("fixture unavailable")
+    execution.execute.side_effect = failure
+    adapter = OnlyResearchHostedRuntimeGenerationResolver(execution=execution, dataset_store_root="fixture-datasets")
+    with pytest.raises(OnlyHistoricalGenerationWorkerUnavailable) as error:
+        adapter.resolve_calculation_publication("f" * 64, publication_specification())
+    assert error.value is failure
+
+
 @pytest.mark.parametrize("implicit_inputs", (False, True))
 def test_canonical_normalization_and_default_sources_survive_dto_and_adapter(implicit_inputs):
     from dataclasses import replace
