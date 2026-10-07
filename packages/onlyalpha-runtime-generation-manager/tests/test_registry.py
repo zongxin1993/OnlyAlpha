@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from threading import Barrier, Thread
+from threading import Barrier, Event, Thread
 
 import pytest
 from onlyalpha_runtime_generation_manager import (
@@ -22,6 +23,371 @@ from onlyalpha.runtime.generation import (
 from tests.strategy.product_support import strategy_product_case
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("first", ("close", "retire"))
+def test_unbound_closure_and_retirement_preserve_both_commit_orders(tmp_path: Path, first: str) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 1)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    if first == "retire":
+        registry.retire(g1, actor="operator", occurred_at=NOW)
+    closure = registry.close_new_work_exact(
+        "chart",
+        g1,
+        owner="CHART_CALCULATION_INPUT",
+        closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+        actor="chart",
+        occurred_at=NOW,
+    )
+    if first == "close":
+        registry.retire(g1, actor="operator", occurred_at=NOW)
+    fresh = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert fresh.projection().state(g1) is OnlyGenerationState.RETIRED
+    assert fresh.require_work_admission_closure_evidence("chart") == closure
+    assert fresh.work_ids_for_generation(g1) == ()
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_UNAVAILABLE"):
+        fresh.require_runtime_generation(g1)
+    fresh.bind_new_work("parent", actor="test", occurred_at=NOW)
+    for bind in (
+        lambda: fresh.bind_new_work("chart", actor="test", occurred_at=NOW),
+        lambda: fresh.bind_new_work_exact("chart", g1, owner="CHART_CALCULATION_INPUT", actor="test", occurred_at=NOW),
+        lambda: fresh.bind_work_exact("chart", g1, actor="test", occurred_at=NOW),
+        lambda: fresh.bind_derived_work("parent", "chart", actor="test", occurred_at=NOW),
+    ):
+        with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_CLOSED"):
+            bind()
+
+
+@pytest.mark.parametrize("rejected", (False, True))
+def test_unbound_closure_never_accepts_unvalidated_generation(tmp_path: Path, rejected: bool) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    manifest = _manifest("a")
+    registry.prepare(manifest, actor="test", occurred_at=NOW)
+    generation = manifest.runtime_generation_fingerprint
+    if rejected:
+        registry.reject(generation, reason="invalid", actor="test", occurred_at=NOW)
+    before = (tmp_path / "generation-events.jsonl").read_bytes()
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_UNAVAILABLE"):
+        registry.close_new_work_exact(
+            "chart",
+            generation,
+            owner="CHART_CALCULATION_INPUT",
+            closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+            actor="test",
+            occurred_at=NOW,
+        )
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize("first", ("close", "retire"))
+def test_retire_and_unbound_close_serialize_across_registry_instances(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    other = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 1)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    holding, resume, started = Event(), Event(), Event()
+    outcomes = {}
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def held_append(self, event):
+        if self is registry:
+            holding.set()
+            assert resume.wait(10)
+        original(self, event)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", held_append)
+
+    def perform(authority, action):
+        try:
+            if action == "close":
+                outcomes[action] = authority.close_new_work_exact(
+                    "chart",
+                    g1,
+                    owner="CHART_CALCULATION_INPUT",
+                    closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+                    actor="chart",
+                    occurred_at=NOW,
+                )
+            else:
+                authority.retire(g1, actor="operator", occurred_at=NOW)
+                outcomes[action] = "retired"
+        except Exception as exc:
+            outcomes[action] = exc
+
+    def second():
+        started.set()
+        perform(other, "retire" if first == "close" else "close")
+
+    t1, t2 = Thread(target=perform, args=(registry, first)), Thread(target=second)
+    t1.start()
+    try:
+        assert holding.wait(10)
+        t2.start()
+        assert started.wait(10)
+    finally:
+        resume.set()
+        t1.join(10)
+        if t2.ident is not None:
+            t2.join(10)
+    assert not t1.is_alive() and not t2.is_alive()
+    fresh = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert outcomes["retire"] == "retired"
+    assert fresh.projection().state(g1) is OnlyGenerationState.RETIRED
+    assert fresh.require_work_admission_closure_evidence("chart") == outcomes["close"]
+    assert fresh.work_ids_for_generation(g1) == ()
+
+
+def test_atomic_new_work_replay_rejects_historical_exact_binding(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_work_exact("chart", generation, actor="foreign", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_new_work_exact(
+            "chart", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+        )
+
+
+def test_new_work_evidence_preserves_owner_original_event_and_release(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_new_work_exact(
+        "chart", generation, owner="CHART_CALCULATION_INPUT", actor="original", occurred_at=NOW
+    )
+    proof = registry.require_work_binding_evidence("chart")
+    assert proof.binding_kind == "NEW_WORK" and proof.binding_owner == "CHART_CALCULATION_INPUT"
+    assert proof.binding_actor == "original" and type(proof.binding_sequence) is int
+    assert len(proof.binding_event_fingerprint) == 64
+    ledger = (tmp_path / "generation-events.jsonl").read_bytes()
+    registry.bind_new_work_exact("chart", generation, owner="CHART_CALCULATION_INPUT", actor="retry", occurred_at=NOW)
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == ledger
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        registry.bind_new_work_exact("chart", generation, owner="OTHER", actor="retry", occurred_at=NOW)
+    registry.release_work("chart", actor="terminal", occurred_at=NOW)
+    recovered = OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding_evidence("chart")
+    assert recovered == replace(proof, active=False)
+    registry.bind_work_exact("historical", generation, actor="foreign", occurred_at=NOW)
+    exact = registry.require_work_binding_evidence("historical")
+    assert exact.binding_kind == "EXACT" and exact.binding_owner is None
+
+
+def test_ownerless_new_work_history_cannot_supply_ownership_proof(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    binding = registry.bind_new_work("legacy", actor="legacy", occurred_at=NOW)
+    assert OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding("legacy") == binding
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_EVENT_CHAIN_CORRUPT"):
+        registry.require_work_binding_evidence("legacy")
+
+
+def test_binding_evidence_rejects_duplicate_original_event(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_new_work_exact("chart", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW)
+    event = registry._read_events()[-1]
+    registry._append(replace(event, sequence=event.sequence + 1, previous_event_fingerprint=event.event_fingerprint))
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_EVENT_ORDER_INVALID"):
+        OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding_evidence("chart")
+
+
+def test_unbound_closure_blocks_every_first_binding_family_and_replays(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    closure = registry.close_new_work_exact(
+        "closed",
+        generation,
+        owner="CHART_CALCULATION_INPUT",
+        closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+        actor="chart",
+        occurred_at=NOW,
+    )
+    registry.bind_new_work("parent", actor="test", occurred_at=NOW)
+    calls = (
+        lambda: registry.bind_new_work("closed", actor="stale", occurred_at=NOW),
+        lambda: registry.bind_new_work_exact(
+            "closed", generation, owner="CHART_CALCULATION_INPUT", actor="stale", occurred_at=NOW
+        ),
+        lambda: registry.bind_work_exact("closed", generation, actor="stale", occurred_at=NOW),
+        lambda: registry.bind_derived_work("parent", "closed", actor="stale", occurred_at=NOW),
+    )
+    for call in calls:
+        with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_CLOSED"):
+            call()
+    restarted = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert restarted.require_work_admission_closure_evidence("closed") == closure
+    assert (
+        restarted.close_new_work_exact(
+            "closed",
+            generation,
+            owner="CHART_CALCULATION_INPUT",
+            closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+            actor="retry",
+            occurred_at=NOW,
+        )
+        == closure
+    )
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        restarted.close_new_work_exact(
+            "closed",
+            generation,
+            owner="OTHER",
+            closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+            actor="retry",
+            occurred_at=NOW,
+        )
+
+
+@pytest.mark.parametrize("family", ("EXACT", "FOREIGN", "CHART"))
+def test_closure_releases_only_matching_new_work_owner(tmp_path: Path, family: str) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    if family == "EXACT":
+        registry.bind_work_exact("work", generation, actor="test", occurred_at=NOW)
+    else:
+        registry.bind_new_work_exact(
+            "work",
+            generation,
+            owner="CHART_CALCULATION_INPUT" if family == "CHART" else "OTHER",
+            actor="test",
+            occurred_at=NOW,
+        )
+    if family != "CHART":
+        with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+            registry.close_new_work_exact(
+                "work",
+                generation,
+                owner="CHART_CALCULATION_INPUT",
+                closure_reason="CHART_SEALED_COVERAGE_UNAVAILABLE",
+                actor="chart",
+                occurred_at=NOW,
+            )
+        assert registry.require_work_binding("work").active
+    else:
+        registry.close_new_work_exact(
+            "work",
+            generation,
+            owner="CHART_CALCULATION_INPUT",
+            closure_reason="CHART_SEALED_COVERAGE_UNAVAILABLE",
+            actor="chart",
+            occurred_at=NOW,
+        )
+        assert not registry.require_work_binding("work").active
+        other = _ready(registry, _manifest("b"), 1)
+        registry.activate_for_new_work(expected_current=generation, target=other, actor="operator", occurred_at=NOW)
+        registry.retire(generation, actor="operator", occurred_at=NOW)
+
+
+@pytest.mark.parametrize("first", ("bind", "close"))
+def test_first_bind_and_close_have_one_atomic_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    other = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    holding, resume, second_started = Event(), Event(), Event()
+    original = OnlyRuntimeGenerationRegistry._append
+    outcomes = {}
+
+    def held_append(self, event):
+        if self is registry:
+            holding.set()
+            assert resume.wait(10)
+        original(self, event)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", held_append)
+
+    def perform(authority, action):
+        try:
+            if action == "bind":
+                outcomes[action] = authority.bind_new_work_exact(
+                    "work", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW
+                )
+            else:
+                outcomes[action] = authority.close_new_work_exact(
+                    "work",
+                    generation,
+                    owner="CHART_CALCULATION_INPUT",
+                    closure_reason="CHART_RUNTIME_GENERATION_NOT_ELIGIBLE",
+                    actor="chart",
+                    occurred_at=NOW,
+                )
+        except Exception as exc:
+            outcomes[action] = str(exc)
+
+    def second():
+        second_started.set()
+        perform(other, "close" if first == "bind" else "bind")
+
+    t1, t2 = Thread(target=perform, args=(registry, first)), Thread(target=second)
+    t1.start()
+    try:
+        assert holding.wait(10)
+        t2.start()
+        assert second_started.wait(10)
+    finally:
+        resume.set()
+        t1.join(10)
+        if t2.ident is not None:
+            t2.join(10)
+    assert not t1.is_alive() and not t2.is_alive()
+    recovered = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert recovered.require_work_admission_closure_evidence("work") == outcomes["close"]
+    if first == "close":
+        assert outcomes["bind"] == "RUNTIME_WORK_ADMISSION_CLOSED"
+    else:
+        assert recovered.require_work_binding("work").active is False
+
+
+def test_release_before_closure_crash_is_retryable_without_reactivation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    generation = _ready(registry, _manifest("a"), 0)
+    registry.activate_for_new_work(expected_current=None, target=generation, actor="operator", occurred_at=NOW)
+    registry.bind_new_work_exact("work", generation, owner="CHART_CALCULATION_INPUT", actor="chart", occurred_at=NOW)
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def after_release(self, event):
+        original(self, event)
+        if event.kind == "RuntimeWorkReleased":
+            raise RuntimeError("process loss after release fsync")
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", after_release)
+    with pytest.raises(RuntimeError, match="process loss"):
+        registry.close_new_work_exact(
+            "work",
+            generation,
+            owner="CHART_CALCULATION_INPUT",
+            closure_reason="CHART_SEALED_COVERAGE_UNAVAILABLE",
+            actor="chart",
+            occurred_at=NOW,
+        )
+    restarted = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert not restarted.require_work_binding("work").active
+    with pytest.raises(ValueError, match="RUNTIME_WORK_ADMISSION_NOT_CLOSED"):
+        restarted.require_work_admission_closure_evidence("work")
+    closure = restarted.close_new_work_exact(
+        "work",
+        generation,
+        owner="CHART_CALCULATION_INPUT",
+        closure_reason="CHART_SEALED_COVERAGE_UNAVAILABLE",
+        actor="retry",
+        occurred_at=NOW,
+    )
+    assert restarted.require_work_admission_closure_evidence("work") == closure
 
 
 def _manifest(seed: str, implementations: tuple[str, ...] = ()) -> OnlyRuntimeGenerationManifest:
@@ -74,6 +440,98 @@ def test_ready_requires_exact_validation_evidence(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="RUNTIME_GENERATION_VALIDATION_EVIDENCE_MISMATCH"):
         registry.admit_ready(mismatched, actor="validator", occurred_at=NOW + timedelta(seconds=2))
     assert registry.projection().state(manifest.runtime_generation_fingerprint) is OnlyGenerationState.PREPARING
+
+
+def test_bind_new_work_exact_requires_active_generation_and_replays_exactly(tmp_path: Path) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    bind = partial(registry.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
+        bind("chart", g1, actor="chart", occurred_at=NOW)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"):
+        bind("chart", g2, actor="chart", occurred_at=NOW)
+    binding = bind("chart", g1, actor="chart", occurred_at=NOW)
+    ledger = (tmp_path / "generation-events.jsonl").read_bytes()
+    assert bind("chart", g1, actor="retry", occurred_at=NOW) == binding
+    assert (tmp_path / "generation-events.jsonl").read_bytes() == ledger
+    registry.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+    assert bind("chart", g1, actor="retry", occurred_at=NOW) == binding
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        bind("chart", g2, actor="wrong", occurred_at=NOW)
+    registry.release_work("chart", actor="terminal", occurred_at=NOW)
+    with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_BINDING_CONFLICT"):
+        bind("chart", g1, actor="retry", occurred_at=NOW)
+    assert OnlyRuntimeGenerationRegistry(tmp_path).require_work_binding("chart").active is False
+    assert b'"kind":"RuntimeWorkBound"' in ledger
+    assert b'"kind":"RuntimeExactWorkBound"' not in ledger
+
+
+@pytest.mark.parametrize("first", ("bind", "activation"))
+def test_bind_new_work_exact_and_activation_have_one_atomic_commit_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    registry = OnlyRuntimeGenerationRegistry(tmp_path)
+    other = OnlyRuntimeGenerationRegistry(tmp_path)
+    g1 = _ready(registry, _manifest("a"), 0)
+    g2 = _ready(registry, _manifest("b"), 2)
+    registry.activate_for_new_work(expected_current=None, target=g1, actor="operator", occurred_at=NOW)
+    bind = partial(registry.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
+    holding, release, second_started = Event(), Event(), Event()
+    original = OnlyRuntimeGenerationRegistry._append
+
+    def held_append(self, event):
+        if self is registry:
+            holding.set()
+            assert release.wait(10)
+        original(self, event)
+
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "_append", held_append)
+    outcomes = {}
+
+    def perform(action, authority):
+        try:
+            if action == "bind":
+                method = (
+                    bind
+                    if authority is registry
+                    else partial(authority.bind_new_work_exact, owner="CHART_CALCULATION_INPUT")
+                )
+                outcomes[action] = method("chart", g1, actor="chart", occurred_at=NOW)
+            else:
+                authority.activate_for_new_work(expected_current=g1, target=g2, actor="operator", occurred_at=NOW)
+                outcomes[action] = "activated"
+        except Exception as exc:
+            outcomes[action] = str(exc)
+
+    def second():
+        second_started.set()
+        perform("activation" if first == "bind" else "bind", other)
+
+    t1 = Thread(target=perform, args=(first, registry))
+    t2 = Thread(target=second)
+    t1.start()
+    try:
+        assert holding.wait(10)
+        t2.start()
+        assert second_started.wait(10)
+    finally:
+        release.set()
+        t1.join(10)
+        if t2.ident is not None:
+            t2.join(10)
+    assert not t1.is_alive() and not t2.is_alive()
+    assert outcomes["activation"] == "activated"
+    recovered = OnlyRuntimeGenerationRegistry(tmp_path)
+    assert recovered.projection().active_for_new_work == g2
+    if first == "bind":
+        assert recovered.require_work_binding("chart") == outcomes["bind"]
+        assert outcomes["bind"].runtime_generation_fingerprint == g1
+    else:
+        assert outcomes["bind"] == "RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK"
+        with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_UNBOUND"):
+            recovered.require_work_binding("chart")
 
 
 def test_activation_isolation_rollback_drain_retire_and_restart(tmp_path: Path) -> None:

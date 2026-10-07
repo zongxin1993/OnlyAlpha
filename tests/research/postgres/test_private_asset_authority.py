@@ -182,7 +182,9 @@ def _provenance() -> OnlyResearchAuthoringProvenance:
 
 
 def test_private_factor_strategy_authoring_round_trip_publish_and_history(postgres_dsn: str) -> None:
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0044_research_run_id_reservation"
+    assert (
+        OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0046_chart_calculation_runtime_binding_relation"
+    )
     store = OnlyPostgresPrivateAssetStore(postgres_dsn)
 
     factor_asset = OnlyPrivateFactorAsset("private.factor.momentum")

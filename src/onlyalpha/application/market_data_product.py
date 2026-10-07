@@ -206,6 +206,15 @@ class OnlyMarketDataSourceSelectionV1:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyMarketDataSelectionPlanV1:
+    """Selection evidence only; no session, acquisition or durable writes."""
+
+    source_selection: OnlyMarketDataSourceSelectionV1
+    integration_binding_fingerprint: str
+    scope: OnlyMarketDataScope
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyMarketDataTimeBarCapabilityV1:
     provider_base_semantic: OnlyBarSemantic = field(default_factory=lambda: OnlyBarSemantic.fixed_duration(1))
     derived_algorithm: str | None = "TIME_BAR@1"
@@ -411,6 +420,26 @@ class OnlyMarketDataProductService:
         self._ranges = OnlyVerifiedMarketDataRangeQuery(catalog, fact_store)
 
     # --- Product Query -----------------------------------------------------------------
+
+    def plan_selection(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+        bar_semantic: OnlyBarSemantic,
+    ) -> OnlyMarketDataSelectionPlanV1:
+        """Resolve an exact native scope without looking up instruments or acquiring facts."""
+        resolved = self.resolve_runtime(reference)
+        plan = self._plan(resolved, instrument_id, only_product_bar_semantic(bar_semantic))
+        if plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE:
+            raise OnlyMarketDataProductError("MARKET_DATA_NATIVE_SELECTION_REQUIRED")
+        return OnlyMarketDataSelectionPlanV1(
+            resolved.selection,
+            resolved.binding_fingerprint,
+            self._scope(resolved, instrument_id, start_ns, end_ns, plan),
+        )
 
     def list_sources(self) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
         """Configured Integrations that this Market Data Product can actually serve.
@@ -1449,6 +1478,7 @@ __all__ = [
     "OnlyMarketDataInstrumentListProjectionV1",
     "OnlyMarketDataProductError",
     "OnlyMarketDataProductService",
+    "OnlyMarketDataSelectionPlanV1",
     "OnlyMarketDataSourceProjectionV1",
     "OnlyMarketDataSourceReferenceV1",
     "OnlyMarketDataSourceSelectionV1",
