@@ -77,6 +77,31 @@ class OnlySealedMarketDataMaterializationResult:
     materialization: OnlyDatasetMaterialization
 
 
+def only_sealed_market_data_input_fingerprints(
+    plan: OnlySealedMarketDataMaterializationPlan,
+    construction_bindings: tuple[tuple[str, str, str, str], ...],
+) -> tuple[str, str]:
+    """Read-only canonical input identities shared by production and lineage verification."""
+    bindings = tuple(
+        sorted(
+            zip(plan.scopes, plan.revision_ids, plan.constructions, plan.calendars, strict=True),
+            key=lambda item: item[0].instrument_id,
+        )
+    )
+    ordered = tuple(sorted(construction_bindings, key=lambda item: item[0]))
+    if tuple((item[0], item[1]) for item in ordered) != tuple(
+        (scope.instrument_id, construction.fingerprint) for scope, _, construction, _ in bindings
+    ):
+        raise OnlyResearchDatasetError("DATASET_BAR_CONSTRUCTION_MISMATCH")
+    return only_canonical_fingerprint(ordered), only_canonical_fingerprint(
+        {
+            "definition": plan.definition,
+            "scopes": tuple(scope for scope, _, _, _ in bindings),
+            "constructions": tuple(item.fingerprint for _, _, item, _ in bindings),
+        }
+    )
+
+
 class OnlySealedMarketDataDatasetMaterializer:
     def __init__(
         self,
@@ -203,7 +228,9 @@ class OnlySealedMarketDataDatasetMaterializer:
         canonical = only_canonical_bars(tuple(bars))
         only_validate_dataset_bars(plan.definition, canonical)
         content = only_content_fingerprint(canonical)
-        construction_fingerprint = only_canonical_fingerprint(tuple(construction_bindings))
+        construction_fingerprint, request_fingerprint = only_sealed_market_data_input_fingerprints(
+            plan, tuple(construction_bindings)
+        )
         fingerprint = only_snapshot_fingerprint(
             plan.definition,
             RESEARCH_BAR_DATASET_SCHEMA_V2,
@@ -236,13 +263,6 @@ class OnlySealedMarketDataDatasetMaterializer:
                 key=lambda item: (item.source_id, item.instrument_id, item.data_kind),
             )
         )
-        request_fingerprint = only_canonical_fingerprint(
-            {
-                "definition": plan.definition,
-                "scopes": tuple(scope for scope, _, _, _ in bindings),
-                "constructions": tuple(item.fingerprint for _, _, item, _ in bindings),
-            }
-        )
         materializer_id = "onlyalpha.sealed-market-data"
         materializer_version = "1"
         materialization = OnlyDatasetMaterialization(
@@ -268,4 +288,5 @@ __all__ = [
     "OnlySealedMarketDataDatasetMaterializer",
     "OnlySealedMarketDataMaterializationPlan",
     "OnlySealedMarketDataMaterializationResult",
+    "only_sealed_market_data_input_fingerprints",
 ]

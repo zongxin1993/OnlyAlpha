@@ -68,6 +68,14 @@ class OnlyPostgresChartCalculationAdmissionStore:
             raise OnlyProductCommandAuthorityUnavailableError(command_id.value) from exc
 
     @staticmethod
+    def load_verified_in_transaction(
+        connection: psycopg.Connection[dict[str, object]], command_id: OnlyProductCommandId
+    ) -> OnlyChartCalculationOperationV1 | None:
+        """Owning verifier for a serialized control-catalog composite transaction."""
+        OnlyPostgresProductCommandAuthority.lock_command(connection, command_id)
+        return OnlyPostgresChartCalculationAdmissionStore._load(connection, command_id)
+
+    @staticmethod
     def _load(
         connection: psycopg.Connection[dict[str, object]], command_id: OnlyProductCommandId
     ) -> OnlyChartCalculationOperationV1 | None:

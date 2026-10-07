@@ -103,9 +103,6 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
     registry.prepare(built.manifest, actor="test", occurred_at=now)
     registry.admit_ready(built.validation_evidence, actor="test", occurred_at=now)
     registry.activate_for_new_work(expected_current=None, target=generation, actor="test", occurred_at=now)
-    other = only_ready_test_generation(registry, "e", now)
-    registry.activate_for_new_work(expected_current=generation, target=other, actor="test", occurred_at=now)
-    registry.retire(generation, actor="test", occurred_at=now)
     dataset_root = tmp_path / "datasets"
     candidate, partitions = snapshot()
     dataset = OnlyParquetResearchDatasetSnapshotStore(dataset_root).commit(candidate, partitions)
@@ -118,6 +115,15 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
 
     monkeypatch.setattr(OnlyResearchSpecificationResolver, "resolve", no_current)
     try:
+        chart, chart_service, chart_compilation = _compile_chart_in_exact_host(
+            tmp_path, registry, builder, generation, host
+        )
+        registry.release_work(chart.operation.reserved_run_id.value, actor="test", occurred_at=now)
+        other = only_ready_test_generation(registry, "e", now)
+        registry.activate_for_new_work(expected_current=generation, target=other, actor="test", occurred_at=now)
+        registry.retire(generation, actor="test", occurred_at=now)
+        chart_service._resolver = object()  # Verified replay cannot call an unavailable host.
+        assert chart_service.compile(chart.operation) == chart_compilation
         resolved = resolver.resolve_calculation_publication(generation, spec)
         assert resolved.runtime_generation_fingerprint == generation
         assert resolved.specification == spec and resolved.result_plan.schema_version == 4
@@ -145,3 +151,67 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
         assert failure.value.code == "RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED"
     finally:
         host.close()
+
+
+def _compile_chart_in_exact_host(tmp_path, registry, builder, generation, host):
+    from dataclasses import replace
+
+    from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
+
+    from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+    from onlyalpha.application.chart_calculation import OnlyChartCalculationCatalogWitnessV1
+    from onlyalpha.application.chart_calculation_compilation import OnlyChartCalculationCompilationService
+    from onlyalpha.application.chart_calculation_preparation import (
+        OnlyChartCalculationInputPinV1,
+        OnlyChartCalculationRuntimeBindingReferenceV1,
+    )
+    from onlyalpha.canonical import only_canonical_json
+    from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
+    from tests.application.test_chart_calculation_admission import NOW
+    from tests.support.chart_calculation_compilation import prepared_input
+
+    chart = prepared_input(tmp_path / "chart-input", price_field="VOLUME")
+    reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(registry, builder, tmp_path / "chart-catalog")
+    query = OnlyExactCatalogContextQueryService(reader, reader, reader, reader, readiness=reader)
+    catalog = registry.load_manifest(generation).catalog_generation_fingerprint
+    witness = OnlyChartCalculationCatalogWitnessV1.from_projections(
+        query.get_exact_catalog_context(catalog), query.get_exact_catalog_readiness(catalog)
+    )
+    chart.operation = replace(chart.operation, catalog_witness=witness)
+    registry.bind_new_work_exact(
+        chart.operation.reserved_run_id.value,
+        generation,
+        owner="CHART_CALCULATION_INPUT",
+        actor="chart-test",
+        occurred_at=NOW,
+    )
+    evidence = registry.require_work_binding_evidence(chart.operation.reserved_run_id.value)
+    pin = dict(chart.preparation.input_pin.to_dict())
+    pin["runtime_generation_fingerprint"] = generation
+    chart.preparation = replace(
+        chart.preparation,
+        runtime_generation_fingerprint=generation,
+        input_pin=OnlyChartCalculationInputPinV1(only_canonical_json(pin)),
+        runtime_binding_reference=OnlyChartCalculationRuntimeBindingReferenceV1.from_evidence(evidence),
+    )
+    chart.preparations.load_verified.return_value = chart.preparation
+    resolver = OnlyResearchHostedRuntimeGenerationResolver(
+        execution=host, dataset_store_root=str(tmp_path / "chart-input" / "dataset")
+    )
+    service = OnlyChartCalculationCompilationService(
+        preparations=chart.preparations,
+        datasets=chart.dataset,
+        materializations=chart.dataset,
+        runtime_generations=registry,
+        resolver=resolver,
+        compilations=chart.compilations,
+    )
+    compiled = service.compile(chart.operation)
+    chart.compilations.load_verified.return_value = compiled
+    assert compiled.specification.calculations[0].graph_template.nodes[0].input_bindings == ()
+    assert (
+        compiled.resolution.implementation_manifest.implementation_fingerprint
+        == witness.capability.implementation_fingerprint
+    )
+    assert service.compile(chart.operation) == compiled
+    return chart, service, compiled
