@@ -433,6 +433,10 @@ for (const width of [1440, 1024, 390]) {
         await expect(dialog.getByText("默认 CLOSE", { exact: true })).toBeVisible();
         const search = dialog.getByRole("searchbox", { name: "搜索指标或因子" });
         await expect(search).toBeFocused();
+        await page.locator(".chart-region__source select").evaluate((element) => {
+            (element as HTMLElement).focus();
+        });
+        await expect(search).toBeFocused();
         const box = await dialog.boundingBox();
         expect(box?.x).toBeGreaterThanOrEqual(0);
         expect((box?.x ?? width) + (box?.width ?? width)).toBeLessThanOrEqual(width);
@@ -443,6 +447,10 @@ for (const width of [1440, 1024, 390]) {
         await expect(dialog.getByText("没有匹配的注册项。")).toBeVisible();
         await search.fill("onlyalpha.indicator.sma");
         await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeEnabled();
+        await test.info().attach("catalog-picker-responsive", {
+            contentType: "image/png",
+            body: await page.screenshot()
+        });
         const close = dialog.getByRole("button", { name: "关闭目录" });
         await close.focus();
         await page.keyboard.press("Shift+Tab");
@@ -474,10 +482,6 @@ for (const width of [1440, 1024, 390]) {
         await test.info().attach("catalog-navigation-preserves-market-context", {
             contentType: "application/json",
             body: JSON.stringify({ width, context, baseline, catalogRequests })
-        });
-        await test.info().attach("catalog-picker-responsive", {
-            contentType: "image/png",
-            body: await page.screenshot()
         });
     });
 }

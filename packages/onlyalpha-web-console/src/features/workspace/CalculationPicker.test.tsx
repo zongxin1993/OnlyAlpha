@@ -3,19 +3,34 @@ import userEvent from "@testing-library/user-event";
 import { chartCatalogFixture } from "../../test/chartCatalog";
 import { CalculationPicker } from "./CalculationPicker";
 
+const dialogDescriptors = {
+    showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),
+    close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
+};
 beforeEach(() => {
-    vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
-        this: HTMLDialogElement
-    ) {
-        this.setAttribute("open", "");
-    });
-    vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
-        this: HTMLDialogElement
-    ) {
-        this.removeAttribute("open");
+    // jsdom has no native modal implementation. Only open/close markers are shimmed;
+    // Chromium E2E owns the focus-trap, Escape and background-inertness proof.
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
     });
 });
 afterEach(() => {
+    for (const name of ["showModal", "close"] as const) {
+        const descriptor = dialogDescriptors[name];
+        if (descriptor === undefined) Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+        else Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+    }
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
 });
