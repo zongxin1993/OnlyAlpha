@@ -326,25 +326,21 @@ class OnlyChartCalculationCompilationV1:
         )
 
 
-class OnlyChartCalculationCompilationService:
+class OnlyChartCalculationInputVerifier:
+    """Shared immutable input/runtime proof for compilation and typed Run handoff."""
+
     def __init__(
         self,
         *,
-        preparations: OnlyChartCalculationPreparationReader,
         datasets: OnlyResearchDatasetSnapshotStore,
         materializations: OnlyDatasetMaterializationStore,
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
-        resolver: OnlyChartCalculationPublicationResolver,
-        compilations: OnlyChartCalculationCompilationStore,
     ) -> None:
-        self._preparations = preparations
         self._datasets = datasets
         self._materializations = materializations
         self._runtime = runtime_generations
-        self._resolver = resolver
-        self._compilations = compilations
 
-    def _binding(
+    def binding(
         self, preparation: OnlyChartCalculationPreparationV1, *, require_active: bool
     ) -> OnlyRuntimeWorkBindingEvidence:
         try:
@@ -365,7 +361,7 @@ class OnlyChartCalculationCompilationService:
         _require(not require_active or binding.active, "CHART_RUNTIME_BINDING_INACTIVE")
         return binding
 
-    def _dataset(self, preparation: OnlyChartCalculationPreparationV1, pin: OnlyChartCalculationInputPinV1) -> None:
+    def dataset(self, preparation: OnlyChartCalculationPreparationV1, pin: OnlyChartCalculationInputPinV1) -> None:
         """Verify physical Snapshot and full pinned lineage without rematerializing anything."""
         assert (
             preparation.dataset_snapshot_fingerprint is not None and preparation.dataset_materialization_id is not None
@@ -437,11 +433,18 @@ class OnlyChartCalculationCompilationService:
         except (*_SHAPE_ERRORS, OSError, OnlyResearchDatasetStoreError) as exc:
             raise OnlyChartCalculationError(_INPUT_CORRUPT) from exc
 
-    def _generation(
-        self, operation: OnlyChartCalculationOperationV1, preparation: OnlyChartCalculationPreparationV1
+    def generation(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        preparation: OnlyChartCalculationPreparationV1,
+        *,
+        historical: bool = False,
     ) -> None:
         try:
-            manifest = self._runtime.require_runtime_generation(preparation.runtime_generation_fingerprint)
+            reader = (
+                self._runtime.require_historical_generation if historical else self._runtime.require_runtime_generation
+            )
+            manifest = reader(preparation.runtime_generation_fingerprint)
         except ValueError as exc:
             if str(exc) not in _RUNTIME_UNAVAILABLE_ERRORS:
                 raise
@@ -457,20 +460,51 @@ class OnlyChartCalculationCompilationService:
             "CHART_EXECUTION_GENERATION_UNAVAILABLE",
         )
 
+    def verify_frozen(
+        self,
+        operation: OnlyChartCalculationOperationV1,
+        preparation: OnlyChartCalculationPreparationV1,
+        compilation: OnlyChartCalculationCompilationV1,
+    ) -> None:
+        pin = _verified_ready_pin(operation, preparation)
+        compilation.verify_operation_preparation(operation, preparation)
+        self.binding(preparation, require_active=False)
+        self.dataset(preparation, pin)
+        self.generation(operation, preparation, historical=True)
+
+
+class OnlyChartCalculationCompilationService:
+    def __init__(
+        self,
+        *,
+        preparations: OnlyChartCalculationPreparationReader,
+        datasets: OnlyResearchDatasetSnapshotStore,
+        materializations: OnlyDatasetMaterializationStore,
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        resolver: OnlyChartCalculationPublicationResolver,
+        compilations: OnlyChartCalculationCompilationStore,
+    ) -> None:
+        self._preparations = preparations
+        self._resolver = resolver
+        self._compilations = compilations
+        self._inputs = OnlyChartCalculationInputVerifier(
+            datasets=datasets, materializations=materializations, runtime_generations=runtime_generations
+        )
+
     def compile(self, operation: OnlyChartCalculationOperationV1) -> OnlyChartCalculationCompilationV1:
         _require(type(operation) is OnlyChartCalculationOperationV1, _INPUT_CORRUPT)
         preparation = self._preparations.load_verified(operation)
         pin = _verified_ready_pin(operation, preparation)
         assert preparation is not None
-        binding = self._binding(preparation, require_active=False)
-        self._dataset(preparation, pin)
+        binding = self._inputs.binding(preparation, require_active=False)
+        self._inputs.dataset(preparation, pin)
         existing = self._compilations.load_verified(operation)
         if existing is not None:
             _require(type(existing) is OnlyChartCalculationCompilationV1)
             existing.verify_operation_preparation(operation, preparation)
             return existing
         _require(binding.active, "CHART_RUNTIME_BINDING_INACTIVE")
-        self._generation(operation, preparation)
+        self._inputs.generation(operation, preparation)
         specification = only_chart_calculation_specification_v3(operation, preparation)
         try:
             resolution = self._resolver.resolve_calculation_publication(
@@ -507,7 +541,7 @@ class OnlyChartCalculationCompilationService:
         _verified_ready_pin(operation, current)
         assert current is not None
         compilation.verify_operation_preparation(operation, current)
-        self._binding(current, require_active=True)
+        self._inputs.binding(current, require_active=True)
         committed = self._compilations.commit_or_replay(operation, current, compilation)
         _require(type(committed) is OnlyChartCalculationCompilationV1)
         committed.verify_operation_preparation(operation, current)

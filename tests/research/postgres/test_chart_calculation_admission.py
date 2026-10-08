@@ -569,6 +569,26 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
     operation = admit(store(postgres_dsn)).operation
     # Reconstruct exactly the preceding additive schema, retaining all audited 0043 facts.
     with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("DROP TRIGGER chart_run_admission_run_guard ON research_run")
+        connection.execute("DROP TRIGGER chart_run_admission_reservation_guard ON research_run_id_reservation")
+        connection.execute("DROP TABLE chart_calculation_run_admission")
+        connection.execute("DROP FUNCTION chart_calculation_run_admission_guard()")
+        connection.execute("ALTER TABLE research_run DROP CONSTRAINT research_run_chart_capability_check")
+        connection.execute("ALTER TABLE research_run DROP CONSTRAINT research_run_origin_kind_check")
+        connection.execute("ALTER TABLE research_run DROP CONSTRAINT research_run_origin_composition_check")
+        connection.execute("ALTER TABLE research_run DROP CONSTRAINT research_run_specification_schema_version_check")
+        connection.execute(
+            "ALTER TABLE research_run ADD CONSTRAINT research_run_origin_kind_check CHECK (origin_kind IN ('GENERAL', 'PRIVATE_STRATEGY'))"
+        )
+        connection.execute(
+            "ALTER TABLE research_run ADD CONSTRAINT research_run_origin_composition_check CHECK ((origin_kind = 'GENERAL' AND strategy_research_composition_fingerprint IS NULL) OR (origin_kind = 'PRIVATE_STRATEGY' AND strategy_research_composition_fingerprint IS NOT NULL))"
+        )
+        connection.execute(
+            "ALTER TABLE research_run ADD CONSTRAINT research_run_specification_schema_version_check CHECK (specification_schema_version IN (1,2))"
+        )
+        connection.execute(
+            "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0048_chart_calculation_run_admission'"
+        )
         connection.execute("DROP TABLE chart_calculation_compilation")
         connection.execute(
             "DELETE FROM onlyalpha_schema_migration WHERE migration_id = '0047_chart_calculation_compilation_relation'"
@@ -608,6 +628,7 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
             "0045_chart_calculation_input_preparation",
             "0046_chart_calculation_runtime_binding_relation",
             "0047_chart_calculation_compilation_relation",
+            "0048_chart_calculation_run_admission",
         )
         assert (
             OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))

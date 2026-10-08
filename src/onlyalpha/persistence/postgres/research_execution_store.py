@@ -35,6 +35,7 @@ from onlyalpha.research.run import (
     OnlyResearchRunState,
 )
 from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError
+from onlyalpha.research.run.model import OnlyResearchOriginKind
 
 from .config import OnlyPostgresOperationalConnectionOptions
 from .research_run_store import _COLUMNS, OnlyPostgresResearchRunStore
@@ -54,6 +55,15 @@ _ATTEMPT_COLUMNS = (
     "failure_detail",
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_LEGACY_CAPABILITY = "r.origin_kind IN ('GENERAL', 'PRIVATE_STRATEGY') AND r.specification_schema_version IN (1, 2)"
+
+
+def _require_legacy_capability(run: OnlyResearchRun) -> None:
+    if run.origin_kind not in {
+        OnlyResearchOriginKind.GENERAL,
+        OnlyResearchOriginKind.PRIVATE_STRATEGY,
+    } or run.specification.schema_version not in {1, 2}:
+        raise OnlyResearchExecutionOwnershipLostError("RESEARCH_WORKER_ORIGIN_NOT_ELIGIBLE")
 
 
 class OnlyPostgresResearchExecutionStore:
@@ -142,6 +152,7 @@ class OnlyPostgresResearchExecutionStore:
                 f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state IN ('QUEUED', 'RUNNING')
+                      AND {_LEGACY_CAPABILITY}
                       AND {generation_predicate}
                       AND {work_predicate}
                       AND NOT EXISTS (
@@ -200,12 +211,14 @@ class OnlyPostgresResearchExecutionStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 row = connection.execute(
-                    """
+                    f"""
                     UPDATE research_run_attempt
                     SET last_heartbeat_at = clock_timestamp(),
                         lease_expires_at = clock_timestamp() + %s
                     WHERE attempt_id = %s AND worker_instance_id = %s AND state = 'ACTIVE'
                       AND lease_expires_at > clock_timestamp()
+                      AND EXISTS (SELECT 1 FROM research_run r WHERE r.run_id = research_run_attempt.run_id
+                                  AND {_LEGACY_CAPABILITY})
                     RETURNING *
                     """,
                     (lease_duration, attempt_id.value, worker_instance_id.value),
@@ -230,8 +243,9 @@ class OnlyPostgresResearchExecutionStore:
                 generation_predicate = "TRUE" if eligible_run_ids is None else "run_id = ANY(%s::uuid[])"
                 candidate = connection.execute(
                     f"""
-                    SELECT attempt_id FROM research_run_attempt
+                    SELECT attempt_id FROM research_run_attempt a
                     WHERE state = 'ACTIVE' AND lease_expires_at <= clock_timestamp()
+                      AND EXISTS (SELECT 1 FROM research_run r WHERE r.run_id = a.run_id AND {_LEGACY_CAPABILITY})
                       AND {generation_predicate}
                     ORDER BY lease_expires_at ASC, run_id ASC, attempt_id ASC
                     FOR UPDATE SKIP LOCKED LIMIT 1
@@ -258,6 +272,7 @@ class OnlyPostgresResearchExecutionStore:
                 ).fetchone()
                 assert run_row is not None
                 run = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], run_row))
+                _require_legacy_capability(run)
                 lease_failure = OnlyResearchRunFailure(
                     OnlyResearchRunFailurePhase.OPERATIONAL,
                     "LEASE_EXPIRED",
@@ -316,6 +331,7 @@ class OnlyPostgresResearchExecutionStore:
                     f"""
                     SELECT r.* FROM research_run AS r
                     WHERE r.state = 'CANCEL_REQUESTED'
+                      AND {_LEGACY_CAPABILITY}
                       AND {generation_predicate}
                       AND {runtime_generation_predicate}
                       AND NOT EXISTS (
@@ -341,6 +357,7 @@ class OnlyPostgresResearchExecutionStore:
         """Atomically project a read-only semantic inspection into Run authority."""
         if expected.state is not OnlyResearchRunState.CANCEL_REQUESTED:
             raise OnlyResearchExecutionOwnershipLostError("Cancellation reconciliation requires CANCEL_REQUESTED")
+        _require_legacy_capability(expected)
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 row = connection.execute(
@@ -350,6 +367,7 @@ class OnlyPostgresResearchExecutionStore:
                 if row is None:
                     raise OnlyResearchExecutionOwnershipLostError("Cancellation recovery Run no longer exists")
                 current = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], row))
+                _require_legacy_capability(current)
                 if current.state is not OnlyResearchRunState.CANCEL_REQUESTED or current.revision != expected.revision:
                     raise OnlyResearchExecutionOwnershipLostError(
                         "Cancellation recovery Run changed before terminal projection"
@@ -486,6 +504,7 @@ class OnlyPostgresResearchExecutionStore:
                 ).fetchone()
                 assert run_row is not None
                 run = OnlyPostgresResearchRunStore._decode(cast(Mapping[str, object], run_row))
+                _require_legacy_capability(run)
                 finished_row = connection.execute("SELECT clock_timestamp() AS finished_at").fetchone()
                 assert finished_row is not None
                 terminal = _terminal_attempt(

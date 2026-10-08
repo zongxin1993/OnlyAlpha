@@ -105,7 +105,7 @@ class OnlyPostgresChartCalculationAdmissionStore:
                 raise OnlyProductCommandConflictError(command_id.value)
             if admission is None and receipt is None and not row and not reservations:
                 return None
-            if admission is None or receipt is None or len(row) != 1 or len(reservations) != 1:
+            if admission is None or receipt is None or len(row) != 1 or len(reservations) > 1:
                 raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
             only_verify_product_command_binding(admission, receipt)
             value = row[0]
@@ -122,7 +122,6 @@ class OnlyPostgresChartCalculationAdmissionStore:
                 cast(str, value["state"]),
                 cast(int, value["preparation_revision"]),
             )
-            reservation = reservations[0]
             if (
                 operation.product_command_id != command_id
                 or operation.command_fingerprint != admission.command_fingerprint
@@ -133,14 +132,24 @@ class OnlyPostgresChartCalculationAdmissionStore:
                 or receipt.accepted_at != operation.accepted_at
                 or value["catalog_witness_fingerprint"] != operation.catalog_witness.fingerprint
                 or value["operation_fingerprint"] != _operation_fingerprint(operation)
-                or str(reservation["run_id"]) != operation.reserved_run_id.value
-                or str(reservation["owner_id"]) != operation.operation_id.value
-                or reservation["owner_kind"] != "CHART_CALCULATION"
-                or reservation["reserved_at"] != operation.accepted_at
-                or reservation["schema_version"] != 1
-                or reservation["run_exists"]
             ):
                 raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
+            if reservations:
+                reservation = reservations[0]
+                if (
+                    str(reservation["run_id"]) != operation.reserved_run_id.value
+                    or str(reservation["owner_id"]) != operation.operation_id.value
+                    or reservation["owner_kind"] != "CHART_CALCULATION"
+                    or reservation["reserved_at"] != operation.accepted_at
+                    or reservation["schema_version"] != 1
+                    or reservation["run_exists"]
+                ):
+                    raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
+            else:
+                from .chart_calculation_run_admission_store import only_verify_chart_run_consumption_in_transaction
+
+                if only_verify_chart_run_consumption_in_transaction(connection, operation) is None:
+                    raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
             return operation
         except OnlyProductCommandConflictError:
             raise

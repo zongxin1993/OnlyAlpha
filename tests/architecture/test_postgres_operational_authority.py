@@ -114,6 +114,7 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "research_run_id_reservation",
         "chart_calculation_preparation_fact",
         "chart_calculation_compilation",
+        "chart_calculation_run_admission",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()

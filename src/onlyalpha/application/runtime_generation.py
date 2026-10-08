@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import NoReturn, Protocol, cast
@@ -71,6 +72,10 @@ class OnlyRuntimeGenerationWorkAuthority(Protocol):
     def require_new_work_generation(self, runtime_generation_fingerprint: str) -> object: ...
 
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object: ...
+
+    def require_historical_generation(self, generation_fingerprint: str) -> object: ...
+
+    def hold_work_binding_evidence(self, work_id: str) -> AbstractContextManager[OnlyRuntimeWorkBindingEvidence]: ...
 
     def release_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object: ...
 
@@ -143,6 +148,14 @@ class OnlyNoClaimRuntimeGenerationWorkAuthority:
 
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
         del runtime_generation_fingerprint
+        self._unavailable()
+
+    def require_historical_generation(self, generation_fingerprint: str) -> object:
+        del generation_fingerprint
+        self._unavailable()
+
+    def hold_work_binding_evidence(self, work_id: str) -> AbstractContextManager[OnlyRuntimeWorkBindingEvidence]:
+        del work_id
         self._unavailable()
 
     def release_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object:

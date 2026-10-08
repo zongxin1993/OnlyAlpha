@@ -118,12 +118,42 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
         chart, chart_service, chart_compilation = _compile_chart_in_exact_host(
             tmp_path, registry, builder, generation, host
         )
+        from onlyalpha.application.chart_calculation_run_admission import (
+            OnlyChartCalculationRunAdmissionService,
+            only_chart_calculation_queued_run,
+        )
+
+        class AdmissionPort:
+            """Queue contract fake; actual atomic PostgreSQL behavior is proved in its owning lane."""
+
+            admitted = None
+
+            def load_verified(self, operation):
+                return self.admitted
+
+            def commit_or_replay(self, operation, frozen, *, queued_at):
+                assert frozen == chart_compilation
+                self.admitted = only_chart_calculation_queued_run(frozen, queued_at=queued_at)
+                return self.admitted
+
+        admission = OnlyChartCalculationRunAdmissionService(
+            preparations=chart.preparations,
+            compilations=chart.compilations,
+            datasets=chart.dataset,
+            materializations=chart.dataset,
+            runtime_generations=registry,
+            runs=AdmissionPort(),
+        )
+        chart_run = admission.admit(chart.operation, queued_at=chart.operation.accepted_at)
+        assert chart_run.state.value == "QUEUED" and chart_run.origin_kind.value == "CHART_CALCULATION"
+        assert chart_run.admission_resolution_fingerprint == chart_compilation.compilation_fingerprint
         registry.release_work(chart.operation.reserved_run_id.value, actor="test", occurred_at=now)
         other = only_ready_test_generation(registry, "e", now)
         registry.activate_for_new_work(expected_current=generation, target=other, actor="test", occurred_at=now)
         registry.retire(generation, actor="test", occurred_at=now)
         chart_service._resolver = object()  # Verified replay cannot call an unavailable host.
         assert chart_service.compile(chart.operation) == chart_compilation
+        assert admission.admit(chart.operation, queued_at=chart.operation.accepted_at) == chart_run
         resolved = resolver.resolve_calculation_publication(generation, spec)
         assert resolved.runtime_generation_fingerprint == generation
         assert resolved.specification == spec and resolved.result_plan.schema_version == 4

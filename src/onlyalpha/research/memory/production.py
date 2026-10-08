@@ -39,7 +39,7 @@ class OnlyExactCatalogDescriptorReader(Protocol):
 class OnlyExactRuntimeGenerationReader(Protocol):
     def require_work_binding(self, work_id: str) -> _RuntimeBinding: ...
 
-    def require_runtime_generation(self, fingerprint: str) -> _RuntimeManifest: ...
+    def require_historical_generation(self, fingerprint: str) -> _RuntimeManifest: ...
 
 
 class _RuntimeBinding(Protocol):
@@ -270,7 +270,7 @@ class _BoundReferenceReader:
             binding = owners.runtime_generations.require_work_binding(identity)
             generation = binding.runtime_generation_fingerprint
             self._require(binding.work_id == identity and isinstance(generation, str))
-            manifest = owners.runtime_generations.require_runtime_generation(generation)
+            manifest = owners.runtime_generations.require_historical_generation(generation)
             self._require(manifest.runtime_generation_fingerprint == generation)
             catalog = manifest.catalog_generation_fingerprint
             self._require(
