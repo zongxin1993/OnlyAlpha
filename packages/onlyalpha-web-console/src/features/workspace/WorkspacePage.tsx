@@ -9,7 +9,8 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
-import { CalculationPicker } from "./CalculationPicker";
+import { ChartStudies } from "./ChartStudies";
+import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
 import {
     fixedDurationMinutes,
     formatBarSemantic,
@@ -46,6 +47,19 @@ export function WorkspacePage() {
     const dataSources = useDataSourceOverview();
     const marketData = useMarketDataChart();
     const realInstrument = marketData.instrument;
+    const studyContext =
+        marketData.reference === null || realInstrument === null
+            ? null
+            : {
+                  key: onlyMarketDataChartContextKey(
+                      marketData.reference,
+                      realInstrument.instrument_id,
+                      marketData.barSemantic
+                  ),
+                  source: marketData.reference,
+                  instrumentId: realInstrument.instrument_id,
+                  barSemantic: marketData.barSemantic
+              };
     const selectedBar =
         selection?.contextKey === marketData.chartContextKey
             ? marketData.liveBar?.barStartNs === selection.barStartNs
@@ -292,7 +306,6 @@ export function WorkspacePage() {
                             </ul>
                         )}
                     </div>
-                    <CalculationPicker />
                     <span className="chart-region__spacer">
                         <DataSourceEntry
                             overview={dataSources}
@@ -318,6 +331,10 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
+                <ChartStudies
+                    key={studyContext?.key ?? "no-chart-context"}
+                    context={studyContext}
+                />
                 <p className="chart-region__overlay-note" data-testid="real-overlay-note">
                     {CATALOG_NOTE}
                 </p>

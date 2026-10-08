@@ -86,6 +86,8 @@ test("Catalog selection detects a later active switch and clears previous handof
     await trigger.click();
     await page.getByRole("button", { name: /选择 SMA/ }).click();
     await expect(page.getByTestId("calculation-handoff")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
     await trigger.click();
     await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
     const select = page.getByRole("button", { name: /选择 SMA/ });
@@ -161,9 +163,76 @@ for (const width of [1440, 1024, 390]) {
             "readiness-capability"
         ])
             await expect(handoff).not.toHaveAttribute(`data-${name}`, /.+/);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
+        await expect(trigger).toBeFocused();
         await page.getByRole("button", { name: "因子", exact: true }).click();
         await expect(dialog.getByText(/当前发现目录没有此类已登记项/)).toBeVisible();
         await expect(dialog.getByRole("button", { name: /选择 / })).toHaveCount(0);
         expect(requests.filter((path) => path.endsWith("/catalog/calculations"))).toHaveLength(4);
     });
 }
+
+test("required NULL BOOLEAN keeps explicit choice and keyboard focus after selecting false", async ({
+    page
+}) => {
+    const discovery = {
+        schema_version: 2,
+        calculations: [
+            {
+                kind: "INDICATOR",
+                type_reference: {
+                    kind: "INDICATOR",
+                    type_id: "example.boolean",
+                    semantic_version: "1"
+                },
+                parameters: [
+                    {
+                        name: "enabled",
+                        type: "BOOLEAN",
+                        required: true,
+                        default: { type: "NULL", value: null },
+                        minimum: null,
+                        maximum: null,
+                        enum_values: [],
+                        uppercase: false
+                    }
+                ],
+                inputs: [],
+                outputs: [
+                    {
+                        name: "value",
+                        data_type: "BOOLEAN",
+                        nullable: false,
+                        dimensions: ["TIME"],
+                        semantic_type: "BOOLEAN_SERIES",
+                        unit: null
+                    }
+                ],
+                parameter_sweep_allowed: true
+            }
+        ]
+    };
+    await page.route("**/api/v2/research/**", (route) =>
+        route.fulfill({
+            status: route.request().url().endsWith("/active") ? 503 : 200,
+            contentType: "application/json",
+            body: JSON.stringify(
+                route.request().url().endsWith("/active")
+                    ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                    : discovery
+            )
+        })
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: /选择 BOOLEAN/ }).click();
+    const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
+    const choice = editor.getByRole("combobox", { name: "enabled", exact: true });
+    await choice.focus();
+    await choice.selectOption("false");
+    await expect(choice).toBeFocused();
+    await expect(choice).toHaveValue("false");
+    await page.keyboard.press("Tab");
+    await expect(editor.getByRole("combobox", { name: "输出", exact: true })).toBeFocused();
+});

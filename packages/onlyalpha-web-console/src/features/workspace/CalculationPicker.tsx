@@ -11,6 +11,7 @@ import {
     type RegisteredCalculation
 } from "../../api/research/chartCatalog";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
+import { keepDialogFocus } from "./dialogFocus";
 import "./calculationPicker.css";
 
 type Category = "INDICATOR" | "FACTOR";
@@ -34,18 +35,27 @@ const label = (entry: PickerEntry) =>
     reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id;
 
 /** Catalog navigation only. No Study, numeric execution or market-data side effects. */
-export function CalculationPicker() {
+export function CalculationPicker({
+    draft,
+    onDraftChange
+}: {
+    readonly draft: ChartCalculationDraft | null;
+    readonly onDraftChange: (
+        draft: ChartCalculationDraft | null,
+        trigger: HTMLElement | null
+    ) => void;
+}) {
     const [category, setCategory] = useState<Category | null>(null);
     const [state, setState] = useState<CatalogState>({ status: "idle" });
-    const [draft, setDraft] = useState<ChartCalculationDraft | null>(null);
     const [selecting, setSelecting] = useState(false);
     const request = useRef<AbortController | null>(null);
+    const trigger = useRef<HTMLElement | null>(null);
 
     const refresh = useCallback(async () => {
         request.current?.abort();
         const controller = new AbortController();
         request.current = controller;
-        setDraft(null);
+        onDraftChange(null, trigger.current);
         setSelecting(false);
         setState({ status: "loading" });
         try {
@@ -71,7 +81,7 @@ export function CalculationPicker() {
                     error: error instanceof ChartCatalogError ? error.code : "INVALID"
                 });
         }
-    }, []);
+    }, [onDraftChange]);
 
     useEffect(
         () => () => {
@@ -120,11 +130,11 @@ export function CalculationPicker() {
                 next = { source: "REGISTERED_DISCOVERY", registration: entry };
             } else return;
             if (controller.signal.aborted || request.current !== controller) return;
-            setDraft(next);
+            onDraftChange(next, trigger.current);
             close();
         } catch (error) {
             if (!controller.signal.aborted && request.current === controller) {
-                setDraft(null);
+                onDraftChange(null, trigger.current);
                 setSelecting(false);
                 setState({
                     status: "error",
@@ -134,10 +144,6 @@ export function CalculationPicker() {
         }
     }
 
-    const exactDraft = draft?.source === "EXACT_CATALOG" ? draft : null;
-    const selectedEntry =
-        draft === null ? null : draft.source === "EXACT_CATALOG" ? draft.entry : draft.registration;
-    const selectedReference = selectedEntry === null ? null : reference(selectedEntry);
     return (
         <>
             {(["INDICATOR", "FACTOR"] as const).map((value) => (
@@ -146,7 +152,8 @@ export function CalculationPicker() {
                     type="button"
                     className="picker__trigger"
                     aria-haspopup="dialog"
-                    onClick={() => {
+                    onClick={(event) => {
+                        trigger.current = event.currentTarget;
                         setCategory(value);
                         void refresh();
                     }}
@@ -155,27 +162,6 @@ export function CalculationPicker() {
                     <span>{value === "INDICATOR" ? "指标" : "因子"}</span>
                 </button>
             ))}
-            {draft === null ? null : (
-                <span
-                    className="calculation-handoff"
-                    role="status"
-                    data-testid="calculation-handoff"
-                    data-registration-source={draft.source}
-                    data-runtime-generation={exactDraft?.catalog.runtimeGenerationFingerprint}
-                    data-catalog-generation={exactDraft?.catalog.catalogGenerationFingerprint}
-                    data-kind={selectedReference?.kind}
-                    data-type-id={selectedReference?.type_id}
-                    data-semantic-version={selectedReference?.semantic_version}
-                    data-backend={exactDraft?.entry.capability.backend}
-                    data-implementation={exactDraft?.entry.capability.implementation_fingerprint}
-                    data-readiness-capability={exactDraft?.entry.readiness?.capability_fingerprint}
-                >
-                    已选择 {selectedEntry === null ? "" : label(selectedEntry)} ·{" "}
-                    {selectedReference?.semantic_version} ·{" "}
-                    {exactDraft?.entry.capability.backend ?? "已登记，执行未接入"}；
-                    仅配置草稿，尚未计算
-                </span>
-            )}
             {category === null ? null : (
                 <CatalogDialog
                     category={category}
@@ -191,6 +177,32 @@ export function CalculationPicker() {
                 />
             )}
         </>
+    );
+}
+
+/** Presentation of the workspace-owned selection, not another draft state. */
+export function CalculationSelectionSummary({ draft }: { readonly draft: ChartCalculationDraft }) {
+    const exact = draft.source === "EXACT_CATALOG" ? draft : null;
+    const entry = draft.source === "EXACT_CATALOG" ? draft.entry : draft.registration;
+    const selected = reference(entry);
+    return (
+        <span
+            className="calculation-handoff"
+            role="status"
+            data-testid="calculation-handoff"
+            data-registration-source={draft.source}
+            data-runtime-generation={exact?.catalog.runtimeGenerationFingerprint}
+            data-catalog-generation={exact?.catalog.catalogGenerationFingerprint}
+            data-kind={selected.kind}
+            data-type-id={selected.type_id}
+            data-semantic-version={selected.semantic_version}
+            data-backend={exact?.entry.capability.backend}
+            data-implementation={exact?.entry.capability.implementation_fingerprint}
+            data-readiness-capability={exact?.entry.readiness?.capability_fingerprint}
+        >
+            已选择 {label(entry)} · {selected.semantic_version} ·{" "}
+            {exact?.entry.capability.backend ?? "已登记，执行未接入"}；仅配置草稿，尚未计算
+        </span>
     );
 }
 
@@ -248,27 +260,7 @@ function CatalogDialog({
             ref={dialog}
             className="calculation-picker"
             aria-label="指标 / 因子目录"
-            onKeyDown={(event) => {
-                if (event.key !== "Tab") return;
-                // Native modal inertness protects the background, but Chromium can
-                // move edge traversal into browser chrome. Keep the keyboard loop
-                // inside the current, visible and enabled dialog controls.
-                const controls = [
-                    ...event.currentTarget.querySelectorAll<HTMLElement>(
-                        'button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
-                    )
-                ].filter((element) => element.getClientRects().length > 0);
-                const first = controls[0];
-                const last = controls.at(-1);
-                if (first === undefined || last === undefined) return;
-                if (event.shiftKey && document.activeElement === first) {
-                    event.preventDefault();
-                    last.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                    event.preventDefault();
-                    first.focus();
-                }
-            }}
+            onKeyDown={keepDialogFocus}
             onCancel={(event) => {
                 event.preventDefault();
                 onClose();

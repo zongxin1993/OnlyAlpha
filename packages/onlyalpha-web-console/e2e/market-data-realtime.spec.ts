@@ -541,6 +541,148 @@ test("registered discovery selection without Runtime preserves BTCUSDT history a
     ]);
 });
 
+for (const width of [1440, 1024, 390]) {
+    test(`chart study golden configuration and independent presentation at ${String(width)}px`, async ({
+        page
+    }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const market = await controlledRealtime(page, false, false, true);
+        const fixture = chartCatalogFixture();
+        await page.route("**/api/v2/research/**", (route) => {
+            expect(route.request().method()).toBe("GET");
+            const path = new URL(route.request().url()).pathname;
+            expect([
+                "/api/v2/research/runtime-generations/active",
+                "/api/v2/research/catalog/calculations"
+            ]).toContain(path);
+            return route.fulfill({
+                status: path.endsWith("/active") ? 503 : 200,
+                contentType: "application/json",
+                body: JSON.stringify(
+                    path.endsWith("/active")
+                        ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                        : fixture.discovery
+                )
+            });
+        });
+        await page.goto("/");
+        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+        const context = await page
+            .getByTestId("market-data-observation")
+            .getAttribute("data-chart-context-key");
+        const baseline = {
+            queries: market.historyAnchors.length,
+            subscriptions: market.subscriptions.length,
+            acquisitions: market.acquisitions()
+        };
+        const trigger = page.getByRole("button", { name: "指标", exact: true });
+        await trigger.click();
+        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
+        await expect(editor).toBeVisible();
+        const cancel = editor.getByRole("button", { name: "取消配置" });
+        await expect(cancel).toBeFocused();
+        await page.getByRole("combobox", { name: "时间周期" }).evaluate((element) => {
+            (element as HTMLElement).focus();
+        });
+        await expect(cancel).toBeFocused();
+        await cancel.focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(cancel).toBeFocused();
+        await expect(editor.getByRole("textbox", { name: "period" })).toHaveValue("20");
+        await expect(editor.getByRole("combobox", { name: "price_field" })).toHaveValue("CLOSE");
+        await page.keyboard.press("Escape");
+        await expect(editor).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+        await trigger.press("Enter");
+        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        await editor.getByRole("textbox", { name: "period" }).fill("30");
+        await editor.getByRole("button", { name: "添加", exact: true }).click();
+        const first = page.getByTestId("chart-study-instance").first();
+        await expect(first).toContainText("已配置，尚未接入后端计算");
+        await expect(first).toHaveAttribute("data-chart-context-key", context ?? "");
+        const id = await first.getAttribute("data-instance-id"),
+            configuration = await first.getAttribute("data-configuration");
+        const edit = first.getByRole("button", { name: "编辑 SMA" });
+        await edit.click();
+        await editor.getByRole("textbox", { name: "颜色" }).fill("#c8332a");
+        await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
+        await editor.getByRole("spinbutton", { name: "透明度" }).fill("0.5");
+        await editor.getByRole("checkbox", { name: "显示" }).uncheck();
+        await editor.getByRole("button", { name: "应用", exact: true }).click();
+        await expect(editor).toHaveCount(0);
+        await expect(edit).toBeFocused();
+        await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
+        await expect(first).toHaveAttribute("data-instance-id", id ?? "");
+        await expect(first).toContainText("#c8332a");
+        await trigger.click();
+        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        await editor.getByRole("button", { name: "添加", exact: true }).click();
+        await expect(page.getByTestId("chart-study-instance")).toHaveCount(2);
+        await expect(page.getByTestId("chart-study-instance").last()).not.toHaveAttribute(
+            "data-instance-id",
+            id ?? ""
+        );
+        await expect(page.getByTestId("chart-study-instance").last()).toContainText("period=20");
+        market.emitPreview();
+        await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+            "data-observation-mode",
+            "preview"
+        );
+        expect(market.historyAnchors).toHaveLength(baseline.queries);
+        expect(market.subscriptions).toHaveLength(baseline.subscriptions);
+        expect(market.acquisitions()).toBe(baseline.acquisitions);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+            width
+        );
+        await test.info().attach("study-configurations", {
+            contentType: "image/png",
+            body: await page.screenshot()
+        });
+        await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
+        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+}
+
+test("exact Study confirmation rejects paired schema changes without creating a chart instance", async ({
+    page
+}) => {
+    await controlledRealtime(page, false, false, true);
+    const fixture = chartCatalogFixture();
+    await page.route("**/api/v2/research/**", (route) => {
+        expect(route.request().method()).toBe("GET");
+        const path = new URL(route.request().url()).pathname;
+        expect(path).not.toBe("/api/v2/research/catalog/calculations");
+        return json(
+            route,
+            path.endsWith("/active")
+                ? fixture.active
+                : path.includes("/runtime-generations/")
+                  ? fixture.binding
+                  : path.endsWith("/readiness")
+                    ? fixture.readiness
+                    : fixture.context
+        );
+    });
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: /选择 SMA/ }).click();
+    const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
+    await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
+    fixture.context.projection_schema_fingerprint = "e".repeat(64);
+    fixture.readiness.exact_catalog_context_projection_schema_fingerprint =
+        fixture.context.projection_schema_fingerprint;
+    await editor.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(editor.getByRole("alert")).toContainText("STALE");
+    await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+    await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+});
+
 test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");

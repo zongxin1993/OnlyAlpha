@@ -1,8 +1,65 @@
 import { chartCatalogFixture } from "../../test/chartCatalog";
-import { readChartCatalog, readRegisteredCalculations } from "./chartCatalog";
+import { researchCalculationCatalogSchema } from "./schemas";
+import {
+    readChartCatalog,
+    readRegisteredCalculations,
+    verifyChartCalculationDraft
+} from "./chartCatalog";
 
 afterEach(() => {
     vi.unstubAllGlobals();
+});
+
+it.each([
+    "metadata",
+    "readiness",
+    "projection",
+    "paired-schema",
+    "owner",
+    "duplicate",
+    "missing",
+    "same"
+])("re-observes exact selection at confirmation: %s", async (change) => {
+    const fixture = chartCatalogFixture();
+    serve(fixture);
+    const catalog = await readChartCatalog();
+    const entry = catalog.entries[0];
+    if (entry === undefined) throw new Error("Missing entry");
+    if (change === "metadata") fixture.parameter.default = 30;
+    if (change === "readiness") {
+        const next = "9".repeat(64);
+        expect(next).not.toBe(fixture.witness.capability_fingerprint);
+        fixture.witness.capability_fingerprint = next;
+    }
+    if (change === "projection") {
+        fixture.context.projection_fingerprint = "e".repeat(64);
+        fixture.readiness.exact_catalog_context_projection_fingerprint =
+            fixture.context.projection_fingerprint;
+    }
+    if (change === "paired-schema") {
+        fixture.context.projection_schema_fingerprint = "e".repeat(64);
+        fixture.readiness.exact_catalog_context_projection_schema_fingerprint =
+            fixture.context.projection_schema_fingerprint;
+    }
+    if (change === "owner") fixture.binding.runtime_generation_fingerprint = fixture.catalog;
+    if (change === "duplicate")
+        fixture.context.ordered_calculation_capabilities.push(fixture.capability);
+    if (change === "missing") fixture.readiness.ordered_calculation_readiness_capabilities = [];
+    const proof = verifyChartCalculationDraft({ source: "EXACT_CATALOG", catalog, entry });
+    if (change === "same") await expect(proof).resolves.toBeUndefined();
+    else await expect(proof).rejects.toBeInstanceOf(Error);
+});
+it("keeps re-observed registered selection in discovery family without ambient Runtime promotion", async () => {
+    const fixture = chartCatalogFixture();
+    const registration = researchCalculationCatalogSchema.parse(fixture.discovery).calculations[0];
+    if (registration === undefined) throw new Error("Missing registration");
+    const fetcher = vi.fn((input: string) => {
+        expect(input).toBe("/api/v2/research/catalog/calculations");
+        return Promise.resolve(new Response(JSON.stringify(fixture.discovery)));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await verifyChartCalculationDraft({ source: "REGISTERED_DISCOVERY", registration });
+    expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 function serve(fixture = chartCatalogFixture(), finalRuntime = fixture.runtime) {
