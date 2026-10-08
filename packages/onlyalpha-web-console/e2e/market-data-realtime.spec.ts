@@ -455,6 +455,9 @@ for (const width of [1440, 1024, 390]) {
         await close.focus();
         await page.keyboard.press("Shift+Tab");
         await expect(page.locator("dialog :focus")).toHaveCount(1);
+        await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(close).toBeFocused();
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
         await expect(trigger).toBeFocused();
