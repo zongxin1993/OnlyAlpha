@@ -1,7 +1,22 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
 import { chartCatalogFixture } from "../../test/chartCatalog";
-import { CalculationPicker } from "./CalculationPicker";
+import {
+    CalculationPicker as ControlledPicker,
+    CalculationSelectionSummary
+} from "./CalculationPicker";
+
+function CalculationPicker() {
+    const [draft, setDraft] = useState<ChartCalculationDraft | null>(null);
+    return (
+        <>
+            <ControlledPicker draft={draft} onDraftChange={setDraft} />
+            {draft === null ? null : <CalculationSelectionSummary draft={draft} />}
+        </>
+    );
+}
 
 const dialogDescriptors = {
     showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),

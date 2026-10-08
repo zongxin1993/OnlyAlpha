@@ -2,8 +2,8 @@
 
 The chart's Indicator/Factor picker is metadata navigation, not Calculation admission or execution.
 It submits no command, acquires no market data and publishes no numeric output, point readiness,
-Research Run, Result or Artifact. A selected item is a browser-only configuration draft, not a
-persisted ChartStudyInstance or execution permission.
+Research Run, Result or Artifact. A selected item is a browser-only configuration draft passed to
+the workspace's parameter editor, not a persisted Study or execution permission.
 
 ## Registered discovery without Runtime activation
 
@@ -61,3 +61,40 @@ TTL, background retry or fallback to installed/current plugin code. These observ
 an atomic Runtime reservation. Any future execution must separately obtain formal admission.
 
 The renderer and market-data incarnation remain independent of this navigation lifecycle.
+
+## Parameter configuration and display instances
+
+The workspace owns the single pending selection and confirmed `ChartStudyInstance` collection.
+The picker publishes a controlled handoff; it does not retain a second selection. The editor has
+disposable field inputs separate from confirmed instances. Cancel/Escape discards only those inputs.
+Confirm adds an independent browser instance identity; editing preserves that identity. Identical
+calculation inputs can have distinct display instances. None of these identities is a Calculation,
+Run, Result, Artifact, fingerprint or execution reservation.
+
+The editor adapts exact untagged Descriptor scalars and discovery typed scalars into typed input
+intent, preserving raw numeric STRING defaults and DECIMAL text. UI checks cover input shape,
+safe INTEGER transport, exact decimal bounds/enum comparisons, required inputs and official output
+names. They neither normalize through Core nor certify scientific validity/admission. A required
+NULL default is displayed as missing input, not silently replaced with zero, false or empty text.
+Malformed metadata/defaults, duplicate names and unavailable outputs block confirmation.
+
+Each confirmation (including presentation-only edits) re-reads the original metadata family via
+the formal GET APIs. Discovery requires the complete same descriptor; it is never upgraded using
+ambient Runtime identity. Exact mode requires the same Runtime/Catalog/context projection identity and schema fingerprint and
+complete selected capability/readiness relation through the existing strict reader and final active
+fence. Disappearance, change, malformed proof or unavailable transport blocks confirmation and
+marks an edited instance `STALE_CONFIG`. These reads are observations, not execution permission.
+
+Configuration contains only typed parameter inputs and a real output name. Presentation independently
+contains placement (`PRICE_OVERLAY` / `SEPARATE_PANE`), `#RRGGBB` color (initially the accent design
+token), line width 1–5, opacity 0–1 and boolean visibility. Presentation changes do not alter
+calculation inputs or issue commands. The compact list reports `CONFIGURED_NOT_EXECUTED` / “已配置，
+尚未接入后端计算”, not numeric readiness. No renderer series, numeric values or pane are created.
+
+Instances bind the exact Source reference, Instrument and BarSemantic, using the existing market-data
+context key. A context-keyed workspace lifecycle discards all Study/draft state on any context
+change, aborting old requests; old responses cannot attach to a new or restored context incarnation.
+Returning application focus closes pending editing and conservatively marks confirmed configurations
+stale until a new confirmation re-observes metadata. No timer claims validity. Browser-session
+state is disposable; no LocalStorage/PostgreSQL persistence or cross-refresh recovery is added.
+The market-data hook, Ledger and renderer are unchanged and receive no Study inputs.

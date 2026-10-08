@@ -139,6 +139,7 @@ export interface ChartCatalog {
     readonly runtimeGenerationFingerprint: string;
     readonly catalogGenerationFingerprint: string;
     readonly projectionFingerprint: string;
+    readonly projectionSchemaFingerprint: string;
     readonly entries: readonly ChartCatalogEntry[];
 }
 export type RegisteredCalculation = ResearchCalculationCatalogItemTransport;
@@ -342,6 +343,40 @@ export async function readChartCatalog(signal?: AbortSignal): Promise<ChartCatal
         runtimeGenerationFingerprint: runtime,
         catalogGenerationFingerprint: catalogId,
         projectionFingerprint: context.projection_fingerprint,
+        projectionSchemaFingerprint: context.projection_schema_fingerprint,
         entries
     };
+}
+
+/** Re-observe the original metadata family; never promote discovery into exact proof. */
+export async function verifyChartCalculationDraft(
+    draft: ChartCalculationDraft,
+    signal?: AbortSignal
+): Promise<void> {
+    if (draft.source === "REGISTERED_DISCOVERY") {
+        const entries = await readRegisteredCalculations(signal);
+        if (!entries.some((entry) => JSON.stringify(entry) === JSON.stringify(draft.registration)))
+            throw new ChartCatalogError("STALE");
+        return;
+    }
+    let current: ChartCatalog;
+    try {
+        current = await readChartCatalog(signal);
+    } catch (error) {
+        if (error instanceof ChartCatalogError && error.code === "NO_RUNTIME")
+            throw new ChartCatalogError("STALE");
+        throw error;
+    }
+    if (
+        current.runtimeGenerationFingerprint !== draft.catalog.runtimeGenerationFingerprint ||
+        current.catalogGenerationFingerprint !== draft.catalog.catalogGenerationFingerprint ||
+        current.projectionFingerprint !== draft.catalog.projectionFingerprint ||
+        current.projectionSchemaFingerprint !== draft.catalog.projectionSchemaFingerprint ||
+        !current.entries.some(
+            (entry) =>
+                entry.availability === "AVAILABLE" &&
+                JSON.stringify(entry) === JSON.stringify(draft.entry)
+        )
+    )
+        throw new ChartCatalogError("STALE");
 }

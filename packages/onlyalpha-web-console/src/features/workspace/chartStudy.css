@@ -1,0 +1,73 @@
+.chart-studies {
+    padding: 0.35rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    min-width: 0;
+}
+.chart-studies__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+.chart-studies__empty {
+    margin: 0.25rem 0;
+    font-size: 0.75rem;
+}
+.chart-studies__list {
+    list-style: none;
+    padding: 0;
+    margin: 0.25rem 0;
+    max-height: 8rem;
+    overflow: auto;
+}
+.chart-studies__list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+    border-top: 1px solid var(--line);
+}
+.chart-study-editor .calculation-handoff {
+    display: block;
+    max-width: 100%;
+}
+.chart-study-editor fieldset {
+    border: 1px solid var(--line);
+    margin: 0.75rem 0;
+    min-width: 0;
+}
+.chart-study-editor label {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0.6rem 0;
+}
+.chart-study-editor input,
+.chart-study-editor select {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+.chart-study-editor small {
+    color: var(--muted);
+}
+.chart-study-editor .study-visible {
+    display: flex;
+    align-items: center;
+}
+.chart-study-editor .study-visible input {
+    width: auto;
+}
+.chart-study-editor input[type="checkbox"] {
+    width: auto;
+    justify-self: start;
+}
+.chart-study-editor footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
