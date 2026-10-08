@@ -87,6 +87,8 @@ class OnlyMarketDataWal:
         self._open_id: str | None = None
         self._sealing_id: str | None = None
         self._created_at: datetime | None = None
+        self._append_prefix: bytes | None = None
+        self._append_ordinal = 0
         self._recording_state = OnlyRecordingState.HEALTHY
         self._last_error: str | None = None
 
@@ -129,24 +131,39 @@ class OnlyMarketDataWal:
         self._fsync_directory()
         self._open_id = selected
         self._created_at = created_at
+        self._append_prefix = b""
+        self._append_ordinal = 0
         return selected
 
     def append(self, bundle: OnlyMarketDataRecordBundle) -> int:
         if self._open_id is None:
             raise OnlyWalError("WAL_SEGMENT_NOT_OPEN")
         path = self._path(self._open_id, "open")
-        ordinal = sum(1 for _ in self._read_frames(path, sealed=False))
+        data = path.read_bytes()
+        # Exact bytes, not stat metadata, prove that the previously checked prefix
+        # is unchanged. Restart, corruption and interrupted writes take the full scan.
+        ordinal = (
+            self._append_ordinal
+            if data == self._append_prefix
+            else sum(1 for _ in self._decode_frames(data, sealed=False))
+        )
         payload = only_encode_record_bundle(bundle)
         frame = _HEADER.pack(_MAGIC, _VERSION, len(payload), ordinal, hashlib.sha256(payload).digest()) + payload
         if self.bytes_used + len(frame) > self.capacity_bytes:
             self._recording_state = OnlyRecordingState.DEGRADED
             self._last_error = "WAL_CAPACITY_FULL"
             raise OnlyWalCapacityError("WAL_CAPACITY_FULL")
+        self._append_prefix = None
         with path.open("ab", buffering=0) as stream:
-            stream.write(frame)
+            if stream.write(frame) != len(frame):
+                raise OnlyWalError("WAL_FRAME_SHORT_WRITE")
             self._barrier("W4_FRAME_WRITTEN_BEFORE_FSYNC")
             os.fsync(stream.fileno())
         self._barrier("W5_FRAME_DURABLE")
+        # Publish the reusable prefix last: interruption must never pair new bytes
+        # with an old ordinal.
+        self._append_ordinal = ordinal + 1
+        self._append_prefix = data + frame
         return ordinal
 
     def seal(self, *, sealed_at: datetime | None = None) -> OnlyIngestSegment:
@@ -221,6 +238,8 @@ class OnlyMarketDataWal:
         self._fsync_directory()
         self._open_id = None
         self._created_at = None
+        self._append_prefix = None
+        self._append_ordinal = 0
         return result
 
     def load_segment(self, segment_id: str) -> OnlyIngestSegment:
@@ -577,7 +596,10 @@ class OnlyMarketDataWal:
         )
 
     def _read_frames(self, path: Path, *, sealed: bool) -> Iterator[tuple[int, bytes]]:
-        data = path.read_bytes()
+        yield from self._decode_frames(path.read_bytes(), sealed=sealed)
+
+    @staticmethod
+    def _decode_frames(data: bytes, *, sealed: bool) -> Iterator[tuple[int, bytes]]:
         offset = 0
         expected_ordinal = 0
         while offset < len(data):

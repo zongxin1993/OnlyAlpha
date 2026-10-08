@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -317,6 +318,212 @@ def test_gc_eligible_segment_no_longer_consumes_uncommitted_capacity(tmp_path: P
     assert wal.health().sealed_uncommitted_segments == 0
     with pytest.raises(OnlyWalError, match="WAL_SEGMENT_ID_CONFLICT"):
         wal.open_segment(segment.segment_id)
+
+
+def test_append_reuses_only_exact_prefix_without_repeating_frame_scans(tmp_path: Path, fixed_now, monkeypatch) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("prefix")
+    scans = []
+    decoded_frames = []
+    syncs = []
+    read_frames = wal._read_frames
+    decode_frames = wal._decode_frames
+    fsync = os.fsync
+
+    def tracked_read(path, *, sealed):
+        scans.append((path, sealed))
+        yield from read_frames(path, sealed=sealed)
+
+    def tracked_sync(descriptor):
+        syncs.append(descriptor)
+        fsync(descriptor)
+
+    def tracked_decode(data, *, sealed):
+        for frame in decode_frames(data, sealed=sealed):
+            decoded_frames.append(frame[0])
+            yield frame
+
+    monkeypatch.setattr(wal, "_read_frames", tracked_read)
+    monkeypatch.setattr(wal, "_decode_frames", tracked_decode)
+    monkeypatch.setattr(os, "fsync", tracked_sync)
+    receipts = [ingress.record(observation(), None) for _ in range(128)]
+
+    assert [item.ordinal for item in receipts] == list(range(128))
+    assert all(item.durability_state.value == "WAL_DURABLE" for item in receipts)
+    assert len(syncs) == 128
+    assert scans == []
+    assert decoded_frames == []
+    segment = ingress.seal()
+    assert segment.record_count == 128
+    assert scans == [(tmp_path / "prefix.open.wal", False)]
+    assert len(decoded_frames) == 128
+    assert wal.verify_sealed(segment)
+    ingress.begin_segment("next-prefix")
+    assert ingress.record(observation(), None).ordinal == 0
+
+
+@pytest.mark.parametrize("mutation", ["checksum", "ordinal", "torn", "replacement"])
+def test_append_does_not_trust_changed_prefix_even_with_same_size_and_mtime(
+    tmp_path: Path, fixed_now, mutation: str
+) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("changed-prefix")
+    ingress.record(observation(), trade_update())
+    path = tmp_path / "changed-prefix.open.wal"
+    before = path.stat()
+    data = bytearray(path.read_bytes())
+    if mutation in {"checksum", "replacement"}:
+        data[-1] ^= 1
+    elif mutation == "ordinal":
+        data[20] ^= 1
+    else:
+        data.extend(b"torn")
+    if mutation == "replacement":
+        replacement = tmp_path / "replacement.wal"
+        replacement.write_bytes(data)
+        os.replace(replacement, path)
+    else:
+        path.write_bytes(data)
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    with pytest.raises(OnlyWalCorruptionError):
+        ingress.record(observation(), trade_update(11))
+    assert path.read_bytes() == data
+    with pytest.raises(OnlyWalCorruptionError):
+        ingress.seal()
+
+
+@pytest.mark.parametrize("stage", ["W4_FRAME_WRITTEN_BEFORE_FSYNC", "W5_FRAME_DURABLE"])
+def test_interrupted_append_rederives_ordinal_from_frames(tmp_path: Path, fixed_now, stage: str) -> None:
+    fired = False
+
+    def barrier(actual: str) -> None:
+        nonlocal fired
+        if actual == stage and not fired:
+            fired = True
+            raise RuntimeError(actual)
+
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now, barrier=barrier)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("interrupted-append")
+    with pytest.raises(RuntimeError, match=stage):
+        ingress.record(observation(), trade_update())
+    assert ingress.record(observation(), trade_update(11)).ordinal == 1
+    segment = ingress.seal()
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    assert restarted.load_segment(segment.segment_id) == segment
+    assert segment.record_count == 2
+
+
+def test_exact_prefix_and_full_scan_produce_identical_wal_and_segment(tmp_path: Path, fixed_now) -> None:
+    segments = []
+    contents = []
+    for mode in ("cached", "scanned"):
+        root = tmp_path / mode
+        wal = OnlyMarketDataWal(root, capacity_bytes=1_000_000, now=fixed_now)
+        ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+        ingress.begin_segment("equivalent")
+        for ordinal in range(32):
+            if mode == "scanned":
+                wal._append_prefix = None
+            assert ingress.record(observation(), trade_update(ordinal + 10)).ordinal == ordinal
+        segments.append(ingress.seal())
+        contents.append((root / "equivalent.sealed.wal").read_bytes())
+        assert wal.verify_sealed(segments[-1])
+    assert contents[0] == contents[1]
+    assert segments[0] == segments[1]
+
+
+def test_interrupted_cache_publication_cannot_reuse_a_stale_ordinal(tmp_path: Path, fixed_now, monkeypatch) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("cache-publication")
+    fired = False
+
+    def interrupt_publication(self, name, value):
+        nonlocal fired
+        object.__setattr__(self, name, value)
+        if (
+            self is wal
+            and not fired
+            and ((name == "_append_prefix" and value is not None) or (name == "_append_ordinal" and value == 1))
+        ):
+            fired = True
+            raise RuntimeError("interrupted cache publication")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(OnlyMarketDataWal, "__setattr__", interrupt_publication)
+        with pytest.raises(RuntimeError, match="interrupted cache publication"):
+            ingress.record(observation(), trade_update())
+    assert fired
+    assert ingress.record(observation(), trade_update(11)).ordinal == 1
+    segment = ingress.seal()
+    assert segment.record_count == 2
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    assert restarted.load_segment(segment.segment_id) == segment
+    assert restarted.verify_sealed(segment)
+
+
+def test_fsync_failure_returns_no_receipt_and_restart_uses_only_file_frames(
+    tmp_path: Path, fixed_now, monkeypatch
+) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("failed-fsync")
+    ingress.record(observation(), trade_update())
+
+    def fail_sync(_descriptor):
+        raise OSError("injected fsync failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "fsync", fail_sync)
+        with pytest.raises(OSError, match="injected fsync failure"):
+            ingress.record(observation(), trade_update(11))
+    assert wal._append_prefix is None
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    segment = restarted.seal_recovered_open("failed-fsync")
+    assert segment.record_count == 2
+    assert restarted.verify_sealed(segment)
+
+
+def test_short_write_never_returns_a_durable_receipt(tmp_path: Path, fixed_now, monkeypatch) -> None:
+    wal = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    ingress = OnlyMarketDataIngress(wal, normalizer_id="n", normalizer_version="1", ingest_clock_ns=lambda: 1)
+    ingress.begin_segment("short-write")
+    ingress.record(observation(), trade_update())
+    path_open = Path.open
+
+    class ShortWriter:
+        def __enter__(self):
+            self.stream = path_open(tmp_path / "short-write.open.wal", "ab", buffering=0)
+            return self
+
+        def write(self, data):
+            return self.stream.write(data[:10])
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+    def short_open(path, mode="r", *args, **kwargs):
+        return ShortWriter() if mode == "ab" else path_open(path, mode, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", short_open)
+        with pytest.raises(OnlyWalError, match="WAL_FRAME_SHORT_WRITE"):
+            ingress.record(observation(), trade_update(11))
+    with pytest.raises(OnlyWalCorruptionError, match="TORN_HEADER"):
+        ingress.record(observation(), trade_update(12))
+    restarted = OnlyMarketDataWal(tmp_path, capacity_bytes=1_000_000, now=fixed_now)
+    recovered = restarted.recover_open("short-write")
+    assert recovered.valid_records == 1
+    assert recovered.quarantined_tail is not None
+    segment = restarted.seal_recovered_open("short-write")
+    assert segment.record_count == 1
 
 
 def test_matching_realtime_backfill_facts_deduplicate_but_conflict_blocks() -> None:
