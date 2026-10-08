@@ -30,7 +30,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.require
 
 
 def handoff(fixture, dsn):
-    from onlyalpha.persistence.postgres.chart_calculation_run_admission_store import (
+    from onlyalpha.persistence.postgres.research_chart_calculation_run_admission_store import (
         OnlyPostgresChartCalculationRunAdmissionStore,
     )
 
@@ -486,7 +486,7 @@ def test_real_runtime_lock_covers_commit_and_retired_exact_replay(
     from onlyalpha.persistence.postgres.chart_calculation_compilation_store import (
         OnlyPostgresChartCalculationCompilationStore,
     )
-    from onlyalpha.persistence.postgres.chart_calculation_run_admission_store import (
+    from onlyalpha.persistence.postgres.research_chart_calculation_run_admission_store import (
         OnlyPostgresChartCalculationRunAdmissionStore,
     )
     from tests.application.test_chart_calculation_compilation import compilation

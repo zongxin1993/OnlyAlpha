@@ -1,4 +1,4 @@
-"""One transaction transfers a reserved Chart identity into the existing Research queue."""
+"""Research authority transfers a reserved Chart identity into its existing queue."""
 
 from __future__ import annotations
 

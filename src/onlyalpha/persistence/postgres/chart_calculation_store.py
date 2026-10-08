@@ -146,7 +146,9 @@ class OnlyPostgresChartCalculationAdmissionStore:
                 ):
                     raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
             else:
-                from .chart_calculation_run_admission_store import only_verify_chart_run_consumption_in_transaction
+                from .research_chart_calculation_run_admission_store import (
+                    only_verify_chart_run_consumption_in_transaction,
+                )
 
                 if only_verify_chart_run_consumption_in_transaction(connection, operation) is None:
                     raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")

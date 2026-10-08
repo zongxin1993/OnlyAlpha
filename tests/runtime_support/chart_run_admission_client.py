@@ -13,10 +13,10 @@ from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.persistence.postgres.chart_calculation_compilation_store import (
     OnlyPostgresChartCalculationCompilationStore,
 )
-from onlyalpha.persistence.postgres.chart_calculation_run_admission_store import (
+from onlyalpha.persistence.postgres.chart_calculation_store import OnlyPostgresChartCalculationAdmissionStore
+from onlyalpha.persistence.postgres.research_chart_calculation_run_admission_store import (
     OnlyPostgresChartCalculationRunAdmissionStore,
 )
-from onlyalpha.persistence.postgres.chart_calculation_store import OnlyPostgresChartCalculationAdmissionStore
 
 
 def main() -> None:
