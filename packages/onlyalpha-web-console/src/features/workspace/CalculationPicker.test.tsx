@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chartCatalogFixture } from "../../test/chartCatalog";
 import { CalculationPicker } from "./CalculationPicker";
@@ -26,6 +26,8 @@ beforeEach(() => {
     });
 });
 afterEach(() => {
+    // Unmount while the shim still exists; RTL's automatic cleanup may run later.
+    cleanup();
     for (const name of ["showModal", "close"] as const) {
         const descriptor = dialogDescriptors[name];
         if (descriptor === undefined) Reflect.deleteProperty(HTMLDialogElement.prototype, name);

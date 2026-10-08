@@ -63,6 +63,7 @@ WORKDIR /workspace/packages/onlyalpha-web-console
 COPY packages/onlyalpha-web-console/package.json packages/onlyalpha-web-console/package-lock.json ./
 RUN npm ci
 COPY packages/onlyalpha-web-console/ ./
+COPY test-data/web/catalog-navigation/ /workspace/test-data/web/catalog-navigation/
 EXPOSE 5173
 
 FROM web AS playwright
