@@ -9,6 +9,7 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
+import { CalculationPicker } from "./CalculationPicker";
 import {
     fixedDurationMinutes,
     formatBarSemantic,
@@ -16,7 +17,7 @@ import {
 } from "../../api/marketData/model";
 
 const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
-const CATALOG_NOTE = "指标/因子目录尚未接入正式 Catalog";
+const CATALOG_NOTE = "指标/因子仅选择正式目录；尚未执行计算";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -291,18 +292,7 @@ export function WorkspacePage() {
                             </ul>
                         )}
                     </div>
-                    {(["指标", "因子"] as const).map((label) => (
-                        <button
-                            key={label}
-                            type="button"
-                            className="picker__trigger"
-                            disabled
-                            title={CATALOG_NOTE}
-                        >
-                            <WorkspaceIcon name="results" />
-                            <span>{label}</span>
-                        </button>
-                    ))}
+                    <CalculationPicker />
                     <span className="chart-region__spacer">
                         <DataSourceEntry
                             overview={dataSources}

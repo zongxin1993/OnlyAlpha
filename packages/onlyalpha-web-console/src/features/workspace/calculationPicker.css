@@ -1,0 +1,54 @@
+.calculation-picker {
+    width: min(38rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    box-sizing: border-box;
+    overflow: auto;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+.calculation-picker::backdrop {
+    background: rgb(0 0 0 / 55%);
+}
+.calculation-picker header,
+.calculation-picker__search {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: space-between;
+}
+.calculation-picker__search input {
+    min-width: 0;
+    width: 100%;
+}
+.calculation-picker__entries {
+    list-style: none;
+    padding: 0;
+}
+.calculation-picker__entries li {
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 0;
+}
+.calculation-picker__entries h3 {
+    margin: 0;
+}
+.calculation-picker__entries p,
+.calculation-picker__identity p {
+    margin: 0.5rem 0;
+}
+.calculation-picker__entries dl {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.calculation-picker__entries dd {
+    margin: 0;
+}
+.calculation-handoff {
+    max-width: 18rem;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+}

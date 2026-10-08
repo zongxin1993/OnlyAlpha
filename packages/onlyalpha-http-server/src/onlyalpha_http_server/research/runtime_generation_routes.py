@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, Protocol
 
 from fastapi import APIRouter, HTTPException, Path
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 RUNTIME_GENERATION_ROUTE_TAG = "runtime-generation"
 ShaPath = Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")]
@@ -34,6 +34,7 @@ class ExactRuntimeGenerationDto(BaseModel):
 
     schema_version: Literal[1] = 1
     runtime_generation_fingerprint: str
+    catalog_generation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def create_runtime_generation_router(reader: OnlyRuntimeGenerationProjectionReader) -> APIRouter:
@@ -63,7 +64,10 @@ def create_runtime_generation_router(reader: OnlyRuntimeGenerationProjectionRead
         actual = getattr(manifest, "runtime_generation_fingerprint", None)
         if actual != runtime_generation_fingerprint:
             raise HTTPException(status_code=500, detail="RUNTIME_GENERATION_IDENTITY_MISMATCH")
-        return ExactRuntimeGenerationDto(runtime_generation_fingerprint=actual)
+        catalog = getattr(manifest, "catalog_generation_fingerprint", None)
+        if not isinstance(catalog, str) or len(catalog) != 64 or any(c not in "0123456789abcdef" for c in catalog):
+            raise HTTPException(status_code=500, detail="RUNTIME_GENERATION_CATALOG_BINDING_INVALID")
+        return ExactRuntimeGenerationDto(runtime_generation_fingerprint=actual, catalog_generation_fingerprint=catalog)
 
     return router
 

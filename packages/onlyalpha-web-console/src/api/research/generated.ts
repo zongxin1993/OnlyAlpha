@@ -1723,6 +1723,8 @@ export interface components {
         };
         /** ExactRuntimeGenerationDto */
         ExactRuntimeGenerationDto: {
+            /** Catalog Generation Fingerprint */
+            catalog_generation_fingerprint: string;
             /** Runtime Generation Fingerprint */
             runtime_generation_fingerprint: string;
             /**

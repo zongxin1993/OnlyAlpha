@@ -32,7 +32,14 @@ class _RuntimeGenerations:
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
         if runtime_generation_fingerprint != SHA:
             raise KeyError(runtime_generation_fingerprint)
-        return type("Manifest", (), {"runtime_generation_fingerprint": runtime_generation_fingerprint})()
+        return type(
+            "Manifest",
+            (),
+            {
+                "runtime_generation_fingerprint": runtime_generation_fingerprint,
+                "catalog_generation_fingerprint": "c" * 64,
+            },
+        )()
 
 
 @dataclass(frozen=True)
@@ -59,6 +66,7 @@ def test_runtime_generation_and_search_authoring_are_exact_read_only_product_pro
     assert client.get(f"/api/v2/research/runtime-generations/{SHA}").json() == {
         "schema_version": 1,
         "runtime_generation_fingerprint": SHA,
+        "catalog_generation_fingerprint": "c" * 64,
     }
     response = client.get(f"/api/v2/research/search/authoring/SYMBOLIC_SEARCH_SPACE/{SHA}")
     assert response.status_code == 200
@@ -75,6 +83,35 @@ def test_unknown_exact_runtime_generation_fails_closed() -> None:
     app = FastAPI()
     app.include_router(create_runtime_generation_router(_RuntimeGenerations(SHA)))
     assert TestClient(app).get(f"/api/v2/research/runtime-generations/{'b' * 64}").status_code == 404
+
+
+@pytest.mark.parametrize("catalog", [None, "", "not-a-fingerprint", "C" * 64, 123])
+def test_exact_runtime_catalog_binding_cannot_fall_back_to_runtime_identity(catalog: object) -> None:
+    class Reader(_RuntimeGenerations):
+        def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
+            return type(
+                "Manifest", (), {"runtime_generation_fingerprint": SHA, "catalog_generation_fingerprint": catalog}
+            )()
+
+    app = FastAPI()
+    app.include_router(create_runtime_generation_router(Reader(SHA)))
+    response = TestClient(app).get(f"/api/v2/research/runtime-generations/{SHA}")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "RUNTIME_GENERATION_CATALOG_BINDING_INVALID"}
+
+
+def test_exact_runtime_identity_mismatch_does_not_publish_catalog_binding() -> None:
+    class Reader(_RuntimeGenerations):
+        def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
+            return type(
+                "Manifest", (), {"runtime_generation_fingerprint": "b" * 64, "catalog_generation_fingerprint": SHA}
+            )()
+
+    app = FastAPI()
+    app.include_router(create_runtime_generation_router(Reader(SHA)))
+    response = TestClient(app).get(f"/api/v2/research/runtime-generations/{SHA}")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "RUNTIME_GENERATION_IDENTITY_MISMATCH"}
 
 
 class _SymbolicInputs:
