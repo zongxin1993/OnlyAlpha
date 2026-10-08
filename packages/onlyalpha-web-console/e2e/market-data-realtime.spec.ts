@@ -652,6 +652,19 @@ for (const width of [1440, 1024, 390]) {
         await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
         await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
         await expect(page.locator(".study-pane-empty")).toContainText("尚未计算");
+        const emptyPaneInsidePlot = await page.locator(".study-pane-empty").evaluate((label) => {
+            const plot = label.parentElement;
+            if (plot?.tagName !== "DIV") return false;
+            const text = label.getBoundingClientRect(),
+                bounds = plot.getBoundingClientRect();
+            return (
+                text.left >= bounds.left &&
+                text.right <= bounds.right &&
+                text.top >= bounds.top &&
+                text.bottom <= bounds.bottom
+            );
+        });
+        expect(emptyPaneInsidePlot).toBe(true);
         // DOM point/pane counts are insufficient: controls must leave a usable
         // native K-line/Volume viewport, including on the 390px mobile slice.
         await expect(renderedChart).toBeVisible();

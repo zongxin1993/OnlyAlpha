@@ -14,6 +14,8 @@
 }
 .study-pane-empty {
     position: absolute;
+    top: 0;
+    left: 0;
     margin: 0.4rem;
     color: var(--muted);
     font-size: 0.7rem;

@@ -117,7 +117,12 @@ export class StudySeriesRenderer {
             this.frame = null;
             for (const resource of this.resources.values())
                 if (resource.label !== null)
-                    resource.pane?.getHTMLElement()?.append(resource.label);
+                    // v5.2.1 exposes a native table row. Text belongs inside its
+                    // relative plot wrapper, never an extra anonymous table cell.
+                    resource.pane
+                        ?.getHTMLElement()
+                        ?.querySelector("td > div")
+                        ?.append(resource.label);
         });
     }
     get seriesCount(): number {
