@@ -55,9 +55,9 @@ async function controlledRealtime(
     page: Page,
     holdRecovery = false,
     acquireHistory = false,
-    defaultLive = false
+    defaultGlobal = false
 ) {
-    const environment = defaultLive ? "LIVE" : "US";
+    const environment = defaultGlobal ? "GLOBAL" : "US";
     let socket: WebSocketRoute | null = null;
     let connections = 0;
     const completedSteps = new Set<number>();

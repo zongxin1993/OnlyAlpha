@@ -151,6 +151,17 @@ def test_test_service_is_a_profile_of_the_canonical_topology_and_isolated() -> N
     assert test["depends_on"]["clickhouse"]["condition"] == "service_healthy"
 
 
+def test_dev_market_data_seed_uses_only_product_api_before_web_starts() -> None:
+    services = _compose()["services"]
+    seed = services["market-data-bootstrap"]
+    assert seed["command"] == ["python", "-m", "scripts.provision_dev_market_data"]
+    assert seed["environment"] == {"ONLYALPHA_PRODUCT_API_URL": "http://api:8000"}
+    assert seed["networks"] == ["application"]
+    assert "volumes" not in seed and "ports" not in seed
+    assert seed["depends_on"] == {"api": {"condition": "service_healthy"}}
+    assert services["web"]["depends_on"]["market-data-bootstrap"] == {"condition": "service_completed_successfully"}
+
+
 def test_dev_dockerfile_builds_python_and_web_targets_without_business_credentials() -> None:
     dockerfile = (DEPLOY / "Dockerfile.dev").read_text(encoding="utf-8")
     assert "FROM python:3.12.12-slim-bookworm@sha256:" in dockerfile

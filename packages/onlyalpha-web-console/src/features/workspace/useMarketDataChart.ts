@@ -38,6 +38,7 @@ import {
 export const DEFAULT_TARGET_BAR_COUNT = 1_440;
 /** Presentation preference only; mutable source/Revision identities come from the server. */
 const DEFAULT_SOURCE_TYPE = "binance.spot.market_data";
+const DEFAULT_SOURCE_ENVIRONMENT = "GLOBAL";
 const DEFAULT_INSTRUMENT_ID = "BTCUSDT.BINANCE";
 export const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const;
 
@@ -641,7 +642,9 @@ export function useMarketDataChart(): MarketDataChartState {
                     );
                 setSources(found);
                 const matches = found.filter(
-                    (item) => item.type_id === DEFAULT_SOURCE_TYPE && item.environment === "LIVE"
+                    (item) =>
+                        item.type_id === DEFAULT_SOURCE_TYPE &&
+                        item.environment === DEFAULT_SOURCE_ENVIRONMENT
                 );
                 if (matches.length === 1 && matches[0] !== undefined)
                     selectSource(matches[0].integration_id);
@@ -649,8 +652,8 @@ export function useMarketDataChart(): MarketDataChartState {
                     selectSource("");
                     setMessage(
                         matches.length === 0
-                            ? "未配置可用的 Binance Spot LIVE 数据源"
-                            : "请选择 Binance Spot LIVE 数据源"
+                            ? "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
+                            : "请选择 Binance Spot 公共行情数据源（GLOBAL）"
                     );
                 }
             })
@@ -672,7 +675,7 @@ export function useMarketDataChart(): MarketDataChartState {
         // never a locally authored DTO or a first-row substitute.
         if (
             selectedSource?.type_id !== DEFAULT_SOURCE_TYPE ||
-            selectedSource.environment !== "LIVE"
+            selectedSource.environment !== DEFAULT_SOURCE_ENVIRONMENT
         )
             return;
         const controller = new AbortController();

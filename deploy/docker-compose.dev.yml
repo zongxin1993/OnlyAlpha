@@ -119,6 +119,20 @@ services:
       start_period: 15s
     networks: [database, application]
 
+  market-data-bootstrap:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: runtime
+    command: ["python", "-m", "scripts.provision_dev_market_data"]
+    environment:
+      ONLYALPHA_PRODUCT_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    # HTTP-only startup client: no database network, credentials or shared volumes.
+    networks: [application]
+
   web:
     build:
       context: ..
@@ -130,6 +144,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      market-data-bootstrap:
+        condition: service_completed_successfully
     ports:
       - "${ONLYALPHA_WEB_PORT:-5173}:5173"
     healthcheck:

@@ -77,7 +77,7 @@ it("never presents absent API proof as synthetic business facts or success", asy
     renderWorkspace();
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "未配置可用的 Binance Spot LIVE 数据源"
+            "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
         );
     });
     expect(screen.getByTestId("market-data-observation")).toHaveAttribute(

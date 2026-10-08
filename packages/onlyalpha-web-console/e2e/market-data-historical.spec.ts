@@ -26,10 +26,10 @@ const semantic = (durationMinutes: number) => ({
 const source = {
     integration_id: integrationId,
     integration_revision_fingerprint: revision,
-    display_name: "Binance Spot LIVE",
+    display_name: "Binance Spot Market Data",
     type_id: "binance.spot.market_data",
     source_id: "binance.spot.market_data.live",
-    environment: "LIVE",
+    environment: "GLOBAL",
     time_bar_capability: {
         provider_base_semantic: semantic(1),
         derived_algorithm: "TIME_BAR@1",
@@ -333,7 +333,7 @@ test("ambiguous default sources require explicit choice without any Bar request"
     ]);
     await page.goto("/");
     await expect(page.getByTestId("market-data-status")).toContainText(
-        "请选择 Binance Spot LIVE 数据源"
+        "请选择 Binance Spot 公共行情数据源（GLOBAL）"
     );
     await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue("");
     expect(fixture.queriedSteps).toEqual([]);
@@ -404,7 +404,7 @@ for (const width of [1440, 1024, 390]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto("/");
         await expect(page.getByTestId("market-data-status")).toContainText(
-            "未配置可用的 Binance Spot LIVE 数据源"
+            "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
         );
         await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
             "data-observation-mode",

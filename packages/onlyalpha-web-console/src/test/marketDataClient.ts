@@ -17,7 +17,7 @@ export const FIXTURE_SELECTION: MarketDataSourceSelection = {
     integration_revision_fingerprint: "a".repeat(64),
     type_id: "test.market_data",
     source_id: "test.market_data.live",
-    environment: "LIVE"
+    environment: "GLOBAL"
 };
 
 export const FIXTURE_REFERENCE: MarketDataSourceReference = {
@@ -33,7 +33,7 @@ export function marketDataSource(overrides: Partial<MarketDataSource> = {}): Mar
         display_name: "Fixture Source",
         type_id: "test.market_data",
         source_id: "test.market_data.live",
-        environment: "LIVE",
+        environment: "GLOBAL",
         time_bar_capability: {
             provider_base_semantic: marketDataBarSemantic(1),
             derived_algorithm: "TIME_BAR@1",

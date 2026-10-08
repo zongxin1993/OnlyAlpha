@@ -206,7 +206,7 @@ const binanceSource = (overrides: Partial<MarketDataSource> = {}) =>
     marketDataSource({
         type_id: "binance.spot.market_data",
         source_id: "server-reported-binance-live",
-        environment: "LIVE",
+        environment: "GLOBAL",
         integration_revision_fingerprint: "b".repeat(64),
         ...overrides
     });
@@ -220,7 +220,7 @@ const sourceSelection = (source: MarketDataSource) => ({
     environment: source.environment
 });
 
-it("defaults to the exact server Binance LIVE source and BTCUSDT with first history and stream at 15m", async () => {
+it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first history and stream at 15m", async () => {
     const source = binanceSource();
     const instrument = binanceInstrument();
     const reference = {
@@ -271,7 +271,8 @@ it.each([
     ["other provider", [marketDataSource()]],
     ["US", [binanceSource({ environment: "US" })]],
     ["testnet", [binanceSource({ environment: "SPOT_TESTNET" })]],
-    ["TEST", [binanceSource({ environment: "TEST" })]]
+    ["TEST", [binanceSource({ environment: "TEST" })]],
+    ["non-contract LIVE label", [binanceSource({ environment: "LIVE" })]]
 ] as const)(
     "defaults to an honest setup state without any default substitute: %s",
     async (_name, sources) => {
@@ -288,7 +289,7 @@ it.each([
         );
         await waitFor(() => {
             expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-                "未配置可用的 Binance Spot LIVE 数据源"
+                "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
             );
         });
         expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("");
@@ -301,7 +302,7 @@ it.each([
     }
 );
 
-it("defaults to explicit source choice for multiple LIVE sources, then bootstraps only the manually chosen source", async () => {
+it("defaults to explicit source choice for multiple GLOBAL sources, then bootstraps only the manually chosen source", async () => {
     const sources = [
         binanceSource(),
         binanceSource({
@@ -329,7 +330,7 @@ it("defaults to explicit source choice for multiple LIVE sources, then bootstrap
     );
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "请选择 Binance Spot LIVE 数据源"
+            "请选择 Binance Spot 公共行情数据源（GLOBAL）"
         );
     });
     expect(queryBars).not.toHaveBeenCalled();
@@ -1077,7 +1078,7 @@ it("renders no invented candles in an unconfigured workspace", async () => {
         expect(renderedPrices()).toEqual([]);
     });
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        "未配置可用的 Binance Spot LIVE 数据源"
+        "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
     );
     expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未接入正式 Catalog");
 });

@@ -130,7 +130,11 @@ Source capability 显式报告是否提供该 Calendar，以及最小/最大 ste
 
 ## Browser Bar Ledger
 
-Web 工作区的开发默认偏好是 `binance.spot.market_data` / `LIVE`，不是持久化来源绑定或 Provider availability
+唯一 canonical 开发 Compose 栈在 Web 启动前，通过 versioned Product API 自动创建并发布 Binance Spot Market Data
+公共行情源，无需人工添加或 API key；已有来源和后续人工禁用/修改会保留（见 `docs/deployment.md`）。发布配置不等于
+行情 READY 认证，也不授予交易 LIVE Authority。
+
+Web 工作区的开发默认偏好是 `binance.spot.market_data` / `GLOBAL`（公共实盘行情），不是持久化来源绑定或 Provider availability
 Authority。只有 Product sources 投影中恰有一个匹配来源时才自动选定；零个显示配置入口，多个要求显式选择。
 Integration ID、Revision fingerprint 与 Source ID 均来自服务端。选定匹配来源后，使用正式 Instrument query
 搜索 `BTCUSDT`，仅采用唯一的 `BTCUSDT.BINANCE` 成员；缺失或重复不得以其他标的代替。第一笔历史查询和
