@@ -331,84 +331,102 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
-                <ChartStudies
-                    key={studyContext?.key ?? "no-chart-context"}
-                    context={studyContext}
-                />
-                <p className="chart-region__overlay-note" data-testid="real-overlay-note">
-                    {CATALOG_NOTE}
-                </p>
-                <p
-                    className="chart-region__status"
-                    role="status"
-                    data-status={marketData.status}
-                    data-loaded-bar-count={marketData.loadedClosedBarCount}
-                    data-older-history-status={marketData.olderHistoryStatus}
-                    data-testid="market-data-status"
-                >
-                    {statusCopy}
-                    {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
-                </p>
-                <div
-                    className="chart-observation"
-                    data-testid="market-data-observation"
-                    data-observation-mode={observationMode}
-                    data-bar-start-ns={observation?.barStartNs ?? ""}
-                    data-chart-context-key={marketData.chartContextKey ?? ""}
-                >
-                    <span>
-                        {observation == null
-                            ? "UTC —"
-                            : new Date(observation.time * 1000)
-                                  .toISOString()
-                                  .replace("T", " ")
-                                  .replace(".000Z", " UTC")}
-                    </span>
-                    {(["open", "high", "low", "close", "volume"] as const).map((field) => (
-                        <span key={field}>
-                            {{ open: "O", high: "H", low: "L", close: "C", volume: "V" }[field]}{" "}
-                            <span data-observation-field={field}>
-                                {observation?.[field] ?? "—"}
-                            </span>
-                        </span>
-                    ))}
-                    <span>
-                        {observationMode === "crosshair"
-                            ? "十字线"
-                            : observationMode === "preview"
-                              ? "实时预览"
-                              : observationMode === "latest-closed"
-                                ? "最新已关闭"
-                                : "不可用"}
-                    </span>
-                </div>
-                <div className="chart-region__body">
-                    <PriceChart
-                        chartType={chartType}
-                        onSelection={setSelection}
-                        barSemantic={marketData.barSemantic}
-                        bars={marketData.bars}
-                        liveBar={marketData.liveBar}
-                        contextKey={marketData.chartContextKey}
-                        onNearLeftEdge={() => {
-                            void marketData.loadOlderHistory();
-                        }}
-                    />
-                    {latestBar == null ? (
-                        <div className="chart-region__empty" aria-label="行情空态">
-                            <p>{statusCopy}</p>
-                            <button
-                                type="button"
-                                className="button-secondary"
-                                onClick={() => {
-                                    setManagerOpen(true);
-                                }}
+                <ChartStudies key={studyContext?.key ?? "no-chart-context"} context={studyContext}>
+                    {({ instances, selectedId, incarnationKey }) => (
+                        <>
+                            <p
+                                className="chart-region__overlay-note"
+                                data-testid="real-overlay-note"
                             >
-                                管理数据源
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
+                                {CATALOG_NOTE}
+                            </p>
+                            <p
+                                className="chart-region__status"
+                                role="status"
+                                data-status={marketData.status}
+                                data-loaded-bar-count={marketData.loadedClosedBarCount}
+                                data-older-history-status={marketData.olderHistoryStatus}
+                                data-testid="market-data-status"
+                            >
+                                {statusCopy}
+                                {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
+                            </p>
+                            <div
+                                className="chart-observation"
+                                data-testid="market-data-observation"
+                                data-observation-mode={observationMode}
+                                data-bar-start-ns={observation?.barStartNs ?? ""}
+                                data-chart-context-key={marketData.chartContextKey ?? ""}
+                            >
+                                <span>
+                                    {observation == null
+                                        ? "UTC —"
+                                        : new Date(observation.time * 1000)
+                                              .toISOString()
+                                              .replace("T", " ")
+                                              .replace(".000Z", " UTC")}
+                                </span>
+                                {(["open", "high", "low", "close", "volume"] as const).map(
+                                    (field) => (
+                                        <span key={field}>
+                                            {
+                                                {
+                                                    open: "O",
+                                                    high: "H",
+                                                    low: "L",
+                                                    close: "C",
+                                                    volume: "V"
+                                                }[field]
+                                            }{" "}
+                                            <span data-observation-field={field}>
+                                                {observation?.[field] ?? "—"}
+                                            </span>
+                                        </span>
+                                    )
+                                )}
+                                <span>
+                                    {observationMode === "crosshair"
+                                        ? "十字线"
+                                        : observationMode === "preview"
+                                          ? "实时预览"
+                                          : observationMode === "latest-closed"
+                                            ? "最新已关闭"
+                                            : "不可用"}
+                                </span>
+                            </div>
+                            <div className="chart-region__body">
+                                <PriceChart
+                                    studies={instances}
+                                    selectedStudyId={selectedId}
+                                    incarnationKey={incarnationKey}
+                                    chartType={chartType}
+                                    onSelection={setSelection}
+                                    barSemantic={marketData.barSemantic}
+                                    bars={marketData.bars}
+                                    liveBar={marketData.liveBar}
+                                    contextKey={marketData.chartContextKey}
+                                    onNearLeftEdge={() => {
+                                        void marketData.loadOlderHistory();
+                                    }}
+                                />
+                                {latestBar == null ? (
+                                    <div className="chart-region__empty" aria-label="行情空态">
+                                        <p>{statusCopy}</p>
+                                        <button
+                                            type="button"
+                                            className="button-secondary"
+                                            onClick={() => {
+                                                setManagerOpen(true);
+                                            }}
+                                        >
+                                            管理数据源
+                                        </button>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </>
+                    )}
+                </ChartStudies>
             </section>
             <aside className="context-panel" aria-label="上下文面板">
                 <div className="panel-tabs" role="group" aria-label="上下文面板视图">

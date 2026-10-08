@@ -15,6 +15,25 @@
     margin: 0.25rem 0;
     font-size: 0.75rem;
 }
+.chart-studies button {
+    min-height: 1.8rem;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.75rem;
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--line);
+}
+.chart-studies button[aria-pressed="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+    color: var(--accent);
+}
+.chart-region__overlay-note {
+    margin: 0.3rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--muted);
+}
 .chart-studies__list {
     list-style: none;
     padding: 0;
@@ -31,6 +50,15 @@
     font-size: 0.75rem;
     overflow-wrap: anywhere;
     border-top: 1px solid var(--line);
+}
+.chart-studies__list li[data-selected="true"] {
+    background: var(--accent-soft);
+}
+.study-color {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
 .chart-study-editor .calculation-handoff {
     display: block;
@@ -70,4 +98,9 @@
     display: flex;
     justify-content: flex-end;
     gap: 0.5rem;
+}
+@media (max-width: 767px) {
+    .chart-studies__list {
+        max-height: 6rem;
+    }
 }

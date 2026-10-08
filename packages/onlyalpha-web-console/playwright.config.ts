@@ -12,6 +12,13 @@ export default defineConfig({
     },
     webServer: [
         {
+            // Controlled renderer fixture is served only by this test server;
+            // the production build has no fixture entry point or Result adapter.
+            command: "npm exec -- vite --host 127.0.0.1 --port 4180 --strictPort",
+            url: "http://127.0.0.1:4180/e2e/support/study-renderer.html",
+            reuseExistingServer: !process.env.CI
+        },
+        {
             command: "uv run --project ../.. python ../../scripts/serve_research_web_e2e.py",
             url: "http://127.0.0.1:8000/openapi.json",
             reuseExistingServer: !process.env.CI

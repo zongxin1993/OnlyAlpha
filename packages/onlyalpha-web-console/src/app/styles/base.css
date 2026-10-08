@@ -1703,6 +1703,9 @@ th {
     }
 }
 @media (max-width: 900px) {
+    .chart-workspace:not([data-bottom-collapsed="true"]) {
+        --bottom-height: 5rem;
+    }
     .topbar-mode {
         display: none;
     }
