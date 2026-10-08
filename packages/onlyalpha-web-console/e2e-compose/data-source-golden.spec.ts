@@ -72,4 +72,7 @@ test("Binance Spot Data Source preserves exact-Revision probe evidence", async (
     await probe(page, "FAILED");
     await scenario(page, "ALL_PASS");
     await probe(page, "READY");
+    // Keep this test-owned source out of the following unique-default chart journey.
+    await page.getByRole("button", { name: "禁用", exact: true }).click();
+    await expect(page.getByRole("button", { name: "启用", exact: true })).toBeEnabled();
 });

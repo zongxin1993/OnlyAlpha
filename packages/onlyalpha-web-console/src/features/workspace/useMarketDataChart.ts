@@ -100,6 +100,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
     const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
     const [sourceId, setSourceId] = useState("");
+    const selectedSourceId = useRef("");
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
     const [instrument, setInstrument] = useState<MarketDataInstrument | null>(null);
     const [barSemantic, setBarSemantic] = useState(marketDataBarSemantic(15));
@@ -605,6 +606,8 @@ export function useMarketDataChart(): MarketDataChartState {
     }, [barSemantic, failLedger, instrument, load, reference, resolvedSourceId, status]);
 
     const selectSource = useCallback((integrationId: string) => {
+        if (integrationId !== "" && integrationId === selectedSourceId.current) return;
+        selectedSourceId.current = integrationId;
         streamGeneration.current += 1;
         historyGeneration.current += 1;
         setSourceId(integrationId);
@@ -730,22 +733,32 @@ export function useMarketDataChart(): MarketDataChartState {
                 return;
             }
             const generation = historyGeneration.current;
-            setStatus("searching");
+            // Searching is an input operation, not a replacement of an active chart incarnation.
+            if (instrument === null) setStatus("searching");
             try {
                 const found = await client.listInstruments(reference, query);
                 if (generation !== historyGeneration.current) return;
                 setInstruments(found);
-                setStatus("idle");
+                if (instrument === null) setStatus("idle");
                 setMessage(found.length === 0 ? "未找到匹配标的" : null);
             } catch (error) {
-                if (generation === historyGeneration.current) apply(error);
+                if (generation !== historyGeneration.current) return;
+                if (instrument === null) apply(error);
+                else setMessage("标的搜索失败；当前行情上下文保持不变");
             }
         },
-        [apply, client, reference]
+        [apply, client, instrument, reference]
     );
 
     const selectInstrument = useCallback(
         async (target: MarketDataInstrument) => {
+            if (
+                target.instrument_id === instrument?.instrument_id &&
+                status !== "failed" &&
+                status !== "incomplete" &&
+                realtimeStatus !== "failed"
+            )
+                return;
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
             setLastClosedCursor(null);
@@ -760,7 +773,7 @@ export function useMarketDataChart(): MarketDataChartState {
             }
             await load(reference, selectedSource.source_id, target, barSemantic, generation);
         },
-        [barSemantic, load, reference, selectedSource]
+        [barSemantic, instrument, load, realtimeStatus, reference, selectedSource, status]
     );
 
     const selectBarDuration = useCallback(
@@ -772,6 +785,13 @@ export function useMarketDataChart(): MarketDataChartState {
             )
                 return;
             const specification = marketDataBarSemantic(durationMinutes);
+            if (
+                JSON.stringify(specification) === JSON.stringify(barSemantic) &&
+                status !== "failed" &&
+                status !== "incomplete" &&
+                realtimeStatus !== "failed"
+            )
+                return;
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
             resume.current = null;
@@ -794,7 +814,16 @@ export function useMarketDataChart(): MarketDataChartState {
                     generation
                 );
         },
-        [barCapability, instrument, load, reference, selectedSource]
+        [
+            barCapability,
+            barSemantic,
+            instrument,
+            load,
+            realtimeStatus,
+            reference,
+            selectedSource,
+            status
+        ]
     );
 
     const loadOlderHistory = useCallback(async () => {

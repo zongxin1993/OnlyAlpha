@@ -5,7 +5,8 @@ import type { MarketDataStreamEvent } from "../../api/marketData/stream";
 import {
     fixedDurationMinutes,
     marketDataBarSemantic,
-    type MarketDataBars
+    type MarketDataBars,
+    type MarketDataSourceReference
 } from "../../api/marketData/model";
 import type { MarketDataBarsQuery } from "../../api/marketData/client";
 import {
@@ -242,6 +243,14 @@ function Harness() {
             </button>
             <button
                 type="button"
+                onClick={() => {
+                    state.selectSource("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+                }}
+            >
+                second source
+            </button>
+            <button
+                type="button"
                 onClick={() => void state.selectInstrument(marketDataInstrument())}
             >
                 btc
@@ -261,6 +270,9 @@ function Harness() {
             <button type="button" onClick={() => void state.loadOlderHistory()}>
                 older
             </button>
+            <button type="button" onClick={() => void state.searchInstruments("ETHUSDT")}>
+                search
+            </button>
             <output>{state.liveBar?.close ?? "none"}</output>
             <output data-testid="closed-bars">
                 {state.bars.map((bar) => bar.close).join(",")}
@@ -275,6 +287,11 @@ function Harness() {
             <output data-testid="stream-error">{state.streamError ?? "none"}</output>
             <output data-testid="exact-bars">{JSON.stringify(state.bars)}</output>
             <output data-testid="exact-preview">{JSON.stringify(state.liveBar)}</output>
+            <output data-testid="coverage">{state.coverage?.status ?? "none"}</output>
+            <output data-testid="history-proof">
+                {state.historyProjectionFingerprint ?? "none"}
+            </output>
+            <output data-testid="resolved-source">{state.resolvedSourceId ?? "none"}</output>
         </>
     );
 }
@@ -950,4 +967,238 @@ it("reconnects transient closes with bounded exponential delays and the same res
     act(() => stream.disconnects[1]?.());
     expect(timer.mock.calls.at(-1)?.[1]).toBe(500);
     timer.mockRestore();
+});
+
+it("keeps the active ledger, cursor and stream when reselecting the current context", async () => {
+    resetStream();
+    const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
+        Promise.resolve(marketDataBarsForQuery(query))
+    );
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({ queryBars })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await selectFixtureSource(user);
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    act(() => {
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+        stream.callbacks[0]?.({ schema_version: 2, event: "BASE_CURSOR", sequence: "29453762" });
+    });
+    const context = screen.getByTestId("context-key").textContent;
+    const bars = screen.getByTestId("exact-bars").textContent;
+    for (const name of ["source", "btc", "1m"]) {
+        await user.click(screen.getByRole("button", { name }));
+        expect(screen.getByTestId("context-key").textContent).toBe(context);
+        expect(screen.getByTestId("exact-bars").textContent).toBe(bars);
+        expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
+        expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
+        expect(queryBars).toHaveBeenCalledTimes(1);
+        expect(stream.requests).toHaveLength(1);
+        expect(stream.closed.count).toBe(0);
+    }
+});
+
+it("keeps admitted history and its live consumer when an instrument search fails", async () => {
+    resetStream();
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({
+                listInstruments: () => Promise.reject(new Error("search unavailable"))
+            })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await selectFixtureSource(user);
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    const bars = screen.getByTestId("exact-bars").textContent;
+    const context = screen.getByTestId("context-key").textContent;
+    const proof = screen.getByTestId("history-proof").textContent;
+    await user.click(screen.getByRole("button", { name: "search" }));
+    expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
+    expect(screen.getByTestId("exact-bars").textContent).toBe(bars);
+    expect(screen.getByTestId("context-key").textContent).toBe(context);
+    expect(screen.getByTestId("history-proof").textContent).toBe(proof);
+    expect(stream.requests).toHaveLength(1);
+    expect(stream.closed.count).toBe(0);
+});
+
+it.each(["btc", "1m"])(
+    "allows explicit %s recovery after terminal stream failure",
+    async (action) => {
+        resetStream();
+        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
+            Promise.resolve(marketDataBarsForQuery(query))
+        );
+        const user = userEvent.setup();
+        render(
+            <AppProviders
+                client={researchClient()}
+                integrationClient={integrationClient()}
+                marketDataClient={marketDataClient({ queryBars })}
+            >
+                <Harness />
+            </AppProviders>
+        );
+        await selectFixtureSource(user);
+        await user.click(screen.getByRole("button", { name: "btc" }));
+        await waitFor(() => {
+            expect(stream.requests).toHaveLength(1);
+        });
+        act(() => {
+            stream.callbacks[0]?.({
+                schema_version: 2,
+                event: "ERROR",
+                code: "PROVIDER_UNAVAILABLE"
+            });
+        });
+        expect(screen.getByTestId("realtime-status")).toHaveTextContent("failed");
+        await user.click(screen.getByRole("button", { name: action }));
+        await waitFor(() => {
+            expect(stream.requests).toHaveLength(2);
+        });
+        expect(queryBars).toHaveBeenCalledTimes(2);
+        expect(stream.closed.count).toBe(1);
+        expect(screen.getByTestId("realtime-status")).toHaveTextContent("connecting");
+    }
+);
+
+it.each(["btc", "1m"])("allows explicit %s re-entry after incomplete history", async (action) => {
+    resetStream();
+    const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
+        Promise.resolve(
+            marketDataBarsForQuery(
+                query,
+                queryBars.mock.calls.length <= 2
+                    ? {
+                          ...incompleteBars(),
+                          anchor_kind: query.anchor_kind,
+                          requested_before_ns: query.before_ns ?? null,
+                          instrument_id: query.instrument_id,
+                          bar_semantic: query.bar_semantic,
+                          coverage: { ...incompleteBars().coverage, planned_acquisition_ranges: [] }
+                      }
+                    : {}
+            )
+        )
+    );
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({ queryBars })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await selectFixtureSource(user);
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-status")).toHaveTextContent("incomplete");
+    });
+    expect(stream.requests).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: action }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    expect(queryBars).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
+});
+
+it("fences held out-of-order history across rapid source, instrument and period changes", async () => {
+    resetStream();
+    const secondSource = marketDataSource({
+        integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        integration_revision_fingerprint: "b".repeat(64),
+        source_id: "second.server.source"
+    });
+    const held: { release: (bars: MarketDataBars) => void; bars: MarketDataBars }[] = [];
+    const queryBars = vi.fn((_reference: MarketDataSourceReference, query: MarketDataBarsQuery) => {
+        const bars = marketDataBarsForQuery(query, {
+            source_selection:
+                _reference.integration_id === secondSource.integration_id
+                    ? {
+                          ...FIXTURE_SELECTION,
+                          integration_id: secondSource.integration_id,
+                          integration_revision_fingerprint:
+                              secondSource.integration_revision_fingerprint,
+                          source_id: secondSource.source_id
+                      }
+                    : FIXTURE_SELECTION
+        });
+        if (queryBars.mock.calls.length === 1) return Promise.resolve(bars);
+        return new Promise<MarketDataBars>((release) => {
+            held.push({ release, bars });
+        });
+    });
+    const user = userEvent.setup();
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({
+                listSources: () => Promise.resolve([marketDataSource(), secondSource]),
+                queryBars
+            })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await selectFixtureSource(user);
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    for (const name of ["eth", "7m", "second source", "btc", "37m"]) {
+        await user.click(screen.getByRole("button", { name }));
+        expect(screen.getByTestId("coverage")).toHaveTextContent("none");
+        expect(screen.getByTestId("history-proof")).toHaveTextContent("none");
+        expect(screen.getByTestId("resolved-source")).toHaveTextContent("none");
+        expect(screen.getByTestId("exact-bars")).toHaveTextContent("[]");
+    }
+    expect(held).toHaveLength(4);
+    const final = held[3];
+    if (final === undefined) throw new Error("Final history request not held");
+    await act(async () => {
+        final.release(final.bars);
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(2);
+    });
+    const current = screen.getByTestId("context-key").textContent;
+    expect(current).toContain(secondSource.integration_revision_fingerprint);
+    expect(current).toContain("BTCUSDT.TEST");
+    expect(current).toContain('"window_minutes":37');
+    expect(stream.closed.count).toBe(1);
+    for (const index of [1, 0, 2]) {
+        const stale = held[index];
+        if (stale === undefined) throw new Error("Stale history request not held");
+        await act(async () => {
+            stale.release(stale.bars);
+            stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+            await Promise.resolve();
+        });
+        expect(screen.getByTestId("context-key").textContent).toBe(current);
+        expect(screen.getByTestId("resolved-source")).toHaveTextContent(secondSource.source_id);
+        expect(screen.getByTestId("realtime-status")).toHaveTextContent("connecting");
+        expect(stream.requests).toHaveLength(2);
+        expect(stream.closed.count).toBe(1);
+    }
 });

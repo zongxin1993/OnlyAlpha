@@ -278,8 +278,17 @@ for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
         await mockDataSources(page);
         await page.goto("/");
-        const trigger = page.getByRole("button", { name: /数据源/ });
+        // The chart setup manager coexists with the status entry; target its actual control.
+        const trigger = page.locator(".data-source-entry").getByRole("button", { name: /数据源/ });
+        await expect(trigger).toHaveCount(1);
+        await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
         await expect(trigger).toBeVisible();
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        await expect(page.getByRole("dialog", { name: "数据源状态" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog", { name: "数据源状态" })).toBeHidden();
+        await expect(trigger).toBeFocused();
         await trigger.click();
         const popover = page.getByRole("dialog", { name: "数据源状态" });
         await expect(popover.getByText("Fixture Market Data")).toBeVisible();
@@ -298,6 +307,7 @@ for (const width of [1440, 390]) {
             .toBe(true);
         await page.keyboard.press("Escape");
         await expect(modal).toBeHidden();
+        await expect(trigger).toBeFocused();
         await expect(page.getByRole("region", { name: "主图" })).toBeVisible();
     });
 }

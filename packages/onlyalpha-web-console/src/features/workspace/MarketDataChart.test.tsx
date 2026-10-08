@@ -266,6 +266,40 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
     expect(screen.getByRole("button", { name: "因子" })).toBeDisabled();
 });
 
+it("keeps the default chart incarnation when reselecting its source, instrument and 15m", async () => {
+    const source = binanceSource();
+    const instrument = binanceInstrument();
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve([source]),
+            listInstruments: () => Promise.resolve([instrument]),
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    const user = userEvent.setup();
+    const observation = screen.getByTestId("market-data-observation");
+    const context = observation.getAttribute("data-chart-context-key");
+    await user.selectOptions(
+        screen.getByRole("combobox", { name: "数据源" }),
+        source.integration_id
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "15");
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "BTCUSDT{Enter}");
+    await user.click(screen.getByRole("button", { name: /BTCUSDT\.BINANCE/ }));
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(streams.requests).toHaveLength(1);
+    expect(observation).toHaveAttribute("data-chart-context-key", context);
+    expect(renderedPrices()).toEqual([101, 102.5]);
+});
+
 it.each([
     ["empty", []],
     ["other provider", [marketDataSource()]],
