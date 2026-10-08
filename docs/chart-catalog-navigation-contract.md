@@ -149,3 +149,8 @@ Series addition/removal can change the union time-axis indexes; viewport rebasin
 anchors and fractional offsets, not a fresh fitContent. Price, Volume and other instance resources
 remain independent across pane compaction, movement, chart-mode switches and removal. Unmount releases
 native series/panes, callbacks and pending paint work. These display resources are not persisted.
+
+The legend uses compact, focusable display controls and a bounded scrollable instance list. On narrow
+screens the inactive Research dock keeps its tabs and expand/collapse controls but takes less initial
+height, preserving the primary K-line/Volume viewport. Browser acceptance checks usable native chart
+height after multiple instances, not just populated point counters or absence of horizontal overflow.

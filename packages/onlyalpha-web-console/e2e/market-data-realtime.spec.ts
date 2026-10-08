@@ -652,6 +652,11 @@ for (const width of [1440, 1024, 390]) {
         await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
         await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
         await expect(page.locator(".study-pane-empty")).toContainText("尚未计算");
+        // DOM point/pane counts are insufficient: controls must leave a usable
+        // native K-line/Volume viewport, including on the 390px mobile slice.
+        await expect(renderedChart).toBeVisible();
+        const chartBox = await renderedChart.boundingBox();
+        expect(chartBox?.height ?? 0).toBeGreaterThanOrEqual(160);
         await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
         await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
         await first.getByRole("button", { name: "移除配置", exact: true }).press("Enter");
