@@ -489,6 +489,58 @@ for (const width of [1440, 1024, 390]) {
     });
 }
 
+test("registered discovery selection without Runtime preserves BTCUSDT history and realtime", async ({
+    page
+}) => {
+    const market = await controlledRealtime(page, false, false, true);
+    const fixture = chartCatalogFixture();
+    const catalogRequests: string[] = [];
+    await page.route("**/api/v2/research/**", (route) => {
+        expect(route.request().method()).toBe("GET");
+        const path = new URL(route.request().url()).pathname;
+        catalogRequests.push(path);
+        expect([
+            "/api/v2/research/runtime-generations/active",
+            "/api/v2/research/catalog/calculations"
+        ]).toContain(path);
+        return route.fulfill({
+            status: path.endsWith("/active") ? 503 : 200,
+            contentType: "application/json",
+            body: JSON.stringify(
+                path.endsWith("/active")
+                    ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                    : fixture.discovery
+            )
+        });
+    });
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    const observation = page.getByTestId("market-data-observation");
+    const context = await observation.getAttribute("data-chart-context-key");
+    const baseline = {
+        queries: market.historyAnchors.length,
+        subscriptions: market.subscriptions.length,
+        acquisitions: market.acquisitions()
+    };
+    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    const handoff = page.getByTestId("calculation-handoff");
+    await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
+    await expect(handoff).toContainText("尚未计算");
+    await expect(observation).toHaveAttribute("data-chart-context-key", context ?? "");
+    market.emitPreview();
+    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    expect(market.historyAnchors).toHaveLength(baseline.queries);
+    expect(market.subscriptions).toHaveLength(baseline.subscriptions);
+    expect(market.acquisitions()).toBe(baseline.acquisitions);
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    expect(catalogRequests).toEqual([
+        "/api/v2/research/runtime-generations/active",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations"
+    ]);
+});
+
 test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");

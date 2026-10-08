@@ -5,6 +5,7 @@ type Capability = Record<string, unknown> & {
     implementation_fingerprint: string;
 };
 interface Responses {
+    discovery: Record<string, unknown>;
     active: { schema_version: number; runtime_generation_fingerprint: string };
     binding: {
         schema_version: number;

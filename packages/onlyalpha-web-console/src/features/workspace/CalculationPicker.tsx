@@ -4,9 +4,11 @@ import {
     ChartCatalogError,
     readActiveRuntime,
     readChartCatalog,
+    readRegisteredCalculations,
     type ChartCatalog,
     type ChartCatalogEntry,
-    type ChartCalculationDraft
+    type ChartCalculationDraft,
+    type RegisteredCalculation
 } from "../../api/research/chartCatalog";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import "./calculationPicker.css";
@@ -16,16 +18,20 @@ type CatalogState =
     | { readonly status: "idle" }
     | { readonly status: "loading" }
     | { readonly status: "ready"; readonly catalog: ChartCatalog }
+    | { readonly status: "registered"; readonly entries: readonly RegisteredCalculation[] }
     | { readonly status: "error"; readonly error: ChartCatalogError["code"] };
 const messages: Record<ChartCatalogError["code"], string> = {
-    NO_RUNTIME: "没有可用于新工作的 Runtime Generation；目录未接入。",
+    NO_RUNTIME: "没有可用于新工作的 Runtime Generation；执行未接入。",
     MISSING_CATALOG: "绑定的精确 Catalog 不存在；目录未接入。",
-    STALE: "Runtime Generation 已切换；旧目录与选择已失效，请刷新目录。",
+    STALE: "目录或 Runtime Generation 已切换；旧目录与选择已失效，请刷新目录。",
     INVALID: "目录身份或契约验证失败；不可选择。",
     TRANSPORT: "目录请求失败或正式服务不可用；不可选择。"
 };
-const label = (entry: ChartCatalogEntry) =>
-    entry.capability.type_id.split(".").at(-1)?.toUpperCase() ?? entry.capability.type_id;
+type PickerEntry = ChartCatalogEntry | RegisteredCalculation;
+const reference = (entry: PickerEntry) =>
+    "capability" in entry ? entry.capability : entry.type_reference;
+const label = (entry: PickerEntry) =>
+    reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id;
 
 /** Catalog navigation only. No Study, numeric execution or market-data side effects. */
 export function CalculationPicker() {
@@ -43,9 +49,21 @@ export function CalculationPicker() {
         setSelecting(false);
         setState({ status: "loading" });
         try {
-            const catalog = await readChartCatalog(controller.signal);
-            if (request.current === controller && !controller.signal.aborted)
-                setState({ status: "ready", catalog });
+            let next: CatalogState;
+            try {
+                const catalog = await readChartCatalog(controller.signal);
+                next = { status: "ready", catalog };
+            } catch (error) {
+                // Only formally observed absence opens the independent discovery path.
+                // Never hide invalid/stale exact proofs behind current-process metadata.
+                if (!(error instanceof ChartCatalogError) || error.code !== "NO_RUNTIME")
+                    throw error;
+                next = {
+                    status: "registered",
+                    entries: await readRegisteredCalculations(controller.signal)
+                };
+            }
+            if (request.current === controller && !controller.signal.aborted) setState(next);
         } catch (error) {
             if (request.current === controller && !controller.signal.aborted)
                 setState({
@@ -78,19 +96,31 @@ export function CalculationPicker() {
         setCategory(null);
         setSelecting(false);
     }
-    async function select(entry: ChartCatalogEntry) {
-        if (state.status !== "ready" || entry.availability !== "AVAILABLE") return;
-        const catalog = state.catalog;
+    async function select(entry: PickerEntry) {
+        if ("capability" in entry) {
+            if (state.status !== "ready" || entry.availability !== "AVAILABLE") return;
+        } else if (state.status !== "registered") return;
         request.current?.abort();
         const controller = new AbortController();
         request.current = controller;
         setSelecting(true);
         try {
-            const active = await readActiveRuntime(controller.signal);
+            let next: ChartCalculationDraft;
+            if ("capability" in entry && state.status === "ready") {
+                const active = await readActiveRuntime(controller.signal);
+                if (active !== state.catalog.runtimeGenerationFingerprint)
+                    throw new ChartCatalogError("STALE");
+                next = { source: "EXACT_CATALOG", catalog: state.catalog, entry };
+            } else if (!("capability" in entry)) {
+                const registrations = await readRegisteredCalculations(controller.signal);
+                // Discovery is mutable. Re-observe the complete selected descriptor;
+                // a type/version match alone must not silently retain changed defaults.
+                if (!registrations.some((item) => JSON.stringify(item) === JSON.stringify(entry)))
+                    throw new ChartCatalogError("STALE");
+                next = { source: "REGISTERED_DISCOVERY", registration: entry };
+            } else return;
             if (controller.signal.aborted || request.current !== controller) return;
-            if (active !== catalog.runtimeGenerationFingerprint)
-                throw new ChartCatalogError("STALE");
-            setDraft({ catalog, entry });
+            setDraft(next);
             close();
         } catch (error) {
             if (!controller.signal.aborted && request.current === controller) {
@@ -104,6 +134,10 @@ export function CalculationPicker() {
         }
     }
 
+    const exactDraft = draft?.source === "EXACT_CATALOG" ? draft : null;
+    const selectedEntry =
+        draft === null ? null : draft.source === "EXACT_CATALOG" ? draft.entry : draft.registration;
+    const selectedReference = selectedEntry === null ? null : reference(selectedEntry);
     return (
         <>
             {(["INDICATOR", "FACTOR"] as const).map((value) => (
@@ -126,17 +160,20 @@ export function CalculationPicker() {
                     className="calculation-handoff"
                     role="status"
                     data-testid="calculation-handoff"
-                    data-runtime-generation={draft.catalog.runtimeGenerationFingerprint}
-                    data-catalog-generation={draft.catalog.catalogGenerationFingerprint}
-                    data-kind={draft.entry.capability.kind}
-                    data-type-id={draft.entry.capability.type_id}
-                    data-semantic-version={draft.entry.capability.semantic_version}
-                    data-backend={draft.entry.capability.backend}
-                    data-implementation={draft.entry.capability.implementation_fingerprint}
-                    data-readiness-capability={draft.entry.readiness?.capability_fingerprint}
+                    data-registration-source={draft.source}
+                    data-runtime-generation={exactDraft?.catalog.runtimeGenerationFingerprint}
+                    data-catalog-generation={exactDraft?.catalog.catalogGenerationFingerprint}
+                    data-kind={selectedReference?.kind}
+                    data-type-id={selectedReference?.type_id}
+                    data-semantic-version={selectedReference?.semantic_version}
+                    data-backend={exactDraft?.entry.capability.backend}
+                    data-implementation={exactDraft?.entry.capability.implementation_fingerprint}
+                    data-readiness-capability={exactDraft?.entry.readiness?.capability_fingerprint}
                 >
-                    已选择 {label(draft.entry)} · {draft.entry.capability.semantic_version} ·{" "}
-                    {draft.entry.capability.backend}； 仅配置草稿，尚未计算
+                    已选择 {selectedEntry === null ? "" : label(selectedEntry)} ·{" "}
+                    {selectedReference?.semantic_version} ·{" "}
+                    {exactDraft?.entry.capability.backend ?? "已登记，执行未接入"}；
+                    仅配置草稿，尚未计算
                 </span>
             )}
             {category === null ? null : (
@@ -170,7 +207,7 @@ function CatalogDialog({
     readonly selecting: boolean;
     readonly onClose: () => void;
     readonly onRefresh: () => void;
-    readonly onSelect: (entry: ChartCatalogEntry) => void;
+    readonly onSelect: (entry: PickerEntry) => void;
 }) {
     const dialog = useRef<HTMLDialogElement>(null);
     const search = useRef<HTMLInputElement>(null);
@@ -192,6 +229,16 @@ function CatalogDialog({
                   (entry) =>
                       entry.capability.kind === category &&
                       `${label(entry)} ${entry.capability.type_id}`
+                          .toLowerCase()
+                          .includes(query.trim().toLowerCase())
+              )
+            : [];
+    const registrations =
+        state.status === "registered"
+            ? state.entries.filter(
+                  (entry) =>
+                      entry.kind === category &&
+                      `${label(entry)} ${entry.type_reference.type_id}`
                           .toLowerCase()
                           .includes(query.trim().toLowerCase())
               )
@@ -233,7 +280,7 @@ function CatalogDialog({
                     关闭
                 </button>
             </header>
-            <p>正式 Catalog 元数据 · 选择不启动计算，不改变行情。</p>
+            <p>正式目录元数据 · 选择仅保存配置草稿，不启动计算，不改变行情。</p>
             <div className="calculation-picker__search">
                 <input
                     ref={search}
@@ -254,9 +301,78 @@ function CatalogDialog({
                 </button>
             </div>
             {state.status === "loading" || state.status === "idle" ? (
-                <p role="status">正在读取精确目录…</p>
+                <p role="status">正在读取目录…</p>
             ) : state.status === "error" ? (
                 <p role="alert">{messages[state.error]}</p>
+            ) : state.status === "registered" ? (
+                <>
+                    <p role="status">已登记目录 · Runtime 未激活，执行未接入；仍可选择配置草稿。</p>
+                    <p>来源：当前服务的正式发现 API；不是精确 Catalog、readiness 或执行许可。</p>
+                    {registrations.length === 0 ? (
+                        <p role="status">
+                            {query.trim() === ""
+                                ? category === "FACTOR"
+                                    ? "当前发现目录没有此类已登记项；尚未登记为 Calculation 的因子资产不在此列表中。"
+                                    : "当前发现目录没有此类已登记项。"
+                                : "没有匹配的注册项。"}
+                        </p>
+                    ) : (
+                        <ul className="calculation-picker__entries">
+                            {registrations.map((entry) => (
+                                <li
+                                    key={JSON.stringify([
+                                        entry.kind,
+                                        entry.type_reference.type_id,
+                                        entry.type_reference.semantic_version
+                                    ])}
+                                >
+                                    <h3>{label(entry)}</h3>
+                                    <p className="value">
+                                        {entry.kind} / {entry.type_reference.type_id}@
+                                        {entry.type_reference.semantic_version}
+                                    </p>
+                                    <p>已登记 · 执行未接入</p>
+                                    <dl>
+                                        {entry.parameters.map((parameter) => (
+                                            <div key={parameter.name}>
+                                                <dt>
+                                                    {parameter.name} · {parameter.type}
+                                                </dt>
+                                                <dd>
+                                                    {parameter.default.value === null
+                                                        ? "无默认值"
+                                                        : `默认 ${String(parameter.default.value)}`}
+                                                    {parameter.required ? " · 必填" : ""}
+                                                </dd>
+                                            </div>
+                                        ))}
+                                    </dl>
+                                    <p>
+                                        输出：
+                                        {entry.outputs
+                                            .map(
+                                                (output) =>
+                                                    `${output.name} (${output.semantic_type})`
+                                            )
+                                            .join(" · ")}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        disabled={selecting}
+                                        onClick={() => {
+                                            onSelect(entry);
+                                        }}
+                                    >
+                                        选择 {label(entry)} · 配置草稿
+                                    </button>
+                                    <p>
+                                        选择不证明可执行，也不会生成曲线；计算与绘制需另行正式准入。
+                                    </p>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </>
             ) : (
                 <>
                     <details className="calculation-picker__identity">

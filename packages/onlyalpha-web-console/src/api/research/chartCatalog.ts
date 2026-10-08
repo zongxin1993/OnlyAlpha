@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { components } from "./generated";
+import {
+    researchCalculationCatalogSchema,
+    type ResearchCalculationCatalogItemTransport
+} from "./schemas";
 
 type Dto<N extends keyof components["schemas"]> = components["schemas"][N];
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
@@ -8,6 +12,16 @@ const kind = z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]);
 const providerKind = z.enum(["OPERATOR", "INDICATOR", "FACTOR", "STRATEGY"]);
 const backend = z.enum(["RESEARCH", "TRADING"]);
 const scalar = z.union([z.string(), z.number().int(), z.boolean(), z.null()]);
+const discoveryScalar = z.discriminatedUnion("type", [
+    z.strictObject({ type: z.literal("NULL"), value: z.null() }),
+    z.strictObject({ type: z.literal("BOOLEAN"), value: z.boolean() }),
+    z.strictObject({ type: z.literal("INTEGER"), value: z.number().int() }),
+    z.strictObject({
+        type: z.literal("DECIMAL"),
+        value: z.string().regex(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/)
+    }),
+    z.strictObject({ type: z.literal("STRING"), value: z.string() })
+]);
 const parameter = z.strictObject({
     name: text,
     parameter_type: z.enum(["INTEGER", "DECIMAL", "STRING", "BOOLEAN"]),
@@ -127,11 +141,18 @@ export interface ChartCatalog {
     readonly projectionFingerprint: string;
     readonly entries: readonly ChartCatalogEntry[];
 }
-/** Browser-only handoff, never execution/admission evidence or a persisted study. */
-export interface ChartCalculationDraft {
-    readonly catalog: ChartCatalog;
-    readonly entry: ChartCatalogEntry;
-}
+export type RegisteredCalculation = ResearchCalculationCatalogItemTransport;
+/** Discovery drafts intentionally carry no Runtime, implementation or readiness proof. */
+export type ChartCalculationDraft =
+    | {
+          readonly source: "EXACT_CATALOG";
+          readonly catalog: ChartCatalog;
+          readonly entry: ChartCatalogEntry;
+      }
+    | {
+          readonly source: "REGISTERED_DISCOVERY";
+          readonly registration: RegisteredCalculation;
+      };
 export class ChartCatalogError extends Error {
     constructor(
         readonly code: "NO_RUNTIME" | "MISSING_CATALOG" | "STALE" | "INVALID" | "TRANSPORT"
@@ -193,6 +214,52 @@ function provider(row: {
 }
 function unique(values: readonly string[]): void {
     if (new Set(values).size !== values.length) throw new ChartCatalogError("INVALID");
+}
+
+/** Current process discovery is navigation metadata, never an exact Catalog attestation. */
+export async function readRegisteredCalculations(
+    signal?: AbortSignal
+): Promise<readonly RegisteredCalculation[]> {
+    const response = await read("catalog/calculations", researchCalculationCatalogSchema, signal);
+    unique(
+        response.calculations.map((item) =>
+            JSON.stringify([
+                item.kind,
+                item.type_reference.type_id,
+                item.type_reference.semantic_version
+            ])
+        )
+    );
+    for (const item of response.calculations) {
+        if (item.kind !== item.type_reference.kind) throw new ChartCatalogError("INVALID");
+        unique(item.parameters.map((parameter) => parameter.name));
+        unique(item.inputs.map((port) => port.name));
+        unique(item.outputs.map((port) => port.name));
+        if (item.outputs.length === 0) throw new ChartCatalogError("INVALID");
+        for (const parameter of item.parameters) {
+            for (const value of [
+                parameter.default,
+                parameter.minimum,
+                parameter.maximum,
+                ...parameter.enum_values
+            ])
+                if (value !== null && !discoveryScalar.safeParse(value).success)
+                    throw new ChartCatalogError("INVALID");
+            const defaultType = parameter.default.type;
+            if (
+                (defaultType === "NULL" && !parameter.required) ||
+                (defaultType !== "NULL" &&
+                    parameter.type === "BOOLEAN" &&
+                    defaultType !== "BOOLEAN") ||
+                (defaultType === "BOOLEAN" &&
+                    (parameter.type === "INTEGER" || parameter.type === "DECIMAL"))
+            )
+                throw new ChartCatalogError("INVALID");
+            // Do not normalize/coerce defaults in the browser. Core permits numeric
+            // string defaults; complete parameter validation belongs to later admission.
+        }
+    }
+    return response.calculations;
 }
 
 export async function readChartCatalog(signal?: AbortSignal): Promise<ChartCatalog> {
@@ -262,7 +329,15 @@ export async function readChartCatalog(signal?: AbortSignal): Promise<ChartCatal
         };
     });
     // Active is mutable. Never publish a mixed-generation response as current.
-    if ((await readActiveRuntime(signal)) !== runtime) throw new ChartCatalogError("STALE");
+    try {
+        if ((await readActiveRuntime(signal)) !== runtime) throw new ChartCatalogError("STALE");
+    } catch (error) {
+        // NO_RUNTIME only denotes initial absence. Disappearance after an exact
+        // relation was observed is stale, never permission for discovery fallback.
+        if (error instanceof ChartCatalogError && error.code === "NO_RUNTIME")
+            throw new ChartCatalogError("STALE");
+        throw error;
+    }
     return {
         runtimeGenerationFingerprint: runtime,
         catalogGenerationFingerprint: catalogId,
