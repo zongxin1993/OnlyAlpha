@@ -76,20 +76,39 @@ class NoopResizeObserver {
  * invented candle/overlay values cannot hide behind a component mock.
  */
 const chartMocks = vi.hoisted(() => {
+    const pricePane = {
+        paneIndex: () => 0,
+        setPreserveEmptyPane: vi.fn(),
+        setStretchFactor: vi.fn()
+    };
+    const volumePane = { paneIndex: () => 1, setStretchFactor: vi.fn() };
     const range = { value: { from: 30, to: 60 } as { from: number; to: number } | null };
     const visible = {
         handler: null as ((range: { from: number; to: number } | null) => void) | null
     };
     const candles = {
+        getPane: () => pricePane,
         setData: vi.fn<(bars: readonly unknown[]) => void>(),
         update: vi.fn<(bar: unknown) => void>()
     };
     const overlays = {
+        getPane: () => pricePane,
         setData: vi.fn<(points: readonly unknown[]) => void>(),
         update: vi.fn<(bar: unknown) => void>()
     };
-    const addSeries = vi.fn<(definition: string) => typeof candles>((definition) =>
-        definition === "Candlestick" ? candles : overlays
+    const volume = {
+        getPane: () => volumePane,
+        setData: vi.fn<(bars: readonly unknown[]) => void>(),
+        update: vi.fn<(bar: unknown) => void>()
+    };
+    const addSeries = vi.fn<
+        (definition: string) => {
+            setData: typeof candles.setData;
+            update: typeof candles.update;
+            getPane: () => typeof volumePane;
+        }
+    >((definition) =>
+        definition === "Candlestick" ? candles : definition === "Histogram" ? volume : overlays
     );
     const timeScale = {
         applyOptions: vi.fn(),
@@ -110,6 +129,8 @@ const chartMocks = vi.hoisted(() => {
         )
     };
     const created = {
+        addPane: () => volumePane,
+        panes: () => [pricePane, volumePane],
         addSeries,
         removeSeries: vi.fn(),
         subscribeCrosshairMove: vi.fn<(handler: unknown) => void>(),
@@ -120,6 +141,7 @@ const chartMocks = vi.hoisted(() => {
     return {
         candles,
         overlays,
+        volume,
         addSeries,
         range,
         visible,
@@ -132,6 +154,7 @@ const chartMocks = vi.hoisted(() => {
 vi.mock("lightweight-charts", () => ({
     CandlestickSeries: "Candlestick",
     LineSeries: "Line",
+    HistogramSeries: "Histogram",
     ColorType: { Solid: "solid" },
     TickMarkType: { Time: 3, TimeWithSeconds: 4 },
     createChart: chartMocks.createChart
@@ -703,9 +726,11 @@ it("shows exact Workspace observations and changes only browser chart preference
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-chart-type", "LINE");
     expect(queryBars).toHaveBeenCalledTimes(requests);
     expect(acquisition).not.toHaveBeenCalled();
-    const handler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
-        event: object
-    ) => void;
+    const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
+    const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
+    expect(activeHandler).not.toBe(retiredHandler);
+    expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledWith(retiredHandler);
+    const handler = activeHandler as (event: object) => void;
     act(() => {
         handler({ time: first.time, point: { x: 10, y: 10 } });
     });
@@ -772,9 +797,11 @@ it("derives selected preview updates from identity and falls back on mouse leave
     expect(observation).toHaveAttribute("data-observation-mode", "preview");
     expect(observation).toHaveTextContent("实时预览");
     expect(observation).toHaveTextContent("103.000000000000000001");
-    const move = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
-        event: object
-    ) => void;
+    const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
+    const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
+    expect(activeHandler).not.toBe(retiredHandler);
+    expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledWith(retiredHandler);
+    const move = activeHandler as (event: object) => void;
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
@@ -802,8 +829,10 @@ it("derives selected preview updates from identity and falls back on mouse leave
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
     await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "");
-    expect(observation).toHaveAttribute("data-observation-mode", "unavailable");
-    expect(observation).toHaveAttribute("data-bar-start-ns", "");
+    expect(observation).not.toBeInTheDocument();
+    const unavailableObservation = screen.getByTestId("market-data-observation");
+    expect(unavailableObservation).toHaveAttribute("data-observation-mode", "unavailable");
+    expect(unavailableObservation).toHaveAttribute("data-bar-start-ns", "");
 });
 
 it("renders canonical Product bars without browser range planning", () => {

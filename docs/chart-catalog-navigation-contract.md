@@ -88,8 +88,10 @@ marks an edited instance `STALE_CONFIG`. These reads are observations, not execu
 Configuration contains only typed parameter inputs and a real output name. Presentation independently
 contains placement (`PRICE_OVERLAY` / `SEPARATE_PANE`), `#RRGGBB` color (initially the accent design
 token), line width 1–5, opacity 0–1 and boolean visibility. Presentation changes do not alter
-calculation inputs or issue commands. The compact list reports `CONFIGURED_NOT_EXECUTED` / “已配置，
-尚未接入后端计算”, not numeric readiness. No renderer series, numeric values or pane are created.
+calculation inputs or issue commands. The compact legend reports `CONFIGURED_NOT_EXECUTED` / “已配置，
+尚未接入后端计算”, not numeric readiness. Selection and show/hide operate immediately without Catalog
+or Market Data requests. An independent empty native Pane may represent the separate-pane preference;
+no numeric Study series is created without a validated value projection.
 
 Instances bind the exact Source reference, Instrument and BarSemantic, using the existing market-data
 context key. A context-keyed workspace lifecycle discards all Study/draft state on any context
@@ -97,4 +99,53 @@ change, aborting old requests; old responses cannot attach to a new or restored 
 Returning application focus closes pending editing and conservatively marks confirmed configurations
 stale until a new confirmation re-observes metadata. No timer claims validity. Browser-session
 state is disposable; no LocalStorage/PostgreSQL persistence or cross-refresh recovery is added.
-The market-data hook, Ledger and renderer are unchanged and receive no Study inputs.
+The market-data hook and Ledger receive no Study inputs. The context-keyed owner exposes its state
+to the single chart through a local render callback; renderer resources are projections, not a second
+mutable collection of configuration truth.
+
+## Financial display controls and renderer input
+
+`PriceChart` owns one Lightweight Charts instance and shared time axis/crosshair. Price and Volume
+use stable native Pane references, and Volume is projected only from admitted Product Market Data
+Bar `numeric.volume`. History and realtime preview/closed data share the same time identities; chart
+mode changes replace only the price series. Volume is market data, not a Research Calculation output.
+
+Each Study uses its browser instance identity for selected state, resource mapping and hover. Two
+equal calculation configurations remain independent display instances. Placement is explicit user
+input, never inferred from registered names or kinds. Separate-pane instances each own a private
+native Pane; shared Study panes are not supported by this display policy. Indexes are resolved from
+stable Pane references at each operation. Hidden/removed instances release only their display resources;
+show restores the same validated projection rather than generating new values. Removing the selected
+instance clears selection. Hidden and removed instances are absent from hover immediately.
+
+`StudySeriesEvidence` is a readonly **Web presentation input**, not an HTTP schema, canonical scientific
+model or Result admission API. No production Result/Series adapter exists here. Its only implemented
+source is explicitly `CONTROLLED_TEST_EVIDENCE`; the isolated Browser harness is not a production entry
+point, and shipping Workspace never supplies this evidence or requests an unavailable Series Query.
+A future verified Result/Artifact/Query adapter must supply scientific authority and extend the source
+family explicitly before production values can be displayed.
+
+The display input binds instance identity, full chart context key, owner incarnation, exact input
+configuration representation and official output name. Those are stale-display fences, not canonical
+Calculation fingerprints. Replaced/restored chart contexts have a fresh disposable owner incarnation.
+Duplicate owners/evidence, mismatched identities, stale configuration, missing source, illegal point
+metadata or unsafe projection fails closed as a display error; no missing proof grants execution,
+numeric readiness or certified absence. No normalization, calculation, warmup or readiness inference
+is performed. Point readiness/reason are copied opaque text/null fields from the supplied evidence.
+
+UTC point identity must be strictly increasing, non-duplicate, whole-second nanosecond text with a
+safe finite JS/Date representation; subsecond aliases are rejected. Numeric text is converted only
+for explicitly lossy plotting; non-finite, overflow, unsafe magnitude or underflow-to-zero conversions
+are rejected. Hover preserves original numeric text and matches exact timestamp and instance, never
+array position or a preceding value. NULL and missing points remain gaps: the renderer separates
+contiguous LineSeries segments with whitespace so native line connection cannot bridge unavailable
+points. All-NULL/empty evidence produces no value series or final-value label. No interpolation,
+resampling, guessed values or browser-generated scientific readiness is allowed.
+
+Presentation options update the renderer without commands, acquisition, extra market subscriptions or
+provider requests. Native stroke width is an explicitly rounded/clamped 1–4px display projection of
+the stored 1–5 preference; selecting a real curve emphasizes that stroke without changing inputs.
+Series addition/removal can change the union time-axis indexes; viewport rebasing uses UTC display
+anchors and fractional offsets, not a fresh fitContent. Price, Volume and other instance resources
+remain independent across pane compaction, movement, chart-mode switches and removal. Unmount releases
+native series/panes, callbacks and pending paint work. These display resources are not persisted.

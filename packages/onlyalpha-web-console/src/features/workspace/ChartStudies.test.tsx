@@ -101,7 +101,8 @@ function transport(exact = false) {
 }
 async function select(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole("button", { name: "指标" }));
-    await user.click(await screen.findByRole("button", { name: /选择 SMA/ }));
+    const picker = await screen.findByRole("dialog", { name: "指标 / 因子目录" });
+    await user.click(await within(picker).findByRole("button", { name: /选择 SMA/ }));
     return screen.findByRole("dialog", { name: "指标 / 因子参数配置" });
 }
 it("confirms independent instances; cancel/edit has a single state source and style does not modify configuration", async () => {
@@ -404,4 +405,47 @@ it("fences an old confirmation across A to B to restored A without polluting a n
     expect(current).toHaveAttribute("data-chart-context-key", context.key);
     expect(current).toHaveTextContent("period=20");
     expect(current).not.toHaveTextContent("period=45");
+});
+
+it("select/show-hide/remove affect only display state and issue no metadata reads", async () => {
+    const traffic = transport();
+    const user = userEvent.setup();
+    render(
+        <ChartStudies context={context}>
+            {({ instances, selectedId }) => (
+                <output data-testid="owned-study-state" data-selected-id={selectedId ?? ""}>
+                    {JSON.stringify(instances)}
+                </output>
+            )}
+        </ChartStudies>
+    );
+    await select(user);
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await screen.findByTestId("chart-study-instance");
+    await select(user);
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await waitFor(() => {
+        expect(screen.getAllByTestId("chart-study-instance")).toHaveLength(2);
+    });
+    const [first, second] = screen.getAllByTestId("chart-study-instance");
+    if (first === undefined || second === undefined) throw new Error("Missing instances");
+    const firstId = first.getAttribute("data-instance-id"),
+        secondId = second.getAttribute("data-instance-id");
+    const configuration = first.getAttribute("data-configuration"),
+        secondPresentation = second.getAttribute("data-presentation");
+    const count = traffic.reads.length;
+    await user.click(within(first).getByRole("button", { name: "选择 SMA" }));
+    expect(screen.getByTestId("owned-study-state")).toHaveAttribute("data-selected-id", firstId);
+    await user.click(within(first).getByRole("button", { name: "隐藏 SMA" }));
+    expect(first).toHaveAttribute("data-configuration", configuration);
+    expect(second).toHaveAttribute("data-presentation", secondPresentation);
+    await user.click(within(first).getByRole("button", { name: "显示 SMA" }));
+    expect(first).toHaveAttribute("data-configuration", configuration);
+    await user.click(within(first).getByRole("button", { name: "移除配置" }));
+    expect(screen.getByTestId("owned-study-state")).toHaveAttribute("data-selected-id", "");
+    expect(screen.getByTestId("chart-study-instance")).toHaveAttribute(
+        "data-instance-id",
+        secondId
+    );
+    expect(traffic.reads).toHaveLength(count);
 });

@@ -548,9 +548,11 @@ for (const width of [1440, 1024, 390]) {
         await page.setViewportSize({ width, height: 900 });
         const market = await controlledRealtime(page, false, false, true);
         const fixture = chartCatalogFixture();
+        const studyReads: string[] = [];
         await page.route("**/api/v2/research/**", (route) => {
             expect(route.request().method()).toBe("GET");
             const path = new URL(route.request().url()).pathname;
+            studyReads.push(path);
             expect([
                 "/api/v2/research/runtime-generations/active",
                 "/api/v2/research/catalog/calculations"
@@ -567,6 +569,13 @@ for (const width of [1440, 1024, 390]) {
         });
         await page.goto("/");
         await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+        const renderedChart = page.getByTestId("price-chart");
+        // This recorded fixture admits two history bars plus one closed stream
+        // bar. target_bar_count=1440 is query intent, not invented loaded data.
+        await expect(renderedChart).toHaveAttribute("data-volume-point-count", "3");
+        await expect(renderedChart).toHaveAttribute("data-volume-latest", "3");
+        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
+        await expect(renderedChart).toHaveAttribute("data-pane-count", "2");
         const context = await page
             .getByTestId("market-data-observation")
             .getAttribute("data-chart-context-key");
@@ -576,8 +585,11 @@ for (const width of [1440, 1024, 390]) {
             acquisitions: market.acquisitions()
         };
         const trigger = page.getByRole("button", { name: "指标", exact: true });
+        const pickerSelection = page
+            .getByRole("dialog", { name: "指标 / 因子目录" })
+            .getByRole("button", { name: /选择 SMA.*配置草稿/ });
         await trigger.click();
-        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        await pickerSelection.click();
         const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
         await expect(editor).toBeVisible();
         const cancel = editor.getByRole("button", { name: "取消配置" });
@@ -598,7 +610,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(trigger).toBeFocused();
         await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
         await trigger.press("Enter");
-        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        await pickerSelection.click();
         await editor.getByRole("textbox", { name: "period" }).fill("30");
         await editor.getByRole("button", { name: "添加", exact: true }).click();
         const first = page.getByTestId("chart-study-instance").first();
@@ -619,7 +631,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(first).toHaveAttribute("data-instance-id", id ?? "");
         await expect(first).toContainText("#c8332a");
         await trigger.click();
-        await page.getByRole("button", { name: /选择 SMA/ }).click();
+        await pickerSelection.click();
         await editor.getByRole("button", { name: "添加", exact: true }).click();
         await expect(page.getByTestId("chart-study-instance")).toHaveCount(2);
         await expect(page.getByTestId("chart-study-instance").last()).not.toHaveAttribute(
@@ -627,6 +639,25 @@ for (const width of [1440, 1024, 390]) {
             id ?? ""
         );
         await expect(page.getByTestId("chart-study-instance").last()).toContainText("period=20");
+        const readsBeforeDisplay = studyReads.length;
+        const rangeBefore = await renderedChart.getAttribute("data-visible-range-from");
+        await first.getByRole("button", { name: "选择 SMA", exact: true }).click();
+        await expect(first).toHaveAttribute("data-selected", "true");
+        await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
+        await expect(page.getByTestId("study-hover")).toHaveCount(2);
+        await first.getByRole("button", { name: "隐藏 SMA", exact: true }).press("Enter");
+        await expect(page.getByTestId("study-hover")).toHaveCount(1);
+        await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
+        await expect(page.getByTestId("study-hover")).toHaveCount(2);
+        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
+        await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
+        await expect(page.locator(".study-pane-empty")).toContainText("尚未计算");
+        await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
+        await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
+        await first.getByRole("button", { name: "移除配置", exact: true }).press("Enter");
+        await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
+        await expect(renderedChart).toHaveAttribute("data-pane-count", "2");
+        expect(studyReads).toHaveLength(readsBeforeDisplay);
         market.emitPreview();
         await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
             "data-observation-mode",
