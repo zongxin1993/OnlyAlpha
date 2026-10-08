@@ -26,10 +26,10 @@ const semantic = (durationMinutes: number) => ({
 const source = {
     integration_id: integrationId,
     integration_revision_fingerprint: revision,
-    display_name: "Binance Spot LIVE",
+    display_name: "Binance Spot Market Data",
     type_id: "binance.spot.market_data",
     source_id: "binance.spot.market_data.live",
-    environment: "LIVE",
+    environment: "GLOBAL",
     time_bar_capability: {
         provider_base_semantic: semantic(1),
         derived_algorithm: "TIME_BAR@1",
@@ -149,7 +149,12 @@ function bars(
     };
 }
 
-async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder = false) {
+async function controlledMarketData(
+    page: Page,
+    initial: FixtureMode,
+    holdOlder = false,
+    sources = [source]
+) {
     let mode = initial;
     let acquisitionCount = 0;
     const providerRequests: Range[] = [];
@@ -164,7 +169,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder 
         const request = route.request();
         const url = new URL(request.url());
         if (url.pathname === "/api/v2/market-data/sources")
-            return json(route, { schema_version: 1, sources: [source] });
+            return json(route, { schema_version: 1, sources });
         if (url.pathname === "/api/v2/market/instruments")
             return json(route, {
                 schema_version: 1,
@@ -219,7 +224,10 @@ async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder 
         }
         if (url.pathname === "/api/v2/market-data/acquisitions" && request.method() === "POST") {
             acquisitionCount += 1;
-            const body = request.postDataJSON() as Range & { readonly instrument_id: string };
+            const body = request.postDataJSON() as Range & {
+                readonly instrument_id: string;
+                readonly bar_semantic: ReturnType<typeof semantic>;
+            };
             const requested = { start_ns: body.start_ns, end_ns: body.end_ns };
             providerRequests.push(
                 ...(mode === "tail"
@@ -241,7 +249,7 @@ async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder 
                     source_id: source.source_id,
                     integration_binding_fingerprint: "f".repeat(64),
                     instrument_id: body.instrument_id,
-                    bar_semantic: semantic(1),
+                    bar_semantic: body.bar_semantic,
                     ...requested,
                     provenance: "REST_BACKFILL",
                     coverage: coverage(requested, true),
@@ -267,10 +275,163 @@ async function controlledMarketData(page: Page, initial: FixtureMode, holdOlder 
 
 async function selectBtc(page: Page) {
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    // Existing full-history/viewport regressions explicitly select their 1m fixture.
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "1440"
+    );
+}
+
+test("default BTCUSDT workspace bootstraps only server identities and first 15m history", async ({
+    page
+}) => {
+    const providerTraffic: string[] = [];
+    page.on("request", (request) => {
+        if (/binance\.(com|vision)/.test(new URL(request.url()).hostname))
+            providerTraffic.push(request.url());
+    });
+    const fixture = await controlledMarketData(page, "complete");
+    await page.goto("/");
+    await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue(integrationId);
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    await expect(page.locator(".chart-region__title")).toHaveText("BTCUSDT · 15m");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "96"
+    );
+    expect(fixture.queriedSteps).toEqual([15]);
+    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "latest-closed"
+    );
+    await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "指标", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "因子", exact: true })).toBeDisabled();
+    await expect(
+        page.getByText(/synthetic|600519|run-0f3a91|res-4d81|bt-2f5e18|MA 20|20 日动量/)
+    ).toHaveCount(0);
+    expect(providerTraffic).toEqual([]);
+    await test.info().attach("server-derived-default-workspace", {
+        contentType: "image/png",
+        body: await page.screenshot({ path: test.info().outputPath("default-workspace.png") })
+    });
+});
+
+test("ambiguous default sources require explicit choice without any Bar request", async ({
+    page
+}) => {
+    const fixture = await controlledMarketData(page, "complete", false, [
+        source,
+        {
+            ...source,
+            integration_id: "other-live-source",
+            integration_revision_fingerprint: "b".repeat(64)
+        }
+    ]);
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText(
+        "请选择 Binance Spot 公共行情数据源（GLOBAL）"
+    );
+    await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue("");
+    expect(fixture.queriedSteps).toEqual([]);
+    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+});
+
+test("missing exact BTCUSDT member shows unavailable without requesting Bars", async ({ page }) => {
+    const fixture = await controlledMarketData(page, "complete");
+    await page.route("**/api/v2/market/instruments?**", (route) =>
+        json(route, {
+            schema_version: 1,
+            source_selection: bars(fixtureRange, true).source_selection,
+            instruments: [{ ...instrument, instrument_id: "BTCUSDT.OTHER" }]
+        })
+    );
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText(
+        "当前数据源未提供 BTCUSDT.BINANCE"
+    );
+    expect(fixture.queriedSteps).toEqual([]);
+    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+});
+
+test("unavailable discovery is not misreported as absent configuration", async ({ page }) => {
+    const fixture = await controlledMarketData(page, "complete");
+    await page.route("**/api/v2/market-data/sources", (route) => route.abort("failed"));
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText("行情服务不可用");
+    await expect(page.getByTestId("market-data-status")).not.toContainText("未配置可用");
+    expect(fixture.queriedSteps).toEqual([]);
+    await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
+});
+
+test("loading discovery has no invented candles before the source response", async ({ page }) => {
+    const fixture = await controlledMarketData(page, "complete");
+    let release!: () => void;
+    const responseBarrier = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route("**/api/v2/market-data/sources", async (route) => {
+        await responseBarrier;
+        await json(route, { schema_version: 1, sources: [source] });
+    });
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "loading");
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+        "data-observation-mode",
+        "unavailable"
+    );
+    expect(fixture.queriedSteps).toEqual([]);
+    release();
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
+    expect(fixture.queriedSteps).toEqual([15]);
+});
+
+for (const width of [1440, 1024, 390]) {
+    test(`unconfigured workspace stays honest and accessible at ${String(width)}px`, async ({
+        page
+    }) => {
+        const fixture = await controlledMarketData(page, "complete", false, []);
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/");
+        await expect(page.getByTestId("market-data-status")).toContainText(
+            "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
+        );
+        await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
+            "data-observation-mode",
+            "unavailable"
+        );
+        await expect(page.getByTestId("market-data-source-tag")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
+        await expect(
+            page.getByRole("button", { name: "管理数据源", exact: true })
+        ).toBeInViewport();
+        await expect(page.locator(".chart-region__title")).toBeInViewport();
+        await expect(page.getByTestId("market-data-status")).toBeInViewport();
+        await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+        expect(fixture.queriedSteps).toEqual([]);
+        await expect(page.getByText(/synthetic|600519|1486\.20|run-0f3a91/)).toHaveCount(0);
+        expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        ).toBe(true);
+        await test.info().attach("honest-configuration-state", {
+            contentType: "image/png",
+            body: await page.screenshot({
+                path: test.info().outputPath(`configuration-${String(width)}.png`)
+            })
+        });
+        await page.getByRole("button", { name: "管理数据源", exact: true }).click();
+        await expect(page.getByRole("dialog", { name: "管理数据源" })).toBeVisible();
+    });
 }
 
 test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
@@ -356,11 +517,8 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         );
 
         await page.reload();
-        await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
-        await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-        await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-        await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
         await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
+        await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
         expect(fixture.acquisitionCount()).toBe(1);
     });
 

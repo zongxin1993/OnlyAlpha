@@ -25,6 +25,30 @@ def test_browser_stream_uses_only_product_websocket_and_cursor_truth() -> None:
     assert all(field not in subscribe for field in ("open:", "high:", "low:", "close:", "volume:"))
 
 
+def test_shipping_browser_has_no_provider_network_or_synthetic_chart_path() -> None:
+    web = ROOT / "packages/onlyalpha-web-console/src"
+    for path in web.rglob("*"):
+        if path.suffix not in {".ts", ".tsx"} or ".test." in path.name or "test" in path.relative_to(web).parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        assert not any(
+            token in source
+            for token in (
+                "api.binance.com",
+                "stream.binance.com",
+                "data-api.binance.vision",
+                "@binance/",
+                "binance-api-node",
+                "buildPlaceholderBars",
+                "buildPlaceholderOverlay",
+                "syntheticInstruments",
+            )
+        ), path
+    workspace = (web / "features/workspace/WorkspacePage.tsx").read_text(encoding="utf-8")
+    assert "placeholderBars" not in workspace
+    assert "indicatorCatalog" not in workspace and "factorCatalog" not in workspace
+
+
 def test_forming_preview_is_not_a_canonical_market_fact() -> None:
     models = (ROOT / "src/onlyalpha/data/models.py").read_text(encoding="utf-8")
     ingress = (ROOT / "src/onlyalpha/market_data/durable/ingress.py").read_text(encoding="utf-8")

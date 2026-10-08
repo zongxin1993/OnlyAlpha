@@ -159,8 +159,8 @@ export function DataSourceEntry({
                     <section className="ds-popover__workspace">
                         <p className="ds-popover__subtitle">当前工作区</p>
                         <p className="muted">
-                            尚未有 canonical 来源绑定：工作区数据当前为 synthetic
-                            占位，这里不显示任何 Provider 名。
+                            尚未有 canonical 来源绑定：图表使用显式选定的 Product API
+                            数据源，不代表持久化默认绑定。
                         </p>
                     </section>
                     <footer className="ds-popover__foot">

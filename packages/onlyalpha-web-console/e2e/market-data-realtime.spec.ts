@@ -51,7 +51,13 @@ const instrument = {
 const json = (route: Route, body: unknown) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
 
-async function controlledRealtime(page: Page, holdRecovery = false, acquireHistory = false) {
+async function controlledRealtime(
+    page: Page,
+    holdRecovery = false,
+    acquireHistory = false,
+    defaultGlobal = false
+) {
+    const environment = defaultGlobal ? "GLOBAL" : "US";
     let socket: WebSocketRoute | null = null;
     let connections = 0;
     const completedSteps = new Set<number>();
@@ -63,11 +69,13 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
     const cursors: string[] = [];
     const steps: number[] = [];
     const historyAnchors: string[] = [];
+    const historySteps: number[] = [];
+    const subscriptions: object[] = [];
     const olderRequests: URL[] = [];
     await page.route("**/api/v2/**", (route) => {
         const url = new URL(route.request().url());
         if (url.pathname === "/api/v2/market-data/sources")
-            return json(route, { schema_version: 1, sources: [source] });
+            return json(route, { schema_version: 1, sources: [{ ...source, environment }] });
         if (url.pathname === "/api/v2/market/instruments")
             return json(route, {
                 schema_version: 1,
@@ -76,7 +84,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                     integration_revision_fingerprint: integrationRevision,
                     type_id: source.type_id,
                     source_id: sourceId,
-                    environment: "US"
+                    environment
                 },
                 instruments: [instrument]
             });
@@ -91,6 +99,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 url.searchParams.get("bar_semantic") ?? "null"
             ) as ReturnType<typeof semantic>;
             const step = requested.formation.window_minutes;
+            historySteps.push(step);
             const older = targetCount === 240;
             const before = url.searchParams.get("before_ns");
             if (older && before === null) throw new Error("older query requires before_ns");
@@ -124,7 +133,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                     integration_revision_fingerprint: integrationRevision,
                     type_id: source.type_id,
                     source_id: sourceId,
-                    environment: "US"
+                    environment
                 },
                 instrument_id: instrument.instrument_id,
                 display_symbol: instrument.display_symbol,
@@ -228,6 +237,7 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                 resume_plan_fingerprint: string;
                 bar_semantic: ReturnType<typeof semantic>;
             };
+            subscriptions.push(request);
             cursors.push(request.resume_after_sequence);
             const step = request.bar_semantic.formation.window_minutes;
             steps.push(step);
@@ -245,9 +255,13 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
             });
             send({ event: "STATE", state: "RECOVERING" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
+            const cursorStride = step === 15 ? BigInt(15) : BigInt(1);
             const derivedBar = {
-                bar_start_ns: (BigInt(sequence) * minuteNs).toString(),
-                bar_end_ns: ((BigInt(sequence) + BigInt(step)) * minuteNs).toString(),
+                bar_start_ns: (BigInt(sequence) * cursorStride * minuteNs).toString(),
+                bar_end_ns: (
+                    (BigInt(sequence) * cursorStride + BigInt(step)) *
+                    minuteNs
+                ).toString(),
                 open: "102",
                 high: "104",
                 low: "101",
@@ -278,8 +292,12 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
                     bar_semantic: request.bar_semantic,
                     bar: {
                         ...derivedBar,
-                        bar_start_ns: ((BigInt(sequence) - BigInt(1)) * minuteNs).toString(),
-                        bar_end_ns: (BigInt(sequence) * minuteNs).toString()
+                        bar_start_ns: (
+                            (BigInt(sequence) - BigInt(1)) *
+                            cursorStride *
+                            minuteNs
+                        ).toString(),
+                        bar_end_ns: (BigInt(sequence) * cursorStride * minuteNs).toString()
                     }
                 });
                 send({ event: "STATE", state: "RECOVERING" });
@@ -315,6 +333,8 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
         acquisitions: () => acquisitions,
         acquisitionSteps,
         historyAnchors,
+        historySteps,
+        subscriptions,
         olderRequests,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
@@ -325,10 +345,57 @@ async function controlledRealtime(page: Page, holdRecovery = false, acquireHisto
     };
 }
 
+test("default LIVE workspace first subscribes at 15m and merges Product preview and closed Bars", async ({
+    page
+}) => {
+    const providerTraffic: string[] = [];
+    page.on("request", (request) => {
+        if (/binance\.(com|vision)/.test(new URL(request.url()).hostname))
+            providerTraffic.push(request.url());
+    });
+    page.on("websocket", (socket) => {
+        if (/binance\.(com|vision)/.test(new URL(socket.url()).hostname))
+            providerTraffic.push(socket.url());
+    });
+    const fixture = await controlledRealtime(page, false, false, true);
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    expect(fixture.historySteps).toEqual([15]);
+    expect(fixture.steps).toEqual([15]);
+    expect(fixture.subscriptions[0]).toMatchObject({
+        operation: "SUBSCRIBE_BAR",
+        instrument_id: "BTCUSDT.BINANCE",
+        source_reference: {
+            integration_id: integrationId,
+            integration_revision_fingerprint: integrationRevision,
+            expected_type_id: source.type_id
+        },
+        bar_semantic: semantic(15)
+    });
+    const observation = page.getByTestId("market-data-observation");
+    await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "3"
+    );
+    fixture.emitPreview();
+    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
+        "103.000000000000000001"
+    );
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "3"
+    );
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    expect(providerTraffic).toEqual([]);
+});
+
 test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
@@ -365,6 +432,7 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
     const fixture = await controlledRealtime(page, true);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
@@ -391,6 +459,7 @@ test("explicit history acquisition, typed realtime and exact reconnect — CONTR
     const fixture = await controlledRealtime(page, true, true);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
@@ -421,6 +490,7 @@ test("preset and custom periods subscribe to matching derived realtime bars — 
     const fixture = await controlledRealtime(page);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
@@ -453,6 +523,7 @@ test("native 15m and derived 7m use target acquisition and Product resume metada
     const fixture = await controlledRealtime(page, false, true);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
@@ -476,6 +547,7 @@ test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDEN
     const fixture = await controlledRealtime(page);
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
     await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
     await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();

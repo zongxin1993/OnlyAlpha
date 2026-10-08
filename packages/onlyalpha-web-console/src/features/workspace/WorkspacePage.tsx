@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import type {
     FinancialChartType,
     MarketDataChartSelection
 } from "../../charts/lightweight/marketDataChartProjection";
-import { type OverlaySpec, type Timeframe } from "../../charts/lightweight/placeholderBars";
 import { DataSourceEntry } from "../data/sources/DataSourceEntry";
 import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
@@ -16,139 +15,8 @@ import {
     marketDataBarSemantic
 } from "../../api/marketData/model";
 
-const timeframes: readonly Timeframe[] = ["1m", "5m", "15m", "1H", "1D", "1W"];
 const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
-
-/**
- * Shell-only fallback used when the workspace has no published market-data source.
- * Binance W1 symbols and real bars always come from the Market Data Product API.
- */
-const syntheticInstruments = [
-    { code: "600519.SH", name: "贵州茅台" },
-    { code: "000001.SZ", name: "平安银行" },
-    { code: "510300.SH", name: "沪深300ETF" },
-    { code: "IF2603", name: "沪深300期指" },
-    { code: "600036.SH", name: "招商银行" },
-    { code: "513050.SH", name: "中概互联ETF" },
-    { code: "000300.SH", name: "沪深300" }
-] as const;
-
-const indicatorCatalog: readonly OverlaySpec[] = [
-    { id: "ma-5", label: "MA 5", kind: "indicator" },
-    { id: "ma-10", label: "MA 10", kind: "indicator" },
-    { id: "ma-20", label: "MA 20", kind: "indicator" },
-    { id: "ma-60", label: "MA 60", kind: "indicator" }
-];
-
-const factorCatalog: readonly OverlaySpec[] = [
-    { id: "momentum-20", label: "20 日动量", kind: "factor" },
-    { id: "reversal-5", label: "5 日反转", kind: "factor" },
-    { id: "volatility-20", label: "20 日波动率", kind: "factor" },
-    { id: "turnover-20", label: "20 日换手率", kind: "factor" }
-];
-
-/**
- * Real market bars are canonical Product facts; the shell has no real Indicator/Factor
- * Product API yet, so synthetic overlays must not be mixed into a real chart.
- */
-const REAL_OVERLAY_NOTE = "真实指标/因子将在 W3 接入 Product API";
-
-function CatalogPicker({
-    label,
-    placeholder,
-    items,
-    selected,
-    disabled = false,
-    disabledReason,
-    onToggle
-}: {
-    readonly label: string;
-    readonly placeholder: string;
-    readonly items: readonly OverlaySpec[];
-    readonly selected: readonly OverlaySpec[];
-    readonly disabled?: boolean;
-    readonly disabledReason?: string;
-    readonly onToggle: (overlay: OverlaySpec) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const [query, setQuery] = useState("");
-    const root = useRef<HTMLDivElement>(null);
-    const needle = query.trim().toLowerCase();
-    const matches =
-        needle === "" ? items : items.filter((item) => item.label.toLowerCase().includes(needle));
-    useEffect(() => {
-        if (!open) return;
-        function close(event: KeyboardEvent | MouseEvent) {
-            if (event instanceof KeyboardEvent) {
-                if (event.key === "Escape") setOpen(false);
-                return;
-            }
-            if (root.current !== null && !root.current.contains(event.target as Node)) {
-                setOpen(false);
-            }
-        }
-        document.addEventListener("keydown", close);
-        document.addEventListener("mousedown", close);
-        return () => {
-            document.removeEventListener("keydown", close);
-            document.removeEventListener("mousedown", close);
-        };
-    }, [open]);
-    return (
-        <div className="picker" ref={root}>
-            <button
-                type="button"
-                className="picker__trigger"
-                aria-expanded={open}
-                disabled={disabled}
-                title={disabled ? disabledReason : undefined}
-                onClick={() => {
-                    if (disabled) return;
-                    setOpen(!open);
-                }}
-            >
-                <WorkspaceIcon name="results" />
-                <span>{label}</span>
-                {selected.length === 0 ? null : (
-                    <span className="picker__count">{selected.length}</span>
-                )}
-            </button>
-            {open ? (
-                <div className="picker__popover" role="group" aria-label={`${label}选择`}>
-                    <input
-                        className="picker__search"
-                        type="search"
-                        placeholder={placeholder}
-                        aria-label={placeholder}
-                        value={query}
-                        onChange={(event) => {
-                            setQuery(event.target.value);
-                        }}
-                    />
-                    <ul className="picker__list">
-                        {matches.map((item) => (
-                            <li key={item.id}>
-                                <button
-                                    type="button"
-                                    aria-pressed={selected.some((picked) => picked.id === item.id)}
-                                    onClick={() => {
-                                        onToggle(item);
-                                    }}
-                                >
-                                    {item.label}
-                                </button>
-                            </li>
-                        ))}
-                        {matches.length === 0 ? (
-                            <li className="picker__empty">没有匹配项</li>
-                        ) : null}
-                    </ul>
-                </div>
-            ) : null}
-        </div>
-    );
-}
-
+const CATALOG_NOTE = "指标/因子目录尚未接入正式 Catalog";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -159,75 +27,7 @@ const tools: readonly {
     { id: "level", label: "水平线", icon: "level" },
     { id: "zone", label: "区间", icon: "zone" },
     { id: "measure", label: "测量", icon: "measure" }
-] as const;
-
-const watchlist = [
-    { code: "600519.SH", name: "贵州茅台", last: "1486.20", change: "+1.24%", direction: "up" },
-    { code: "000001.SZ", name: "平安银行", last: "11.86", change: "-0.42%", direction: "down" },
-    { code: "510300.SH", name: "沪深300ETF", last: "4.012", change: "+0.31%", direction: "up" },
-    { code: "IF2603", name: "沪深300期指", last: "3988.6", change: "-0.07%", direction: "down" },
-    { code: "513050.SH", name: "中概互联ETF", last: "1.284", change: "-0.93%", direction: "down" },
-    { code: "000300.SH", name: "沪深300", last: "3988.42", change: "+0.18%", direction: "up" },
-    { code: "600036.SH", name: "招商银行", last: "未更新", change: "UNKNOWN", direction: "stale" }
-] as const;
-
-const runs = [
-    {
-        id: "run-0f3a91",
-        state: "完成",
-        revision: "rev-2c7d18",
-        started: "09-23 09:31",
-        took: "42s"
-    },
-    {
-        id: "run-5b27c4",
-        state: "运行中",
-        revision: "rev-2c7d18",
-        started: "09-23 10:04",
-        took: "—"
-    },
-    { id: "run-91ae02", state: "失败", revision: "rev-88b310", started: "09-22 15:20", took: "6s" },
-    {
-        id: "run-c40d77",
-        state: "未知",
-        revision: "rev-88b310",
-        started: "09-22 14:58",
-        took: "UNKNOWN"
-    }
-] as const;
-
-const results = [
-    { fingerprint: "res-4d81…a7c2", scope: "因子 20 日动量", runs: "3", updated: "09-22 21:10" },
-    { fingerprint: "res-7b09…31fe", scope: "参数邻域 ±10%", runs: "1", updated: "09-22 18:03" }
-] as const;
-
-const backtests = [
-    { id: "bt-2f5e18", stage: "BACKTEST", state: "完成", revision: "rev-2c7d18" },
-    { id: "bt-9d1a03", stage: "BACKTEST", state: "运行中", revision: "rev-88b310" }
-] as const;
-
-const inspector = [
-    { label: "标的", value: "600519.SH · 贵州茅台" },
-    { label: "Strategy Revision", value: "rev-2c7d18" },
-    { label: "Dataset Snapshot", value: "snap-1f0a…9de4" },
-    { label: "Kernel 语义版本", value: "1" },
-    { label: "运行阶段", value: "BACKTEST" },
-    { label: "最近事实", value: "fill-88c1 · 09:58:12" },
-    { label: "数据新鲜度", value: "stale · 09:20:00" }
-] as const;
-
-const stateClass: Record<string, string> = {
-    完成: "run-state run-state-completed",
-    运行中: "run-state run-state-running",
-    失败: "run-state run-state-failed",
-    未知: "run-state"
-};
-
-const changeClass: Record<string, string> = {
-    up: "value value--up",
-    down: "value value--down",
-    stale: "value value--stale"
-};
+];
 
 export function WorkspacePage() {
     const [toolsCollapsed, setToolsCollapsed] = useState(false);
@@ -236,20 +36,14 @@ export function WorkspacePage() {
     const [panelOpen, setPanelOpen] = useState(false);
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
-    const [timeframe, setTimeframe] = useState<Timeframe>("1D");
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
     const [selection, setSelection] = useState<MarketDataChartSelection | null>(null);
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
-    const [symbol, setSymbol] = useState<{ readonly code: string; readonly name: string }>(
-        syntheticInstruments[0]
-    );
     const [symbolQuery, setSymbolQuery] = useState("");
-    const [overlays, setOverlays] = useState<readonly OverlaySpec[]>([]);
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
     const marketData = useMarketDataChart();
-    const realPath = marketData.reference !== null;
     const realInstrument = marketData.instrument;
     const selectedBar =
         selection?.contextKey === marketData.chartContextKey
@@ -257,9 +51,8 @@ export function WorkspacePage() {
                 ? marketData.liveBar
                 : marketData.bars.find((bar) => bar.barStartNs === selection.barStartNs)
             : undefined;
-    const observation = realPath
-        ? (selectedBar ?? marketData.liveBar ?? marketData.bars.at(-1))
-        : undefined;
+    const latestBar = marketData.liveBar ?? marketData.bars.at(-1);
+    const observation = selectedBar ?? latestBar;
     const observationMode =
         observation == null
             ? "unavailable"
@@ -278,24 +71,46 @@ export function WorkspacePage() {
                 : marketData.olderHistoryStatus === "exhausted"
                   ? "已到达可用历史起点"
                   : null;
-    const symbolNeedle = symbolQuery.trim().toLowerCase();
-    const symbolMatches: readonly { readonly code: string; readonly name: string }[] = realPath
-        ? marketData.instruments.map((item) => ({
-              code: item.instrument_id,
-              name: `${item.display_symbol} · ${item.market}`
-          }))
-        : symbolNeedle === ""
-          ? []
-          : syntheticInstruments.filter((item) =>
-                `${item.code}${item.name}`.toLowerCase().includes(symbolNeedle)
-            );
-    function toggleOverlay(overlay: OverlaySpec) {
-        setOverlays((current) =>
-            current.some((picked) => picked.id === overlay.id)
-                ? current.filter((picked) => picked.id !== overlay.id)
-                : [...current, overlay]
-        );
-    }
+    const duration = fixedDurationMinutes(marketData.barSemantic);
+    const preset = realBarPresets.includes(duration as (typeof realBarPresets)[number]);
+    const statusCopy =
+        marketData.message ??
+        (marketData.status === "ready"
+            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史投影 ${marketData.historyProjectionFingerprint?.slice(0, 12) ?? "—"} · ${
+                  marketData.realtimeStatus === "ready"
+                      ? "● 实时"
+                      : marketData.realtimeStatus === "recovering"
+                        ? "● 恢复中"
+                        : marketData.realtimeStatus === "degraded"
+                          ? "● 行情中断"
+                          : marketData.realtimeStatus === "failed"
+                            ? `● 实时失败${marketData.streamError === null ? "" : `：${marketData.streamError}`}`
+                            : "● 连接中"
+              }`
+            : marketData.status === "loading"
+              ? "正在加载行情…"
+              : marketData.reference === null
+                ? "请选择数据源"
+                : "请选择服务器提供的标的");
+    const inspector =
+        marketData.reference === null
+            ? []
+            : [
+                  { label: "标的", value: realInstrument?.instrument_id ?? "未选择" },
+                  { label: "Integration", value: marketData.reference.integration_id },
+                  {
+                      label: "Integration Revision",
+                      value: marketData.reference.integration_revision_fingerprint
+                  },
+                  { label: "Source", value: marketData.resolvedSourceId ?? "尚未读取行情" },
+                  { label: "Bar semantic", value: formatBarSemantic(marketData.barSemantic) },
+                  { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
+                  {
+                      label: "History projection",
+                      value: marketData.historyProjectionFingerprint ?? "尚未验证"
+                  },
+                  { label: "Realtime", value: marketData.realtimeStatus }
+              ];
 
     return (
         <section
@@ -338,13 +153,11 @@ export function WorkspacePage() {
                     <WorkspaceIcon name={toolsCollapsed ? "expand" : "collapse"} />
                 </button>
             </div>
-
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
-                    <span className="chart-region__title">
-                        {realInstrument === null
-                            ? `${symbol.code} · ${symbol.name}`
-                            : `${realInstrument.instrument_id} · ${realInstrument.market}`}
+                    <span className="chart-region__title" title={realInstrument?.instrument_id}>
+                        {realInstrument?.display_symbol ?? "行情工作区"} ·{" "}
+                        {formatBarSemantic(marketData.barSemantic)}
                     </span>
                     <div className="chart-region__controls">
                         <label className="chart-region__source">
@@ -367,127 +180,84 @@ export function WorkspacePage() {
                         <div className="chart-region__search">
                             <input
                                 type="search"
-                                placeholder={
-                                    realPath ? "搜索标的（Binance 参考）" : "搜索标的 / 代码"
-                                }
+                                placeholder="搜索服务器标的"
                                 aria-label="搜索标的"
                                 value={symbolQuery}
+                                disabled={marketData.reference === null}
                                 onChange={(event) => {
                                     setSymbolQuery(event.target.value);
                                 }}
                                 onKeyDown={(event) => {
-                                    if (event.key === "Enter" && realPath) {
+                                    if (event.key === "Enter")
                                         void marketData.searchInstruments(symbolQuery);
-                                    }
                                 }}
                             />
-                            {realPath ? (
-                                <>
-                                    <select
-                                        className="chart-region__timeframe"
-                                        aria-label="时间周期"
-                                        value={
-                                            realBarPresets.includes(
-                                                fixedDurationMinutes(
-                                                    marketData.barSemantic
-                                                ) as (typeof realBarPresets)[number]
-                                            ) && !customBarOpen
-                                                ? String(
-                                                      fixedDurationMinutes(marketData.barSemantic)
-                                                  )
-                                                : "custom"
+                            <select
+                                className="chart-region__timeframe"
+                                aria-label="时间周期"
+                                value={preset && !customBarOpen ? String(duration) : "custom"}
+                                disabled={marketData.reference === null}
+                                onChange={(event) => {
+                                    if (event.target.value === "custom") setCustomBarOpen(true);
+                                    else {
+                                        setCustomBarOpen(false);
+                                        void marketData.selectBarDuration(
+                                            Number(event.target.value)
+                                        );
+                                    }
+                                }}
+                            >
+                                {realBarPresets.map((minutes) => (
+                                    <option
+                                        key={minutes}
+                                        value={minutes}
+                                        disabled={
+                                            marketData.barCapability === null ||
+                                            minutes <
+                                                marketData.barCapability.minimum_window_minutes ||
+                                            minutes >
+                                                marketData.barCapability.maximum_window_minutes
                                         }
-                                        onChange={(event) => {
-                                            if (event.target.value === "custom")
-                                                setCustomBarOpen(true);
-                                            else {
-                                                setCustomBarOpen(false);
-                                                void marketData.selectBarDuration(
-                                                    Number(event.target.value)
-                                                );
-                                            }
-                                        }}
                                     >
-                                        {realBarPresets.map((durationMinutes) => (
-                                            <option
-                                                key={durationMinutes}
-                                                value={durationMinutes}
-                                                disabled={
-                                                    marketData.barCapability === null ||
-                                                    durationMinutes <
-                                                        marketData.barCapability
-                                                            .minimum_window_minutes ||
-                                                    durationMinutes >
-                                                        marketData.barCapability
-                                                            .maximum_window_minutes
-                                                }
-                                            >
-                                                {formatBarSemantic(
-                                                    marketDataBarSemantic(durationMinutes)
-                                                )}
-                                            </option>
-                                        ))}
-                                        <option value="custom">自定义…</option>
-                                    </select>
-                                    {customBarOpen ||
-                                    !realBarPresets.includes(
-                                        fixedDurationMinutes(
-                                            marketData.barSemantic
-                                        ) as (typeof realBarPresets)[number]
-                                    ) ? (
-                                        <form
-                                            onSubmit={(event) => {
-                                                event.preventDefault();
-                                                const durationMinutes = Number(customBarDuration);
-                                                if (
-                                                    Number.isInteger(durationMinutes) &&
-                                                    durationMinutes >=
-                                                        (marketData.barCapability
-                                                            ?.minimum_window_minutes ?? 1) &&
-                                                    durationMinutes <=
-                                                        (marketData.barCapability
-                                                            ?.maximum_window_minutes ?? 0)
-                                                )
-                                                    void marketData.selectBarDuration(
-                                                        durationMinutes
-                                                    );
-                                            }}
-                                        >
-                                            <input
-                                                aria-label="自定义周期分钟数"
-                                                type="number"
-                                                min="1"
-                                                max={
-                                                    marketData.barCapability
-                                                        ?.maximum_window_minutes ?? 240
-                                                }
-                                                step="1"
-                                                required
-                                                value={customBarDuration}
-                                                onChange={(event) => {
-                                                    setCustomBarDuration(event.target.value);
-                                                }}
-                                            />
-                                            <button type="submit">应用</button>
-                                        </form>
-                                    ) : null}
-                                </>
-                            ) : (
-                                <select
-                                    className="chart-region__timeframe"
-                                    aria-label="时间周期"
-                                    value={timeframe}
-                                    onChange={(event) => {
-                                        setTimeframe(event.target.value as Timeframe);
+                                        {formatBarSemantic(marketDataBarSemantic(minutes))}
+                                    </option>
+                                ))}
+                                <option value="custom">自定义…</option>
+                            </select>
+                            {customBarOpen || !preset ? (
+                                <form
+                                    onSubmit={(event) => {
+                                        event.preventDefault();
+                                        const minutes = Number(customBarDuration);
+                                        if (
+                                            Number.isInteger(minutes) &&
+                                            minutes >=
+                                                (marketData.barCapability?.minimum_window_minutes ??
+                                                    1) &&
+                                            minutes <=
+                                                (marketData.barCapability?.maximum_window_minutes ??
+                                                    0)
+                                        )
+                                            void marketData.selectBarDuration(minutes);
                                     }}
                                 >
-                                    {timeframes.map((item) => (
-                                        <option key={item} value={item}>
-                                            {item}
-                                        </option>
-                                    ))}
-                                </select>
-                            )}
+                                    <input
+                                        aria-label="自定义周期分钟数"
+                                        type="number"
+                                        min="1"
+                                        max={
+                                            marketData.barCapability?.maximum_window_minutes ?? 240
+                                        }
+                                        step="1"
+                                        required
+                                        value={customBarDuration}
+                                        onChange={(event) => {
+                                            setCustomBarDuration(event.target.value);
+                                        }}
+                                    />
+                                    <button type="submit">应用</button>
+                                </form>
+                            ) : null}
                         </div>
                         <select
                             className="chart-region__chart-type"
@@ -500,52 +270,39 @@ export function WorkspacePage() {
                             <option value="CANDLESTICK">蜡烛图</option>
                             <option value="LINE">收盘线</option>
                         </select>
-                        {symbolMatches.length === 0 ? null : (
+                        {symbolQuery.trim() === "" || marketData.instruments.length === 0 ? null : (
                             <ul className="chart-region__suggestions">
-                                {symbolMatches.map((item) => (
-                                    <li key={item.code}>
+                                {marketData.instruments.map((item) => (
+                                    <li key={item.instrument_id}>
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                if (realPath) {
-                                                    const target = marketData.instruments.find(
-                                                        (candidate) =>
-                                                            candidate.instrument_id === item.code
-                                                    );
-                                                    if (target !== undefined)
-                                                        void marketData.selectInstrument(target);
-                                                } else {
-                                                    setSymbol(item);
-                                                }
+                                                void marketData.selectInstrument(item);
                                                 setSymbolQuery("");
                                             }}
                                         >
-                                            <span className="value">{item.code}</span>
-                                            <span>{item.name}</span>
+                                            <span className="value">{item.instrument_id}</span>
+                                            <span>
+                                                {item.display_symbol} · {item.market}
+                                            </span>
                                         </button>
                                     </li>
                                 ))}
                             </ul>
                         )}
                     </div>
-                    <CatalogPicker
-                        label="指标"
-                        placeholder="搜索指标"
-                        items={indicatorCatalog}
-                        selected={overlays.filter((item) => item.kind === "indicator")}
-                        disabled={realPath}
-                        disabledReason={REAL_OVERLAY_NOTE}
-                        onToggle={toggleOverlay}
-                    />
-                    <CatalogPicker
-                        label="因子"
-                        placeholder="搜索因子"
-                        items={factorCatalog}
-                        selected={overlays.filter((item) => item.kind === "factor")}
-                        disabled={realPath}
-                        disabledReason={REAL_OVERLAY_NOTE}
-                        onToggle={toggleOverlay}
-                    />
+                    {(["指标", "因子"] as const).map((label) => (
+                        <button
+                            key={label}
+                            type="button"
+                            className="picker__trigger"
+                            disabled
+                            title={CATALOG_NOTE}
+                        >
+                            <WorkspaceIcon name="results" />
+                            <span>{label}</span>
+                        </button>
+                    ))}
                     <span className="chart-region__spacer">
                         <DataSourceEntry
                             overview={dataSources}
@@ -557,9 +314,7 @@ export function WorkspacePage() {
                             <span className="real-tag" data-testid="market-data-source-tag">
                                 real · DB
                             </span>
-                        ) : (
-                            <span className="synthetic-tag">synthetic</span>
-                        )}
+                        ) : null}
                         <button
                             type="button"
                             className="panel-toggle"
@@ -573,36 +328,18 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
-                {realPath ? (
-                    <p className="chart-region__overlay-note" data-testid="real-overlay-note">
-                        {REAL_OVERLAY_NOTE}
-                    </p>
-                ) : null}
+                <p className="chart-region__overlay-note" data-testid="real-overlay-note">
+                    {CATALOG_NOTE}
+                </p>
                 <p
                     className="chart-region__status"
+                    role="status"
                     data-status={marketData.status}
                     data-loaded-bar-count={marketData.loadedClosedBarCount}
                     data-older-history-status={marketData.olderHistoryStatus}
                     data-testid="market-data-status"
                 >
-                    {marketData.message ??
-                        (marketData.status === "ready"
-                            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史投影 ${
-                                  marketData.historyProjectionFingerprint?.slice(0, 12) ?? "—"
-                              } · ${
-                                  marketData.realtimeStatus === "ready"
-                                      ? "● 实时"
-                                      : marketData.realtimeStatus === "recovering"
-                                        ? "● 恢复中"
-                                        : marketData.realtimeStatus === "degraded"
-                                          ? "● 行情中断"
-                                          : marketData.realtimeStatus === "failed"
-                                            ? `● 实时失败${marketData.streamError === null ? "" : `：${marketData.streamError}`}`
-                                            : "● 连接中"
-                              }`
-                            : realPath
-                              ? "已选择真实行情数据源；尚无 canonical K 线"
-                              : "未连接真实行情；当前图表为 synthetic 占位")}
+                    {statusCopy}
                     {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
                 </p>
                 <div
@@ -610,7 +347,7 @@ export function WorkspacePage() {
                     data-testid="market-data-observation"
                     data-observation-mode={observationMode}
                     data-bar-start-ns={observation?.barStartNs ?? ""}
-                    data-chart-context-key={realPath ? (marketData.chartContextKey ?? "") : ""}
+                    data-chart-context-key={marketData.chartContextKey ?? ""}
                 >
                     <span>
                         {observation == null
@@ -642,24 +379,30 @@ export function WorkspacePage() {
                     <PriceChart
                         chartType={chartType}
                         onSelection={setSelection}
-                        timeframe={realPath ? undefined : timeframe}
-                        barSemantic={realPath ? marketData.barSemantic : undefined}
-                        overlays={overlays}
-                        mode={realPath ? "real" : "synthetic"}
+                        barSemantic={marketData.barSemantic}
                         bars={marketData.bars}
                         liveBar={marketData.liveBar}
-                        contextKey={realPath ? marketData.chartContextKey : null}
-                        onNearLeftEdge={
-                            realPath
-                                ? () => {
-                                      void marketData.loadOlderHistory();
-                                  }
-                                : undefined
-                        }
+                        contextKey={marketData.chartContextKey}
+                        onNearLeftEdge={() => {
+                            void marketData.loadOlderHistory();
+                        }}
                     />
+                    {latestBar == null ? (
+                        <div className="chart-region__empty" aria-label="行情空态">
+                            <p>{statusCopy}</p>
+                            <button
+                                type="button"
+                                className="button-secondary"
+                                onClick={() => {
+                                    setManagerOpen(true);
+                                }}
+                            >
+                                管理数据源
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             </section>
-
             <aside className="context-panel" aria-label="上下文面板">
                 <div className="panel-tabs" role="group" aria-label="上下文面板视图">
                     <button
@@ -685,40 +428,38 @@ export function WorkspacePage() {
                 </div>
                 <div className="panel-scroll">
                     {panelTab === "watchlist" ? (
-                        <table className="data-table">
-                            <caption className="visually-hidden">自选列表（synthetic）</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">标的</th>
-                                    <th scope="col">最新</th>
-                                    <th scope="col">涨跌</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {watchlist.map((row) => (
-                                    <tr key={row.code}>
+                        realInstrument === null ? (
+                            <p className="panel-note">选择真实标的后显示当前行情</p>
+                        ) : (
+                            <table className="data-table">
+                                <caption className="visually-hidden">当前标的行情</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">标的</th>
+                                        <th scope="col">K 线收盘</th>
+                                        <th scope="col">状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td className="value">{realInstrument.instrument_id}</td>
+                                        <td className="value">{latestBar?.close ?? "—"}</td>
                                         <td>
-                                            <span className="value">{row.code}</span>
-                                            <br />
-                                            <span className="muted">{row.name}</span>
-                                        </td>
-                                        <td>
-                                            <span className={changeClass[row.direction]}>
-                                                {row.last}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span className={changeClass[row.direction]}>
-                                                {row.change}
-                                            </span>
+                                            {latestBar == null
+                                                ? "不可用"
+                                                : latestBar.closed
+                                                  ? "已关闭"
+                                                  : "实时预览"}
                                         </td>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        )
+                    ) : inspector.length === 0 ? (
+                        <p className="panel-note">尚未选择行情上下文</p>
                     ) : (
                         <table className="data-table">
-                            <caption className="visually-hidden">检查器（synthetic）</caption>
+                            <caption className="visually-hidden">行情检查器</caption>
                             <tbody>
                                 {inspector.map((row) => (
                                     <tr key={row.label}>
@@ -730,11 +471,8 @@ export function WorkspacePage() {
                         </table>
                     )}
                 </div>
-                <p className="panel-note">
-                    面板内容为 synthetic 占位；权威事实由服务端 Product API 提供。
-                </p>
+                <p className="panel-note">行情来自服务端 Product API；不推导交易或研究事实。</p>
             </aside>
-
             <div
                 className="workspace-tray"
                 role="toolbar"
@@ -781,7 +519,6 @@ export function WorkspacePage() {
                     <WorkspaceIcon name="runs" />
                 </button>
             </div>
-
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">
                     <div className="panel-tabs" role="group" aria-label="下方面板视图">
@@ -817,7 +554,6 @@ export function WorkspacePage() {
                         </button>
                     </div>
                     <div className="bottom-panel__meta">
-                        <span className="synthetic-tag">synthetic</span>
                         <button
                             type="button"
                             className="rail-button"
@@ -832,85 +568,13 @@ export function WorkspacePage() {
                     </div>
                 </header>
                 <div className="panel-scroll" hidden={bottomCollapsed}>
-                    {bottomTab === "runs" ? (
-                        <table className="data-table">
-                            <caption className="visually-hidden">研究运行（synthetic）</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">运行</th>
-                                    <th scope="col">状态</th>
-                                    <th scope="col">策略 Revision</th>
-                                    <th scope="col">开始</th>
-                                    <th scope="col">耗时</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {runs.map((row) => (
-                                    <tr key={row.id}>
-                                        <td className="value">{row.id}</td>
-                                        <td>
-                                            <span className={stateClass[row.state]}>
-                                                {row.state}
-                                            </span>
-                                        </td>
-                                        <td className="value">{row.revision}</td>
-                                        <td className="value">{row.started}</td>
-                                        <td className="value">{row.took}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : null}
-                    {bottomTab === "results" ? (
-                        <table className="data-table">
-                            <caption className="visually-hidden">研究结果（synthetic）</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">结果指纹</th>
-                                    <th scope="col">范围</th>
-                                    <th scope="col">运行数</th>
-                                    <th scope="col">更新时间</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {results.map((row) => (
-                                    <tr key={row.fingerprint}>
-                                        <td className="value">{row.fingerprint}</td>
-                                        <td>{row.scope}</td>
-                                        <td className="value">{row.runs}</td>
-                                        <td className="value">{row.updated}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : null}
-                    {bottomTab === "backtest" ? (
-                        <table className="data-table">
-                            <caption className="visually-hidden">回测（synthetic）</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">回测</th>
-                                    <th scope="col">阶段</th>
-                                    <th scope="col">状态</th>
-                                    <th scope="col">策略 Revision</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {backtests.map((row) => (
-                                    <tr key={row.id}>
-                                        <td className="value">{row.id}</td>
-                                        <td className="value">{row.stage}</td>
-                                        <td>
-                                            <span className={stateClass[row.state]}>
-                                                {row.state}
-                                            </span>
-                                        </td>
-                                        <td className="value">{row.revision}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : null}
+                    <p className="panel-note">
+                        {bottomTab === "runs"
+                            ? "研究运行尚未接入工作区"
+                            : bottomTab === "results"
+                              ? "研究结果尚未接入工作区"
+                              : "回测尚未接入工作区"}
+                    </p>
                 </div>
             </section>
             {managerOpen ? (

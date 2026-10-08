@@ -87,9 +87,7 @@ async function provision(page: Page, name: string): Promise<string> {
 async function openBtc(page: Page, integrationId: string): Promise<void> {
     await page.goto("/");
     await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    // Explicit source choice resolves BTC through the same Product query as auto bootstrap.
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时", {
         timeout: 45_000
     });
@@ -402,12 +400,26 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     test.setTimeout(120_000);
     await scenario(page);
     const observed = observeProduct(page);
-    const integrationId = await provision(page, "Native 15m Product Vertical");
-    await openBtc(page, integrationId);
-    await scenario(page);
-
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
+    const sourcesResponse = await page.request.get("/api/v2/market-data/sources");
+    expect(sourcesResponse.ok(), await sourcesResponse.text()).toBeTruthy();
+    const { sources } = (await sourcesResponse.json()) as {
+        sources: { integration_id: string; type_id: string; environment: string }[];
+    };
+    const defaults = sources.filter(
+        (source) => source.type_id === "binance.spot.market_data" && source.environment === "GLOBAL"
+    );
+    expect(defaults).toHaveLength(1);
+    const integrationId = defaults[0].integration_id;
+    await page.goto("/");
+    await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue(integrationId);
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
     const { http, stream } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
+    expect(observed.requests[0]?.searchParams.get("instrument_id")).toBe("BTCUSDT.BINANCE");
+    expect(JSON.parse(observed.requests[0]?.searchParams.get("bar_semantic") ?? "null")).toEqual(
+        http?.bar_semantic
+    );
+    expect(observed.subscriptions[0]?.bar_semantic).toEqual(http?.bar_semantic);
+    expect(observed.acquisitionRequests.length).toBeGreaterThan(0);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(http).toMatchObject({
         requested_bar_count: 1440,
@@ -492,6 +504,15 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     expect(before.subscribed).toBe(1);
     expect(matchingStreams()).toHaveLength(1);
     expect(matchingStreams()[0].closed).toBe(false);
+    // Explicit re-selection must not create a second chart incarnation or consumer.
+    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
+    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
+    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
+    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    expect(counts()).toEqual(before);
+    expect(matchingStreams()).toHaveLength(1);
+    expect(matchingStreams()[0].closed).toBe(false);
     const chart = page.getByTestId("price-chart");
     const observation = page.getByTestId("market-data-observation");
     const rangeBefore = await chart.getAttribute("data-visible-range-from");
@@ -572,7 +593,6 @@ test("real Browser loads authoritative older native history without moving the v
     const observed = observeProduct(page);
     const integrationId = await provision(page, "Native Viewport History Vertical");
     await openBtc(page, integrationId);
-    await scenario(page);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
     const { http } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
     const status = page.getByTestId("market-data-status");
@@ -617,7 +637,7 @@ test("real Browser loads authoritative older native history without moving the v
         );
     expect(matchingStreams()).toHaveLength(1);
     const previewsBeforeHistory = matchingStreams()[0].previewCount;
-    await scenario(page);
+    const providerBeforeHistory = await stats(page);
     const initialAcquisitionCount = observed.acquisitions.length;
     const initialRequestCount = observed.requests.length;
 
@@ -813,7 +833,13 @@ test("real Browser loads authoritative older native history without moving the v
         )
     ).toBe(true);
     expect(observed.acquisitions.length).toBeGreaterThan(initialAcquisitionCount);
-    expect((await stats(page)).kline_requests.length).toBeGreaterThan(0);
+    const providerAfterHistory = await stats(page);
+    expect(providerAfterHistory.kline_requests.length).toBeGreaterThan(
+        providerBeforeHistory.kline_requests.length
+    );
+    expect(
+        providerAfterHistory.kline_requests.slice(0, providerBeforeHistory.kline_requests.length)
+    ).toEqual(providerBeforeHistory.kline_requests);
 });
 
 test("real Browser keeps derived 7m intent while Product uses base 1m", async ({ page }) => {
@@ -822,7 +848,7 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
     const observed = observeProduct(page);
     const integrationId = await provision(page, "Derived 7m Product Vertical");
     await openBtc(page, integrationId);
-    await scenario(page);
+    const providerBeforeDerived = await stats(page);
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
@@ -869,9 +895,25 @@ test("real Browser keeps derived 7m intent while Product uses base 1m", async ({
                 .every((url) => !url.searchParams.has("base_step"))
         ).toBe(true);
         provider = await stats(page);
-        expect(provider.kline_requests.length).toBeGreaterThan(0);
-        expect(provider.kline_requests.every((request) => request.interval === "1m")).toBe(true);
-        expect(provider.stream_requests).toContain("btcusdt@kline_1m");
+        expect(
+            provider.kline_requests.slice(0, providerBeforeDerived.kline_requests.length)
+        ).toEqual(providerBeforeDerived.kline_requests);
+        const derivedRequests = provider.kline_requests.slice(
+            providerBeforeDerived.kline_requests.length
+        );
+        expect(derivedRequests.length).toBeGreaterThan(0);
+        expect(derivedRequests.every((request) => request.interval === "1m")).toBe(true);
+        expect(
+            provider.stream_requests.slice(providerBeforeDerived.stream_requests.length)
+        ).toContain("btcusdt@kline_1m");
+        expect(
+            observed.bars.some(
+                (value) =>
+                    (value.bar_semantic as { formation?: { window_minutes?: number } }).formation
+                        ?.window_minutes === 7 &&
+                    (value.coverage as { status: string }).status === "INCOMPLETE"
+            )
+        ).toBe(true);
     } finally {
         // Snapshot pending requests before diagnostic reads: the deadline is not extended.
         const capturedMs = performance.now();

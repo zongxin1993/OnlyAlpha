@@ -70,6 +70,22 @@ it("sends only the exact Revision reference and never asserts canonical source i
     expect(instruments).toEqual([marketDataInstrument()]);
 });
 
+it.each([
+    { integration_id: "foreign-integration" },
+    { integration_revision_fingerprint: "b".repeat(64) },
+    { type_id: "foreign.market_data" }
+])("rejects instrument responses for a different exact source reference: %j", async (mutation) => {
+    stubFetch(
+        json({
+            ...instrumentList,
+            source_selection: { ...instrumentList.source_selection, ...mutation }
+        })
+    );
+    await expect(
+        new FetchMarketDataApiClient().listInstruments(FIXTURE_REFERENCE, "BTCUSDT")
+    ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+});
+
 it("omits an absent type guard and projects the server-derived canonical identity", async () => {
     const fetchMock = stubFetch(json(marketDataBars()));
     const bars = await new FetchMarketDataApiClient().queryBars(
