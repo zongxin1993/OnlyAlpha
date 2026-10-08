@@ -64,6 +64,11 @@ captured evidence; current ClickHouse rows alone never create expected authority
 数据库不可用时 sealed WAL 仍是 durable backlog，drain health 显式 DEGRADED 并通过同一 idempotent recovery path 重试；不得静默
 丢弃 Trade 或伪造数据库 commit。WAL 容量和内存 queue 均保持有界。
 
+WAL append may reuse the next ordinal only when the current file bytes exactly equal the previously validated prefix of that
+same open segment. This bounded, volatile prefix is an optimization, never durable authority: a changed prefix or interrupted
+write requires full frame validation; seal and restart always validate the complete file. Every accepted frame still requires
+a complete write and fsync. Short writes return no durable receipt, and torn tails use the existing quarantine/recovery path.
+
 MarketData Queue 与 Broker Queue 分离，默认有界且不静默丢数据。Trading Runtime 独占 Registry、Queue、Processor、
 Deduplicator、SequenceTracker、GapDetector、AuditStore、ReplayService 和 Gateway。Cluster 的 `ctx.market_data` 仍只返回
 immutable Snapshot。Research Runtime 只拥有其 Dataset/Calculation state，不为结构对称创建 Broker Queue 或交易处理器。

@@ -308,8 +308,15 @@ test("default BTCUSDT workspace bootstraps only server identities and first 15m 
         "latest-closed"
     );
     await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "指标", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "因子", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "指标", exact: true })).toHaveAttribute(
+        "aria-haspopup",
+        "dialog"
+    );
+    await expect(page.getByRole("button", { name: "因子", exact: true })).toHaveAttribute(
+        "aria-haspopup",
+        "dialog"
+    );
+    await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
     await expect(
         page.getByText(/synthetic|600519|run-0f3a91|res-4d81|bt-2f5e18|MA 20|20 日动量/)
     ).toHaveCount(0);
@@ -506,8 +513,15 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("1");
         await expect(page.getByRole("combobox", { name: "时间周期" })).toBeEnabled();
         await expect(page.locator(".chart-region .synthetic-tag")).toHaveCount(0);
-        await expect(page.getByRole("button", { name: /指标/ })).toBeDisabled();
-        await expect(page.getByRole("button", { name: /因子/ })).toBeDisabled();
+        await expect(page.getByRole("button", { name: /指标/ })).toHaveAttribute(
+            "aria-haspopup",
+            "dialog"
+        );
+        await expect(page.getByRole("button", { name: /因子/ })).toHaveAttribute(
+            "aria-haspopup",
+            "dialog"
+        );
+        await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
         expect(fixture.acquisitionCount()).toBe(1);
         expect(fixture.queriedAnchors.slice(0, 2)).toEqual(["LATEST_CLOSED", "BEFORE_TIME"]);
         expect(fixture.olderRequests).toHaveLength(0);

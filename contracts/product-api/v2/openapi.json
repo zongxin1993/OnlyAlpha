@@ -940,6 +940,11 @@
       "ExactRuntimeGenerationDto": {
         "additionalProperties": false,
         "properties": {
+          "catalog_generation_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Catalog Generation Fingerprint",
+            "type": "string"
+          },
           "runtime_generation_fingerprint": {
             "title": "Runtime Generation Fingerprint",
             "type": "string"
@@ -952,7 +957,8 @@
           }
         },
         "required": [
-          "runtime_generation_fingerprint"
+          "runtime_generation_fingerprint",
+          "catalog_generation_fingerprint"
         ],
         "title": "ExactRuntimeGenerationDto",
         "type": "object"

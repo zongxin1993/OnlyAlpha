@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test";
+import { chartCatalogFixture } from "./support/chartCatalog";
 
 const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const integrationRevision = "a".repeat(64);
@@ -389,6 +390,155 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
     );
     await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
     expect(providerTraffic).toEqual([]);
+});
+
+for (const width of [1440, 1024, 390]) {
+    test(`Catalog navigation and exact handoff preserve BTCUSDT 15m consumer at ${String(width)}px`, async ({
+        page
+    }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const market = await controlledRealtime(page, false, false, true);
+        const fixture = chartCatalogFixture();
+        const catalogRequests: string[] = [];
+        await page.route("**/api/v2/research/**", (route) => {
+            expect(route.request().method()).toBe("GET");
+            const path = new URL(route.request().url()).pathname;
+            catalogRequests.push(path);
+            const body = path.endsWith("/active")
+                ? fixture.active
+                : path === `/api/v2/research/runtime-generations/${fixture.runtime}`
+                  ? fixture.binding
+                  : path === `/api/v2/research/catalog-context/exact/${fixture.catalog}`
+                    ? fixture.context
+                    : path === `/api/v2/research/catalog-context/exact/${fixture.catalog}/readiness`
+                      ? fixture.readiness
+                      : null;
+            expect(body).not.toBeNull();
+            return json(route, body);
+        });
+        await page.goto("/");
+        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+        const observation = page.getByTestId("market-data-observation");
+        const context = await observation.getAttribute("data-chart-context-key");
+        const baseline = {
+            queries: market.historyAnchors.length,
+            subscriptions: market.subscriptions.length,
+            acquisitions: market.acquisitions()
+        };
+        const trigger = page.getByRole("button", { name: "指标", exact: true });
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
+        await expect(dialog.getByText("默认 20", { exact: true })).toBeVisible();
+        await expect(dialog.getByText("默认 CLOSE", { exact: true })).toBeVisible();
+        const search = dialog.getByRole("searchbox", { name: "搜索指标或因子" });
+        await expect(search).toBeFocused();
+        await page.locator(".chart-region__source select").evaluate((element) => {
+            (element as HTMLElement).focus();
+        });
+        await expect(search).toBeFocused();
+        const box = await dialog.boundingBox();
+        expect(box?.x).toBeGreaterThanOrEqual(0);
+        expect((box?.x ?? width) + (box?.width ?? width)).toBeLessThanOrEqual(width);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+            width
+        );
+        await search.fill("missing");
+        await expect(dialog.getByText("没有匹配的注册项。")).toBeVisible();
+        await search.fill("onlyalpha.indicator.sma");
+        await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeEnabled();
+        await test.info().attach("catalog-picker-responsive", {
+            contentType: "image/png",
+            body: await page.screenshot()
+        });
+        const close = dialog.getByRole("button", { name: "关闭目录" });
+        await close.focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(page.locator("dialog :focus")).toHaveCount(1);
+        await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(close).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await page.keyboard.press("Enter");
+        await dialog.getByRole("button", { name: "选择 SMA · RESEARCH" }).click();
+        const handoff = page.getByTestId("calculation-handoff");
+        await expect(handoff).toHaveAttribute("data-runtime-generation", fixture.runtime);
+        await expect(handoff).toHaveAttribute("data-catalog-generation", fixture.catalog);
+        await expect(handoff).toHaveAttribute("data-type-id", fixture.capability.type_id);
+        await expect(handoff).toHaveAttribute("data-kind", "INDICATOR");
+        await expect(handoff).toHaveAttribute("data-semantic-version", "1");
+        await expect(handoff).toHaveAttribute("data-backend", "RESEARCH");
+        await expect(handoff).toHaveAttribute(
+            "data-implementation",
+            fixture.capability.implementation_fingerprint
+        );
+        await expect(handoff).toContainText("尚未计算");
+        await expect(observation).toHaveAttribute("data-chart-context-key", context ?? "");
+        market.emitPreview();
+        await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+        expect(market.historyAnchors).toHaveLength(baseline.queries);
+        expect(market.subscriptions).toHaveLength(baseline.subscriptions);
+        expect(market.acquisitions()).toBe(baseline.acquisitions);
+        await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+        await test.info().attach("catalog-navigation-preserves-market-context", {
+            contentType: "application/json",
+            body: JSON.stringify({ width, context, baseline, catalogRequests })
+        });
+    });
+}
+
+test("registered discovery selection without Runtime preserves BTCUSDT history and realtime", async ({
+    page
+}) => {
+    const market = await controlledRealtime(page, false, false, true);
+    const fixture = chartCatalogFixture();
+    const catalogRequests: string[] = [];
+    await page.route("**/api/v2/research/**", (route) => {
+        expect(route.request().method()).toBe("GET");
+        const path = new URL(route.request().url()).pathname;
+        catalogRequests.push(path);
+        expect([
+            "/api/v2/research/runtime-generations/active",
+            "/api/v2/research/catalog/calculations"
+        ]).toContain(path);
+        return route.fulfill({
+            status: path.endsWith("/active") ? 503 : 200,
+            contentType: "application/json",
+            body: JSON.stringify(
+                path.endsWith("/active")
+                    ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                    : fixture.discovery
+            )
+        });
+    });
+    await page.goto("/");
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    const observation = page.getByTestId("market-data-observation");
+    const context = await observation.getAttribute("data-chart-context-key");
+    const baseline = {
+        queries: market.historyAnchors.length,
+        subscriptions: market.subscriptions.length,
+        acquisitions: market.acquisitions()
+    };
+    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    const handoff = page.getByTestId("calculation-handoff");
+    await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
+    await expect(handoff).toContainText("尚未计算");
+    await expect(observation).toHaveAttribute("data-chart-context-key", context ?? "");
+    market.emitPreview();
+    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    expect(market.historyAnchors).toHaveLength(baseline.queries);
+    expect(market.subscriptions).toHaveLength(baseline.subscriptions);
+    expect(market.acquisitions()).toBe(baseline.acquisitions);
+    await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    expect(catalogRequests).toEqual([
+        "/api/v2/research/runtime-generations/active",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations"
+    ]);
 });
 
 test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {

@@ -262,8 +262,9 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
     expect(renderedPrices()).toEqual([101, 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "指标" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "因子" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
 });
 
 it("keeps the default chart incarnation when reselecting its source, instrument and 15m", async () => {
@@ -1114,7 +1115,7 @@ it("renders no invented candles in an unconfigured workspace", async () => {
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
         "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
     );
-    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未接入正式 Catalog");
+    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未执行计算");
 });
 
 it("never renders a synthetic price once a real market data source is selected", async () => {
@@ -1184,10 +1185,11 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(renderedPrices()).toEqual([101, 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.getByTestId("real-overlay-note")).toHaveTextContent(
-        "指标/因子目录尚未接入正式 Catalog"
+        "指标/因子仅选择正式目录；尚未执行计算"
     );
-    expect(screen.getByRole("button", { name: /指标/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /因子/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /指标/ })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByRole("button", { name: /因子/ })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
         /test\.market_data\.live · 历史投影 888888888888 · ● 连接中/
     );

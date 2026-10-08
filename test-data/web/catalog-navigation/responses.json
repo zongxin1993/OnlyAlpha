@@ -1,0 +1,54 @@
+{
+    "discovery": {
+        "schema_version": 2,
+        "calculations": [{
+            "kind": "INDICATOR",
+            "type_reference": {"kind": "INDICATOR", "type_id": "onlyalpha.indicator.sma", "semantic_version": "1"},
+            "parameters": [
+                {"name": "period", "type": "INTEGER", "required": false, "default": {"type": "INTEGER", "value": 20}, "minimum": {"type": "INTEGER", "value": 1}, "maximum": null, "enum_values": [], "uppercase": false},
+                {"name": "price_field", "type": "STRING", "required": false, "default": {"type": "STRING", "value": "CLOSE"}, "minimum": null, "maximum": null, "enum_values": [{"type": "STRING", "value": "CLOSE"}], "uppercase": true}
+            ],
+            "inputs": [{"name": "price", "data_type": "DECIMAL", "nullable": false, "dimensions": ["TIME"], "semantic_type": "NUMERIC_SERIES", "unit": null}],
+            "outputs": [{"name": "value", "data_type": "DECIMAL", "nullable": true, "dimensions": ["TIME"], "semantic_type": "NUMERIC_SERIES", "unit": null}],
+            "parameter_sweep_allowed": true
+        }]
+    },
+    "active": {"schema_version": 1, "runtime_generation_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "binding": {"schema_version": 1, "runtime_generation_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "catalog_generation_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+    "context": {
+        "schema_version": 1,
+        "catalog_generation_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "ordered_providers": [{"provider_id": "onlyalpha.indicators", "provider_version": "1.0.0", "kind": "INDICATOR", "provider_source": {"kind": "DISTRIBUTION"}, "provider_content_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}],
+        "ordered_calculation_capabilities": [{
+            "provider_id": "onlyalpha.indicators", "provider_version": "1.0.0", "provider_kind": "INDICATOR", "kind": "INDICATOR", "type_id": "onlyalpha.indicator.sma", "semantic_version": "1", "backend": "RESEARCH", "implementation_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "state_capability": null, "checkpoint_schema_version": null,
+            "type_descriptor": {
+                "kind": "INDICATOR", "type_id": "onlyalpha.indicator.sma", "semantic_version": "1",
+                "parameters": [
+                    {"name": "period", "parameter_type": "INTEGER", "required": false, "default": 20, "minimum": 1, "maximum": null, "enum_values": [], "uppercase": false},
+                    {"name": "price_field", "parameter_type": "STRING", "required": false, "default": "CLOSE", "minimum": null, "maximum": null, "enum_values": ["CLOSE"], "uppercase": true}
+                ],
+                "inputs": [{"name": "price", "data_type": "DECIMAL", "nullable": false, "dimensions": ["TIME"], "semantic_type": "NUMERIC_SERIES", "unit": null}],
+                "outputs": [{"name": "value", "data_type": "DECIMAL", "nullable": true, "dimensions": ["TIME"], "semantic_type": "NUMERIC_SERIES", "unit": null}],
+                "missing_values": "RESET", "timestamp": "BAR_CLOSE", "factor_kind": null, "execution_shape": "TIME_SERIES",
+                "numeric": {"representation": "DECIMAL", "precision": 28, "output_quantum": null, "rounding": "ROUND_HALF_EVEN"},
+                "semantic_bounds": {"value": null}
+            }
+        }],
+        "ordered_dataset_field_contracts": [], "ordered_registered_universes": [], "ordered_statistics_capabilities": [],
+        "projection_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+        "projection_schema_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "readiness": {
+        "schema_version": 1,
+        "catalog_generation_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "exact_catalog_context_projection_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+        "exact_catalog_context_projection_schema_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+        "ordered_calculation_readiness_capabilities": [{
+            "schema_version": 1, "catalog_generation_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "provider_id": "onlyalpha.indicators", "provider_version": "1.0.0", "provider_kind": "INDICATOR", "kind": "INDICATOR", "type_id": "onlyalpha.indicator.sma", "semantic_version": "1", "backend": "RESEARCH", "implementation_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "readiness_contract_versions": [1], "capability_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }],
+        "projection_fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+        "projection_schema_fingerprint": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+}

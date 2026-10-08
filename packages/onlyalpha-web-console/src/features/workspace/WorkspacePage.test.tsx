@@ -87,8 +87,9 @@ it("never presents absent API proof as synthetic business facts or success", asy
     expect(
         screen.queryByText(/synthetic|1486\.20|run-0f3a91|MA 20|20 日动量/)
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "指标" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "因子" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
 });
 
