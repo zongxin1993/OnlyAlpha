@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { createUuidV4 } from "../../api/integrations/submissionIntent";
 import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
 import { CalculationPicker } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
@@ -20,7 +21,7 @@ export function ChartStudies({
     const [draft, setDraft] = useState<ChartCalculationDraft | null>(null);
     const [instances, setInstances] = useState<readonly ChartStudyInstance[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [incarnationKey] = useState(() => crypto.randomUUID());
+    const [incarnationKey] = useState(createUuidV4);
     const [editing, setEditing] = useState<ChartStudyInstance | null>(null);
     const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
     const changeDraft = useCallback(
@@ -189,7 +190,7 @@ export function ChartStudies({
                         onConfirm={(configuration, presentation) => {
                             if (context === null) return;
                             const instance: ChartStudyInstance = {
-                                instanceId: editing?.instanceId ?? crypto.randomUUID(),
+                                instanceId: editing?.instanceId ?? createUuidV4(),
                                 context,
                                 selection: draft,
                                 configuration,

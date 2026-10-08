@@ -398,6 +398,8 @@ async function panChartUntilLeftThreshold(
 
 test("real Browser uses one native 15m resolution across HTTP and stream", async ({ page }) => {
     test.setTimeout(120_000);
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await scenario(page);
     const observed = observeProduct(page);
     const sourcesResponse = await page.request.get("/api/v2/market-data/sources");
@@ -411,7 +413,24 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     expect(defaults).toHaveLength(1);
     const integrationId = defaults[0].integration_id;
     await page.goto("/");
+    const browserCapabilities = await page.evaluate(() => ({
+        url: location.href,
+        isSecureContext: window.isSecureContext,
+        randomUUID: typeof crypto.randomUUID,
+        getRandomValues: typeof crypto.getRandomValues
+    }));
+    await test.info().attach("workspace-browser-crypto-capabilities", {
+        contentType: "application/json",
+        body: JSON.stringify(browserCapabilities)
+    });
+    // Do not polyfill: the canonical Compose browser must exercise the real HTTP origin.
+    expect(new URL(browserCapabilities.url).origin).toBe("http://web:5173");
+    expect(browserCapabilities.isSecureContext).toBe(false);
+    expect(browserCapabilities.randomUUID).toBe("undefined");
+    expect(browserCapabilities.getRandomValues).toBe("function");
+    await expect(page.getByText("Unexpected Application Error!", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue(integrationId);
+    await expect(page.getByRole("combobox", { name: "数据源" })).toBeEnabled();
     await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
     const { http, stream } = await matchingProductEvidence(observed, 15, "PROVIDER_NATIVE");
     expect(observed.requests[0]?.searchParams.get("instrument_id")).toBe("BTCUSDT.BINANCE");
@@ -569,6 +588,95 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     await page.mouse.move(0, 0);
     await expect(observation).toHaveAttribute("data-observation-mode", /latest-closed|preview/);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect
+        .poll(async () => Number(await chart.getAttribute("data-volume-point-count")))
+        .toBeGreaterThanOrEqual(1440);
+    await expect(chart).toHaveAttribute("data-study-series-count", "0");
+    const displayRequests: { path: string; method: string }[] = [];
+    page.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path.startsWith("/api/v2/")) displayRequests.push({ path, method: request.method() });
+    });
+    const displayBaseline = counts();
+    const addStudy = async () => {
+        await page.getByRole("button", { name: "指标", exact: true }).click();
+        const picker = page.getByRole("dialog", { name: "指标 / 因子目录" });
+        await picker
+            .getByRole("searchbox", { name: "搜索指标或因子" })
+            .fill("onlyalpha.indicator.sma");
+        await picker.getByRole("button", { name: /选择 SMA/ }).click();
+        const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
+        await expect(editor.getByRole("textbox", { name: "period" })).toHaveValue("20");
+        await expect(editor.getByRole("combobox", { name: "price_field" })).toHaveValue("CLOSE");
+        await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
+        await editor.getByRole("button", { name: "添加", exact: true }).click();
+        await expect(editor).toHaveCount(0);
+    };
+    await addStudy();
+    const instances = page.getByTestId("chart-study-instance");
+    await expect(instances).toHaveCount(1);
+    const first = instances.first();
+    const firstId = await first.getAttribute("data-instance-id");
+    const configuration = await first.getAttribute("data-configuration");
+    const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(firstId).toMatch(uuidV4);
+    await addStudy();
+    await expect(instances).toHaveCount(2);
+    const secondId = await instances.nth(1).getAttribute("data-instance-id");
+    expect(secondId).toMatch(uuidV4);
+    expect(secondId).not.toBe(firstId);
+    await expect(instances.nth(1)).toHaveAttribute("data-configuration", configuration ?? "");
+    await expect(chart).toHaveAttribute("data-pane-count", "4");
+    await first.getByRole("button", { name: "选择 SMA" }).click();
+    await first.getByRole("button", { name: "隐藏 SMA" }).click();
+    await expect(chart).toHaveAttribute("data-pane-count", "3");
+    await expect(first).toHaveAttribute("data-instance-id", firstId ?? "");
+    await first.getByRole("button", { name: "显示 SMA" }).click();
+    await expect(chart).toHaveAttribute("data-pane-count", "4");
+    await first.getByRole("button", { name: "编辑 SMA" }).click();
+    await page.getByRole("textbox", { name: "颜色" }).fill("#c8332a");
+    await page.getByRole("button", { name: "应用", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(first).toHaveAttribute("data-instance-id", firstId ?? "");
+    await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
+    await expect(first).toHaveAttribute("data-selected", "true");
+    await expect(first).toContainText("已配置，尚未接入后端计算");
+    await expect(chart).toHaveAttribute("data-study-series-count", "0");
+    await first.getByRole("button", { name: "移除配置" }).click();
+    await expect(instances).toHaveCount(1);
+    await expect(instances).toHaveAttribute("data-instance-id", secondId ?? "");
+    await expect(instances).toHaveAttribute("data-selected", "false");
+    await instances.getByRole("button", { name: "移除配置" }).click();
+    await expect(chart).toHaveAttribute("data-pane-count", "2");
+    await expect(chart).toHaveAttribute("data-study-series-count", "0");
+    expect(counts()).toEqual(displayBaseline);
+    expect(displayRequests.length).toBeGreaterThan(0);
+    expect(
+        displayRequests.every(
+            (request) => request.path.startsWith("/api/v2/research/") && request.method === "GET"
+        )
+    ).toBe(true);
+    await expect(chart).toHaveAttribute("data-visible-range-from", rangeBefore);
+    await expect(chart).toHaveAttribute("data-visible-range-to", rangeToBefore);
+    await expect(chart).toHaveAttribute("data-visible-anchor-time", anchorBefore);
+    expect(pageErrors).toEqual([]);
+    await expect(page.getByText("Unexpected Application Error!", { exact: true })).toHaveCount(0);
+    await test.info().attach("insecure-origin-study-lifecycle", {
+        contentType: "application/json",
+        body: JSON.stringify({
+            browserCapabilities,
+            firstId,
+            secondId,
+            configuration,
+            before: displayBaseline,
+            after: counts(),
+            displayRequests,
+            volumePointCount: await chart.getAttribute("data-volume-point-count"),
+            volumeLatest: await chart.getAttribute("data-volume-latest"),
+            studySeriesCount: await chart.getAttribute("data-study-series-count"),
+            pageErrors
+        })
+    });
     await test.info().attach("exact-chart-observation", {
         contentType: "application/json",
         body: JSON.stringify({

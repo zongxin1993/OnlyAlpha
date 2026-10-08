@@ -14,6 +14,10 @@ const modalMethods = {
     close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
 };
 beforeEach(() => {
+    // HTTP Compose origins expose getRandomValues, but not secure-context randomUUID.
+    vi.stubGlobal("crypto", {
+        getRandomValues: crypto.getRandomValues.bind(crypto)
+    });
     document.documentElement.style.setProperty("--accent-solid", "#1f5f8b");
     Object.defineProperties(HTMLDialogElement.prototype, {
         showModal: {
@@ -119,6 +123,7 @@ it("confirms independent instances; cancel/edit has a single state source and st
     const first = await screen.findByTestId("chart-study-instance");
     const id = first.getAttribute("data-instance-id"),
         original = first.getAttribute("data-configuration");
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     await user.click(within(first).getByRole("button", { name: "编辑 SMA" }));
     await user.clear(screen.getByRole("textbox", { name: "period" }));
     await user.type(screen.getByRole("textbox", { name: "period" }), "30");
@@ -146,6 +151,9 @@ it("confirms independent instances; cancel/edit has a single state source and st
         expect(screen.getAllByTestId("chart-study-instance")).toHaveLength(2);
     });
     const second = screen.getAllByTestId("chart-study-instance")[1];
+    expect(second?.getAttribute("data-instance-id")).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
     expect(second).not.toHaveAttribute("data-instance-id", id);
     expect(second).toHaveAttribute("data-configuration", original);
     expect(second).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
@@ -371,11 +379,19 @@ it("fences an old confirmation across A to B to restored A without polluting a n
                 >
                     switch context
                 </button>
-                <ChartStudies key={active.key} context={active} />
+                <ChartStudies key={active.key} context={active}>
+                    {({ incarnationKey }) => (
+                        <output data-testid="study-incarnation">{incarnationKey}</output>
+                    )}
+                </ChartStudies>
             </>
         );
     }
     render(<Workspace />);
+    const firstIncarnation = screen.getByTestId("study-incarnation").textContent;
+    expect(firstIncarnation).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
     await select(user);
     await user.clear(screen.getByRole("textbox", { name: "period" }));
     await user.type(screen.getByRole("textbox", { name: "period" }), "45");
@@ -386,7 +402,12 @@ it("fences an old confirmation across A to B to restored A without polluting a n
     traffic.hold = pending;
     await user.click(screen.getByRole("button", { name: "添加" }));
     await user.click(screen.getByRole("button", { name: "switch context" }));
+    const otherIncarnation = screen.getByTestId("study-incarnation").textContent;
+    expect(otherIncarnation).not.toBe(firstIncarnation);
     await user.click(screen.getByRole("button", { name: "switch context" }));
+    const restoredIncarnation = screen.getByTestId("study-incarnation").textContent;
+    expect(restoredIncarnation).not.toBe(firstIncarnation);
+    expect(restoredIncarnation).not.toBe(otherIncarnation);
     traffic.hold = null;
     await select(user);
     await user.click(screen.getByRole("button", { name: "添加" }));
@@ -405,6 +426,7 @@ it("fences an old confirmation across A to B to restored A without polluting a n
     expect(current).toHaveAttribute("data-chart-context-key", context.key);
     expect(current).toHaveTextContent("period=20");
     expect(current).not.toHaveTextContent("period=45");
+    expect(screen.getByTestId("study-incarnation")).toHaveTextContent(restoredIncarnation);
 });
 
 it("select/show-hide/remove affect only display state and issue no metadata reads", async () => {
@@ -437,9 +459,11 @@ it("select/show-hide/remove affect only display state and issue no metadata read
     await user.click(within(first).getByRole("button", { name: "选择 SMA" }));
     expect(screen.getByTestId("owned-study-state")).toHaveAttribute("data-selected-id", firstId);
     await user.click(within(first).getByRole("button", { name: "隐藏 SMA" }));
+    expect(first).toHaveAttribute("data-instance-id", firstId);
     expect(first).toHaveAttribute("data-configuration", configuration);
     expect(second).toHaveAttribute("data-presentation", secondPresentation);
     await user.click(within(first).getByRole("button", { name: "显示 SMA" }));
+    expect(first).toHaveAttribute("data-instance-id", firstId);
     expect(first).toHaveAttribute("data-configuration", configuration);
     await user.click(within(first).getByRole("button", { name: "移除配置" }));
     expect(screen.getByTestId("owned-study-state")).toHaveAttribute("data-selected-id", "");
