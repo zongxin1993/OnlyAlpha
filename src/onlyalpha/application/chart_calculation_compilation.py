@@ -361,7 +361,9 @@ class OnlyChartCalculationInputVerifier:
         _require(not require_active or binding.active, "CHART_RUNTIME_BINDING_INACTIVE")
         return binding
 
-    def dataset(self, preparation: OnlyChartCalculationPreparationV1, pin: OnlyChartCalculationInputPinV1) -> None:
+    def dataset(
+        self, preparation: OnlyChartCalculationPreparationV1, pin: OnlyChartCalculationInputPinV1
+    ) -> OnlyVerifiedResearchDataset:
         """Verify physical Snapshot and full pinned lineage without rematerializing anything."""
         assert (
             preparation.dataset_snapshot_fingerprint is not None and preparation.dataset_materialization_id is not None
@@ -432,6 +434,7 @@ class OnlyChartCalculationInputVerifier:
             )
         except (*_SHAPE_ERRORS, OSError, OnlyResearchDatasetStoreError) as exc:
             raise OnlyChartCalculationError(_INPUT_CORRUPT) from exc
+        return verified
 
     def generation(
         self,
@@ -465,12 +468,13 @@ class OnlyChartCalculationInputVerifier:
         operation: OnlyChartCalculationOperationV1,
         preparation: OnlyChartCalculationPreparationV1,
         compilation: OnlyChartCalculationCompilationV1,
-    ) -> None:
+    ) -> OnlyVerifiedResearchDataset:
         pin = _verified_ready_pin(operation, preparation)
         compilation.verify_operation_preparation(operation, preparation)
         self.binding(preparation, require_active=False)
-        self.dataset(preparation, pin)
+        verified = self.dataset(preparation, pin)
         self.generation(operation, preparation, historical=True)
+        return verified
 
 
 class OnlyChartCalculationCompilationService:

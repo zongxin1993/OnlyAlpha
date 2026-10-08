@@ -183,7 +183,7 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
         host.close()
 
 
-def _compile_chart_in_exact_host(tmp_path, registry, builder, generation, host):
+def _compile_chart_in_exact_host(tmp_path, registry, builder, generation, host, *, period=3, price_field="VOLUME"):
     from dataclasses import replace
 
     from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
@@ -200,7 +200,7 @@ def _compile_chart_in_exact_host(tmp_path, registry, builder, generation, host):
     from tests.application.test_chart_calculation_admission import NOW
     from tests.support.chart_calculation_compilation import prepared_input
 
-    chart = prepared_input(tmp_path / "chart-input", price_field="VOLUME")
+    chart = prepared_input(tmp_path / "chart-input", period=period, price_field=price_field)
     reader = OnlyRuntimeGenerationExactCatalogDescriptorReader(registry, builder, tmp_path / "chart-catalog")
     query = OnlyExactCatalogContextQueryService(reader, reader, reader, reader, readiness=reader)
     catalog = registry.load_manifest(generation).catalog_generation_fingerprint

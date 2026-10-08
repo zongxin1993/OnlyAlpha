@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 
 import psycopg
@@ -16,7 +18,7 @@ from onlyalpha.application.chart_calculation_run_admission import (
 )
 from onlyalpha.application.product_command_authority import OnlyProductCommandAuthorityUnavailableError
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
-from onlyalpha.research.run.model import OnlyResearchRun
+from onlyalpha.research.run.model import OnlyResearchRun, OnlyResearchRunState
 
 from .chart_calculation_compilation_store import OnlyPostgresChartCalculationCompilationStore
 from .chart_calculation_preparation_store import OnlyPostgresChartCalculationPreparationStore
@@ -115,6 +117,28 @@ class OnlyPostgresChartCalculationRunAdmissionStore:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 self._context(connection, operation)
                 return only_verify_chart_run_consumption_in_transaction(connection, operation)
+        except psycopg.Error as exc:
+            raise OnlyProductCommandAuthorityUnavailableError(operation.operation_id.value) from exc
+
+    @contextmanager
+    def hold_queued_run(
+        self, operation: OnlyChartCalculationOperationV1, compilation: OnlyChartCalculationCompilationV1
+    ) -> Iterator[OnlyResearchRun]:
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT run_id FROM research_run WHERE run_id = %s FOR SHARE NOWAIT",
+                    (operation.reserved_run_id.value,),
+                ).fetchone()
+                _require(row is not None, "CHART_EXECUTION_RUN_NOT_FOUND")
+                _require(self._context(connection, operation) == compilation, _CONFLICT)
+                run = only_verify_chart_run_consumption_in_transaction(connection, operation)
+                _require(run is not None and run.state is OnlyResearchRunState.QUEUED, "CHART_EXECUTION_RUN_NOT_QUEUED")
+                assert run is not None
+                yield run
+                # Rollback releases the read-only row fence. No journal or frontier
+                # lock, Run lease, Attempt identity or durable execution state exists.
+                connection.rollback()
         except psycopg.Error as exc:
             raise OnlyProductCommandAuthorityUnavailableError(operation.operation_id.value) from exc
 

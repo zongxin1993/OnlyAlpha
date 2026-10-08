@@ -6,6 +6,9 @@ The internal `OnlyChartCalculationRunAdmissionService` consumes an authoritative
 compile again, select a current Registry, acquire input, create Scientific Candidates, execute Calculation backends or publish
 Result/Evidence/Artifact. Generic Research admission remains Specification V1/V2 only. No HTTP/Web entry is added here.
 
+A separate [exact hosted execution projection](chart-calculation-execution.md) may diagnose values/readiness without
+claiming this Run or publishing any Result/Evidence/Artifact. It does not change the admission or legacy Worker permission table.
+
 | Origin | Admission | Legacy Worker capability |
 |---|---|---|
 | `GENERAL` | Existing Research command and Novelty rules, Specification V1/V2 | Existing exact generation/provenance rules |

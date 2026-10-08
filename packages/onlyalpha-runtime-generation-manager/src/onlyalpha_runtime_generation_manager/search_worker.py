@@ -82,6 +82,7 @@ from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract, OnlyStr
 from .hosted import only_load_hosted_quant_asset_catalog, only_verify_hosted_runtime_generation
 
 _CAPABILITIES = (
+    OnlySearchGenerationOperationV1.EXECUTE_CHART_CALCULATION_PROJECTION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_ADMISSION,
     OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION,
@@ -156,10 +157,9 @@ def _execute(
     catalog: OnlyQuantAssetCatalogGeneration,
     evidence: OnlyRuntimeGenerationValidationEvidence,
 ) -> Mapping[str, object]:
+    if request.operation_kind is OnlySearchGenerationOperationV1.EXECUTE_CHART_CALCULATION_PROJECTION:
+        return _execute_chart(request, catalog, evidence)
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION:
-        from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
-        from onlyalpha.research.run.calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
-
         payload = request.request_payload
         _exact(payload, {"specification", "dataset_store_root"})
         specification = OnlyResearchSpecification.from_dict(_mapping(payload["specification"], "specification"))
@@ -168,26 +168,7 @@ def _execute(
         OnlyParquetResearchDatasetSnapshotStore(Path(_string(payload, "dataset_store_root"))).load_verified_table(
             specification.dataset_snapshot_fingerprint
         )
-        registry = _calculation_registry(catalog.calculation_registry())
-        resolution = OnlyResearchSpecificationResolver(registry).resolve(specification)
-        job = resolution.workload.direct_jobs[0]
-        assert job.publication is not None
-        manifest = (
-            OnlyResearchCalculationBackendResolver(registry)
-            .resolve_readiness(job.calculation_graph.nodes[0].definition, job.publication)
-            .implementation_manifest
-        )
-        return OnlyResearchCalculationRuntimeResolutionV1(
-            evidence.runtime_generation_fingerprint,
-            specification,
-            resolution.specification_fingerprint,
-            job,
-            resolution.workload.result_plan,
-            specification.calculations[0].calculation_id,
-            resolution.candidates[0].node_fingerprints,
-            resolution.research_implementation_bindings,
-            manifest,
-        ).to_dict()
+        return _resolve_calculation_publication(specification, catalog, evidence)
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_DEFINITION:
         payload = request.request_payload
         _exact(payload, {"definition", "dataset_store_root"})
@@ -262,6 +243,98 @@ def _execute(
     if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_PARAMETER_RESEARCH:
         return _resolve_parameter_research(request.request_payload, catalog)
     raise OnlyHistoricalGenerationCapabilityUnsupported(request.operation_kind.value)
+
+
+def _resolve_calculation_publication(
+    specification: OnlyResearchSpecification,
+    catalog: OnlyQuantAssetCatalogGeneration,
+    evidence: OnlyRuntimeGenerationValidationEvidence,
+) -> Mapping[str, object]:
+    from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+    from onlyalpha.research.run.calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
+
+    registry = _calculation_registry(catalog.calculation_registry())
+    resolution = OnlyResearchSpecificationResolver(registry).resolve(specification)
+    job = resolution.workload.direct_jobs[0]
+    assert job.publication is not None
+    manifest = (
+        OnlyResearchCalculationBackendResolver(registry)
+        .resolve_readiness(job.calculation_graph.nodes[0].definition, job.publication)
+        .implementation_manifest
+    )
+    return OnlyResearchCalculationRuntimeResolutionV1(
+        evidence.runtime_generation_fingerprint,
+        specification,
+        resolution.specification_fingerprint,
+        job,
+        resolution.workload.result_plan,
+        specification.calculations[0].calculation_id,
+        resolution.candidates[0].node_fingerprints,
+        resolution.research_implementation_bindings,
+        manifest,
+    ).to_dict()
+
+
+def _execute_chart(
+    envelope: OnlySearchGenerationExecutionRequestV1,
+    catalog: OnlyQuantAssetCatalogGeneration,
+    evidence: OnlyRuntimeGenerationValidationEvidence,
+) -> Mapping[str, object]:
+    from onlyalpha.application.chart_calculation_execution import (
+        CHART_CALCULATION_EXECUTION_MAX_BYTES,
+        CHART_CALCULATION_EXECUTION_MAX_ROWS,
+        OnlyChartCalculationExecutionProjectionV1,
+        OnlyChartCalculationExecutionRequestV1,
+    )
+    from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+    from onlyalpha.research.calculation.execution import (
+        OnlyResearchCalculationExecutor,
+        _only_require_verified_research_calculation_execution_v2,
+    )
+
+    request = OnlyChartCalculationExecutionRequestV1.from_dict(envelope.request_payload)
+    frozen = request.compilation
+    if frozen.runtime_generation_fingerprint != evidence.runtime_generation_fingerprint:
+        raise OnlyHistoricalGenerationHostMismatch("Chart compilation Generation differs")
+    store = OnlyParquetResearchDatasetSnapshotStore(Path(request.dataset_store_root)).bounded(
+        CHART_CALCULATION_EXECUTION_MAX_ROWS,
+        CHART_CALCULATION_EXECUTION_MAX_BYTES,
+    )
+    manifest = store.load(frozen.dataset_snapshot_fingerprint)
+    if not 0 < manifest.row_count <= CHART_CALCULATION_EXECUTION_MAX_ROWS:
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart input exceeds row limit")
+    # Verify bounded stored bytes before decoding Parquet; no acquisition or rewrite.
+    verified = store.load_verified_table(frozen.dataset_snapshot_fingerprint)
+    if (
+        verified.table.nbytes > CHART_CALCULATION_EXECUTION_MAX_BYTES
+        or set(verified.table.column("instrument_id").to_pylist()) != {request.instrument_id}
+        or tuple(verified.table.column("ts_event_ns").to_pylist()) != request.timestamps
+    ):
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart verified input axis differs")
+    compilation = _resolve_calculation_publication(frozen.specification, catalog, evidence)
+    if compilation != frozen.resolution.to_dict():
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart stored compilation differs from exact compiler")
+    registry = _calculation_registry(catalog.calculation_registry())
+    executor = OnlyResearchCalculationExecutor(store, OnlyResearchCalculationBackendResolver(registry))
+    assert frozen.resolution.job_plan.publication is not None
+    sealed = executor._execute_verified_v2(
+        frozen.dataset_snapshot_fingerprint,
+        frozen.resolution.calculation_graph,
+        frozen.resolution.job_plan.publication,
+    )
+    execution = _only_require_verified_research_calculation_execution_v2(sealed)
+    if execution.research_implementation_bindings != frozen.resolution.research_implementation_bindings:
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart executed implementation differs")
+    if len(execution.outputs) != 1 or len(execution.readiness) != 1:
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart executed membership differs")
+    output, readiness = execution.outputs[0], execution.readiness[0]
+    expected = (frozen.resolution.calculation_graph.nodes[0].fingerprint, request.instrument_id)
+    if (output.node_fingerprint, output.instrument_id) != expected or (
+        readiness.node_fingerprint,
+        readiness.instrument_id,
+    ) != expected:
+        raise OnlyHistoricalGenerationExecutionMismatch("Chart executed owner differs")
+    return OnlyChartCalculationExecutionProjectionV1(request, output.table, readiness.table).to_dict()
 
 
 def _derive_symbolic(

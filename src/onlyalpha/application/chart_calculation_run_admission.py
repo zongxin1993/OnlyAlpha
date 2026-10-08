@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Protocol, cast
 
@@ -78,6 +79,12 @@ def only_verify_chart_calculation_run(run: OnlyResearchRun, frozen: OnlyChartCal
 
 class OnlyChartCalculationRunAdmissionStore(Protocol):
     def load_verified(self, operation: OnlyChartCalculationOperationV1) -> OnlyResearchRun | None: ...
+
+    def hold_queued_run(
+        self, operation: OnlyChartCalculationOperationV1, compilation: OnlyChartCalculationCompilationV1
+    ) -> AbstractContextManager[OnlyResearchRun]:
+        """Read-only dispatch fence, not Claim, Attempt or mutation permission."""
+        ...
 
     def commit_or_replay(
         self,

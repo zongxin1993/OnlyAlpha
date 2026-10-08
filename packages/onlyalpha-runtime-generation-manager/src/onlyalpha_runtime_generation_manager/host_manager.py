@@ -7,12 +7,16 @@ import os
 import select
 import shutil
 import subprocess
+import time
+from collections.abc import Mapping
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock, RLock
-from typing import Any, cast
+from threading import Event, Lock, RLock
+from typing import TYPE_CHECKING, Any, cast
 
 from onlyalpha.application.search_generation_execution import (
+    ONLYALPHA_CHART_CALCULATION_EXECUTION_MAX_WIRE_BYTES,
     ONLYALPHA_SEARCH_GENERATION_EXECUTION_CONTRACT_VERSION,
     ONLYALPHA_SEARCH_GENERATION_EXECUTION_SCHEMA_VERSION,
     OnlyHistoricalGenerationArtifactMissing,
@@ -39,6 +43,9 @@ from onlyalpha.runtime.generation import (
 
 from .builder import OnlyRuntimeGenerationBuilder
 from .registry import OnlyRuntimeGenerationRegistry
+
+if TYPE_CHECKING:
+    from onlyalpha.application.chart_calculation_execution import OnlyChartCalculationExecutionProjectionV1
 
 
 @dataclass(slots=True)
@@ -68,11 +75,14 @@ class OnlyHistoricalGenerationHostManager:
         self._guard = RLock()
         self._generation_locks: dict[str, RLock] = {}
         self._workers: dict[str, _HostedWorker] = {}
+        self._chart_execution_lock = Lock()
 
     def execute(
         self,
         request: OnlySearchGenerationExecutionRequestV1,
     ) -> OnlySearchGenerationExecutionResponseV1:
+        if request.operation_kind is OnlySearchGenerationOperationV1.EXECUTE_CHART_CALCULATION_PROJECTION:
+            raise OnlyHistoricalGenerationCapabilityUnsupported("numeric execution requires issued Chart port")
         worker = (
             self._acquire(request.runtime_generation_fingerprint, historical_compilation=True)
             if request.operation_kind is OnlySearchGenerationOperationV1.RESOLVE_RESEARCH_CALCULATION_PUBLICATION
@@ -113,10 +123,151 @@ class OnlyHistoricalGenerationHostManager:
                 raise
             return response
 
+    def execute_chart_calculation(
+        self, capability: object, *, cancellation: Event | None = None
+    ) -> OnlyChartCalculationExecutionProjectionV1:
+        from onlyalpha.application.chart_calculation_execution import (
+            OnlyChartCalculationExecutionProjectionV1,
+            _only_consume_chart_execution_request,
+            _OnlyIssuedChartCalculationExecutionRequest,
+            only_require_chart_execution_not_cancelled,
+        )
+
+        request = _only_consume_chart_execution_request(capability)
+        assert isinstance(capability, _OnlyIssuedChartCalculationExecutionRequest)
+        only_require_chart_execution_not_cancelled(cancellation)
+        if not self._chart_execution_lock.acquire(blocking=False):
+            raise OnlyHistoricalGenerationWorkerUnavailable("Chart numeric host is busy")
+        worker = None
+        locked = False
+        generation = request.compilation.runtime_generation_fingerprint
+        try:
+            # Reconstruction is the existing Infrastructure lifecycle, not numeric
+            # execution. D2 normally warmed this exact environment. A cold/missing
+            # environment fails closed until explicitly prepared by that owner.
+            generation_lock = self._generation_lock(generation)
+            if not generation_lock.acquire(blocking=False):
+                raise OnlyHistoricalGenerationWorkerUnavailable("exact generation startup is busy")
+            try:
+                worker = self._acquire(generation, historical_compilation=False, allow_rebuild=False)
+            finally:
+                generation_lock.release()
+            locked = worker.lock.acquire(blocking=False)
+            if not locked:
+                raise OnlyHistoricalGenerationWorkerUnavailable("exact generation host is busy")
+            operation = OnlySearchGenerationOperationV1.EXECUTE_CHART_CALCULATION_PROJECTION
+            if operation not in worker.handshake.supported_capabilities:
+                raise OnlyHistoricalGenerationCapabilityUnsupported(operation.value)
+            # Eligibility sampled after acquisition, immediately before dispatch, not
+            # before an unbounded queue. No database transaction spans numeric work.
+            capability.validate_dispatch()
+            self._load_exact(generation)
+            envelope = OnlySearchGenerationExecutionRequestV1(generation, operation, request.to_dict())
+            raw = self._exchange_chart(
+                worker.process, envelope.to_dict(), cancellation, dispatch_guard=capability.hold_dispatch()
+            )
+            if worker.process.poll() is not None:
+                raise OnlyHistoricalGenerationWorkerUnavailable("Chart worker lost before completion")
+            if "error_code" in raw:
+                failure = OnlySearchGenerationExecutionFailureV1.from_dict(raw)
+                if failure.runtime_generation_fingerprint != generation:
+                    raise OnlyHistoricalGenerationHostMismatch(generation)
+                failure.raise_error()
+            response = OnlySearchGenerationExecutionResponseV1.from_dict(raw)
+            if response.runtime_generation_fingerprint != generation or response.operation_kind is not operation:
+                raise OnlyHistoricalGenerationExecutionMismatch("Chart response envelope differs")
+            projection = OnlyChartCalculationExecutionProjectionV1.from_dict(response.result_payload, request=request)
+            self._load_exact(generation)
+            capability.validate_dispatch()
+            only_require_chart_execution_not_cancelled(cancellation)
+            return projection
+        except Exception:
+            if worker is not None and locked:
+                self._forget(generation, worker)
+            raise
+        finally:
+            if worker is not None and locked:
+                worker.lock.release()
+            self._chart_execution_lock.release()
+
+    def _exchange_chart(
+        self,
+        process: subprocess.Popen[str],
+        request: Mapping[str, object],
+        cancellation: Event | None,
+        *,
+        dispatch_guard: AbstractContextManager[None] | None = None,
+    ) -> dict[str, object]:
+        """Bound both pipe directions and the whole line, including partial-line stalls."""
+        if process.poll() is not None or process.stdin is None or process.stdout is None:
+            raise OnlyHistoricalGenerationWorkerUnavailable("Chart worker unavailable")
+        payload = (only_canonical_json(request) + "\n").encode("utf-8")
+        if len(payload) > ONLYALPHA_CHART_CALCULATION_EXECUTION_MAX_WIRE_BYTES:
+            raise OnlyHistoricalGenerationProtocolMismatch("Chart request exceeds transport limit")
+        input_fd, output_fd = process.stdin.fileno(), process.stdout.fileno()
+        input_blocking, output_blocking = os.get_blocking(input_fd), os.get_blocking(output_fd)
+        deadline = time.monotonic() + self._startup_timeout
+        received = bytearray()
+        sent = 0
+        fences = ExitStack()
+        try:
+            os.set_blocking(input_fd, False)
+            os.set_blocking(output_fd, False)
+            if dispatch_guard is not None:
+                fences.enter_context(dispatch_guard)
+            while True:
+                if cancellation is not None and cancellation.is_set():
+                    from onlyalpha.application.chart_calculation import OnlyChartCalculationError
+
+                    raise OnlyChartCalculationError("CHART_EXECUTION_CANCELLED")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise OnlyHistoricalGenerationWorkerUnavailable("Chart execution response timeout")
+                readable, writable, _ = select.select(
+                    [output_fd], [input_fd] if sent < len(payload) else [], [], min(remaining, 0.1)
+                )
+                if writable:
+                    sent += os.write(input_fd, payload[sent : sent + 65536])
+                    if sent == len(payload):
+                        # Linearization: the complete command becomes visible while
+                        # original Run and Runtime are fenced. Numerical wait holds no fence.
+                        fences.close()
+                if readable:
+                    chunk = os.read(output_fd, 65536)
+                    if not chunk:
+                        raise OnlyHistoricalGenerationWorkerUnavailable("Chart worker closed response stream")
+                    received.extend(chunk)
+                    if len(received) > ONLYALPHA_CHART_CALCULATION_EXECUTION_MAX_WIRE_BYTES:
+                        raise OnlyHistoricalGenerationProtocolMismatch("Chart response exceeds transport limit")
+                    if b"\n" in received:
+                        line, trailing = bytes(received).split(b"\n", 1)
+                        if trailing or sent != len(payload):
+                            raise OnlyHistoricalGenerationProtocolMismatch("Chart response framing differs")
+                        raw: Any = json.loads(line)
+                        if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
+                            raise OnlyHistoricalGenerationProtocolMismatch("Chart response is not an object")
+                        return cast(dict[str, object], raw)
+        except (BrokenPipeError, OSError) as exc:
+            raise OnlyHistoricalGenerationWorkerUnavailable("Chart worker transport lost") from exc
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise OnlyHistoricalGenerationProtocolMismatch("Chart worker emitted invalid JSON") from exc
+        except ValueError as exc:
+            if getattr(exc, "code", None) == "CHART_EXECUTION_CANCELLED":
+                raise
+            raise OnlyHistoricalGenerationWorkerUnavailable("Chart worker pipe closed") from exc
+        finally:
+            fences.close()
+            if not process.stdin.closed:
+                os.set_blocking(input_fd, input_blocking)
+            if not process.stdout.closed:
+                os.set_blocking(output_fd, output_blocking)
+
     def acquire(self, generation_fingerprint: str) -> _HostedWorker:
         return self._acquire(generation_fingerprint, historical_compilation=False)
 
-    def _acquire(self, generation_fingerprint: str, *, historical_compilation: bool) -> _HostedWorker:
+    def _acquire(
+        self, generation_fingerprint: str, *, historical_compilation: bool, allow_rebuild: bool = True
+    ) -> _HostedWorker:
         lock = self._generation_lock(generation_fingerprint)
         with lock:
             # Revalidate before cache reuse: a compilation worker is not permission
@@ -128,12 +279,16 @@ class OnlyHistoricalGenerationHostManager:
             )
             with self._guard:
                 existing = self._workers.get(generation_fingerprint)
+            environment = self._environment_root(generation_fingerprint)
+            if not allow_rebuild and not environment.is_dir():
+                raise OnlyHistoricalGenerationWorkerUnavailable("exact Chart host environment is not prepared")
             if existing is not None and existing.process.poll() is None:
                 return existing
             if existing is not None:
                 self._forget(generation_fingerprint, existing)
-            environment = self._environment_root(generation_fingerprint)
             if not environment.exists():
+                if not allow_rebuild:
+                    raise OnlyHistoricalGenerationWorkerUnavailable("exact Chart host environment is not prepared")
                 self._rebuild(manifest, evidence, environment)
             worker = self._spawn(environment, evidence)
             try:
@@ -237,19 +392,15 @@ class OnlyHistoricalGenerationHostManager:
                 env=self._builder._isolated_environment(),
                 shell=False,
             )
-            assert process.stdin is not None
-            process.stdin.write(
-                only_canonical_json(
-                    {
-                        "schema_version": ONLYALPHA_SEARCH_GENERATION_EXECUTION_SCHEMA_VERSION,
-                        "execution_contract_version": ONLYALPHA_SEARCH_GENERATION_EXECUTION_CONTRACT_VERSION,
-                        "validation_evidence": evidence.to_dict(),
-                    }
-                )
-                + "\n"
+            payload = self._exchange_chart(
+                process,
+                {
+                    "schema_version": ONLYALPHA_SEARCH_GENERATION_EXECUTION_SCHEMA_VERSION,
+                    "execution_contract_version": ONLYALPHA_SEARCH_GENERATION_EXECUTION_CONTRACT_VERSION,
+                    "validation_evidence": evidence.to_dict(),
+                },
+                None,
             )
-            process.stdin.flush()
-            payload = self._read_line(process)
             if "error_code" in payload:
                 failure = OnlySearchGenerationExecutionFailureV1.from_dict(payload)
                 self._terminate(process)
@@ -261,6 +412,8 @@ class OnlyHistoricalGenerationHostManager:
                 self._terminate(process)
             raise OnlyHistoricalGenerationCapabilityUnsupported(evidence.runtime_generation_fingerprint) from exc
         except OnlyHistoricalGenerationExecutionError:
+            if "process" in locals():
+                self._terminate(process)
             raise
         except (BrokenPipeError, OSError, ValueError) as exc:
             if "process" in locals():

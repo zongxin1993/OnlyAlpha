@@ -43,10 +43,32 @@ class OnlyResearchDatasetCorruptError(OnlyResearchDatasetStoreError):
 
 
 class OnlyParquetResearchDatasetSnapshotStore:
-    def __init__(self, root: Path, *, compression: str = "zstd", row_group_size: int | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        compression: str = "zstd",
+        row_group_size: int | None = None,
+        read_budget: tuple[int, int] | None = None,
+    ) -> None:
         self._root = root
         self._compression = compression
         self._row_group_size = row_group_size
+        if read_budget is not None and (
+            type(read_budget) is not tuple
+            or len(read_budget) != 2
+            or any(type(value) is not int or value < 1 for value in read_budget)
+        ):
+            raise ValueError("DATASET_READ_BUDGET_INVALID")
+        self._read_budget = read_budget
+
+    def bounded(self, max_rows: int, max_bytes: int) -> OnlyParquetResearchDatasetSnapshotStore:
+        return OnlyParquetResearchDatasetSnapshotStore(
+            self._root,
+            compression=self._compression,
+            row_group_size=self._row_group_size,
+            read_budget=(max_rows, max_bytes),
+        )
 
     def exists(self, snapshot_fingerprint: str) -> bool:
         return self._target(snapshot_fingerprint).exists()
@@ -204,12 +226,25 @@ class OnlyParquetResearchDatasetSnapshotStore:
         if not target.is_dir():
             raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
-            payload = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("manifest must be an object")
-            return OnlyResearchDatasetSnapshot.from_dict(payload)
+            return self._load_manifest(target)[0]
         except Exception as exc:
             raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT: manifest") from exc
+
+    def _load_manifest(self, root: Path) -> tuple[OnlyResearchDatasetSnapshot, int]:
+        if self._read_budget is None:
+            text = (root / "manifest.json").read_text(encoding="utf-8")
+            manifest_bytes = 0
+        else:
+            with (root / "manifest.json").open("rb") as stream:
+                raw = stream.read(self._read_budget[1] + 1)
+            manifest_bytes = len(raw)
+            if manifest_bytes > self._read_budget[1]:
+                raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
+            text = raw.decode("utf-8")
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError("manifest must be an object")
+        return OnlyResearchDatasetSnapshot.from_dict(payload), manifest_bytes
 
     def load_bars(self, snapshot_fingerprint: str) -> tuple[OnlyBar, ...]:
         snapshot = self.load(snapshot_fingerprint)
@@ -256,20 +291,61 @@ class OnlyParquetResearchDatasetSnapshotStore:
         if not root.is_dir():
             raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
-            payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("manifest must be an object")
-            snapshot = OnlyResearchDatasetSnapshot.from_dict(payload)
+            snapshot, manifest_bytes = self._load_manifest(root)
             if snapshot.snapshot_fingerprint != expected_fingerprint:
                 raise ValueError("snapshot path identity mismatch")
+            if self._read_budget is not None:
+                if (
+                    snapshot.row_count > self._read_budget[0]
+                    or sum(item.row_count for item in snapshot.partitions) != snapshot.row_count
+                ):
+                    raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
             bars: list[OnlyBar] = []
             tables: list[pa.Table] = []
             total = 0
+            stored_bytes, decoded_bytes = manifest_bytes, 0
+            logical_bytes = decoded_rows = 0
             for partition in snapshot.partitions:
                 path = root / partition.relative_path
-                if not path.is_file() or _sha(path) != partition.byte_sha256:
-                    raise ValueError("partition byte hash mismatch")
-                table = pq.read_table(path)
+                if self._read_budget is None:
+                    if not path.is_file() or _sha(path) != partition.byte_sha256:
+                        raise ValueError("partition byte hash mismatch")
+                    table = pq.read_table(path)
+                else:
+                    # Freeze bounded physical bytes before inspecting metadata or
+                    # decoding. A path mutation cannot swap a different payload in.
+                    remaining = self._read_budget[1] - stored_bytes
+                    with path.open("rb") as stream:
+                        raw = stream.read(remaining + 1)
+                    stored_bytes += len(raw)
+                    if stored_bytes > self._read_budget[1]:
+                        raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
+                    if hashlib.sha256(raw).hexdigest() != partition.byte_sha256:
+                        raise ValueError("partition byte hash mismatch")
+                    parquet = pq.ParquetFile(pa.BufferReader(raw))
+                    metadata = parquet.metadata
+                    if (
+                        metadata.num_rows != partition.row_count
+                        or parquet.schema_arrow != snapshot.dataset_schema.arrow_schema
+                    ):
+                        raise ValueError("partition predecode schema/rows mismatch")
+                    decoded_bytes += sum(
+                        metadata.row_group(group).column(column).total_uncompressed_size
+                        for group in range(metadata.num_row_groups)
+                        for column in range(metadata.num_columns)
+                    )
+                    if decoded_bytes > self._read_budget[1]:
+                        raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
+                    batches = []
+                    # A dictionary can expand far beyond encoded page bytes. Bound
+                    # expansion incrementally before constructing a whole table.
+                    for batch in parquet.iter_batches(batch_size=1):
+                        logical_bytes += batch.nbytes
+                        decoded_rows += batch.num_rows
+                        if logical_bytes > self._read_budget[1] or decoded_rows > self._read_budget[0]:
+                            raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
+                        batches.append(batch)
+                    table = pa.Table.from_batches(batches, schema=parquet.schema_arrow)
                 restored = only_table_to_bars(table)
                 if len(restored) != partition.row_count:
                     raise ValueError("partition row count mismatch")
