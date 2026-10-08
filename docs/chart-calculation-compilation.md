@@ -3,6 +3,9 @@
 The compilation boundary consumes an admitted Chart operation and its verified immutable `INPUT_READY` preparation. It does
 not select input, claim a worker lease, acquire market data, change preparation state or own Runtime Work lifecycle.
 
+Typed Run handoff is a separate [Chart Research Run admission](chart-calculation-run-admission.md) boundary. Compilation
+remains immutable and replayable after the reserved identity has been atomically consumed by that boundary.
+
 ## Inputs and relation ownership
 
 The operation owns normalized intent and the exact Catalog readiness witness. Preparation owns the input pin, ready revision

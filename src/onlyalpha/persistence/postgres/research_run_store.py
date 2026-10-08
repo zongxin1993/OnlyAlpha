@@ -91,6 +91,10 @@ class OnlyPostgresResearchRunStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 row = connection.execute("SELECT * FROM research_run WHERE run_id = %s", (run_id.value,)).fetchone()
+                if row is not None:
+                    run = self._decode(cast(Mapping[str, object], row))
+                    if run.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION:
+                        return self._verify_chart_run_in_transaction(connection, run)
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Research Run load failed") from exc
         if row is None:
@@ -138,6 +142,11 @@ class OnlyPostgresResearchRunStore:
     ) -> OnlyProductCommandReceipt:
         if run.state is not OnlyResearchRunState.QUEUED or run.revision != 0:
             raise OnlyResearchRunStateConflictError("submission requires revision-zero QUEUED Run")
+        if run.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION or run.specification.schema_version not in {
+            1,
+            2,
+        }:
+            raise OnlyResearchRunIntegrityError("RESEARCH_ADMISSION_SPECIFICATION_VERSION_UNSUPPORTED")
         if (
             receipt.command_kind is not OnlyProductCommandKind.CREATE_RESEARCH_RUN
             or receipt.outcome_ref.kind is not OnlyProductCommandOutcomeKind.RESEARCH_RUN
@@ -182,18 +191,23 @@ class OnlyPostgresResearchRunStore:
                     raise OnlyResearchRunIntegrityError("Research source frontier is missing")
                 current_frontier = int(cast(int, frontier_row["last_index"]))
                 if current_frontier < expected_source_frontier or self._has_relevant_source_change(
-                    connection, expected_source_frontier, subjects
+                    connection, expected_source_frontier, subjects, current_frontier=current_frontier
                 ):
                     raise OnlyResearchRunIntegrityError("NOVELTY_DECISION_STALE")
                 existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
                 if existing is not None:
                     return existing
-                # ponytail: legacy Runs have no canonical subject witness, so one
-                # active legacy Run blocks V3 admission until legacy work drains.
+                # Chart work has a typed, independently verified operational relation,
+                # not a scientific Novelty candidate. Real unclassified legacy work still blocks.
+                for chart_row in connection.execute(
+                    "SELECT * FROM research_run WHERE origin_kind = 'CHART_CALCULATION' AND state = 'QUEUED'"
+                ).fetchall():
+                    self._verify_chart_run_in_transaction(connection, self._decode(chart_row))
                 legacy = connection.execute(
                     "SELECT 1 FROM research_run AS run "
                     "LEFT JOIN research_novelty_admission AS gated ON gated.run_id = run.run_id "
-                    "WHERE run.state IN ('QUEUED', 'RUNNING') AND gated.run_id IS NULL LIMIT 1"
+                    "WHERE run.state IN ('QUEUED', 'RUNNING') AND run.origin_kind <> 'CHART_CALCULATION' "
+                    "AND gated.run_id IS NULL LIMIT 1"
                 ).fetchone()
                 if legacy is not None:
                     raise OnlyResearchRunIntegrityError("NOVELTY_UNCLASSIFIED_RESEARCH_IN_FLIGHT")
@@ -232,7 +246,23 @@ class OnlyPostgresResearchRunStore:
         connection: psycopg.Connection[dict[str, object]],
         expected_frontier: int,
         subjects: tuple[str, ...],
+        *,
+        current_frontier: int,
     ) -> bool:
+        from onlyalpha.research.source_cut import OnlySourceCutError
+
+        from .research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+
+        events = connection.execute(
+            "SELECT event_index, source_family, native_locator, source_row, operation, schema_version "
+            "FROM research_source_history WHERE event_index > %s AND event_index <= %s ORDER BY event_index",
+            (expected_frontier, current_frontier),
+        ).fetchall()
+        if len(events) != current_frontier - expected_frontier or any(
+            event["event_index"] != index for index, event in enumerate(events, start=expected_frontier + 1)
+        ):
+            raise OnlySourceCutError("SOURCE_CUT_JOURNAL_GAP")
+
         relations = connection.execute(
             "SELECT DISTINCT gated.run_id::text AS run_id, gated.command_id::text AS command_id "
             "FROM research_novelty_admission AS gated "
@@ -247,14 +277,13 @@ class OnlyPostgresResearchRunStore:
             str(item["run_id"])
             for item in connection.execute("SELECT run_id::text AS run_id FROM research_novelty_admission").fetchall()
         }
-        for event in connection.execute(
-            "SELECT source_family, native_locator, source_row FROM research_source_history "
-            "WHERE event_index > %s ORDER BY event_index",
-            (expected_frontier,),
-        ).fetchall():
+        for event in events:
             family = str(event["source_family"])
             locator = str(event["native_locator"])
             source_row = event["source_row"]
+            historical = OnlyPostgresResearchSourceCutAuthority.verify_history_row_in_transaction(connection, event)
+            if historical is not None and historical.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION:
+                continue
             if family == "RESEARCH_RUN" and (locator in run_ids or locator not in classified_run_ids):
                 return True
             if family == "RESEARCH_ATTEMPT" and isinstance(source_row, Mapping):
@@ -425,9 +454,54 @@ class OnlyPostgresResearchRunStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 rows = connection.execute(query, parameters).fetchall()
+                runs = tuple(self._decode(cast(Mapping[str, object], row)) for row in rows)
+                return tuple(
+                    self._verify_chart_run_in_transaction(connection, run)
+                    if run.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION
+                    else run
+                    for run in runs
+                )
         except psycopg.Error as exc:
             raise OnlyResearchRunStoreUnavailableError("Research Run list failed") from exc
-        return tuple(self._decode(cast(Mapping[str, object], row)) for row in rows)
+
+    @staticmethod
+    def _verify_chart_history_in_transaction(
+        connection: psycopg.Connection[dict[str, object]], historical: OnlyResearchRun
+    ) -> None:
+        """Historical origin comes from the retained event; current authority proves its immutable ownership."""
+        current_row = connection.execute(
+            "SELECT * FROM research_run WHERE run_id = %s", (historical.run_id.value,)
+        ).fetchone()
+        if current_row is None:
+            raise OnlyResearchRunIntegrityError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
+        current = OnlyPostgresResearchRunStore._verify_chart_run_in_transaction(
+            connection, OnlyPostgresResearchRunStore._decode(current_row)
+        )
+        expected = historical
+        if historical.state is OnlyResearchRunState.QUEUED and current.state is OnlyResearchRunState.CANCELLED:
+            assert current.finished_at is not None
+            expected = historical.transition(OnlyResearchRunState.CANCELLED, at=current.finished_at)
+        if expected != current:
+            raise OnlyResearchRunIntegrityError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
+
+    @staticmethod
+    def _verify_chart_run_in_transaction(
+        connection: psycopg.Connection[dict[str, object]], run: OnlyResearchRun
+    ) -> OnlyResearchRun:
+        from .chart_calculation_store import OnlyPostgresChartCalculationAdmissionStore
+
+        relation = connection.execute(
+            "SELECT operation_id FROM chart_calculation_run_admission WHERE run_id = %s", (run.run_id.value,)
+        ).fetchone()
+        if relation is None:
+            raise OnlyResearchRunIntegrityError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
+        # T1's owning verifier proves the complete consumed T1/T2/D2/Run relation without recursion.
+        operation = OnlyPostgresChartCalculationAdmissionStore._load(
+            connection, OnlyProductCommandId(str(relation["operation_id"]))
+        )
+        if operation is None or operation.reserved_run_id != run.run_id:
+            raise OnlyResearchRunIntegrityError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
+        return run
 
     def commit_transition(self, previous: OnlyResearchRun, transitioned: OnlyResearchRun) -> OnlyResearchRun:
         if not transitioned.is_exact_successor_of(previous):
@@ -603,7 +677,7 @@ class OnlyPostgresResearchRunStore:
                 evidence = tuple(cast(list[str], raw_evidence))
             else:
                 raise ValueError("Execution Evidence references must be an array or null")
-            return OnlyResearchRun(
+            run = OnlyResearchRun(
                 run_id=OnlyResearchRunId(str(row["run_id"])),
                 revision=int(cast(int, row["revision"])),
                 state=OnlyResearchRunState(str(row["state"])),
@@ -625,6 +699,12 @@ class OnlyPostgresResearchRunStore:
                 ),
                 origin_kind=OnlyResearchOriginKind(str(row["origin_kind"])),
             )
+            if run.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION:
+                projected = {**row, "run_id": str(row["run_id"])}
+                expected = dict(zip(_COLUMNS, OnlyPostgresResearchRunStore._values(run), strict=True))
+                if only_canonical_json(projected) != only_canonical_json(expected):
+                    raise ValueError("Chart Run columns are not the exact canonical projection")
+            return run
         except (KeyError, TypeError, ValueError, OnlyResearchRunIntegrityError) as exc:
             raise OnlyResearchRunIntegrityError("PostgreSQL Research Run row failed strict verification") from exc
 

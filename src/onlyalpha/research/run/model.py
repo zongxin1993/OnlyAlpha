@@ -71,6 +71,7 @@ class OnlyResearchOriginKind(StrEnum):
 
     GENERAL = "GENERAL"
     PRIVATE_STRATEGY = "PRIVATE_STRATEGY"
+    CHART_CALCULATION = "CHART_CALCULATION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +163,23 @@ class OnlyResearchRun:
                     raise ValueError("PRIVATE_STRATEGY Run requires Composition reference")
             elif self.strategy_research_composition_fingerprint is not None:
                 raise ValueError("GENERAL Run cannot contain Strategy Composition reference")
+            if self.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION:
+                if self.specification.schema_version != 3 or self.authoring_provenance is not None:
+                    raise ValueError("CHART_CALCULATION requires exact Specification V3 without authoring provenance")
+                if self.state not in {OnlyResearchRunState.QUEUED, OnlyResearchRunState.CANCELLED}:
+                    raise ValueError("CHART_CALCULATION execution is not admitted")
+                if self.started_at is not None:
+                    raise ValueError("CHART_CALCULATION cannot contain execution lifecycle facts")
+                if (
+                    self.research_result_fingerprint is not None
+                    or self.artifact_content_fingerprint is not None
+                    or self.calculation_execution_evidence_fingerprints
+                ):
+                    raise ValueError("CHART_CALCULATION cannot contain execution/publication references")
+                if self.revision != (1 if self.state is OnlyResearchRunState.CANCELLED else 0):
+                    raise ValueError("CHART_CALCULATION requires its exact admission/cancellation revision")
+            elif self.specification.schema_version not in {1, 2}:
+                raise ValueError("legacy Research origins require Specification V1/V2")
             evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
             if evidence != self.calculation_execution_evidence_fingerprints or len(evidence) != len(set(evidence)):
                 raise ValueError("Calculation Execution Evidence references must be canonical and unique")

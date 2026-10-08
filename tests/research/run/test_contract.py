@@ -358,13 +358,7 @@ def test_generic_run_admission_rejects_v3_before_resolution_or_authoring(
 )
 def test_verify_resolution_rejects_v3_before_resolver_for_every_run_state(variant: str) -> None:
     spec = publication_specification()
-    run = OnlyResearchRun.queued(
-        run_id=OnlyResearchRunId("00000000-0000-4000-8000-000000000003"),
-        specification=spec,
-        canonical_specification_payload=only_canonical_json(spec.to_dict()),
-        admission_resolution_fingerprint="d" * 64,
-        queued_at=NOW,
-    )
+    run = _queued("00000000-0000-4000-8000-000000000003")
     if variant == "cancelled-from-queued":
         run = run.transition(OnlyResearchRunState.CANCELLED, at=NOW)
     elif variant != "queued":
@@ -388,6 +382,18 @@ def test_verify_resolution_rejects_v3_before_resolver_for_every_run_state(varian
                 research_result_fingerprint=RESULT if variant != "failed-without-result" else None,
                 artifact_content_fingerprint=ARTIFACT if variant == "failed-with-artifact" else None,
             )
+    changes = {
+        "specification": spec,
+        "specification_fingerprint": spec.specification_fingerprint,
+        "canonical_specification_payload": only_canonical_json(spec.to_dict()),
+    }
+    with pytest.raises(OnlyResearchRunIntegrityError, match="legacy Research origins require Specification V1/V2"):
+        replace(run, **changes)
+    # The typed model now rejects this invalid combination before admission.
+    # Explicit fault injection still independently proves the downstream generic
+    # guard for every old operational state; no valid producer creates these bytes.
+    for field, value in changes.items():
+        object.__setattr__(run, field, value)
     effects = Mock()
     effects.resolver = Mock(wraps=OnlyResearchSpecificationResolver(publication_registry()))
     service = OnlyResearchRunAdmissionService(

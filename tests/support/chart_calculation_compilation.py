@@ -143,6 +143,7 @@ def prepared_input(tmp_path: Path, *, period: int = 3, price_field: str = "CLOSE
         runtime_generation_fingerprint=GENERATION,
         catalog_generation_fingerprint=catalog_witness.to_dict()["context"]["catalog_generation_fingerprint"],
     )
+    runtime.require_historical_generation.return_value = runtime.require_runtime_generation.return_value
     compilations = Mock()
     compilations.load_verified.return_value = None
     compilations.commit_or_replay.side_effect = lambda operation, preparation, compilation: compilation

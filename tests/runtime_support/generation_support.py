@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -83,6 +84,14 @@ class OnlyTestRuntimeGenerationAuthority:
             )
         return replace(evidence, active=work_id not in self.inactive_work_ids)
 
+    def hold_work_binding_evidence(self, work_id: str) -> AbstractContextManager[OnlyRuntimeWorkBindingEvidence]:
+        """Sequential contract fake; real lifecycle serialization is proved against the Registry."""
+        evidence = self.require_work_binding_evidence(work_id)
+        if not evidence.active:
+            raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
+        self.require_runtime_generation(evidence.runtime_generation_fingerprint)
+        return nullcontext(evidence)
+
     def bind_work_exact(self, work_id: str, runtime_generation_fingerprint: str, **_: object) -> object:
         self._require_open(work_id)
         if runtime_generation_fingerprint not in self.available_generations:
@@ -160,6 +169,9 @@ class OnlyTestRuntimeGenerationAuthority:
             runtime_generation_fingerprint=runtime_generation_fingerprint,
             catalog_generation_fingerprint=self.available_generations[runtime_generation_fingerprint],
         )
+
+    def require_historical_generation(self, generation_fingerprint: str) -> object:
+        return self.require_runtime_generation(generation_fingerprint)
 
     def release_work(self, work_id: str, **_: object) -> object:
         if work_id not in self.bindings:

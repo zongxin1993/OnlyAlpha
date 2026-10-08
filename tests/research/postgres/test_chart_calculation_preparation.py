@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 from threading import Barrier
@@ -481,6 +482,8 @@ def prepared_system(
         runtime_generation_fingerprint=GENERATION, catalog_generation_fingerprint=catalog
     )
     runtime.require_new_work_generation.return_value = runtime.require_runtime_generation.return_value
+    runtime.require_historical_generation.return_value = runtime.require_runtime_generation.return_value
+    runtime.hold_work_binding_evidence.side_effect = lambda work: nullcontext(load_evidence(work))
 
     def release(work, **kwargs):
         binding = load_binding(work)

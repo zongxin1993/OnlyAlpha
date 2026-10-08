@@ -11,6 +11,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research.run.model import OnlyResearchRun
 from onlyalpha.research.source_cut import (
     OnlySourceClosedCutV1,
     OnlySourceCutEntryV1,
@@ -109,7 +110,7 @@ class OnlyPostgresResearchSourceCutAuthority:
                     )
                     if row is None:
                         raise OnlySourceCutError("SOURCE_OBSERVATION_UNAVAILABLE")
-                    self._verify_history_row(row)
+                    self.verify_history_row_in_transaction(connection, row)
                     payload: dict[str, object] = {
                         "schema_version": 1,
                         "source_family": source_family,
@@ -142,7 +143,7 @@ class OnlyPostgresResearchSourceCutAuthority:
             raise OnlySourceCutError("SOURCE_CUT_POSTGRES_UNAVAILABLE") from exc
 
     def _load_in_transaction(
-        self, connection: psycopg.Connection[object], fingerprint: str, family: str
+        self, connection: psycopg.Connection[dict[str, object]], fingerprint: str, family: str
     ) -> OnlySourceClosedCutV1:
         row = cast(
             Mapping[str, object] | None,
@@ -170,7 +171,9 @@ class OnlyPostgresResearchSourceCutAuthority:
         except (ValueError, TypeError, KeyError, OnlySourceCutError) as exc:
             raise OnlySourceCutError("SOURCE_CUT_CORRUPT") from exc
 
-    def _derive(self, connection: psycopg.Connection[object], family: str, frontier: int) -> OnlySourceClosedCutV1:
+    def _derive(
+        self, connection: psycopg.Connection[dict[str, object]], family: str, frontier: int
+    ) -> OnlySourceClosedCutV1:
         if frontier < 0:
             raise OnlySourceCutError("SOURCE_CUT_FRONTIER_INVALID")
         rows = cast(
@@ -187,7 +190,7 @@ class OnlyPostgresResearchSourceCutAuthority:
         for expected_index, row in enumerate(rows, start=1):
             if row["event_index"] != expected_index or row["schema_version"] != 1:
                 raise OnlySourceCutError("SOURCE_CUT_JOURNAL_GAP")
-            self._verify_history_row(row)
+            self.verify_history_row_in_transaction(connection, row)
             if row["source_family"] == family:
                 content = only_canonical_fingerprint(
                     {
@@ -208,7 +211,18 @@ class OnlyPostgresResearchSourceCutAuthority:
             "SOURCE_TRANSACTIONAL_JOURNAL_V1",
         )
 
-    def _verify_history_row(self, row: Mapping[str, object]) -> None:
+    @staticmethod
+    def verify_history_row_in_transaction(
+        connection: psycopg.Connection[dict[str, object]], row: Mapping[str, object]
+    ) -> OnlyResearchRun | None:
+        """Whole retained event verifier shared by closed-cut and Novelty freshness readers."""
+        if (
+            type(row.get("event_index")) is not int
+            or cast(int, row["event_index"]) < 1
+            or type(row.get("schema_version")) is not int
+            or row["schema_version"] != 1
+        ):
+            raise OnlySourceCutError("SOURCE_CUT_JOURNAL_CORRUPT")
         family = row["source_family"]
         if family not in _FAMILIES or row["operation"] not in {"BASELINE", "INSERT", "UPDATE"}:
             raise OnlySourceCutError("SOURCE_CUT_JOURNAL_CORRUPT")
@@ -240,6 +254,9 @@ class OnlyPostgresResearchSourceCutAuthority:
                 run = OnlyPostgresResearchRunStore._decode(historical_run)
                 if run.run_id.value != row["native_locator"]:
                     raise ValueError("Run identity mismatch")
+                if run.origin_kind.value == "CHART_CALCULATION":
+                    OnlyPostgresResearchRunStore._verify_chart_history_in_transaction(connection, run)
+                return run
             elif family == "RESEARCH_ATTEMPT":
                 attempt = _decode_attempt(decoded)
                 if attempt.attempt_id.value != row["native_locator"]:
@@ -247,9 +264,10 @@ class OnlyPostgresResearchSourceCutAuthority:
             else:
                 # Product Command's exact domain constructors retain the source
                 # schema and native command UUID; never infer from a copied index.
-                self._verify_product_row(family, decoded)
+                OnlyPostgresResearchSourceCutAuthority._verify_product_row(family, decoded)
         except Exception as exc:
             raise OnlySourceCutError("SOURCE_CUT_JOURNAL_CORRUPT") from exc
+        return None
 
     @staticmethod
     def _verify_product_row(family: str, row: Mapping[str, object]) -> None:

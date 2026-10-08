@@ -496,6 +496,22 @@ class OnlyRuntimeGenerationRegistry:
             projection, events = self._replay()
             return self._binding_evidence(work_id, projection, events)
 
+    @contextmanager
+    def hold_work_binding_evidence(self, work_id: str) -> Iterator[OnlyRuntimeWorkBindingEvidence]:
+        """Serialize a bounded durable handoff against release/closure/retirement.
+
+        The consumer must finish its actual transaction commit before leaving this
+        context. This is observation-only: no binding, activation or lifecycle event.
+        Never enter a database write while holding an exclusive Runtime lock.
+        """
+        with self._locked(shared=True):
+            projection, events = self._replay()
+            binding = self._binding_evidence(work_id, projection, events)
+            if not binding.active:
+                raise ValueError("RUNTIME_WORK_GENERATION_MISMATCH")
+            self._load_exact_generation(projection, binding.runtime_generation_fingerprint)
+            yield binding
+
     @staticmethod
     def _require_admission_open(work_id: str, events: tuple[OnlyGenerationEvent, ...]) -> None:
         if any(event.work_id == work_id and event.kind == _EventKind.NEW_WORK_CLOSED.value for event in events):

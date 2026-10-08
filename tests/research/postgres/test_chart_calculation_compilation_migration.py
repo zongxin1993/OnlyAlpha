@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 
 import psycopg
@@ -53,6 +55,19 @@ COLUMNS = {
     "schema_version": "smallint",
 }
 SHA_COLUMNS = tuple(name for name in COLUMNS if name.endswith("fingerprint"))
+
+
+@pytest.fixture(autouse=True)
+def exact_compilation_migration_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """These historical DDL tests own the 0046→0047 transition, not the current head."""
+    root = tmp_path / "compilation-migration-boundary"
+    root.mkdir()
+    copy_migrations_through(root, MIGRATION)
+    authority = partial(OnlyPostgresMigrationAuthority, migration_root=root)
+    verifier = partial(OnlyPostgresSchemaVerifier, migration_root=root)
+    monkeypatch.setattr(sys.modules[__name__], "OnlyPostgresMigrationAuthority", authority)
+    monkeypatch.setattr(sys.modules[__name__], "OnlyPostgresSchemaVerifier", verifier)
+    monkeypatch.setattr(admission_tests, "OnlyPostgresMigrationAuthority", authority)
 
 
 def _previous_schema(dsn: str, root: Path) -> OnlyPostgresMigrationAuthority:
