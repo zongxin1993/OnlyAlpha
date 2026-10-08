@@ -43,3 +43,9 @@ class OnlyResearchDatasetSnapshotStore(Protocol):
     def verify(self, snapshot_fingerprint: str) -> OnlyResearchDatasetVerification: ...
 
     def exists(self, snapshot_fingerprint: str) -> bool: ...
+
+
+class OnlyBoundedResearchDatasetSnapshotStore(OnlyResearchDatasetSnapshotStore, Protocol):
+    def bounded(self, max_rows: int, max_bytes: int) -> OnlyResearchDatasetSnapshotStore:
+        """Same immutable authority with a predecode read budget; no new store identity."""
+        ...

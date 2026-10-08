@@ -60,6 +60,107 @@ def test_commit_load_verify_and_idempotent_reuse(tmp_path) -> None:
     assert verified.table.num_rows == 1
 
 
+def test_bounded_read_preserves_same_physical_and_logical_authority(tmp_path):
+    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
+    snapshot, partitions = _snapshot()
+    store.commit(snapshot, partitions)
+    bounded = store.bounded(100, 1_000_000)
+    assert bounded.load_verified_table(snapshot.snapshot_fingerprint) == store.load_verified_table(
+        snapshot.snapshot_fingerprint
+    )
+    assert bounded.verify(snapshot.snapshot_fingerprint).valid
+
+
+@pytest.mark.parametrize("fault", ["stored", "rows", "decoded_metadata"])
+def test_bounded_read_rejects_before_decoding_oversized_partition(tmp_path, monkeypatch, fault):
+    from onlyalpha.research.dataset import parquet_store
+
+    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
+    snapshot, partitions = _snapshot()
+    committed = store.commit(snapshot, partitions)
+    original = parquet_store.pq.ParquetFile
+    opened = []
+
+    def forbidden_decoding(raw):
+        opened.append(raw)
+        assert fault == "decoded_metadata", "over-budget bytes/rows must fail before Parquet parser"
+        parquet = original(raw)
+
+        class HugeMetadata:
+            num_rows = 1
+            num_row_groups = 1
+            num_columns = parquet.metadata.num_columns
+
+            def row_group(self, group):
+                from types import SimpleNamespace
+
+                return SimpleNamespace(column=lambda column: SimpleNamespace(total_uncompressed_size=2_000_000))
+
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            metadata=HugeMetadata(),
+            schema_arrow=parquet.schema_arrow,
+            iter_batches=lambda **kwargs: pytest.fail("over-budget metadata must fail before decoding"),
+        )
+
+    monkeypatch.setattr(parquet_store.pq, "ParquetFile", forbidden_decoding)
+    if fault == "rows":
+        # The persisted whole manifest is malformed, not a different valid Snapshot.
+        root = store._target(committed.snapshot_fingerprint)
+        raw = json.loads((root / "manifest.json").read_text())
+        raw["row_count"] = 101
+        (root / "manifest.json").write_text(json.dumps(raw))
+    budget = 1 if fault == "stored" else 1_000_000
+    with pytest.raises(OnlyResearchDatasetStoreError):
+        store.bounded(100, budget).load_verified_table(snapshot.snapshot_fingerprint)
+    assert bool(opened) is (fault == "decoded_metadata")
+
+
+def test_bounded_read_requires_nested_partition_rows_to_close_before_decoding(tmp_path, monkeypatch):
+    import hashlib
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
+    snapshot, partitions = _snapshot()
+    committed = store.commit(snapshot, partitions)
+    root = store._target(committed.snapshot_fingerprint)
+    original = store.load_verified_table(committed.snapshot_fingerprint).table
+    partition = committed.partitions[0]
+    target = root / partition.relative_path
+    pq.write_table(pa.concat_tables([original, original]), target)
+    nested = replace(partition, row_count=2, byte_sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+    mutated = replace(committed, partitions=(nested,))
+    # Global fingerprint and global row count are valid and unchanged; only the
+    # relevant nested relation is incomplete/different. Hash rejection is not proof.
+    assert (
+        OnlyResearchDatasetSnapshot.from_dict(mutated.to_dict()).snapshot_fingerprint == committed.snapshot_fingerprint
+    )
+    (root / "manifest.json").write_text(json.dumps(mutated.to_dict()))
+    monkeypatch.setattr(
+        pq, "ParquetFile", lambda *args, **kwargs: pytest.fail("nested row proof must close before decoding")
+    )
+    with pytest.raises(OnlyResearchDatasetStoreError, match="DATASET_READ_RESOURCE_LIMIT"):
+        store.bounded(1, 1_000_000).load_verified_table(committed.snapshot_fingerprint)
+
+
+def test_bounded_manifest_bytes_are_checked_before_json_parse(tmp_path, monkeypatch):
+    from onlyalpha.research.dataset import parquet_store
+
+    store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
+    snapshot, partitions = _snapshot()
+    store.commit(snapshot, partitions)
+    monkeypatch.setattr(
+        parquet_store.json, "loads", lambda *args: pytest.fail("over-budget manifest must not be parsed")
+    )
+    with pytest.raises(OnlyResearchDatasetStoreError):
+        store.bounded(1, 1).load(snapshot.snapshot_fingerprint)
+    with pytest.raises(OnlyResearchDatasetStoreError):
+        store.bounded(1, 1).load_verified_table(snapshot.snapshot_fingerprint)
+
+
 def test_materialization_lineage_is_immutable_and_idempotent(tmp_path) -> None:
     store = OnlyParquetResearchDatasetSnapshotStore(tmp_path)
     snapshot, _ = _snapshot()
