@@ -30,6 +30,7 @@ from onlyalpha.research.result import OnlyJsonResearchResultStore
 from tests.quant_assets.test_retained_generation_proof import retained_proof_case
 from tests.research.artifact.test_calculation_v2 import _publication, _root
 from tests.research.calculation.test_result_v2_store import AUDIT
+from tests.support.calculation_publication_input import verified_test_input
 
 pytestmark = pytest.mark.contract
 
@@ -46,7 +47,7 @@ def _reenter(root):
         graph.fingerprint,
         bindings,
     )
-    datasets = OnlyParquetResearchDatasetSnapshotStore(root / "dataset")
+    datasets = OnlyParquetResearchDatasetSnapshotStore(root / "owning-input" / "dataset")
     calculations = OnlyParquetResearchCalculationResultStoreV2(
         root / "calculations", datasets, audit_time=lambda: AUDIT
     )
@@ -67,6 +68,9 @@ def _reenter(root):
         ((selected.calculation_fingerprint, selected.evidence_fingerprint),),
         runtime_context=context,
         retained_generation=proof,
+        verified_input=verified_test_input(
+            root, plan, graph.fingerprint, context.provenance.runtime_generation_fingerprint
+        ),
         artifact_store=OnlyParquetResearchCalculationArtifactStoreV2(root / "artifacts", audit_time=lambda: AUDIT),
     )
 
@@ -212,10 +216,13 @@ def test_live_predecessor_loss_does_not_restore_from_portable_publication(tmp_pa
     publish, store, _, _, _, _ = _publication(tmp_path)
     artifact = publish()
     identity = artifact.manifest.artifact_content_fingerprint
-    family = {"dataset": "dataset", "calculation": "calculations", "result": "results", "evidence": "semantic"}[
-        predecessor
-    ]
-    (tmp_path / family).rename(tmp_path / f"unavailable-{family}")
+    family = {
+        "dataset": "owning-input/dataset",
+        "calculation": "calculations",
+        "result": "results",
+        "evidence": "semantic",
+    }[predecessor]
+    (tmp_path / family).rename(tmp_path / f"unavailable-{predecessor}")
     before = {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
     with pytest.raises(OnlyResearchArtifactError):
         publish()
@@ -241,7 +248,7 @@ def test_dataset_fsync_failure_blocks_artifact_publication_and_reuse(tmp_path, m
     def unavailable(descriptor):
         import os
 
-        path = tmp_path / "dataset"
+        path = tmp_path / "owning-input" / "dataset"
         actual, expected = os.fstat(descriptor), path.stat()
         if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
             touched.append(path)

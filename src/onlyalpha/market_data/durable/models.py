@@ -9,13 +9,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity, OnlyBarResolutionMode
+
+if TYPE_CHECKING:
+    from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 
 _BINDING_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 

@@ -20,6 +20,8 @@ from onlyalpha.research.artifact import (
     OnlyResearchCalculationArtifactMaterializerV2,
 )
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactError
+from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
 from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
 from onlyalpha.research.calculation.execution_provenance import (
     OnlyResearchRuntimeExecutionProvenanceV1,
@@ -34,8 +36,9 @@ from onlyalpha.research.result.plan import (
     OnlyResearchResultSeriesPlan,
 )
 from tests.quant_assets.test_retained_generation_proof import retained_proof_case
-from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, _setup
+from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, _registry
 from tests.research.calculation.test_result_v2_store import AUDIT
+from tests.support.calculation_publication_input import source_dataset, verified_test_input
 
 pytestmark = pytest.mark.contract
 
@@ -49,9 +52,10 @@ def _publication(tmp_path, *, proof_case=retained_proof_case, registry=None):
         proof.generation.catalog_generation_fingerprint,
     )
     context = _only_issue_research_runtime_execution_context(provenance, graph.fingerprint, bindings)
-    executor, spy, snapshot = _setup(tmp_path / "dataset", registry=registry)
+    dataset, snapshot = source_dataset(tmp_path)
+    executor = OnlyResearchCalculationExecutor(dataset, OnlyResearchCalculationBackendResolver(registry or _registry()))
     calculations = OnlyParquetResearchCalculationResultStoreV2(
-        tmp_path / "calculations", spy.store, audit_time=lambda: AUDIT
+        tmp_path / "calculations", dataset, audit_time=lambda: AUDIT
     )
     sealed = executor._execute_verified_v2(snapshot, graph, PUBLICATION, runtime_context=context)
     calculation = calculations.commit(sealed, graph)
@@ -81,12 +85,20 @@ def _publication(tmp_path, *, proof_case=retained_proof_case, registry=None):
     results.commit(result)
     (tmp_path / "artifacts").mkdir()
     store = OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts", audit_time=lambda: AUDIT)
-    materializer = OnlyResearchCalculationArtifactMaterializerV2(results, spy.store, calculations, evidence)
+    materializer = OnlyResearchCalculationArtifactMaterializerV2(results, dataset, calculations, evidence)
     selection = ((calculation.manifest.calculation_fingerprint, producer.evidence_fingerprint),)
+    verified_input = verified_test_input(
+        tmp_path, plan.fingerprint, graph.fingerprint, provenance.runtime_generation_fingerprint
+    )
 
-    def publish(*, selection=selection, context=context, store=store):
+    def publish(*, selection=selection, context=context, store=store, verified_input=verified_input):
         return materializer.publish(
-            plan.fingerprint, selection, runtime_context=context, retained_generation=proof, artifact_store=store
+            plan.fingerprint,
+            selection,
+            runtime_context=context,
+            retained_generation=proof,
+            artifact_store=store,
+            verified_input=verified_input,
         )
 
     return publish, store, context, selection, results, evidence
@@ -197,7 +209,8 @@ assert len(artifact.market_rows) == artifact.dataset_table.num_rows
 print(artifact.manifest.artifact_content_fingerprint)
 """
     identity = artifact.manifest.artifact_content_fingerprint
-    shutil.rmtree(tmp_path / "dataset")
+    shutil.rmtree(tmp_path / "owning-input")
+    (tmp_path / "source-owner.json").unlink()
     shutil.rmtree(tmp_path / "calculations")
     shutil.rmtree(tmp_path / "results")
     shutil.rmtree(tmp_path / "semantic")

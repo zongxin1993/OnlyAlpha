@@ -8,6 +8,7 @@ from typing import Protocol
 
 from onlyalpha.calculation import OnlyCalculationDataType
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
+from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultV2
 from onlyalpha.research.dataset import OnlyVerifiedResearchDataset
 from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResult
 from onlyalpha.research.result.plan import OnlyResearchResultSeriesPlan, OnlyResearchResultSignalPlan
@@ -210,7 +211,7 @@ class OnlyResearchScientificArtifactMaterializer:
 
 
 def _variable_rows(
-    member: OnlyResearchResultSeriesPlan, result: OnlyResearchCalculationResult
+    member: OnlyResearchResultSeriesPlan, result: OnlyResearchCalculationResult | OnlyResearchCalculationResultV2
 ) -> tuple[OnlyResearchScientificVariableRow, ...]:
     graph = result.manifest.calculation_graph
     node = next(item for item in graph.nodes if item.fingerprint == member.node_fingerprint)

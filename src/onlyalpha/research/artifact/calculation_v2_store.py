@@ -22,6 +22,7 @@ from onlyalpha.research.calculation.result_identity import only_research_calcula
 from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _sync_directory, _unique_object
 
 from .calculation_v2_model import OnlyResearchCalculationArtifactFileV2, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_sections import _section_json, _section_schemas
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2, only_verify_calculation_artifact_tables_v2
 from .errors import OnlyResearchArtifactStoreError
 
@@ -98,6 +99,11 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                     output.parent.mkdir(parents=True, exist_ok=True)
                     pq.write_table(table, output, compression=self._compression, row_group_size=self._row_group_size)
                     raw = output.read_bytes()
+                    physical[path] = OnlyResearchCalculationArtifactFileV2(
+                        path, hashlib.sha256(raw).hexdigest(), len(raw)
+                    )
+                for path, raw in _section_json(manifest).items():
+                    (stage / path).write_bytes(raw)
                     physical[path] = OnlyResearchCalculationArtifactFileV2(
                         path, hashlib.sha256(raw).hexdigest(), len(raw)
                     )
@@ -221,8 +227,11 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             if sum(item.byte_size for item in manifest.files) > _MAX_CONTENT_BYTES:
                 raise ValueError("Artifact encoded content exceeds profile bound")
             tables = {}
+            section_json = _section_json(manifest)
+            section_schemas = _section_schemas(manifest)
             decoded_bytes = logical_bytes = 0
             for path, descriptor in files.items():
+                schema: object
                 raw = (
                     _read_retained_file(root, path, descriptor.byte_size)
                     if tree is None
@@ -230,11 +239,24 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 )
                 if len(raw) != descriptor.byte_size or hashlib.sha256(raw).hexdigest() != descriptor.byte_sha256:
                     raise ValueError("Artifact physical size/hash differs before decoding")
-                byte_hash, rows, schema, _ = manifest.partition_descriptors[path]
+                if path in section_json:
+                    if raw != section_json[path]:
+                        raise ValueError("required JSON section differs from retained owning facts")
+                    continue
+                if path in section_schemas:
+                    expected_schema, rows = section_schemas[path]
+                    byte_hash, schema = (
+                        descriptor.byte_sha256,
+                        only_research_calculation_arrow_schema_payload(expected_schema),
+                    )
+                else:
+                    byte_hash, rows, schema, _ = manifest.partition_descriptors[path]
+                    expected_schema = (
+                        manifest.dataset.dataset_schema.arrow_schema if path.startswith("dataset/") else None
+                    )
                 if byte_hash != descriptor.byte_sha256 or rows > _MAX_PARTITION_ROWS:
                     raise ValueError("Artifact owning partition/hash/row bound differs")
                 parquet = pq.ParquetFile(pa.BufferReader(raw))
-                expected_schema = manifest.dataset.dataset_schema.arrow_schema if path.startswith("dataset/") else None
                 if (
                     parquet.metadata.num_rows != rows
                     or (expected_schema is not None and parquet.schema_arrow != expected_schema)

@@ -9,6 +9,7 @@ Chart Run. Constitution Impact: NO.
 | Fact | Owning Authority | Exact selection |
 |---|---|---|
 | Immutable input | Dataset Snapshot | Snapshot fingerprint, complete Definition/schema/content |
+| Original sealed source and lineage | Integration / Market Data / Materialization owners | Original Integration Binding, Revision/Manifest/Seal/Segments and exact Materialization |
 | Values and point readiness | Calculation Result V2 | Dataset + Graph + RESEARCH, Result2 content/result fingerprints |
 | Sealed producer attestation | Execution Evidence V2 | Exact Result2, node/implementation bindings and Runtime provenance |
 | Publication membership | Research Result V4 | Result Plan4 and exact Calculation logical/Result pairs |
@@ -112,6 +113,45 @@ The portable package retains:
 - each explicitly selected Execution Evidence2 and its complete Runtime provenance;
 - exact Runtime manifest, Validation Evidence, all referenced distribution manifests, selected Calculation implementation
   manifests and the complete canonical Catalog descriptor needed for their retained identity relationships.
+- mandatory `OnlyRetainedSealedChartInputEvidenceV1`, including original Integration Runtime Binding payload, source reference
+  and selection, exact scope/construction, complete Revision/Manifest/Seal, all ordered Segment metadata and physical proofs,
+  exact Materialization semantic payload/ID and its relation to this same Dataset Snapshot.
+
+Publication additionally requires the reader-issued input capability from the
+[verified sealed Chart input export](chart-calculation-input-export.md). Its Result Plan, Graph, Generation and Dataset must
+match the native publication, and its callback repeats the original owning reads before staging, writes or successful reuse,
+and again before rename. A parsed retained DTO, E1 JSON or self-consistent source hashes cannot issue this capability.
+Original Source loss blocks live publication/reuse; an independently retained package does not restore the missing owner.
+
+Schema 2 with missing source proof is intentionally unsupported. Such existing immutable packages fail closed without
+upgrade, overwrite, legacy loader, inferred proof or compatibility shim. Existing Calculation1, Result1/2/3, Evidence2 without
+Runtime provenance and the older Scientific/Calculation Artifact profiles are unchanged. The new required source exporter
+currently covers the admitted one-instrument native 15-minute Chart input; it does not admit arbitrary multi-source inputs.
+That bounded capability does not redefine long-term Research or Source scope.
+
+### Physical section contract
+
+The original physical baseline is mandatory; it is not waived in favor of embedded or partitioned equivalents. Full owning
+partitions remain additionally retained to prove all outputs, not only published projections. Required projection files are
+derived mechanically from those full facts and verified equal on every read; they are not parallel Authorities.
+
+| Required physical section | Exact carrier and derivation | Identity / completeness checks |
+|---|---|---|
+| `artifact_manifest.json` | Strict Manifest2 with Result4, Dataset, Calculation2, selected Evidence2, Runtime and source proof | Full schema, logical Artifact identity, explicit Result/Artifact pair |
+| `market.parquet` | Existing Scientific market schema; OHLCV projection of the complete Dataset | Exact Arrow schema/count, decimal strings and full table equality to verified Dataset |
+| `graphs.json` | Canonical ordered Calculation identity/Graph pairs | Exact bytes equal owning Graph serialization |
+| `variables.parquet` | Existing Scientific variable schema; exact published-series values | Candidate null, exact Calculation/node/output/instrument/axis, typed value and lossless full table equality |
+| `readiness.parquet` | Non-null Calculation/node/output/instrument/time/readiness/reason schema | Exact published-series projection of actual complete Calculation2 readiness, never reconstructed warmup |
+| `calculation_evidence.json` | Canonical ordered exact selected Evidence2 payloads | Exact bytes, original Evidence identity and Runtime/Result relation |
+| `sealed_input_evidence.json` | Complete canonical retained source proof also bound by Manifest2 | Exact bytes, strict nested lineage, source family/count/coverage and Materialization/Snapshot relations |
+| `signals.parquet` | Existing Scientific Signal schema, zero rows | Required file, exact schema and typed-empty table |
+| `statistics.parquet` | Existing Scientific Statistics schema, zero rows | Required file, exact schema and typed-empty table |
+
+`dataset/<partition>` and `calculations/<fingerprint>/<partition>` retain the complete source-independent Dataset and
+Calculation facts. Their hashes and logical manifests still prove unselected outputs and exact input membership. Every
+required file, including JSON and typed-empty sections, participates in the exact file set and has an exact byte hash/size.
+Projection logical identities are derived from the already bound owning facts and fixed schema2 section semantics; encoding
+and audit time do not enter logical identity. No required section is missing or replaced by an unapproved equivalent layout.
 
 Every retained file has an exact byte hash; partition descriptors retain exact Arrow schema, row count and logical fingerprint.
 Physical hashes describe the retained bytes. Re-encoded partitions must not claim the original encoding's byte hash. Logical
@@ -143,6 +183,9 @@ Retained-proof parsing rejects duplicate JSON keys, unknown/missing nested field
 noncanonical collections; constructor normalization alone is insufficient. Verification proves:
 
 1. Snapshot Definition/schema/content/count and identity from full retained Dataset facts.
+   Original sealed source proof additionally verifies Integration Binding, ordered complete Segment/physical proof membership,
+   BAR-only canonical partition family, sufficient physical Bar occurrence count for native unique grid coverage (duplicates
+   are allowed), Revision/Manifest/Seal identities and exact Materialization request/construction/Definition/provenance.
 2. Complete Calculation2 value/readiness partitions, Graph/output membership, types/nullability and exact instrument/time axes.
 3. Selected Evidence2's exact Calculation2 content/Result and Graph/node/implementation relation.
 4. Runtime provenance's exact manifest/Validation Evidence/Core/Catalog relationship.

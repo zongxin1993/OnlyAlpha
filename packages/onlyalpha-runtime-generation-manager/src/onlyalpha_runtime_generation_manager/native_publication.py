@@ -27,6 +27,10 @@ from onlyalpha.research.calculation.execution_provenance import (
 from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
 from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.dataset.publication_input import (
+    _only_require_verified_sealed_chart_publication_input,
+    _OnlyVerifiedSealedChartPublicationInput,
+)
 from onlyalpha.research.job.executor import _only_execute_generation_bound_calculation_job
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
 from onlyalpha.research.result.errors import OnlyResearchResultStoreError
@@ -107,11 +111,23 @@ def only_publish_native_calculation_artifact(
     execution_evidence_root: Path,
     research_result_root: Path,
     research_artifact_root: Path,
+    verified_input: _OnlyVerifiedSealedChartPublicationInput,
     audit_time: Callable[[], datetime],
 ) -> OnlyResearchCalculationArtifactV2:
     """Installed-generation foundation, not Work permission, Chart dispatch or Run success."""
     if research_artifact_root.is_symlink() or not research_artifact_root.is_dir():
         raise ValueError("Artifact durability anchor must be preprovisioned")
+    snapshot_fingerprint = frozen.result_plan.dataset_snapshot_fingerprint
+    if snapshot_fingerprint is None:
+        raise ValueError("native Artifact requires an exact Dataset Snapshot")
+    _only_require_verified_sealed_chart_publication_input(
+        verified_input,
+        frozen.result_plan.fingerprint,
+        frozen.graph_fingerprint,
+        frozen.runtime_generation_fingerprint,
+    ).verify_snapshot(
+        OnlyParquetResearchDatasetSnapshotStore(dataset_store_root).load_verified_table(snapshot_fingerprint).snapshot
+    )
     publication = _prepare_native_calculation(
         generations=generations,
         distribution_artifact_store=distribution_artifact_store,
@@ -136,6 +152,7 @@ def only_publish_native_calculation_artifact(
         ((producer.calculation_fingerprint, producer.evidence_fingerprint),),
         runtime_context=publication.context,
         retained_generation=publication.retained,
+        verified_input=verified_input,
         artifact_store=OnlyParquetResearchCalculationArtifactStoreV2(research_artifact_root, audit_time=audit_time),
     )
 

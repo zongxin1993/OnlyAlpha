@@ -392,7 +392,14 @@ def test_preparation_history_cannot_be_rewritten(postgres_dsn: str) -> None:
 
 
 def prepared_system(
-    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, period: int = 20, acquire: bool = True
+    postgres_dsn: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    period: int = 20,
+    acquire: bool = True,
+    catalog_witness=None,
+    price_field="CLOSE",
 ):
     admission = store(postgres_dsn)
     market = _service(tmp_path / "market", native_minutes=(1, 15))
@@ -415,7 +422,7 @@ def prepared_system(
             end_ns=end,
             bar_semantic=OnlyBarSemantic.fixed_duration(15),
         )
-    raw = payload({"period": period})
+    raw = payload({"period": period, "price_field": price_field})
     raw["source_reference"] = {
         "integration_id": reference.integration_id,
         "integration_revision_fingerprint": reference.integration_revision_fingerprint,
@@ -426,7 +433,7 @@ def prepared_system(
     operation = admission.admit_or_replay(
         OnlyProductCommandId("00000000-0000-4000-8000-000000000721"),
         OnlyChartCalculationRequestV1.from_dict(raw),
-        witness(),
+        witness() if catalog_witness is None else catalog_witness,
         accepted_at=NOW,
     ).operation
     adapter = OnlyPostgresChartCalculationPreparationStore(postgres_dsn)

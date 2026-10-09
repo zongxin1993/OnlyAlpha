@@ -10,6 +10,7 @@ from typing import Protocol, cast
 
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationTypeDescriptorV1
+from onlyalpha.plugin.integration_binding import INTEGRATION_RUNTIME_BINDING_IDENTITY_DOMAIN
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeStatus
 
 from .integration_configuration import (
@@ -24,7 +25,7 @@ from .integration_configuration import (
 )
 
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
-_BINDING_DOMAIN = "ONLYALPHA_INTEGRATION_RUNTIME_BINDING_V1"
+_BINDING_DOMAIN = INTEGRATION_RUNTIME_BINDING_IDENTITY_DOMAIN
 
 
 class OnlyIntegrationRuntimeError(RuntimeError):

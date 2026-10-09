@@ -35,6 +35,9 @@ def exact_host_environment(tmp_path_factory):
         build_wheel(repository / "plugs/onlyalpha-plugin-indicators", root / "indicators"),
         installed_distribution_wheel("pyarrow", root / "arrow"),
         installed_distribution_wheel("pyyaml", root / "yaml"),
+        installed_distribution_wheel("psycopg", root / "psycopg"),
+        installed_distribution_wheel("psycopg-binary", root / "psycopg-binary"),
+        installed_distribution_wheel("typing-extensions", root / "typing-extensions"),
     ]
     authority = OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT
     core = plain_artifact(
@@ -75,7 +78,17 @@ def exact_host_environment(tmp_path_factory):
         repository="PyYAML",
         revision="release-" + metadata.version("pyyaml"),
     )
-    artifacts = (core, manager, indicator, arrow, yaml)
+    postgres_support = tuple(
+        plain_artifact(
+            wheel,
+            role=OnlyDistributionArtifactRole.SUPPORT,
+            authority=OnlyArtifactSourceProvenanceAuthority.EXTERNAL_RELEASE,
+            repository="Python-package-" + name,
+            revision="release-" + metadata.version(name),
+        )
+        for name, wheel in zip(("psycopg", "psycopg-binary", "typing-extensions"), wheels[5:], strict=True)
+    )
+    artifacts = (core, manager, indicator, arrow, yaml, *postgres_support)
     store = OnlyLocalImmutableArtifactStore(root / "artifacts")
     for artifact, wheel in zip(artifacts, wheels, strict=True):
         store.put_once(artifact, wheel.read_bytes())
