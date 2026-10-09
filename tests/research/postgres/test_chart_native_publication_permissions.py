@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -10,6 +11,7 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.rows import dict_row
 
 from onlyalpha.persistence.postgres.migration import (
     OnlyPostgresMigrationAuthority,
@@ -170,6 +172,54 @@ def role_inventory(dsn: str):
                 (list(_GROUPS),),
             ).fetchall(),
         )
+
+
+def role_scope_inventory(dsn: str):
+    """Classify actual role dependencies without assuming every dbid is local."""
+    with psycopg.connect(dsn, row_factory=dict_row) as connection:
+        database = connection.execute(
+            "SELECT current_database() AS name,oid FROM pg_database WHERE datname=current_database()"
+        ).fetchone()
+        roles = connection.execute(
+            "SELECT oid,rolname FROM pg_roles WHERE rolname=ANY(%s) ORDER BY rolname", (list(_GROUPS),)
+        ).fetchall()
+        dependencies = connection.execute(
+            "SELECT r.rolname,r.oid AS role_oid,d.dbid,db.datname,d.classid::regclass::text AS object_class,"
+            "d.objid,d.objsubid,d.deptype,CASE WHEN d.dbid=0 THEN 'shared' "
+            "WHEN d.dbid=%s THEN 'current' WHEN db.oid IS NOT NULL THEN 'other' ELSE 'dangling' END AS scope "
+            "FROM pg_shdepend d JOIN pg_roles r ON r.oid=d.refobjid LEFT JOIN pg_database db ON db.oid=d.dbid "
+            "WHERE d.refclassid='pg_authid'::regclass AND r.rolname=ANY(%s) "
+            "ORDER BY r.rolname,d.dbid,d.classid,d.objid,d.objsubid,d.deptype",
+            (database["oid"], list(_GROUPS)),
+        ).fetchall()
+        return {
+            "database": database,
+            "roles": roles,
+            "dependencies": dependencies,
+            "counts": dict(Counter(item["scope"] for item in dependencies)),
+        }
+
+
+@contextmanager
+def retained_role_database(dsn: str):
+    """Introduce and remove only this test's database, preserving shared groups."""
+    from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+    from tests.research.postgres.migration_support import current_migrations
+
+    database = "chart_role_history_" + uuid.uuid4().hex + "_test"
+    other = urlsplit(dsn)._replace(path="/" + database).geturl()
+    only_assert_postgres_test_database(other)
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    try:
+        assert OnlyPostgresMigrationAuthority(other).migrate() == current_migrations()
+        with psycopg.connect(other) as connection:
+            connection.execute("CREATE TABLE retained_role_scope_fact(value TEXT PRIMARY KEY)")
+            connection.execute("INSERT INTO retained_role_scope_fact VALUES ('original owning fact')")
+        yield other
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as connection:
+            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
 def historical_chart(dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -359,21 +409,10 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
     monkeypatch: pytest.MonkeyPatch,
     fault: str,
     groups: str,
+    request: pytest.FixtureRequest,
 ) -> None:
-    previous_schema(postgres_dsn, tmp_path)
-    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        if groups == "fresh":
-            # DROP ROLE itself refuses dependencies anywhere in this isolated
-            # cluster. Never DROP OWNED or clear other databases to force it.
-            assert role_inventory(postgres_dsn)[2] == []
-            for group in _GROUPS:
-                connection.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(group)))
-        else:
-            for group in _GROUPS:
-                if connection.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (group,)).fetchone() is None:
-                    connection.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(group)))
-    before = snapshot(postgres_dsn)
     connect = psycopg.connect
+    injected = []
 
     class FaultConnection:
         def __init__(self, connection):
@@ -386,8 +425,10 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
             if fault == "ddl" and "CREATE FUNCTION chart_native_publication_attempt_guard" in str(query):
                 # Execute the role/ACL/guard DDL and then cause an actual PG error.
                 self.connection.execute(query, params)
+                injected.append(fault)
                 return self.connection.execute("SELECT 1/0")
             if fault == "ledger" and "INSERT INTO onlyalpha_schema_migration" in str(query) and params[0] == _MIGRATION:
+                injected.append(fault)
                 return self.connection.execute("SELECT 1/0")
             return self.connection.execute(query, params)
 
@@ -399,15 +440,46 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
             return self.connection.__exit__(*args)
 
     with ExitStack() as stack:
-        if groups == "preexisting":
+        shared_dsn = postgres_dsn
+        shared_before = role_inventory(shared_dsn)
+        if groups == "fresh":
+            with connect(shared_dsn) as connection:
+                shared_identity = connection.execute("SELECT system_identifier FROM pg_control_system()").fetchone()
+            postgres_dsn = request.getfixturevalue("isolated_postgres_cluster")
+            with connect(postgres_dsn) as connection:
+                assert (
+                    connection.execute("SELECT system_identifier FROM pg_control_system()").fetchone()
+                    != shared_identity
+                )
+            assert role_inventory(postgres_dsn)[0] == []
+        else:
+            other = stack.enter_context(retained_role_database(postgres_dsn))
+            outside_before = snapshot(other)
+            outside_scope = role_scope_inventory(other)
+            outside_dependencies = [item for item in outside_scope["dependencies"] if item["scope"] == "current"]
+            assert len(outside_dependencies) == 24
             stack.enter_context(runtime_login(postgres_dsn, _GROUPS[0]))
+        previous_schema(postgres_dsn, tmp_path)
+        before = snapshot(postgres_dsn)
         roles_before = role_inventory(postgres_dsn)
+        scope_before = role_scope_inventory(postgres_dsn)
+        if groups == "fresh":
+            assert scope_before["roles"] == [] and scope_before["dependencies"] == []
+        else:
+            assert len(scope_before["roles"]) == 2
+            assert scope_before["counts"].get("other", 0) >= 24
+            assert not any(item["scope"] != "other" for item in scope_before["dependencies"])
+        print("ROLE_SCOPE_BEFORE", request.node.nodeid, scope_before)
         monkeypatch.setattr(psycopg, "connect", lambda *a, **kw: FaultConnection(connect(*a, **kw)))
-        with pytest.raises(OnlyPostgresMigrationIntegrityError):
+        with pytest.raises(OnlyPostgresMigrationIntegrityError) as caught:
             OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
         monkeypatch.setattr(psycopg, "connect", connect)
+        assert isinstance(caught.value.__cause__, psycopg.errors.DivisionByZero)
+        assert injected == [fault]
         assert snapshot(postgres_dsn) == before
         assert role_inventory(postgres_dsn) == roles_before
+        assert role_scope_inventory(postgres_dsn) == scope_before
+        print("ROLE_SCOPE_AFTER_ROLLBACK", request.node.nodeid, role_scope_inventory(postgres_dsn))
         with psycopg.connect(postgres_dsn) as connection:
             assert connection.execute(
                 "SELECT to_regprocedure('chart_native_publication_attempt_guard()')"
@@ -418,7 +490,21 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
             assert connection.execute(
                 "SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = ANY(%s)", (list(_GROUPS),)
             ).fetchone() == (0,)
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
+        after = snapshot(postgres_dsn)
+        assert after[:3] == before[:3] and after[3][:-1] == before[3] and after[4] == before[4]
+        roles_after = role_inventory(postgres_dsn)
+        assert len(roles_after[0]) == 2
+        if groups == "fresh":
+            assert role_inventory(shared_dsn) == shared_before
+        else:
+            assert roles_after[0:2] == roles_before[0:2]
+            assert snapshot(other) == outside_before
+            assert [
+                item for item in role_scope_inventory(other)["dependencies"] if item["scope"] == "current"
+            ] == outside_dependencies
+        print("ROLE_SCOPE_AFTER_RETRY", request.node.nodeid, role_scope_inventory(postgres_dsn))
 
 
 @pytest.mark.parametrize("group", _GROUPS)
@@ -588,20 +674,12 @@ def test_attempt_update_cannot_transfer_legacy_history_to_chart(
 
 
 def test_group_reuse_in_another_test_database_preserves_original_authority(postgres_dsn: str) -> None:
-    from onlyalpha.persistence.postgres import only_assert_postgres_test_database
-    from tests.research.postgres.migration_support import current_migrations
-
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     before = snapshot(postgres_dsn)
-    database = "chart_role_reuse_" + uuid.uuid4().hex + "_test"
-    other_dsn = urlsplit(postgres_dsn)._replace(path="/" + database).geturl()
-    only_assert_postgres_test_database(other_dsn)
     with runtime_login(postgres_dsn, _GROUPS[0]) as reader:
-        with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-        try:
-            roles_before = role_inventory(postgres_dsn)
-            assert OnlyPostgresMigrationAuthority(other_dsn).migrate() == current_migrations()
+        roles_before = role_inventory(postgres_dsn)
+        with retained_role_database(postgres_dsn) as other_dsn:
+            assert OnlyPostgresMigrationAuthority(other_dsn).migrate() == ()
             roles_after = role_inventory(postgres_dsn)
             assert roles_after[:2] == roles_before[:2]
             assert roles_after[3:] == roles_before[3:]
@@ -612,9 +690,6 @@ def test_group_reuse_in_another_test_database_preserves_original_authority(postg
                 assert connection.execute("SELECT count(*) FROM public.research_run").fetchone() == (0,)
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     connection.execute("SELECT * FROM public.product_credential")
-        finally:
-            with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-                connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
 def test_real_source_read_role_and_installed_host_still_do_not_authorize_chart_claim(
