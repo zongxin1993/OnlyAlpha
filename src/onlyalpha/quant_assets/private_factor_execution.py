@@ -48,6 +48,12 @@ from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.quant_assets.private import OnlyPrivateFactorRevision, only_private_factor_source_sha256
+from onlyalpha.quant_assets.private_factor_provider_snapshot import (
+    OnlyPrivateFactorProviderSnapshotEntryV1 as OnlyPrivateFactorProviderSnapshotEntryV1,
+)
+from onlyalpha.quant_assets.private_factor_provider_snapshot import (
+    OnlyPrivateFactorProviderSnapshotV1 as OnlyPrivateFactorProviderSnapshotV1,
+)
 
 
 def _is_sha(value: object) -> bool:
@@ -904,108 +910,6 @@ class OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1:
             research_fp,
             trading_fp,
         )
-
-
-@dataclass(frozen=True, order=True, slots=True)
-class OnlyPrivateFactorProviderSnapshotEntryV1:
-    factor_id: str
-    semantic_version: str
-    revision_fingerprint: str
-    source_sha256: str
-    source_artifact_fingerprint: str
-    factor_api_version: int
-    factor_api_contract_fingerprint: str
-    research_adapter_fingerprint: str
-    trading_adapter_fingerprint: str
-    research_implementation_fingerprint: str
-    trading_implementation_fingerprint: str
-    equivalence_evidence_fingerprint: str
-
-    @classmethod
-    def derive(
-        cls,
-        manifest: OnlyPrivateFactorSourceArtifactManifestV1,
-        evidence: OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
-    ) -> OnlyPrivateFactorProviderSnapshotEntryV1:
-        if (
-            evidence.revision_fingerprint != manifest.revision_fingerprint
-            or evidence.source_artifact_fingerprint != manifest.source_artifact_fingerprint
-            or evidence.factor_api_contract_fingerprint != manifest.factor_api_contract_fingerprint
-            or evidence.disposition != "PASS"
-        ):
-            raise ValueError("PRIVATE_FACTOR_EQUIVALENCE_EVIDENCE_MISMATCH")
-        return cls(
-            manifest.factor_id,
-            manifest.semantic_version,
-            manifest.revision_fingerprint,
-            manifest.source_sha256,
-            manifest.source_artifact_fingerprint,
-            manifest.factor_api_version,
-            manifest.factor_api_contract_fingerprint,
-            evidence.research_adapter_fingerprint,
-            evidence.trading_adapter_fingerprint,
-            evidence.research_implementation_fingerprint,
-            evidence.trading_implementation_fingerprint,
-            evidence.equivalence_evidence_fingerprint,
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {field: getattr(self, field) for field in self.__dataclass_fields__}
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorProviderSnapshotEntryV1:
-        if set(payload) != set(cls.__dataclass_fields__):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        values = [payload[field] for field in cls.__dataclass_fields__]
-        if any(not isinstance(value, str) for value in values[:5] + values[6:]):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        if isinstance(values[5], bool) or not isinstance(values[5], int):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        return cls(*cast(list[Any], values))
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyPrivateFactorProviderSnapshotV1:
-    entries: tuple[OnlyPrivateFactorProviderSnapshotEntryV1, ...]
-
-    def __post_init__(self) -> None:
-        canonical = tuple(sorted(self.entries))
-        if not canonical or len({item.factor_id for item in canonical}) != len(canonical):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        object.__setattr__(self, "entries", canonical)
-
-    @property
-    def snapshot_fingerprint(self) -> str:
-        return only_canonical_fingerprint(
-            {
-                "contract": "ONLYALPHA_PRIVATE_FACTOR_PROVIDER_SNAPSHOT_V1",
-                "entries": [item.to_dict() for item in self.entries],
-            }
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "entries": [item.to_dict() for item in self.entries],
-            "snapshot_fingerprint": self.snapshot_fingerprint,
-        }
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyPrivateFactorProviderSnapshotV1:
-        if set(payload) != {"entries", "snapshot_fingerprint"} or not isinstance(payload["entries"], list):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        result = cls(
-            tuple(
-                OnlyPrivateFactorProviderSnapshotEntryV1.from_dict(cast(Mapping[str, object], item))
-                for item in payload["entries"]
-                if isinstance(item, Mapping)
-            )
-        )
-        if (
-            len(result.entries) != len(payload["entries"])
-            or payload["snapshot_fingerprint"] != result.snapshot_fingerprint
-        ):
-            raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_INVALID")
-        return result
 
 
 @dataclass(frozen=True, slots=True, init=False)

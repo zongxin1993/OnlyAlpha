@@ -6,8 +6,10 @@ import json
 import os
 import shutil
 import uuid
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.source_cut import (
@@ -20,10 +22,14 @@ from onlyalpha.research.source_cut import (
 
 from .errors import OnlyResearchResultStoreError
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
     RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     only_research_result_content_fingerprint,
     only_research_result_fingerprint,
 )
+
+if TYPE_CHECKING:
+    from onlyalpha.research.calculation.result_v2_ports import OnlyResearchCalculationResultStoreV2
 from .result import (
     OnlyResearchResult,
     OnlyResearchResultDisposition,
@@ -44,16 +50,40 @@ class _CalculationResultStore(Protocol):
     def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResult: ...
 
 
+def _require_readiness_anchor(
+    method: Callable[[OnlyJsonResearchResultStore, OnlyResearchResult], OnlyResearchResultOutcome],
+) -> Callable[[OnlyJsonResearchResultStore, OnlyResearchResult], OnlyResearchResultOutcome]:
+    """Check the V4 anchor before the shared publication barrier can create its root."""
+
+    @wraps(method)
+    def guarded(store: OnlyJsonResearchResultStore, result: OnlyResearchResult) -> OnlyResearchResultOutcome:
+        if (
+            isinstance(result, OnlyResearchResult)
+            and getattr(result.manifest, "schema_version", 1) == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION
+        ):
+            anchor = store._root.parent
+            if anchor.is_symlink() or not anchor.is_dir():
+                raise OnlyResearchResultStoreError(
+                    "RESEARCH_RESULT_COMMIT_FAILED", "V4 Result anchor must be preprovisioned"
+                )
+        return method(store, result)
+
+    return guarded
+
+
 class OnlyJsonResearchResultStore:
     def __init__(
         self,
         root: Path,
-        statistics_result_store: _StatisticsResultStore,
+        statistics_result_store: _StatisticsResultStore | None,
         calculation_result_store: _CalculationResultStore | None = None,
+        *,
+        readiness_result_store: OnlyResearchCalculationResultStoreV2 | None = None,
     ) -> None:
         self._root = root
         self._statistics_result_store = statistics_result_store
         self._calculation_result_store = calculation_result_store
+        self._readiness_result_store = readiness_result_store
         self._source_cuts = _OnlyFileSourceCutAuthority(
             root, "RESEARCH_RESULT", 2, lambda: only_sha256_source_inventory(root), self._cut_read
         )
@@ -74,11 +104,14 @@ class OnlyJsonResearchResultStore:
     def exists(self, research_result_plan_fingerprint: str) -> bool:
         return self._target(research_result_plan_fingerprint).exists()
 
+    @_require_readiness_anchor
     @only_source_publication
     def commit(self, result: OnlyResearchResult) -> OnlyResearchResultOutcome:
         candidate = self._admit(result)
         plan_fingerprint = candidate.manifest.research_result_plan_fingerprint
         target = self._target(plan_fingerprint)
+        if candidate.manifest.schema_version == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+            return self._commit_readiness(candidate)
         if target.exists() or target.is_symlink():
             existing = self._resolve_existing(candidate)
             return self._outcome(OnlyResearchResultDisposition.REUSED, existing)
@@ -119,6 +152,12 @@ class OnlyJsonResearchResultStore:
         if not isinstance(result, OnlyResearchResult):
             raise OnlyResearchResultStoreError("RESEARCH_RESULT_INVALID", "Result contract is invalid")
         try:
+            if getattr(result.manifest, "schema_version", 1) == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+                if (
+                    type(result) is not OnlyResearchResult
+                    or OnlyResearchResultManifest.from_dict(result.manifest.to_dict()) != result.manifest
+                ):
+                    raise ValueError("Result V4 canonical contract differs")
             self._verify_upstream(result.manifest)
             return result
         except OnlyResearchResultStoreError:
@@ -138,20 +177,27 @@ class OnlyJsonResearchResultStore:
             )
         return existing
 
-    def _read_verified(self, root: Path, expected_plan_fingerprint: str) -> OnlyResearchResult:
-        if root.is_symlink() or (root.exists() and not root.is_dir()):
+    def _read_verified(
+        self, root: Path, expected_plan_fingerprint: str, retained_manifest: bytes | None = None
+    ) -> OnlyResearchResult:
+        if retained_manifest is None and (root.is_symlink() or (root.exists() and not root.is_dir())):
             raise OnlyResearchResultStoreError(
                 "RESEARCH_RESULT_CORRUPT", "Research Result root is not a regular directory"
             )
-        if not root.is_dir():
+        if retained_manifest is None and not root.is_dir():
             raise OnlyResearchResultStoreError("RESEARCH_RESULT_NOT_FOUND", expected_plan_fingerprint)
         try:
             manifest_path = root / "manifest.json"
-            if root.is_symlink() or manifest_path.is_symlink():
+            if retained_manifest is None and (root.is_symlink() or manifest_path.is_symlink()):
                 raise ValueError("Research Result authority may not contain symlinks")
-            if {item.name for item in root.iterdir()} != {"manifest.json"}:
+            if retained_manifest is None and {item.name for item in root.iterdir()} != {"manifest.json"}:
                 raise ValueError("unexpected Research Result files")
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            from onlyalpha.research.calculation.result_v2_store import _unique_object
+
+            payload = json.loads(
+                manifest_path.read_bytes() if retained_manifest is None else retained_manifest,
+                object_pairs_hook=_unique_object,
+            )
             if not isinstance(payload, dict):
                 raise ValueError("Research Result manifest must be an object")
             manifest = OnlyResearchResultManifest.from_dict(payload)
@@ -166,6 +212,9 @@ class OnlyJsonResearchResultStore:
 
     def _verify_upstream(self, manifest: OnlyResearchResultManifest) -> None:
         schema_version = getattr(manifest, "schema_version", 1)
+        if schema_version == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+            self._verify_readiness_upstream(manifest)
+            return
         dataset: str | None = (
             manifest.plan.dataset_snapshot_fingerprint
             if schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION
@@ -174,6 +223,8 @@ class OnlyJsonResearchResultStore:
         actual_references = []
         verified_statistics: dict[str, OnlyResearchComposableStatisticsResult] = {}
         for reference in manifest.statistics_results:
+            if self._statistics_result_store is None:
+                raise ValueError("Statistics Result authority required")
             upstream = self._statistics_result_store.load_verified(reference.statistics_fingerprint)
             verified_statistics[reference.statistics_fingerprint] = upstream
             upstream_manifest = upstream.manifest
@@ -246,7 +297,110 @@ class OnlyJsonResearchResultStore:
     def _target(self, fingerprint: str) -> Path:
         if not _valid_sha(fingerprint):
             raise OnlyResearchResultStoreError("RESEARCH_RESULT_NOT_FOUND", "invalid Research Result Plan fingerprint")
-        return self._root / "sha256" / fingerprint[:2] / fingerprint
+        target = self._root / "sha256" / fingerprint[:2] / fingerprint
+        for path in (self._root.parent, self._root, self._root / "sha256", target.parent):
+            if path.is_symlink() or (path.exists() and not path.is_dir()):
+                raise OnlyResearchResultStoreError("RESEARCH_RESULT_CORRUPT", "malformed Result authority namespace")
+        return target
+
+    def _verify_readiness_upstream(self, manifest: OnlyResearchResultManifest) -> None:
+        from .readiness_verification import only_verify_readiness_composition
+
+        if self._readiness_result_store is None:
+            raise ValueError("Result V4 requires Calculation Result V2 authority")
+        calculations = {
+            item.calculation_fingerprint: self._readiness_result_store.load_verified(item.calculation_fingerprint)
+            for item in manifest.calculation_results
+        }
+        only_verify_readiness_composition(manifest.plan, calculations)
+        for reference in manifest.calculation_results:
+            if (
+                calculations[reference.calculation_fingerprint].manifest.calculation_result_fingerprint
+                != reference.calculation_result_fingerprint
+            ):
+                raise ValueError("Result V4 exact Calculation Result identity differs")
+
+    def _commit_readiness(self, candidate: OnlyResearchResult) -> OnlyResearchResultOutcome:
+        from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _sync_directory
+
+        fingerprint = candidate.manifest.research_result_plan_fingerprint
+        target = self._target(fingerprint)
+        stage = target.parent / f".stage-{uuid.uuid4().hex}"
+        try:
+            if self._root.parent.is_symlink() or not self._root.parent.is_dir():
+                raise ValueError("Result parent must be a preprovisioned real durability anchor")
+            if target.exists() or target.is_symlink():
+                self._resolve_existing(candidate)
+                return self._outcome(
+                    OnlyResearchResultDisposition.REUSED,
+                    self.acknowledge_exact(fingerprint, candidate.manifest.research_result_fingerprint),
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._target(fingerprint)
+            stage.mkdir()
+            with (stage / "manifest.json").open("x", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps(candidate.manifest.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            self._read_verified(stage, fingerprint)
+            _sync_directory(stage)
+            disposition = OnlyResearchResultDisposition.EXECUTED
+            try:
+                _rename_exclusive(stage, target)
+            except OSError:
+                if not target.exists() and not target.is_symlink():
+                    raise
+                disposition = OnlyResearchResultDisposition.REUSED
+            self._resolve_existing(candidate)
+            acknowledged = self.acknowledge_exact(fingerprint, candidate.manifest.research_result_fingerprint)
+            return self._outcome(disposition, acknowledged)
+        except OnlyResearchResultStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchResultStoreError(
+                "RESEARCH_RESULT_COMMIT_FAILED", "V4 publication acknowledgement failed"
+            ) from exc
+        finally:
+            if stage.is_dir() and not stage.is_symlink():
+                shutil.rmtree(stage)
+
+    @only_source_publication
+    def acknowledge_exact(self, plan_fingerprint: str, result_fingerprint: str) -> OnlyResearchResult:
+        """Resync an exact V4 publication and all Calculation predecessors; ordinary reads do not write."""
+        from onlyalpha.research.calculation.result_v2_store import _sync_directory
+
+        result = self.load_verified(plan_fingerprint)
+        if result.manifest.research_result_fingerprint != result_fingerprint:
+            raise OnlyResearchResultStoreError("DETERMINISTIC_RESULT_CONFLICT", plan_fingerprint)
+        if result.manifest.schema_version != RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+            raise OnlyResearchResultStoreError("RESEARCH_RESULT_INVALID", "explicit V4 acknowledgement required")
+        assert self._readiness_result_store is not None
+        try:
+            locked_descriptor = self._source_cuts._publication_lock_descriptor()
+            for reference in result.manifest.calculation_results:
+                self._readiness_result_store.acknowledge_exact(
+                    reference.calculation_fingerprint, reference.calculation_result_fingerprint
+                )
+            target = self._target(plan_fingerprint)
+            from onlyalpha.research._durability import _only_bind_publication_tree
+
+            with _only_bind_publication_tree(target, self._root.parent) as tree:
+                tree.require_exact({"manifest.json"})
+                tree.bind_file(self._root / ".source-cut.lock", descriptor=locked_descriptor)
+                bound = self._read_verified(target, plan_fingerprint, tree.read_bytes("manifest.json"))
+                if bound != result:
+                    raise ValueError("Research Result changed before acknowledgement")
+                tree.synchronize(_sync_directory)
+                reloaded = self._read_verified(target, plan_fingerprint, tree.read_bytes("manifest.json"))
+                tree.require_namespace()
+                self._source_cuts._publication_lock_descriptor()
+                if reloaded != bound:
+                    raise ValueError("Research Result changed during acknowledgement")
+                return reloaded
+        except Exception as exc:
+            raise OnlyResearchResultStoreError("RESEARCH_RESULT_COMMIT_FAILED", "V4 publication sync failed") from exc
 
     @staticmethod
     def _outcome(disposition: OnlyResearchResultDisposition, result: OnlyResearchResult) -> OnlyResearchResultOutcome:

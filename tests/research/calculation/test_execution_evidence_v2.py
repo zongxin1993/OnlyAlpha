@@ -105,10 +105,10 @@ def test_v2_staging_sync_failure_cannot_acknowledge_visible_target(tmp_path, mon
         if unknown:
             raise OSError("rename acknowledgement lost")
 
-    def fail(path):
+    def fail(path, **kwargs):
         if path == staging:
             raise OSError("source namespace sync failed")
-        sync(path)
+        sync(path, **kwargs)
 
     with monkeypatch.context() as context:
         context.setattr(module, "_rename_exclusive", publish)
@@ -475,19 +475,19 @@ def test_v2_evidence_durability_stops_at_semantic_root(tmp_path, monkeypatch):
     root = _root(tmp_path, evidence)
     sync, paths = module._sync_directory, []
 
-    def record(path):
+    def record(path, **kwargs):
         paths.append(path)
         if path != tmp_path / "semantic" and tmp_path / "semantic" not in path.parents:
             raise OSError("above authority anchor")
-        sync(path)
+        sync(path, **kwargs)
 
     monkeypatch.setattr(module, "_sync_directory", record)
     assert store._publish_verified(sealed, result) == evidence
     assert paths == [
         root,
         root.parent,
-        root.parent.parent.parent / ".staging",
         root.parent.parent,
+        root.parent.parent.parent / ".staging",
         root.parent.parent.parent,
         tmp_path / "semantic" / "calculation-execution-evidence",
         tmp_path / "semantic",
@@ -514,14 +514,16 @@ def test_v2_required_sync_failure_is_not_acknowledged_and_retry_converges(tmp_pa
         "anchor": tmp_path / "semantic",
     }.get(point)
 
-    def fail(path):
+    def fail(path, **kwargs):
         if path == failure:
             raise OSError("required sync failed")
-        sync(path)
+        sync(path, **kwargs)
 
     if point == "manifest":
         with monkeypatch.context() as context:
-            context.setattr(module, "_sync_manifest", lambda path: (_ for _ in ()).throw(OSError("file sync failed")))
+            context.setattr(
+                module, "_sync_manifest", lambda path, **kwargs: (_ for _ in ()).throw(OSError("file sync failed"))
+            )
             with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_COMMIT_FAILED"):
                 store._publish_verified(sealed, result)
     else:
@@ -665,10 +667,10 @@ def test_v2_initial_sync_failure_after_visible_rename_does_not_acknowledge(tmp_p
         if unknown:
             raise OSError("rename effect unknown")
 
-    def fail(path):
+    def fail(path, **kwargs):
         if path == root.parent:
             raise OSError("required namespace sync failed")
-        sync(path)
+        sync(path, **kwargs)
 
     with monkeypatch.context() as context:
         context.setattr(module, "_rename_exclusive", publish)

@@ -242,6 +242,8 @@ class OnlyDistributionArtifactManifest:
         )
         if _string(payload, "manifest_fingerprint") != result.manifest_fingerprint:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_MISMATCH")
+        if result.to_dict() != payload:
+            raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_NONCANONICAL")
         return result
 
 

@@ -252,10 +252,15 @@ def test_partition_layout_does_not_change_snapshot_identity(tmp_path) -> None:
         ts_init=bar.ts_init + timedelta(minutes=1),
     )
     content = only_content_fingerprint((bar, later))
-    fingerprint = only_snapshot_fingerprint(
-        snapshot.definition, snapshot.dataset_schema, content, 2, snapshot.construction_fingerprint
+    definition = replace(
+        snapshot.definition, time_range=OnlyTimeRange(bar.bar_start, later.ts_event + timedelta(seconds=1))
     )
-    updated = replace(snapshot, content_fingerprint=content, row_count=2, snapshot_fingerprint=fingerprint)
+    fingerprint = only_snapshot_fingerprint(
+        definition, snapshot.dataset_schema, content, 2, snapshot.construction_fingerprint
+    )
+    updated = replace(
+        snapshot, definition=definition, content_fingerprint=content, row_count=2, snapshot_fingerprint=fingerprint
+    )
     one = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "one").commit(updated, ((bar, later),))
     two = OnlyParquetResearchDatasetSnapshotStore(tmp_path / "two").commit(updated, ((bar,), (later,)))
     assert one.snapshot_fingerprint == two.snapshot_fingerprint

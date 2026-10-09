@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, finalize
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -20,6 +20,7 @@ from onlyalpha.calculation.definition import (
     only_calculation_semantic_bounds,
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
 
 from .backend import (
@@ -30,6 +31,11 @@ from .backend import (
 )
 from .binding import only_bind_research_dataset_source
 from .errors import OnlyResearchCalculationError
+from .execution_provenance import (
+    _context_payload,
+    _only_require_research_runtime_execution_context,
+    _OnlyResearchRuntimeExecutionContext,
+)
 from .identity import only_research_calculation_fingerprint
 from .publication import OnlyResearchCalculationPublicationContract
 from .readiness import OnlyResearchOutputReadiness, only_validate_research_output_readiness
@@ -136,10 +142,51 @@ class _OnlyVerifiedResearchCalculationExecutionV2:
 
     execution: OnlyResearchCalculationExecutionV2
     seal: object
+    runtime_context: _OnlyResearchRuntimeExecutionContext | None = None
 
 
 _VERIFIED_EXECUTION_V2_SEAL = object()
 _VERIFIED_EXECUTIONS_V2: WeakValueDictionary[int, _OnlyVerifiedResearchCalculationExecutionV2] = WeakValueDictionary()
+_EXECUTION_ISSUANCE_V2: dict[
+    int,
+    tuple[
+        OnlyResearchCalculationExecutionV2,
+        OnlyResearchCalculationPublicationContract,
+        tuple[OnlyResearchCalculationNodeOutput, ...],
+        tuple[OnlyResearchCalculationNodeReadiness, ...],
+        tuple[OnlyResearchCalculationImplementationBinding, ...],
+        str,
+    ],
+] = {}
+
+
+def _execution_issuance_fingerprint(value: _OnlyVerifiedResearchCalculationExecutionV2) -> str:
+    from .result_v2_identity import _descriptor
+
+    execution = value.execution
+    context = value.runtime_context
+    if context is not None:
+        context = _only_require_research_runtime_execution_context(context, execution.calculation_graph_fingerprint)
+    return only_canonical_fingerprint(
+        {
+            "calculation": execution.calculation_fingerprint,
+            "dataset": execution.dataset_snapshot_fingerprint,
+            "graph": execution.calculation_graph_fingerprint,
+            "outputs": tuple(
+                _descriptor(item.node_fingerprint, item.instrument_id, item.table) for item in execution.outputs
+            ),
+            "readiness": tuple(
+                _descriptor(item.node_fingerprint, item.instrument_id, item.table, readiness=True)
+                for item in execution.readiness
+            ),
+            "bindings": tuple(
+                (item.node_fingerprint, item.research_implementation_fingerprint)
+                for item in execution.research_implementation_bindings
+            ),
+            "publication": execution.publication.to_dict(),
+            "context": None if context is None else (id(context), _context_payload(context)),
+        }
+    )
 
 
 def _only_require_verified_research_calculation_execution_v2(
@@ -153,6 +200,24 @@ def _only_require_verified_research_calculation_execution_v2(
         raise OnlyResearchCalculationError(
             "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED",
             "Readiness publication requires an actual sealed V2 Research execution",
+        )
+    try:
+        issued = _EXECUTION_ISSUANCE_V2.get(id(value))
+        execution = value.execution
+        unchanged = (
+            issued is not None
+            and execution is issued[0]
+            and execution.publication is issued[1]
+            and execution.outputs is issued[2]
+            and execution.readiness is issued[3]
+            and execution.research_implementation_bindings is issued[4]
+            and issued[5] == _execution_issuance_fingerprint(value)
+        )
+    except (AttributeError, TypeError, ValueError):
+        unchanged = False
+    if not unchanged:
+        raise OnlyResearchCalculationError(
+            "RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED", "Issued V2 execution or Runtime context changed"
         )
     return value.execution
 
@@ -250,6 +315,8 @@ class OnlyResearchCalculationExecutor:
         snapshot_fingerprint: str,
         graph: OnlyCalculationGraphDefinition,
         publication: OnlyResearchCalculationPublicationContract,
+        *,
+        runtime_context: _OnlyResearchRuntimeExecutionContext | None = None,
     ) -> _OnlyVerifiedResearchCalculationExecutionV2:
         if type(publication) is not OnlyResearchCalculationPublicationContract:
             raise OnlyResearchCalculationError("RESEARCH_PUBLICATION_INVALID", "exact publication contract required")
@@ -269,6 +336,14 @@ class OnlyResearchCalculationExecutor:
         binding = OnlyResearchCalculationImplementationBinding(
             node.fingerprint, backend.implementation_manifest.implementation_fingerprint
         )
+        if runtime_context is not None:
+            runtime_context = _only_require_research_runtime_execution_context(runtime_context, graph.fingerprint)
+            if runtime_context.implementation_bindings != (
+                (binding.node_fingerprint, binding.research_implementation_fingerprint),
+            ):
+                raise OnlyResearchCalculationError(
+                    "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "Runtime context/registered implementation differs"
+                )
         try:
             verified = self._store.load_verified_table(snapshot_fingerprint)
             if verified.snapshot.snapshot_fingerprint != snapshot_fingerprint:
@@ -348,9 +423,19 @@ class OnlyResearchCalculationExecutor:
                 publication,
             ),
             _VERIFIED_EXECUTION_V2_SEAL,
+            runtime_context,
         )
         # Retain only live capabilities, and reject copied seals attached to replaced projections.
         _VERIFIED_EXECUTIONS_V2[id(sealed)] = sealed
+        _EXECUTION_ISSUANCE_V2[id(sealed)] = (
+            sealed.execution,
+            sealed.execution.publication,
+            sealed.execution.outputs,
+            sealed.execution.readiness,
+            sealed.execution.research_implementation_bindings,
+            _execution_issuance_fingerprint(sealed),
+        )
+        finalize(sealed, _EXECUTION_ISSUANCE_V2.pop, id(sealed), None)
         return sealed
 
     def _execute_time_series_node(

@@ -10,12 +10,14 @@ import fcntl
 import json
 import os
 import shutil
+import stat
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
+from threading import local
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
@@ -210,11 +212,33 @@ class _OnlyFileSourceCutAuthority:
         self._inventory = inventory
         self._read = read
         self._publication_barrier = OnlySourcePublicationBarrier(owner_root)
+        self._held_publications = local()
 
     @contextmanager
     def publication(self) -> Iterator[None]:
-        with self._publication_barrier.publication():
-            yield
+        with self._publication_barrier.publication() as descriptor:
+            previous = getattr(self._held_publications, "descriptors", ())
+            self._held_publications.descriptors = (*previous, descriptor)
+            try:
+                yield
+            finally:
+                self._held_publications.descriptors = previous
+
+    def _publication_lock_descriptor(self) -> int:
+        """Return the actual outermost held barrier, never a reopened pathname."""
+        descriptors: tuple[int, ...] = getattr(self._held_publications, "descriptors", ())
+        if not descriptors:
+            raise OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_NOT_HELD")
+        actual = (self._root / ".source-cut.lock").stat(follow_symlinks=False)
+        for descriptor in descriptors:
+            held = os.fstat(descriptor)
+            if not stat.S_ISREG(held.st_mode) or (actual.st_dev, actual.st_ino, stat.S_IFMT(actual.st_mode)) != (
+                held.st_dev,
+                held.st_ino,
+                stat.S_IFMT(held.st_mode),
+            ):
+                raise OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_REPLACED")
+        return descriptors[0]
 
     def capture_closed_cut(self) -> OnlySourceClosedCutV1:
         with self._publication_barrier.capture():
@@ -319,9 +343,9 @@ class OnlySourcePublicationBarrier:
         self._root = root
 
     @contextmanager
-    def publication(self) -> Iterator[None]:
-        with self._locked(fcntl.LOCK_SH):
-            yield
+    def publication(self) -> Iterator[int]:
+        with self._locked(fcntl.LOCK_SH) as descriptor:
+            yield descriptor
 
     @contextmanager
     def capture(self) -> Iterator[None]:
@@ -329,7 +353,7 @@ class OnlySourcePublicationBarrier:
             yield
 
     @contextmanager
-    def _locked(self, mode: int) -> Iterator[None]:
+    def _locked(self, mode: int) -> Iterator[int]:
         self._require_safe(self._root)
         self._root.mkdir(parents=True, exist_ok=True)
         path = self._root / ".source-cut.lock"
@@ -338,7 +362,7 @@ class OnlySourcePublicationBarrier:
         descriptor = os.open(path, flags, 0o600)
         try:
             fcntl.flock(descriptor, mode)
-            yield
+            yield descriptor
         finally:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)

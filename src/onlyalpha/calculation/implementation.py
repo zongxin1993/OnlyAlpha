@@ -133,6 +133,61 @@ class OnlyCalculationImplementationManifest:
             "implementation_fingerprint": self.implementation_fingerprint,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> OnlyCalculationImplementationManifest:
+        """Read the complete canonical manifest without loading executable resources."""
+        fields = {
+            "schema_version",
+            "calculation_type_reference",
+            "backend_kind",
+            "entrypoint_identity",
+            "resources",
+            "semantic_dependencies",
+            "implementation_bundle_fingerprint",
+            "implementation_fingerprint",
+        }
+        if set(payload) != fields or type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+            raise ValueError("calculation implementation manifest fields or version differ")
+
+        def mapping(value: object, expected: set[str]) -> Mapping[str, object]:
+            if not isinstance(value, Mapping) or set(value) != expected:
+                raise ValueError("calculation implementation manifest nested fields differ")
+            return value
+
+        def string(value: object) -> str:
+            if type(value) is not str or not value:
+                raise ValueError("calculation implementation manifest requires a nonempty string")
+            return value
+
+        resources, dependencies = [], []
+        if type(payload["resources"]) is not list or type(payload["semantic_dependencies"]) is not list:
+            raise ValueError("calculation implementation manifest arrays missing")
+        for raw in payload["resources"]:
+            raw = mapping(raw, {"relative_path", "byte_sha256"})
+            resources.append(
+                OnlyCalculationImplementationResource(string(raw["relative_path"]), string(raw["byte_sha256"]))
+            )
+        for raw in payload["semantic_dependencies"]:
+            raw = mapping(raw, {"dependency_id", "semantic_version", "artifact_fingerprint"})
+            dependencies.append(
+                OnlyCalculationSemanticDependency(
+                    string(raw["dependency_id"]),
+                    string(raw["semantic_version"]),
+                    None if raw["artifact_fingerprint"] is None else string(raw["artifact_fingerprint"]),
+                )
+            )
+        reference = mapping(payload["calculation_type_reference"], {"kind", "type_id", "semantic_version"})
+        manifest = cls(
+            OnlyCalculationTypeReference.from_dict(reference),
+            OnlyCalculationBackendKind(string(payload["backend_kind"])),
+            string(payload["entrypoint_identity"]),
+            tuple(resources),
+            tuple(dependencies),
+        )
+        if manifest.to_dict() != payload:
+            raise ValueError("calculation implementation manifest identities or canonical shape differ")
+        return manifest
+
 
 def only_python_implementation_manifest(
     *,
