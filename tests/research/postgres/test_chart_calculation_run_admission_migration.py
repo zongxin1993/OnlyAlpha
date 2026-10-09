@@ -30,6 +30,12 @@ def previous(dsn: str, root: Path):
     return authority
 
 
+def handoff_reference(root: Path) -> Path:
+    root.mkdir()
+    copy_migrations_through(root, MIGRATION)
+    return root
+
+
 def test_handoff_migration_preserves_all_existing_authority_bytes(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -41,17 +47,22 @@ def test_handoff_migration_preserves_all_existing_authority_bytes(
     fixture.store.commit_or_replay(fixture.operation, fixture.preparation, fixture.compilation)
     before = authority_facts(postgres_dsn)
     old_history = history(postgres_dsn)
-    status = OnlyPostgresSchemaVerifier(postgres_dsn).status()
+    reference = handoff_reference(tmp_path / "handoff-reference")
+    current = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=reference)
+    status = OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=reference).status()
     assert status.pending_migrations == (MIGRATION,)
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (MIGRATION,)
+    assert current.migrate() == (MIGRATION,)
     assert history(postgres_dsn)[:-1] == old_history
     assert authority_facts(postgres_dsn) == before
     assert fixture.store.load_verified(fixture.operation) == fixture.compilation
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
+    assert current.migrate() == ()
 
 
 def test_handoff_ddl_and_ledger_rollback_then_exact_retry(postgres_dsn: str, tmp_path: Path) -> None:
     previous(postgres_dsn, tmp_path / "previous")
+    current = OnlyPostgresMigrationAuthority(
+        postgres_dsn, migration_root=handoff_reference(tmp_path / "handoff-reference")
+    )
     before = history(postgres_dsn)
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(
@@ -61,14 +72,14 @@ def test_handoff_ddl_and_ledger_rollback_then_exact_retry(postgres_dsn: str, tmp
             "CREATE TRIGGER reject_handoff_ledger BEFORE INSERT ON onlyalpha_schema_migration FOR EACH ROW EXECUTE FUNCTION reject_handoff_ledger()"
         )
     with pytest.raises(OnlyPostgresMigrationIntegrityError):
-        OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+        current.migrate()
     assert history(postgres_dsn) == before
     with psycopg.connect(postgres_dsn) as connection:
         assert connection.execute("SELECT to_regclass('public.chart_calculation_run_admission')").fetchone() == (None,)
         connection.execute("DROP TRIGGER reject_handoff_ledger ON onlyalpha_schema_migration")
         connection.execute("DROP FUNCTION reject_handoff_ledger()")
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (MIGRATION,)
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
+    assert current.migrate() == (MIGRATION,)
+    assert current.migrate() == ()
     assert history(postgres_dsn)[:-1] == before
 
 

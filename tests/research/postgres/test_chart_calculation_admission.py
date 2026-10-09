@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from pathlib import Path
 from threading import Barrier
 
 import psycopg
@@ -18,6 +19,7 @@ from onlyalpha.persistence.postgres.chart_calculation_store import OnlyPostgresC
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
 from tests.application.test_chart_calculation_admission import COMMAND, NOW, request, witness
+from tests.research.postgres.migration_support import copy_migrations_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
 
@@ -561,12 +563,23 @@ def test_database_guard_covers_legacy_insert_only_role(postgres_dsn: str) -> Non
 
 @pytest.mark.parametrize("occupied", [False, True])
 def test_reservation_migration_backfills_previous_chart_operations_or_fails_closed(
-    postgres_dsn: str, occupied: bool
+    postgres_dsn: str, occupied: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore, _insert_run_query
     from tests.research.postgres.test_postgres_authority import _queued
 
-    operation = admit(store(postgres_dsn)).operation
+    # This reconstruction removes the historical 0044–0048 DDL below; do not
+    # install later migrations and leave a non-prefix ledger behind.
+    reference = tmp_path / "handoff-reference"
+    reference.mkdir()
+    copy_migrations_through(reference, "0048_chart_calculation_run_admission")
+    historical = OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=reference)
+    with monkeypatch.context() as context:
+        context.setattr(
+            "tests.research.postgres.test_chart_calculation_admission.OnlyPostgresMigrationAuthority",
+            lambda dsn: historical,
+        )
+        operation = admit(store(postgres_dsn)).operation
     # Reconstruct exactly the preceding additive schema, retaining all audited 0043 facts.
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("DROP TRIGGER chart_run_admission_run_guard ON research_run")
@@ -629,6 +642,7 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
             "0046_chart_calculation_runtime_binding_relation",
             "0047_chart_calculation_compilation_relation",
             "0048_chart_calculation_run_admission",
+            "0049_chart_native_publication_permissions",
         )
         assert (
             OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))

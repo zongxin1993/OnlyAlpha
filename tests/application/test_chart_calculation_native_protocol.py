@@ -200,3 +200,56 @@ def test_operation_cannot_replace_reserved_run_and_mutation_is_rechecked(frozen)
     object.__setattr__(request, "run_revision", True)
     with pytest.raises(ValueError):
         request.verify_compilation(frozen)
+
+
+@pytest.mark.parametrize("carrier", ["request", "request_payload", "handshake", "handshake_payload", "e1_projection"])
+def test_structural_native_declarations_cannot_issue_source_or_producer_authority(frozen, carrier: str) -> None:
+    from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
+    from onlyalpha.research.calculation.execution_provenance import _only_require_research_runtime_execution_context
+    from onlyalpha.research.dataset.publication_input import _only_require_verified_sealed_chart_publication_input
+
+    request = native_request(frozen)
+    value = {
+        "request": request,
+        "request_payload": request.to_dict(),
+        "handshake": handshake(),
+        "handshake_payload": handshake().to_dict(),
+        "e1_projection": {"status": "EXECUTED_UNPUBLISHED", "values": [], "readiness": []},
+    }[carrier]
+    request.verify_compilation(frozen)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_PUBLICATION_UNAUTHORIZED"):
+        _only_require_research_runtime_execution_context(value, frozen.graph_fingerprint)
+    with pytest.raises(ValueError, match="reader-issued sealed input required"):
+        _only_require_verified_sealed_chart_publication_input(
+            value, frozen.result_plan_fingerprint, frozen.graph_fingerprint, frozen.runtime_generation_fingerprint
+        )
+
+
+@pytest.mark.parametrize(
+    "capability", [ONLYALPHA_CHART_NATIVE_PUBLICATION_CONTRACT_VERSION, "EXECUTE_CHART_NATIVE_PUBLICATION"]
+)
+def test_compute_only_search_parsers_reject_native_capability_declarations(capability: str) -> None:
+    from onlyalpha.application.search_generation_execution import (
+        ONLYALPHA_SEARCH_GENERATION_EXECUTION_CONTRACT_VERSION,
+        OnlyHistoricalGenerationCapabilityUnsupported,
+        OnlySearchGenerationExecutionRequestV1,
+        OnlySearchGenerationWorkerHandshakeV1,
+    )
+
+    common = {
+        "schema_version": 1,
+        "execution_contract_version": ONLYALPHA_SEARCH_GENERATION_EXECUTION_CONTRACT_VERSION,
+        "runtime_generation_fingerprint": "a" * 64,
+    }
+    with pytest.raises(OnlyHistoricalGenerationCapabilityUnsupported):
+        OnlySearchGenerationExecutionRequestV1.from_dict(common | {"operation_kind": capability, "request_payload": {}})
+    with pytest.raises(OnlyHistoricalGenerationCapabilityUnsupported):
+        OnlySearchGenerationWorkerHandshakeV1.from_dict(
+            common
+            | {
+                "core_execution_fingerprint": "b" * 64,
+                "catalog_generation_fingerprint": "c" * 64,
+                "validation_evidence_fingerprint": "d" * 64,
+                "supported_capabilities": [capability],
+            }
+        )

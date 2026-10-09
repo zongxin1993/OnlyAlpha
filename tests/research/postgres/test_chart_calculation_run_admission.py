@@ -657,6 +657,12 @@ def test_legacy_mutation_paths_cannot_touch_injected_chart_attempt(
     execution = OnlyPostgresResearchExecutionStore(postgres_dsn)
     claim = OnlyResearchExecutionClaim(execution.load_attempt(attempt_id))
     before = authority_facts(postgres_dsn)
+    # The privileged SET LOCAL ended with its transaction. Ordinary updates are
+    # still guarded, including an unchanged row containing injected old history.
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SHOW session_replication_role").fetchone() == ("origin",)
+        with pytest.raises(psycopg.Error, match="CHART_NATIVE_EXECUTION_NOT_ENABLED"):
+            connection.execute("UPDATE research_run_attempt SET state=state WHERE attempt_id=%s", (attempt_id.value,))
     assert execution.expire_next(max_attempts=1, run_finished_at=NOW, eligible_run_ids=(run.run_id.value,)) is None
     assert execution.load_cancellation_recovery_candidate((run.run_id.value,)) is None
     failure = OnlyResearchRunFailure(OnlyResearchRunFailurePhase.OPERATIONAL, "INJECTED", "test")

@@ -53,8 +53,13 @@ issued input, registered native execution context or Artifact publisher.
 
 Existing groups must have the exact safe attributes, inherit no other role, and
 have no preexisting owned objects, direct ACLs or default grants in the installing
-database. An unsafe/unrelated role fails migration without sanitization or silent
-adoption. Deployment principals must themselves be non-owner/non-superuser and
+database, nor shared parameter privileges or other shared-object authority. Native
+`pg_shdepend` relations cover all object families, including types and large
+objects, rather than a hand-selected catalog list. Groups must have no stored
+password; operator-only `pg_authid` visibility is necessary to prove this without
+returning password material. A finite password-expiry policy is not an accepted
+group attribute (NULL/infinity both mean no expiry). An unsafe/unrelated role fails
+migration without sanitization or silent adoption. Deployment principals must themselves be non-owner/non-superuser and
 receive no additional broad permissions. An administrator can change guards or
 grants; malicious schema-owner/superuser administration is outside the runtime
 bypass threat model, not something CHECK/trigger constraints claim to prevent.
@@ -72,8 +77,16 @@ state transitions and negative Chart capability remain unchanged.
 ## Rollout and failure semantics
 
 Migration precondition is checksummed history through 0048 and operator role/schema
-authority. Group creation, validation, ACLs, guard DDL and ledger commit are one
-PostgreSQL transaction under the existing migration lock. DDL or ledger failure
+authority, ownership/write-lock authority over Run/Attempt tables, and permission
+to inspect `pg_authid`. Missing operator visibility fails closed; no runtime reader
+is granted that visibility. Under the existing migration advisory lock, table
+write exclusion is acquired in Run → Attempt order **before** inspecting existing
+Chart Attempts and is held through guard installation and ledger COMMIT. A writer
+that committed earlier is retained and rejects rollout; a later writer cannot slip
+between the history check and installation. Source-history/frontier writes remain
+the existing writer transaction, not a new migration rewrite. Group creation,
+validation, ACLs, guard DDL and ledger commit are one PostgreSQL transaction under
+the existing migration lock. DDL or ledger failure
 rolls the whole change back; retry applies the same canonical migration. Existing
 Run/Attempt/source/receipt facts are not updated. Published 0001–0048 bytes and
 checksums stay immutable.

@@ -1,10 +1,14 @@
--- Precondition: checksummed history through 0048; operator has CREATEROLE and owns
--- this schema. Roles are cluster-scoped NOLOGIN privilege groups, never passwords.
+-- Precondition: checksummed history through 0048; operator has CREATEROLE, owns
+-- this schema/tables, and can inspect pg_authid. Groups never store passwords.
 -- DDL/ACL/role creation and ledger insert commit in the same transaction. Failure
 -- rolls all changes back; exact existing role shape is revalidated on fresh-schema
 -- installation. No existing fact or published SQL is rewritten.
 -- Runtime actors are not schema owners/superusers. Privileged administration can
 -- disable guards and is outside the runtime bypass threat model.
+-- Lock in the owning Run -> Attempt order before checking historical Attempts.
+-- Retain writer exclusion through guard installation and migration ledger COMMIT.
+LOCK TABLE public.research_run, public.research_run_attempt IN SHARE ROW EXCLUSIVE MODE;
+
 DO $$
 DECLARE
     role_name TEXT;
@@ -15,10 +19,12 @@ BEGIN
             EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT', role_name);
         END IF;
         IF NOT EXISTS (
-            SELECT 1 FROM pg_catalog.pg_roles
+            SELECT 1 FROM pg_catalog.pg_authid
             WHERE rolname = role_name AND NOT rolcanlogin AND NOT rolsuper
               AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication
-              AND NOT rolbypassrls AND rolinherit AND rolconnlimit = -1
+               AND NOT rolbypassrls AND rolinherit AND rolconnlimit = -1
+               AND rolpassword IS NULL
+               AND (rolvaliduntil IS NULL OR rolvaliduntil = 'infinity'::timestamptz)
         ) OR EXISTS (
             -- The group may have deployment login members, but it cannot itself
             -- inherit another role or escalate via SET ROLE / ADMIN membership.
@@ -28,22 +34,15 @@ BEGIN
             RAISE EXCEPTION 'CHART_NATIVE_DATABASE_ROLE_UNSAFE';
         END IF;
         SELECT oid INTO role_oid FROM pg_catalog.pg_roles WHERE rolname = role_name;
-        -- A preexisting privilege group is acceptable only when it has no
-        -- authority in this database yet. Do not silently sanitize/adopt an
-        -- unrelated role with extra grants or owned objects.
-        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relowner = role_oid
-                   OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(c.relacl) a WHERE a.grantee = role_oid))
-           OR EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspowner = role_oid
-                      OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(n.nspacl) a WHERE a.grantee = role_oid))
-           OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.proowner = role_oid
-                      OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(p.proacl) a WHERE a.grantee = role_oid))
-           OR EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d WHERE d.defaclrole = role_oid
-                      OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(d.defaclacl) a WHERE a.grantee = role_oid))
-           OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute c
-                      CROSS JOIN LATERAL pg_catalog.aclexplode(c.attacl) a WHERE a.grantee = role_oid)
-           OR EXISTS (SELECT 1 FROM pg_catalog.pg_database d WHERE d.datname = current_database()
-                      AND (d.datdba = role_oid OR EXISTS (
-                          SELECT 1 FROM pg_catalog.aclexplode(d.datacl) a WHERE a.grantee = role_oid))) THEN
+        -- Native role dependencies cover ALL object families (including column,
+        -- type, large-object, default and shared parameter ACLs). Other databases'
+        -- local grants survive legitimate cluster-group reuse; shared authority
+        -- and any preexisting authority in the installing database are rejected.
+        IF EXISTS (
+            SELECT 1 FROM pg_catalog.pg_shdepend d
+            WHERE d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.refobjid = role_oid
+              AND (d.dbid = 0 OR d.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()))
+        ) OR EXISTS (SELECT 1 FROM pg_catalog.pg_db_role_setting WHERE setrole = role_oid) THEN
             RAISE EXCEPTION 'CHART_NATIVE_DATABASE_ROLE_UNSAFE';
         END IF;
     END LOOP;
