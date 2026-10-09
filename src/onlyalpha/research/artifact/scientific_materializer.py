@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.calculation import OnlyCalculationDataType
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
-from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultV2
 from onlyalpha.research.dataset import OnlyVerifiedResearchDataset
 from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResult
 from onlyalpha.research.result.plan import OnlyResearchResultSeriesPlan, OnlyResearchResultSignalPlan
@@ -29,6 +28,9 @@ from .scientific_model import (
     only_research_scientific_artifact_content_fingerprint,
     only_research_scientific_section_fingerprint,
 )
+
+if TYPE_CHECKING:
+    from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultV2
 
 
 class _ResultStore(Protocol):

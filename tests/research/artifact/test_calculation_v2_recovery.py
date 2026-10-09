@@ -108,12 +108,15 @@ publish()
         )
         == after_rename
     )
+    families = ("owning-input/dataset", "calculations", "semantic", "results")
     before = {
-        path: path.read_bytes()
-        for family in ("dataset", "calculations", "semantic", "results")
-        for path in (tmp_path / family).rglob("*")
-        if path.is_file()
+        family: {path: path.read_bytes() for path in (tmp_path / family).rglob("*") if path.is_file()}
+        for family in families
     }
+    assert all(before.values()), "every monitored predecessor must have retained files"
+    source_path = tmp_path / "source-owner.json"
+    source_before = source_path.read_bytes()
+    assert source_before
     recover = r"""
 import sys
 from pathlib import Path
@@ -132,11 +135,10 @@ print(artifact.manifest.artifact_content_fingerprint)
         identity, research_result_fingerprint=result_id
     )
     assert before == {
-        path: path.read_bytes()
-        for family in ("dataset", "calculations", "semantic", "results")
-        for path in (tmp_path / family).rglob("*")
-        if path.is_file()
+        family: {path: path.read_bytes() for path in (tmp_path / family).rglob("*") if path.is_file()}
+        for family in families
     }
+    assert source_path.read_bytes() == source_before
 
 
 @pytest.mark.parametrize(

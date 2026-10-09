@@ -10,6 +10,8 @@ from typing import Protocol, runtime_checkable
 
 from onlyalpha.canonical import only_canonical_fingerprint
 
+INTEGRATION_RUNTIME_BINDING_IDENTITY_DOMAIN = "ONLYALPHA_INTEGRATION_RUNTIME_BINDING_V1"
+
 _STABLE_ID = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _TYPE_ID = re.compile(r"^[a-z0-9]+(?:[._][a-z0-9]+)*$")
 _FIELD_ID = re.compile(r"^[a-z][a-z0-9_]*$")

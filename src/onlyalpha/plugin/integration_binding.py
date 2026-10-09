@@ -5,7 +5,7 @@ from uuid import UUID
 
 from onlyalpha.canonical import only_canonical_fingerprint
 
-INTEGRATION_RUNTIME_BINDING_IDENTITY_DOMAIN = "ONLYALPHA_INTEGRATION_RUNTIME_BINDING_V1"
+from .integration import INTEGRATION_RUNTIME_BINDING_IDENTITY_DOMAIN
 
 
 def only_verify_retained_integration_runtime_binding(payload: Mapping[str, object]) -> None:

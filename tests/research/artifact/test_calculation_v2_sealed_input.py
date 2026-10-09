@@ -63,6 +63,72 @@ def test_original_physical_source_loss_blocks_publication_but_not_portable_read(
         )
 
 
+@pytest.mark.parametrize("existing", (False, True))
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    (
+        (("source_reference", "integration_id"), "00000000-0000-4000-8000-000000000001"),
+        (("source_reference", "integration_revision_fingerprint"), "f" * 64),
+        (("source_reference", "expected_type_id"), "other.source"),
+        (("integration_binding_fingerprint",), "f" * 64),
+        (("scope", "instrument_id"), "OTHER.TEST"),
+        (("scope", "bar_construction", "plan", "target_semantic", "price_type"), "MID"),
+        (("evidence", "revision"), None),
+        (("evidence", "manifest"), None),
+        (("evidence", "seal"), None),
+        (("evidence", "seal", "seal_id"), "seal:" + "f" * 64),
+        (("evidence", "physical_proofs"), None),
+        (("segments", 0), None),
+        (("materialization", "materialization_id"), "dataset-materialization:" + "f" * 64),
+        (("materialization", "market_data_revision_bindings"), None),
+        (("materialization", "materializer_version"), "2"),
+        (("materialization", "request_fingerprint"), "f" * 64),
+        (("scope", "bar_construction", "fingerprint"), "f" * 64),
+        (("dataset_snapshot_fingerprint",), "f" * 64),
+        (("canonical_rows", "middle"), None),
+        (("canonical_rows", "last"), None),
+        (("raw_rows", "original"), None),
+    ),
+)
+def test_original_source_mutations_reject_before_artifact_store_entry(
+    tmp_path, monkeypatch, existing, path, replacement
+):
+    # This is the saved-original-source contract fake. The real T1/T2/D2 and
+    # installed-native PostgreSQL seam is proved separately, without this hook.
+    publish, store, _, _, _, _ = _publication(tmp_path)
+    if existing:
+        publish()
+    source = tmp_path / "source-owner.json"
+    payload = json.loads(source.read_text())
+    if path[0] in ("canonical_rows", "raw_rows"):
+        rows = payload[path[0]]
+        # One original raw observation produced these six canonical Bars.
+        assert len(rows) >= (3 if path[0] == "canonical_rows" else 1)
+        rows.pop(len(rows) // 2 if path[1] == "middle" else -1)
+    else:
+        parent = payload["retained"]
+        for key in path[:-1]:
+            parent = parent[key]
+        if replacement is None:
+            if isinstance(parent, list):
+                parent.pop(path[-1])
+            else:
+                del parent[path[-1]]
+        else:
+            parent[path[-1]] = replacement
+    source.write_text(only_canonical_json(payload))
+    before = _bytes(tmp_path)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid owning input reached Artifact staging or reuse")
+
+    monkeypatch.setattr(type(store), "_publish_materialized", forbidden)
+    with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_INVALID"):
+        publish()
+    assert _bytes(tmp_path) == before
+    assert not tuple((tmp_path / "artifacts").rglob(".stage-*"))
+
+
 def test_physical_baseline_sections_have_exact_schema_content_and_typed_empty_scientific_facts(tmp_path):
     publish, _, _, _, _, _ = _publication(tmp_path)
     artifact = publish()
