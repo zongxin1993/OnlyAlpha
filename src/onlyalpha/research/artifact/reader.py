@@ -16,6 +16,16 @@ class OnlyResearchArtifactProfileReader:
         self._scientific = OnlyParquetResearchScientificArtifactStore(root)
         self._statistics = OnlyParquetResearchArtifactStore(root)
         self._calculation = OnlyParquetResearchCalculationArtifactStore(root)
+        self._root = root
+
+    def load_calculation_v2_verified(self, profile: str, schema_version: int, artifact_content_fingerprint: str):  # type: ignore[no-untyped-def]
+        from .calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
+
+        if profile != "RESEARCH_CALCULATION_V2" or type(schema_version) is not int or schema_version != 2:
+            raise OnlyResearchArtifactStoreError(
+                "ARTIFACT_PROFILE_UNSUPPORTED", "exact Calculation V2 locator required"
+            )
+        return OnlyParquetResearchCalculationArtifactStoreV2(self._root).load_verified(artifact_content_fingerprint)
 
     def load_verified(self, research_result_fingerprint: str):  # type: ignore[no-untyped-def]
         try:

@@ -697,8 +697,8 @@ def test_v2_visible_race_loser_establishes_durability_before_acknowledging(tmp_p
         renamed.set()
         assert release.wait(10), "test failed to release publisher"
 
-    def sync(path):
-        original_sync(path)
+    def sync(path, **kwargs):
+        original_sync(path, **kwargs)
         synced.append(path)
 
     monkeypatch.setattr(module, "_rename_exclusive", rename)
@@ -730,10 +730,10 @@ def test_v2_sync_failure_never_acknowledges_and_reentry_converges(tmp_path, monk
         if unknown:
             raise OSError("rename succeeded but acknowledgment was lost")
 
-    def fail(path):
+    def fail(path, **kwargs):
         if path == root.parent:
             raise OSError("namespace sync failed")
-        sync(path)
+        sync(path, **kwargs)
 
     monkeypatch.setattr(module, "_rename_exclusive", publish)
     monkeypatch.setattr(module, "_sync_directory", fail)
@@ -744,8 +744,8 @@ def test_v2_sync_failure_never_acknowledges_and_reentry_converges(tmp_path, monk
         store.commit(sealed, graph)
     synced = []
 
-    def record(path):
-        sync(path)
+    def record(path, **kwargs):
+        sync(path, **kwargs)
         synced.append(path)
 
     monkeypatch.setattr(module, "_sync_directory", record)
@@ -793,8 +793,8 @@ def test_v2_publication_sync_stops_at_configured_authority_parent(tmp_path, monk
     root = _root(tmp_path, sealed)
     sync, calls = module._sync_directory, []
 
-    def record(path):
-        sync(path)
+    def record(path, **kwargs):
+        sync(path, **kwargs)
         calls.append(path)
 
     monkeypatch.setattr(module, "_sync_directory", record)
@@ -822,11 +822,11 @@ def test_v2_publication_does_not_require_unrelated_ancestor_fsync(tmp_path, monk
     _, store, graph, sealed = _case(tmp_path)
     sync, rename, calls = module._sync_directory, module._rename_exclusive, []
 
-    def bounded(path):
+    def bounded(path, **kwargs):
         calls.append(path)
         if path != tmp_path and tmp_path not in path.parents:
             raise OSError("unrelated ancestor forbids fsync")
-        sync(path)
+        sync(path, **kwargs)
 
     def publish(stage, target):
         rename(stage, target)
@@ -852,10 +852,10 @@ def test_v2_required_namespace_sync_failure_is_not_acknowledged_and_retry_conver
     ]
     sync = module._sync_directory
 
-    def fail(path):
+    def fail(path, **kwargs):
         if path == failure:
             raise OSError("required namespace sync unavailable")
-        sync(path)
+        sync(path, **kwargs)
 
     monkeypatch.setattr(module, "_sync_directory", fail)
     with pytest.raises(OnlyResearchCalculationResultStoreError, match="RESULT_COMMIT_FAILED"):

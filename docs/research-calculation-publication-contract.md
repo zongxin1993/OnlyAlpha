@@ -14,6 +14,10 @@ Calculation semantic identity remains Dataset Snapshot plus Graph. Publication v
 and Result Plan identities, not Calculation identity. Specification 1/2 and Result Plan 1/2/3 retain their original payloads and
 fingerprints; old documents are never upgraded on read.
 
+The separately versioned [native publication contract](research-calculation-publication.md) defines Result V4 and
+`RESEARCH_CALCULATION_V2` Artifact schema 2. It does not remove the compile-only Runtime fences below, grant a Search worker
+durable-write permission, or turn a hosted compilation/diagnostic projection into a publication capability.
+
 `OnlyResearchHostedRuntimeGenerationResolver.resolve_calculation_publication()` requests the separate
 `RESOLVE_RESEARCH_CALCULATION_PUBLICATION` operation. The existing execution port verifies the exact hosted generation, artifacts
 and capability handshake, including historical retired generations. The worker loads the verified Dataset and compiles using

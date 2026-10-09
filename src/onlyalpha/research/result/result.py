@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
     RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     RESEARCH_RESULT_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
@@ -84,14 +85,22 @@ class OnlyResearchResultManifest:
     calculation_results: tuple[OnlyResearchCalculationResultReference, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION and (
-            isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int)
-        ):
+        if self.schema_version == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+            if (
+                type(self.plan) is not OnlyResearchResultPlan
+                or OnlyResearchResultPlan.from_dict(self.plan.to_dict()) != self.plan
+            ):
+                raise ValueError("Result V4 requires exact canonical Plan V4")
+        if self.schema_version in {
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
+        } and (isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int)):
             raise ValueError("Calculation-only Result schema version must be an integer")
         if self.schema_version not in {
             RESEARCH_RESULT_SCHEMA_VERSION,
             RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
             RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
         }:
             raise ValueError("Research Result schema is unsupported")
         if self.plan.schema_version != self.schema_version:
@@ -113,6 +122,7 @@ class OnlyResearchResultManifest:
         if self.schema_version in {
             RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
             RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
         }:
             if not isinstance(self.calculation_results, tuple) or any(
                 not isinstance(item, OnlyResearchCalculationResultReference) for item in self.calculation_results
@@ -124,7 +134,10 @@ class OnlyResearchResultManifest:
                 item.calculation_fingerprint for item in self.plan.calculations
             ):
                 raise ValueError("Research Result Calculation references do not match Plan")
-        if self.schema_version == RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION:
+        if self.schema_version in {
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
+        }:
             if self.dataset_snapshot_fingerprint != self.plan.dataset_snapshot_fingerprint:
                 raise ValueError("Calculation-only Result Dataset does not match Plan")
         content = only_research_result_content_fingerprint(
@@ -160,6 +173,7 @@ class OnlyResearchResultManifest:
         if self.schema_version in {
             RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
             RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
         }:
             payload["calculation_results"] = [item.to_dict() for item in self.calculation_results]
         return payload
@@ -177,7 +191,11 @@ class OnlyResearchResultManifest:
             "created_at",
         }
         version = _integer(payload, "schema_version")
-        if version in {RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION, RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION}:
+        if version in {
+            RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
+            RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
+        }:
             expected.add("calculation_results")
         if set(payload) != expected:
             raise ValueError("Research Result manifest fields are invalid")

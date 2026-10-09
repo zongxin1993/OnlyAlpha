@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 
 from .errors import OnlyResearchResultError
 from .identity import (
+    RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION,
     RESEARCH_RESULT_CALCULATION_SCHEMA_VERSION,
     RESEARCH_RESULT_SCIENTIFIC_SCHEMA_VERSION,
     only_research_result_content_fingerprint,
     only_research_result_fingerprint,
 )
+
+if TYPE_CHECKING:
+    from onlyalpha.research.calculation.result_v2_ports import OnlyResearchCalculationResultStoreV2
 from .plan import OnlyResearchResultPlan
 from .result import (
     OnlyResearchCalculationResultReference,
@@ -39,14 +43,16 @@ class _CalculationResultStore(Protocol):
 class OnlyResearchResultAssembler:
     def __init__(
         self,
-        statistics_result_store: _StatisticsResultStore,
+        statistics_result_store: _StatisticsResultStore | None,
         *,
         audit_time: Callable[[], datetime],
         calculation_result_store: _CalculationResultStore | None = None,
+        readiness_result_store: OnlyResearchCalculationResultStoreV2 | None = None,
     ) -> None:
         self._statistics_result_store = statistics_result_store
         self._audit_time = audit_time
         self._calculation_result_store = calculation_result_store
+        self._readiness_result_store = readiness_result_store
 
     def assemble(self, plan: OnlyResearchResultPlan) -> OnlyResearchResult:
         if not isinstance(plan, OnlyResearchResultPlan):
@@ -56,7 +62,26 @@ class OnlyResearchResultAssembler:
         statistics: dict[str, OnlyResearchComposableStatisticsResult] = {}
         dataset: str | None = None
         try:
+            if plan.schema_version == RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+                from .readiness_verification import only_verify_readiness_composition
+
+                if self._readiness_result_store is None:
+                    raise ValueError("Result V4 requires Calculation Result V2 authority")
+                readiness_calculations = {
+                    item.calculation_fingerprint: self._readiness_result_store.load_verified(
+                        item.calculation_fingerprint
+                    )
+                    for item in plan.calculations
+                }
+                only_verify_readiness_composition(plan, readiness_calculations)
+                dataset = plan.dataset_snapshot_fingerprint
+                calculation_references = [
+                    OnlyResearchCalculationResultReference(key, value.manifest.calculation_result_fingerprint)
+                    for key, value in readiness_calculations.items()
+                ]
             for statistics_fingerprint in plan.statistics_fingerprints:
+                if self._statistics_result_store is None:
+                    raise ValueError("Statistics Result authority required")
                 upstream = self._statistics_result_store.load_verified(statistics_fingerprint)
                 statistics[statistics_fingerprint] = upstream
                 manifest = upstream.manifest

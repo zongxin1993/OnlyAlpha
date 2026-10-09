@@ -10,6 +10,7 @@ from onlyalpha.research.calculation.errors import (
     OnlyResearchCalculationResultStoreError,
 )
 from onlyalpha.research.calculation.execution import (
+    OnlyResearchCalculationImplementationBinding,
     _only_require_verified_research_calculation_execution_v2,
     _OnlyVerifiedResearchCalculationExecution,
     _OnlyVerifiedResearchCalculationExecutionV2,
@@ -17,6 +18,10 @@ from onlyalpha.research.calculation.execution import (
 from onlyalpha.research.calculation.execution_evidence import (
     OnlyResearchCalculationExecutionEvidence,
     OnlyResearchCalculationExecutionEvidenceStore,
+)
+from onlyalpha.research.calculation.execution_provenance import (
+    _only_require_research_runtime_execution_context,
+    _OnlyResearchRuntimeExecutionContext,
 )
 from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult, OnlyResearchCalculationResultManifest
@@ -48,7 +53,32 @@ class _OnlyResearchCalculationExecutor(Protocol):
         snapshot_fingerprint: str,
         graph: OnlyCalculationGraphDefinition,
         publication: OnlyResearchCalculationPublicationContract,
+        *,
+        runtime_context: _OnlyResearchRuntimeExecutionContext | None = None,
     ) -> _OnlyVerifiedResearchCalculationExecutionV2: ...
+
+
+def _only_execute_generation_bound_calculation_job(
+    plan: OnlyResearchJobPlan,
+    calculation_executor: _OnlyResearchCalculationExecutor,
+    legacy_results: OnlyResearchCalculationResultStore,
+    legacy_evidence: OnlyResearchCalculationExecutionEvidenceStore,
+    results: OnlyResearchCalculationResultStoreV2,
+    evidence: OnlyResearchCalculationExecutionEvidenceStoreV2,
+    context: _OnlyResearchRuntimeExecutionContext,
+) -> OnlyResearchJobOutcome:
+    """Owning Job composition; Infrastructure supplies a verified native context, not Job Authority."""
+    if plan.schema_version != RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION:
+        raise OnlyResearchJobError(OnlyResearchJobPhase.PLAN_VALIDATION, "RESEARCH_JOB_INVALID", "Plan V2 required")
+    context = _only_require_research_runtime_execution_context(context, plan.calculation_graph.fingerprint)
+    return OnlyResearchJobExecutor(
+        calculation_executor,
+        legacy_results,
+        legacy_evidence,
+        readiness_result_store=results,
+        readiness_execution_evidence_store=evidence,
+        runtime_execution_context=context,
+    ).execute(plan)
 
 
 class OnlyResearchJobExecutor:
@@ -63,6 +93,7 @@ class OnlyResearchJobExecutor:
         *,
         readiness_result_store: OnlyResearchCalculationResultStoreV2 | None = None,
         readiness_execution_evidence_store: OnlyResearchCalculationExecutionEvidenceStoreV2 | None = None,
+        runtime_execution_context: _OnlyResearchRuntimeExecutionContext | None = None,
     ) -> None:
         self._calculation_executor = calculation_executor
         self._result_store = result_store
@@ -70,6 +101,7 @@ class OnlyResearchJobExecutor:
         self._authoring_generation_fingerprint = authoring_generation_fingerprint
         self._readiness_result_store = readiness_result_store
         self._readiness_execution_evidence_store = readiness_execution_evidence_store
+        self._runtime_execution_context = runtime_execution_context
 
     def execute(self, plan: OnlyResearchJobPlan) -> OnlyResearchJobOutcome:
         if type(plan) is not OnlyResearchJobPlan:
@@ -171,11 +203,21 @@ class OnlyResearchJobExecutor:
                 "Result V2 and Evidence V2 authorities are required",
             )
         assert publication is not None  # execute revalidated the exact Plan contract.
+        context = self._runtime_execution_context
+        if context is not None:
+            try:
+                context = _only_require_research_runtime_execution_context(context, plan.calculation_graph.fingerprint)
+            except OnlyResearchCalculationError as exc:
+                raise _job_error(OnlyResearchJobPhase.PLAN_VALIDATION, exc) from exc
         try:
             existing = results.load_verified(plan.calculation_fingerprint)
         except OnlyResearchCalculationResultStoreError as exc:
             if exc.code != "RESULT_NOT_FOUND":
                 raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
+            try:
+                evidence_store.require_no_retained_evidence_for_calculation(plan.calculation_fingerprint)
+            except OnlyResearchCalculationError as evidence_error:
+                raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, evidence_error) from evidence_error
         except Exception as exc:
             raise OnlyResearchJobError(
                 OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED", str(exc)
@@ -183,7 +225,29 @@ class OnlyResearchJobExecutor:
         else:
             _require_result_v2(plan, existing, OnlyResearchJobPhase.RESULT_REUSE)
             try:
-                evidence = evidence_store.require_for_result(existing, self._authoring_generation_fingerprint)
+                if context is None:
+                    selected = evidence_store.require_for_result(existing, self._authoring_generation_fingerprint)
+                    _outcome_v2(
+                        plan,
+                        existing,
+                        selected,
+                        self._authoring_generation_fingerprint,
+                        OnlyResearchJobDisposition.REUSED,
+                        OnlyResearchJobPhase.RESULT_REUSE,
+                    )
+                    evidence = evidence_store.acknowledge_exact(selected.evidence_fingerprint)
+                else:
+                    evidence = evidence_store.require_exact_for_result(
+                        existing,
+                        tuple(
+                            OnlyResearchCalculationImplementationBinding(*item)
+                            for item in context.implementation_bindings
+                        ),
+                        context.provenance,
+                        self._authoring_generation_fingerprint,
+                    )
+            except OnlyResearchJobError:
+                raise
             except OnlyResearchCalculationError as exc:
                 if exc.code != "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND":
                     raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
@@ -199,6 +263,7 @@ class OnlyResearchJobExecutor:
                     self._authoring_generation_fingerprint,
                     OnlyResearchJobDisposition.REUSED,
                     OnlyResearchJobPhase.RESULT_REUSE,
+                    context,
                 )
 
         # Only proved missing Result or exact Evidence permits execution. Result-only
@@ -233,11 +298,19 @@ class OnlyResearchJobExecutor:
                     OnlyResearchJobPhase.RESULT_REUSE, "RESULT_INVALID", "invalid V1 parity identity proof"
                 ) from exc
         try:
-            sealed = self._calculation_executor._execute_verified_v2(
-                plan.dataset_snapshot_fingerprint,
-                plan.calculation_graph,
-                publication,
-            )
+            if context is None:
+                sealed = self._calculation_executor._execute_verified_v2(
+                    plan.dataset_snapshot_fingerprint,
+                    plan.calculation_graph,
+                    publication,
+                )
+            else:
+                sealed = self._calculation_executor._execute_verified_v2(
+                    plan.dataset_snapshot_fingerprint,
+                    plan.calculation_graph,
+                    publication,
+                    runtime_context=context,
+                )
             execution = _only_require_verified_research_calculation_execution_v2(sealed)
             if parity is not None:
                 _require_numeric_parity(plan, parity, execution.outputs)
@@ -273,6 +346,7 @@ class OnlyResearchJobExecutor:
             self._authoring_generation_fingerprint,
             OnlyResearchJobDisposition.EXECUTED,
             OnlyResearchJobPhase.RESULT_COMMIT,
+            context,
         )
 
 
@@ -347,6 +421,7 @@ def _outcome_v2(
     generation: str | None,
     disposition: OnlyResearchJobDisposition,
     phase: OnlyResearchJobPhase,
+    runtime_context: _OnlyResearchRuntimeExecutionContext | None = None,
 ) -> OnlyResearchJobOutcome:
     from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceV2
 
@@ -374,6 +449,17 @@ def _outcome_v2(
         or (generation is not None and evidence.authoring_generation_fingerprint != generation)
     ):
         raise OnlyResearchJobError(phase, "RESULT_INVALID", "Evidence V2 authority does not match Result/Plan")
+    if runtime_context is not None:
+        context = _only_require_research_runtime_execution_context(runtime_context, plan.calculation_graph.fingerprint)
+        if (
+            evidence.runtime_execution_provenance != context.provenance
+            or tuple(
+                (item.node_fingerprint, item.research_implementation_fingerprint)
+                for item in evidence.research_implementation_bindings
+            )
+            != context.implementation_bindings
+        ):
+            raise OnlyResearchJobError(phase, "RESULT_INVALID", "Evidence V2 exact Runtime producer differs")
     return OnlyResearchJobOutcome(
         OnlyResearchJobStatus.SUCCEEDED,
         disposition,

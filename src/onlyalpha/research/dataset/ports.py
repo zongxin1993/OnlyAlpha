@@ -28,6 +28,8 @@ class OnlyVerifiedResearchDataset:
 
 
 class OnlyResearchDatasetSnapshotStore(Protocol):
+    def acknowledge_exact(self, snapshot_fingerprint: str) -> OnlyVerifiedResearchDataset: ...
+
     def commit(
         self,
         snapshot: OnlyResearchDatasetSnapshot,

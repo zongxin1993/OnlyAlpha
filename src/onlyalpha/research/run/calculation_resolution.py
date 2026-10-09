@@ -14,15 +14,12 @@ from typing import cast
 
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
-    OnlyCalculationTypeReference,
     OnlyFactorKind,
     only_calculation_execution_shape,
 )
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
-    OnlyCalculationImplementationResource,
-    OnlyCalculationSemanticDependency,
 )
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationImplementationBinding
 from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
@@ -111,7 +108,7 @@ class OnlyResearchCalculationRuntimeResolutionV1:
             raise ValueError("calculation resolution published selector differs")
         if type(self.implementation_manifest) is not OnlyCalculationImplementationManifest:
             raise ValueError("calculation resolution implementation manifest missing")
-        manifest = _manifest_from_dict(self.implementation_manifest.to_dict())
+        manifest = OnlyCalculationImplementationManifest.from_dict(self.implementation_manifest.to_dict())
         if (
             manifest.backend_kind is not OnlyCalculationBackendKind.RESEARCH
             or manifest.calculation_type_reference != reference
@@ -212,7 +209,9 @@ class OnlyResearchCalculationRuntimeResolutionV1:
             _string(payload["calculation_id"]),
             cast(Mapping[str, str], require_mapping(payload["node_fingerprints"], _CONTEXT)),
             tuple(bindings),
-            _manifest_from_dict(require_mapping(payload["implementation_manifest"], _CONTEXT)),
+            OnlyCalculationImplementationManifest.from_dict(
+                require_mapping(payload["implementation_manifest"], _CONTEXT)
+            ),
         )
 
 
@@ -220,55 +219,3 @@ def _string(value: object) -> str:
     if type(value) is not str or not value:
         raise ValueError("calculation resolution requires a nonempty string")
     return value
-
-
-def _manifest_from_dict(payload: Mapping[str, object]) -> OnlyCalculationImplementationManifest:
-    require_exact_fields(
-        payload,
-        {
-            "schema_version",
-            "calculation_type_reference",
-            "backend_kind",
-            "entrypoint_identity",
-            "resources",
-            "semantic_dependencies",
-            "implementation_bundle_fingerprint",
-            "implementation_fingerprint",
-        },
-        _CONTEXT,
-    )
-    if require_int(payload, "schema_version", _CONTEXT) != 1:
-        raise ValueError("calculation implementation manifest version differs")
-    resources, dependencies = [], []
-    if type(payload["resources"]) is not list or type(payload["semantic_dependencies"]) is not list:
-        raise ValueError("calculation implementation manifest arrays missing")
-    for raw in payload["resources"]:
-        raw = require_mapping(raw, _CONTEXT)
-        require_exact_fields(raw, {"relative_path", "byte_sha256"}, _CONTEXT)
-        resources.append(
-            OnlyCalculationImplementationResource(
-                _string(raw["relative_path"]), require_sha256(raw, "byte_sha256", _CONTEXT)
-            )
-        )
-    for raw in payload["semantic_dependencies"]:
-        raw = require_mapping(raw, _CONTEXT)
-        require_exact_fields(raw, {"dependency_id", "semantic_version", "artifact_fingerprint"}, _CONTEXT)
-        dependencies.append(
-            OnlyCalculationSemanticDependency(
-                _string(raw["dependency_id"]),
-                _string(raw["semantic_version"]),
-                None if raw["artifact_fingerprint"] is None else require_sha256(raw, "artifact_fingerprint", _CONTEXT),
-            )
-        )
-    reference = require_mapping(payload["calculation_type_reference"], _CONTEXT)
-    require_exact_fields(reference, {"kind", "type_id", "semantic_version"}, _CONTEXT)
-    manifest = OnlyCalculationImplementationManifest(
-        OnlyCalculationTypeReference.from_dict(reference),
-        OnlyCalculationBackendKind(_string(payload["backend_kind"])),
-        _string(payload["entrypoint_identity"]),
-        tuple(resources),
-        tuple(dependencies),
-    )
-    if manifest.to_dict() != payload:
-        raise ValueError("calculation implementation manifest identities or canonical shape differ")
-    return manifest

@@ -1,5 +1,8 @@
 """Public Historical Closed Bar Dataset v1 API."""
 
+from importlib import import_module as _import_module
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
 from .definition import (
     OnlyResearchDatasetDefinition,
     OnlyResearchDatasetQualityPolicy,
@@ -11,19 +14,12 @@ from .lineage import (
     OnlyMarketDataRevisionBinding,
 )
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
-from .market_data_materializer import (
-    OnlySealedMarketDataDatasetMaterializer,
-    OnlySealedMarketDataMaterializationPlan,
-    OnlySealedMarketDataMaterializationResult,
-)
-from .materializer import OnlyResearchDatasetMaterializer
 from .parquet_store import (
     OnlyParquetResearchDatasetSnapshotStore,
     OnlyResearchDatasetCorruptError,
     OnlyResearchDatasetNotFoundError,
     OnlyResearchDatasetStoreError,
 )
-from .plan import OnlyResearchDatasetMaterializationPlan
 from .ports import OnlyResearchDatasetSnapshotStore, OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
 from .schema import OnlyResearchBarDatasetSchema
 from .validation import OnlyResearchDatasetError
@@ -52,15 +48,40 @@ __all__ = [
     "OnlySealedMarketDataMaterializationResult",
     "OnlyVerifiedResearchDataset",
 ]
-from onlyalpha.research.dataset.economic import (
-    OnlyEconomicFactManifest as OnlyEconomicFactManifest,
-)
-from onlyalpha.research.dataset.economic import (
-    OnlyResearchDatasetEconomicBinding as OnlyResearchDatasetEconomicBinding,
-)
-from onlyalpha.research.dataset.economic_store import (
-    OnlyDatasetEconomicBindingStore as OnlyDatasetEconomicBindingStore,
-)
-from onlyalpha.research.dataset.economic_store import (
-    OnlyDatasetEconomicBindingStoreError as OnlyDatasetEconomicBindingStoreError,
-)
+if _TYPE_CHECKING:
+    from .economic import OnlyEconomicFactManifest as OnlyEconomicFactManifest
+    from .economic import OnlyResearchDatasetEconomicBinding as OnlyResearchDatasetEconomicBinding
+    from .economic_store import OnlyDatasetEconomicBindingStore as OnlyDatasetEconomicBindingStore
+    from .economic_store import OnlyDatasetEconomicBindingStoreError as OnlyDatasetEconomicBindingStoreError
+    from .market_data_materializer import (
+        OnlySealedMarketDataDatasetMaterializer as OnlySealedMarketDataDatasetMaterializer,
+    )
+    from .market_data_materializer import (
+        OnlySealedMarketDataMaterializationPlan as OnlySealedMarketDataMaterializationPlan,
+    )
+    from .market_data_materializer import (
+        OnlySealedMarketDataMaterializationResult as OnlySealedMarketDataMaterializationResult,
+    )
+    from .materializer import OnlyResearchDatasetMaterializer as OnlyResearchDatasetMaterializer
+    from .plan import OnlyResearchDatasetMaterializationPlan as OnlyResearchDatasetMaterializationPlan
+
+_LAZY_EXPORTS = {
+    "OnlySealedMarketDataDatasetMaterializer": ".market_data_materializer",
+    "OnlySealedMarketDataMaterializationPlan": ".market_data_materializer",
+    "OnlySealedMarketDataMaterializationResult": ".market_data_materializer",
+    "OnlyResearchDatasetMaterializer": ".materializer",
+    "OnlyResearchDatasetMaterializationPlan": ".plan",
+    "OnlyEconomicFactManifest": ".economic",
+    "OnlyResearchDatasetEconomicBinding": ".economic",
+    "OnlyDatasetEconomicBindingStore": ".economic_store",
+    "OnlyDatasetEconomicBindingStoreError": ".economic_store",
+}
+
+
+def __getattr__(name: str) -> object:
+    module = _LAZY_EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(name)
+    value = getattr(_import_module(module, __name__), name)
+    globals()[name] = value
+    return value

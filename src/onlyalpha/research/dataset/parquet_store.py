@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +30,7 @@ from .manifest import (
 )
 from .ports import OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
 from .schema import RESEARCH_BAR_DATASET_SCHEMA_V2
+from .validation import only_validate_dataset_bars
 
 
 class OnlyResearchDatasetStoreError(RuntimeError):
@@ -230,8 +233,18 @@ class OnlyParquetResearchDatasetSnapshotStore:
         except Exception as exc:
             raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT: manifest") from exc
 
-    def _load_manifest(self, root: Path) -> tuple[OnlyResearchDatasetSnapshot, int]:
-        if self._read_budget is None:
+    def _load_manifest(
+        self, root: Path, retained_descriptors: Mapping[str, int] | None = None
+    ) -> tuple[OnlyResearchDatasetSnapshot, int]:
+        if retained_descriptors is not None:
+            raw = _read_descriptor(
+                retained_descriptors["manifest.json"], None if self._read_budget is None else self._read_budget[1]
+            )
+            manifest_bytes = len(raw) if self._read_budget is not None else 0
+            if self._read_budget is not None and manifest_bytes > self._read_budget[1]:
+                raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
+            text = raw.decode("utf-8")
+        elif self._read_budget is None:
             text = (root / "manifest.json").read_text(encoding="utf-8")
             manifest_bytes = 0
         else:
@@ -281,17 +294,115 @@ class OnlyParquetResearchDatasetSnapshotStore:
         verification, _, _ = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)
         return verification
 
+    def acknowledge_exact(self, snapshot_fingerprint: str) -> OnlyVerifiedResearchDataset:
+        """Explicit owning durability acknowledgement; ordinary reads remain read-only."""
+        target = self._target(snapshot_fingerprint)
+        descriptors: list[int] = []
+        try:
+            root = self._root.absolute()
+            # The filesystem root is the fixed preprovisioned anchor across
+            # restarts. A merely existing Store parent may itself be unsynced.
+            anchor = Path(root.anchor)
+            anchor_descriptor = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            descriptors.append(anchor_descriptor)
+            directories = [anchor_descriptor]
+            # Every traversed name is bound to its opened no-follow inode. Sync
+            # those descriptors, never a path that can redirect through a symlink.
+            bindings: list[tuple[int, str, int]] = []
+            parent = anchor_descriptor
+            for name in (*root.parts[1:], "sha256", snapshot_fingerprint[:2], snapshot_fingerprint):
+                descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                descriptors.append(descriptor)
+                directories.append(descriptor)
+                bindings.append((parent, name, descriptor))
+                parent = descriptor
+            snapshot_descriptor = parent
+            manifest_descriptor = os.open("manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            descriptors.append(manifest_descriptor)
+            bindings.append((parent, "manifest.json", manifest_descriptor))
+            if not stat.S_ISREG(os.fstat(manifest_descriptor).st_mode):
+                raise ValueError("Dataset manifest must be a regular file")
+            retained = {"manifest.json": manifest_descriptor}
+            snapshot, _ = self._load_manifest(target, retained)
+            for index, partition in enumerate(snapshot.partitions):
+                if (
+                    partition.partition_id != f"p-{index:06d}"
+                    or partition.relative_path != f"data/p-{index:06d}.parquet"
+                ):
+                    raise ValueError("Dataset acknowledgement requires canonical partition paths")
+            data_descriptor = None
+            if snapshot.partitions:
+                data_descriptor = os.open("data", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                descriptors.append(data_descriptor)
+                directories.append(data_descriptor)
+                bindings.append((parent, "data", data_descriptor))
+                for partition in snapshot.partitions:
+                    name = Path(partition.relative_path).name
+                    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=data_descriptor)
+                    descriptors.append(descriptor)
+                    bindings.append((data_descriptor, name, descriptor))
+                    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                        raise ValueError("Dataset partition must be a regular file")
+                    retained[partition.relative_path] = descriptor
+
+            def require_namespace() -> None:
+                for parent_fd, name, opened_fd in bindings:
+                    actual = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                    expected = os.fstat(opened_fd)
+                    if (actual.st_dev, actual.st_ino, stat.S_IFMT(actual.st_mode)) != (
+                        expected.st_dev,
+                        expected.st_ino,
+                        stat.S_IFMT(expected.st_mode),
+                    ):
+                        raise ValueError("Dataset namespace changed during acknowledgement")
+                # Timestamps may change as peers publish under the shared anchor;
+                # only exact inode/type identity binds this deployment boundary.
+                actual, expected = os.stat(anchor, follow_symlinks=False), os.fstat(anchor_descriptor)
+                if (actual.st_dev, actual.st_ino, stat.S_IFMT(actual.st_mode)) != (
+                    expected.st_dev,
+                    expected.st_ino,
+                    stat.S_IFMT(expected.st_mode),
+                ):
+                    raise ValueError("Dataset durability anchor changed")
+                expected_entries = {"manifest.json", "data"} if data_descriptor is not None else {"manifest.json"}
+                if set(os.listdir(snapshot_descriptor)) != expected_entries:
+                    raise ValueError("Dataset exact file/directory set differs")
+                if data_descriptor is not None and set(os.listdir(data_descriptor)) != {
+                    Path(part.relative_path).name for part in snapshot.partitions
+                }:
+                    raise ValueError("Dataset partition file set differs")
+
+            require_namespace()
+            _, verified_snapshot, verified_table = self._read_verified(target, snapshot_fingerprint, retained)
+            for descriptor in retained.values():
+                os.fsync(descriptor)
+            # Acknowledge all ancestor links through the fixed filesystem anchor;
+            # ordinary commit keeps its existing directory-creation behavior.
+            for descriptor in reversed(directories):
+                os.fsync(descriptor)
+            require_namespace()
+            _, reloaded_snapshot, reloaded_table = self._read_verified(target, snapshot_fingerprint, retained)
+            require_namespace()
+            if reloaded_snapshot != verified_snapshot or not reloaded_table.equals(verified_table, check_metadata=True):
+                raise ValueError("Dataset changed during durability acknowledgement")
+            return OnlyVerifiedResearchDataset(reloaded_snapshot, reloaded_table)
+        except Exception as exc:
+            raise OnlyResearchDatasetStoreError("DATASET_SNAPSHOT_ACKNOWLEDGEMENT_FAILED") from exc
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
     def _verify_root(self, root: Path, expected_fingerprint: str) -> OnlyResearchDatasetVerification:
         verification, _, _ = self._read_verified(root, expected_fingerprint)
         return verification
 
     def _read_verified(
-        self, root: Path, expected_fingerprint: str
+        self, root: Path, expected_fingerprint: str, retained_descriptors: Mapping[str, int] | None = None
     ) -> tuple[OnlyResearchDatasetVerification, OnlyResearchDatasetSnapshot, pa.Table]:
-        if not root.is_dir():
+        if retained_descriptors is None and not root.is_dir():
             raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
         try:
-            snapshot, manifest_bytes = self._load_manifest(root)
+            snapshot, manifest_bytes = self._load_manifest(root, retained_descriptors)
             if snapshot.snapshot_fingerprint != expected_fingerprint:
                 raise ValueError("snapshot path identity mismatch")
             if self._read_budget is not None:
@@ -308,15 +419,24 @@ class OnlyParquetResearchDatasetSnapshotStore:
             for partition in snapshot.partitions:
                 path = root / partition.relative_path
                 if self._read_budget is None:
-                    if not path.is_file() or _sha(path) != partition.byte_sha256:
-                        raise ValueError("partition byte hash mismatch")
-                    table = pq.read_table(path)
+                    if retained_descriptors is None:
+                        if not path.is_file() or _sha(path) != partition.byte_sha256:
+                            raise ValueError("partition byte hash mismatch")
+                        table = pq.read_table(path)
+                    else:
+                        raw = _read_descriptor(retained_descriptors[partition.relative_path], None)
+                        if hashlib.sha256(raw).hexdigest() != partition.byte_sha256:
+                            raise ValueError("partition byte hash mismatch")
+                        table = pq.read_table(pa.BufferReader(raw))
                 else:
                     # Freeze bounded physical bytes before inspecting metadata or
                     # decoding. A path mutation cannot swap a different payload in.
                     remaining = self._read_budget[1] - stored_bytes
-                    with path.open("rb") as stream:
-                        raw = stream.read(remaining + 1)
+                    if retained_descriptors is None:
+                        with path.open("rb") as stream:
+                            raw = stream.read(remaining + 1)
+                    else:
+                        raw = _read_descriptor(retained_descriptors[partition.relative_path], remaining)
                     stored_bytes += len(raw)
                     if stored_bytes > self._read_budget[1]:
                         raise OnlyResearchDatasetStoreError("DATASET_READ_RESOURCE_LIMIT")
@@ -347,6 +467,8 @@ class OnlyParquetResearchDatasetSnapshotStore:
                         batches.append(batch)
                     table = pa.Table.from_batches(batches, schema=parquet.schema_arrow)
                 restored = only_table_to_bars(table)
+                if not table.equals(only_bars_to_table(restored), check_metadata=True):
+                    raise ValueError("Dataset partition is not a lossless canonical Bar representation")
                 if len(restored) != partition.row_count:
                     raise ValueError("partition row count mismatch")
                 if only_content_fingerprint(restored) != partition.semantic_fingerprint:
@@ -356,6 +478,7 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 tables.append(table)
             if total != snapshot.row_count or only_content_fingerprint(tuple(bars)) != snapshot.content_fingerprint:
                 raise ValueError("global content mismatch")
+            only_validate_dataset_bars(snapshot.definition, tuple(bars))
             if (
                 only_snapshot_fingerprint(
                     snapshot.definition,
@@ -407,6 +530,12 @@ def _sha(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _read_descriptor(descriptor: int, limit: int | None) -> bytes:
+    with os.fdopen(os.dup(descriptor), "rb") as stream:
+        stream.seek(0)
+        return stream.read() if limit is None else stream.read(limit + 1)
 
 
 def _fsync_directory(path: Path) -> None:

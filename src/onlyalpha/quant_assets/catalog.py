@@ -13,7 +13,7 @@ from types import MappingProxyType
 from onlyalpha.calculation.definition import OnlyCalculationKind
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.quant_assets.private_factor_execution import OnlyPrivateFactorProviderSnapshotV1
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
 
 ONLYALPHA_QUANT_ASSET_ENTRY_POINT = "onlyalpha.quant_assets"
 _ID = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$")
@@ -47,7 +47,9 @@ class OnlyDistributionProviderSource:
     def from_dict(cls, payload: Mapping[str, object]) -> OnlyDistributionProviderSource:
         if set(payload) != {"kind", "distribution_name", "distribution_version"} or payload["kind"] != "DISTRIBUTION":
             raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
-        return cls(str(payload["distribution_name"]), str(payload["distribution_version"]))
+        if type(payload["distribution_name"]) is not str or type(payload["distribution_version"]) is not str:
+            raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
+        return cls(payload["distribution_name"], payload["distribution_version"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +75,9 @@ class OnlyPrivateFactorSnapshotProviderSource:
             or payload["kind"] != "PRIVATE_FACTOR_SNAPSHOT"
         ):
             raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
-        return cls(str(payload["private_factor_provider_snapshot_fingerprint"]))
+        if type(payload["private_factor_provider_snapshot_fingerprint"]) is not str:
+            raise ValueError("QUANT_ASSET_PROVIDER_SOURCE_INVALID")
+        return cls(payload["private_factor_provider_snapshot_fingerprint"])
 
 
 def only_quant_asset_provider_source_from_dict(payload: Mapping[str, object]) -> OnlyQuantAssetProviderSource:
@@ -161,14 +165,14 @@ class OnlyQuantAssetProvider:
                 raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
             for key, registrations in registrations_by_key.items():
                 entry = entry_by_key[key]
-                identities = {
-                    registration.backend.value: (
-                        None
-                        if registration.implementation_manifest is None
-                        else registration.implementation_manifest.implementation_fingerprint
+                identities = {}
+                for registration in registrations:
+                    if registration.implementation_manifest is None:
+                        raise ValueError("PRIVATE_FACTOR_PROVIDER_SNAPSHOT_MISMATCH")
+                    entry.require_implementation_manifest(registration.implementation_manifest)
+                    identities[registration.backend.value] = (
+                        registration.implementation_manifest.implementation_fingerprint
                     )
-                    for registration in registrations
-                }
                 if identities != {
                     "RESEARCH": entry.research_implementation_fingerprint,
                     "TRADING": entry.trading_implementation_fingerprint,

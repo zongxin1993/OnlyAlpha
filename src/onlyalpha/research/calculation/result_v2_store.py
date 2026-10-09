@@ -17,6 +17,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyFactorKind, only_calculation_execution_shape
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+from onlyalpha.research._durability import _only_bind_publication_tree, _OnlyBoundPublicationTree
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
 
 from .errors import OnlyResearchCalculationResultStoreError
@@ -116,6 +117,7 @@ class OnlyParquetResearchCalculationResultStoreV2:
         target = self._target(execution.calculation_fingerprint)
         if _present(target):
             return self._resolve_existing(execution.calculation_fingerprint, content)
+        self._acknowledge_dataset(execution.dataset_snapshot_fingerprint)
         target.parent.mkdir(parents=True, exist_ok=True)
         self._target(execution.calculation_fingerprint)
         stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -185,6 +187,14 @@ class OnlyParquetResearchCalculationResultStoreV2:
     def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResultV2:
         return self._read_verified(self._target(calculation_fingerprint), calculation_fingerprint)
 
+    def acknowledge_exact(
+        self, calculation_fingerprint: str, result_fingerprint: str
+    ) -> OnlyResearchCalculationResultV2:
+        result = self.load_verified(calculation_fingerprint)
+        if result.manifest.calculation_result_fingerprint != result_fingerprint:
+            raise OnlyResearchCalculationResultStoreError("DETERMINISTIC_RESULT_CONFLICT", calculation_fingerprint)
+        return self._resolve_existing(calculation_fingerprint, result.manifest.result_content_fingerprint)
+
     def verify(self, calculation_fingerprint: str) -> OnlyResearchCalculationResultVerificationV2:
         manifest = self.load_verified(calculation_fingerprint).manifest
         return OnlyResearchCalculationResultVerificationV2(
@@ -200,19 +210,42 @@ class OnlyParquetResearchCalculationResultStoreV2:
         result = self.load_verified(fingerprint)
         if result.manifest.result_content_fingerprint != content:
             raise OnlyResearchCalculationResultStoreError("DETERMINISTIC_RESULT_CONFLICT", fingerprint)
+        self._acknowledge_dataset(result.manifest.dataset_snapshot_fingerprint)
         # Readability is not durability. A peer or UNKNOWN rename may have made
         # the exact root visible before synchronizing its namespace links.
         target = self._target(fingerprint)
         try:
-            _sync_tree(target)
-            # _target constructs exactly root/v2/sha256/prefix/fingerprint.
-            # Sync every owned namespace link plus the preprovisioned anchor,
-            # never arbitrary filesystem ancestors. The final tree is synced above.
-            for parent in (target.parent, target.parent.parent, self._root / "v2", self._root, self._root.parent):
-                _sync_directory(parent)
-        except OSError as exc:
+            with _only_bind_publication_tree(target, self._root.parent) as tree:
+                tree.require_exact(
+                    {
+                        "manifest.json",
+                        *(
+                            item.relative_path
+                            for item in (*result.manifest.value_partitions, *result.manifest.readiness_partitions)
+                        ),
+                    }
+                )
+                bound = self._read_verified(target, fingerprint, tree)
+                if bound.manifest != result.manifest:
+                    raise ValueError("Calculation Result changed before acknowledgement")
+                tree.synchronize(_sync_directory)
+                reloaded = self._read_verified(target, fingerprint, tree)
+                tree.require_namespace()
+                if reloaded.manifest != bound.manifest:
+                    raise ValueError("Calculation Result changed during acknowledgement")
+                return reloaded
+        except (OSError, ValueError) as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_COMMIT_FAILED", "publication sync failed") from exc
-        return result
+
+    def _acknowledge_dataset(self, fingerprint: str) -> None:
+        try:
+            verified = self._dataset_store.acknowledge_exact(fingerprint)
+            if verified.snapshot.snapshot_fingerprint != fingerprint:
+                raise ValueError("Dataset acknowledgement identity differs")
+        except Exception as exc:
+            raise OnlyResearchCalculationResultStoreError(
+                "RESULT_COMMIT_FAILED", "Dataset acknowledgement failed"
+            ) from exc
 
     def _source(self, fingerprint: str, graph: OnlyCalculationGraphDefinition) -> dict[str, tuple[int, ...]]:
         if (
@@ -230,20 +263,23 @@ class OnlyParquetResearchCalculationResultStoreV2:
         )
         return _expected_axes(verified.table)
 
-    def _read_verified(self, root: Path, expected: str) -> OnlyResearchCalculationResultV2:
-        if not _present(root):
+    def _read_verified(
+        self, root: Path, expected: str, tree: _OnlyBoundPublicationTree | None = None
+    ) -> OnlyResearchCalculationResultV2:
+        if tree is None and not _present(root):
             raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", expected)
         try:
-            if (
+            if tree is None and (
                 root.is_symlink()
                 or not root.is_dir()
                 or {item.name for item in root.iterdir()} != {"values", "readiness", "manifest.json"}
             ):
                 raise ValueError("malformed Result root")
             manifest_path = root / "manifest.json"
-            if manifest_path.is_symlink() or not manifest_path.is_file():
+            if tree is None and (manifest_path.is_symlink() or not manifest_path.is_file()):
                 raise ValueError("malformed manifest file")
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+            raw_manifest = manifest_path.read_bytes() if tree is None else tree.read_bytes("manifest.json")
+            payload = json.loads(raw_manifest, object_pairs_hook=_unique_object)
             if not isinstance(payload, dict):
                 raise ValueError("manifest must be an object")
             manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
@@ -258,17 +294,27 @@ class OnlyParquetResearchCalculationResultStoreV2:
                 ("readiness", manifest.readiness_partitions),
             ):
                 folder = root / family
-                if folder.is_symlink() or not folder.is_dir():
+                if tree is None and (folder.is_symlink() or not folder.is_dir()):
                     raise ValueError("malformed partition directory")
                 if tuple((item.node_fingerprint, item.instrument_id) for item in partitions) != expected_keys:
                     raise ValueError("partition membership mismatch")
-                if {item.name for item in folder.iterdir()} != {Path(item.relative_path).name for item in partitions}:
+                if tree is None and {item.name for item in folder.iterdir()} != {
+                    Path(item.relative_path).name for item in partitions
+                }:
                     raise ValueError("unexpected/missing partition entry")
                 for item in partitions:
                     path = root / item.relative_path
-                    if path.is_symlink() or not path.is_file() or _sha(path) != item.byte_sha256:
-                        raise ValueError("partition physical integrity mismatch")
-                    table = pq.read_table(path)
+                    if tree is None:
+                        if path.is_symlink() or not path.is_file() or _sha(path) != item.byte_sha256:
+                            raise ValueError("partition physical integrity mismatch")
+                        table = pq.read_table(path)
+                    else:
+                        import hashlib
+
+                        raw = tree.read_bytes(item.relative_path)
+                        if hashlib.sha256(raw).hexdigest() != item.byte_sha256:
+                            raise ValueError("partition physical integrity mismatch")
+                        table = pq.read_table(pa.BufferReader(raw))
                     descriptor = _descriptor(
                         item.node_fingerprint, item.instrument_id, table, readiness=family == "readiness"
                     )
@@ -394,7 +440,10 @@ def _rename_exclusive(source: Path, target: Path) -> None:
         raise OSError(error, os.strerror(error), str(target))
 
 
-def _sync_directory(path: Path) -> None:
+def _sync_directory(path: Path, *, descriptor: int | None = None) -> None:
+    if descriptor is not None:
+        os.fsync(descriptor)
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
