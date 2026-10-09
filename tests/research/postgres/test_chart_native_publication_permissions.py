@@ -4,6 +4,7 @@ import uuid
 from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import psycopg
 import pytest
@@ -501,6 +502,34 @@ def test_wrong_runtime_credentials_cannot_change_migration_or_owner_facts(postgr
         assert (snapshot(postgres_dsn), role_inventory(postgres_dsn)) == before
 
 
+def test_operator_missing_password_catalog_visibility_fails_closed_atomically(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    previous_schema(postgres_dsn, tmp_path)
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        if connection.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (_GROUPS[1],)).fetchone() is None:
+            connection.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(_GROUPS[1])))
+    with runtime_login(postgres_dsn, _GROUPS[1]) as dsn:
+        name = conninfo_to_dict(dsn)["user"]
+        with psycopg.connect(postgres_dsn) as connection:
+            # This explicit test operator can plan, lock and create groups, but
+            # cannot prove that existing groups have no stored password.
+            connection.execute(sql.SQL("ALTER ROLE {} CREATEROLE").format(sql.Identifier(name)))
+            connection.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(name)))
+            connection.execute(
+                sql.SQL("GRANT SELECT,UPDATE ON research_run,research_run_attempt TO {}").format(sql.Identifier(name))
+            )
+            connection.execute(
+                sql.SQL("GRANT SELECT,INSERT ON onlyalpha_schema_migration TO {}").format(sql.Identifier(name))
+            )
+        before = snapshot(postgres_dsn), role_inventory(postgres_dsn)
+        with pytest.raises(OnlyPostgresMigrationIntegrityError) as caught:
+            OnlyPostgresMigrationAuthority(dsn).migrate()
+        assert isinstance(caught.value.__cause__, psycopg.errors.InsufficientPrivilege)
+        assert "pg_authid" in str(caught.value.__cause__)
+        assert (snapshot(postgres_dsn), role_inventory(postgres_dsn)) == before
+
+
 @pytest.mark.parametrize("state", ["ACTIVE", "SUCCEEDED", "FAILED", "EXPIRED", "CANCELLED"])
 def test_attempt_guard_blocks_raw_sql_even_for_trusted_owner_until_native_consumer_exists(
     compilation_system,
@@ -565,7 +594,7 @@ def test_group_reuse_in_another_test_database_preserves_original_authority(postg
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     before = snapshot(postgres_dsn)
     database = "chart_role_reuse_" + uuid.uuid4().hex + "_test"
-    other_dsn = make_conninfo(postgres_dsn, dbname=database)
+    other_dsn = urlsplit(postgres_dsn)._replace(path="/" + database).geturl()
     only_assert_postgres_test_database(other_dsn)
     with runtime_login(postgres_dsn, _GROUPS[0]) as reader:
         with psycopg.connect(postgres_dsn, autocommit=True) as connection:
