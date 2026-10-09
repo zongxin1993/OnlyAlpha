@@ -100,13 +100,17 @@ def test_unselected_outputs_and_every_instrument_remain_retained_and_verified(tm
     artifact = publish()
     calculation = next(iter(artifact.calculations.values()))
     assert {series.output_name for series in artifact.manifest.result.plan.published_series} == {"value"}
-    assert len(calculation.outputs) == len(calculation.readiness) == 2
-    assert {item.instrument_id for item in calculation.outputs} == {"A.XNAS", "B.XNAS"}
+    # Mandatory Chart source proof admits one instrument, unlike the old
+    # unproven multi-source fixture. Preserve the complete exact membership.
+    assert len(calculation.outputs) == len(calculation.readiness) == 1
+    assert {item.instrument_id for item in calculation.outputs} == {
+        str(item) for item in artifact.manifest.dataset.definition.instruments
+    }
     assert all(set(item.table.column_names) == {"ts_event_ns", "value", "unselected"} for item in calculation.outputs)
     assert all(set(item.table["output_name"].to_pylist()) == {"value", "unselected"} for item in calculation.readiness)
     root = _root(tmp_path, artifact.manifest.artifact_content_fingerprint)
     payload = artifact.manifest.to_dict()
-    partition = payload["calculations"][0]["value_partitions" if family == "values" else "readiness_partitions"][1]
+    partition = payload["calculations"][0]["value_partitions" if family == "values" else "readiness_partitions"][-1]
     descriptor = next(item for item in payload["files"] if item["relative_path"].endswith(partition["relative_path"]))
     path = root / descriptor["relative_path"]
     table = pq.read_table(path)
@@ -131,7 +135,10 @@ def test_unselected_outputs_and_every_instrument_remain_retained_and_verified(tm
     descriptor.update(byte_sha256=partition["byte_sha256"], byte_size=len(raw))
     (root / "artifact_manifest.json").write_text(only_canonical_json(payload))
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_CORRUPT"):
-        store.load_verified(artifact.manifest.artifact_content_fingerprint)
+        store.load_verified(
+            artifact.manifest.artifact_content_fingerprint,
+            research_result_fingerprint=artifact.manifest.result.research_result_fingerprint,
+        )
 
 
 @pytest.mark.parametrize("null_states", (False, True))
@@ -140,26 +147,35 @@ def test_complete_selected_and_unselected_readiness_states_survive_portable_roun
 
     def mutate(outputs, readiness, calls):
         for name in outputs:
+            count = len(outputs[name])
             if null_states:
-                outputs[name] = pa.array([None] * 4, type=outputs[name].type)
+                outputs[name] = pa.array([None] * count, type=outputs[name].type)
                 readiness[name] = OnlyResearchOutputReadiness(
-                    pa.array(["PARTIAL", "READY", "UNAVAILABLE", "UNAVAILABLE"]),
-                    pa.array(["WARMUP_INCOMPLETE", "VALUE_UNDEFINED", "INPUT_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"]),
+                    pa.array(["PARTIAL", "READY", "UNAVAILABLE", "UNAVAILABLE"] + ["READY"] * (count - 4)),
+                    pa.array(
+                        ["WARMUP_INCOMPLETE", "VALUE_UNDEFINED", "INPUT_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"]
+                        + ["VALUE_UNDEFINED"] * (count - 4)
+                    ),
                 )
             else:
-                outputs[name] = pa.array([0] * 4, type=outputs[name].type)
+                outputs[name] = pa.array([0] * count, type=outputs[name].type)
                 readiness[name] = OnlyResearchOutputReadiness(
-                    pa.array(["PARTIAL", "PARTIAL", "READY", "READY"]),
-                    pa.array(["WARMUP_INCOMPLETE", "WARMUP_INCOMPLETE", "NONE", "NONE"]),
+                    pa.array(["PARTIAL", "PARTIAL"] + ["READY"] * (count - 2)),
+                    pa.array(["WARMUP_INCOMPLETE", "WARMUP_INCOMPLETE"] + ["NONE"] * (count - 2)),
                 )
 
     publish, store, _, _, _, _ = _complete_output_case(tmp_path, mutate)
     artifact = publish()
-    loaded = store.load_verified(artifact.manifest.artifact_content_fingerprint)
+    loaded = store.load_verified(
+        artifact.manifest.artifact_content_fingerprint,
+        research_result_fingerprint=artifact.manifest.result.research_result_fingerprint,
+    )
     for calculation in loaded.calculations.values():
         for output in calculation.outputs:
             for name in ("value", "unselected"):
-                assert output.table[name].to_pylist() == ([None] * 4 if null_states else [0] * 4)
+                assert output.table[name].to_pylist() == (
+                    [None] * output.table.num_rows if null_states else [0] * output.table.num_rows
+                )
         for output in calculation.readiness:
             assert set(output.table["output_name"].to_pylist()) == {"value", "unselected"}
             expected = (

@@ -4,18 +4,15 @@ from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 
-import pyarrow.parquet as pq
 import pytest
 
 from onlyalpha.core.ranges import OnlyTimeRange
-from onlyalpha.research.artifact.calculation_v2_model import OnlyResearchCalculationArtifactManifestV2
-from onlyalpha.research.artifact.calculation_v2_verification import only_verify_calculation_artifact_tables_v2
 from onlyalpha.research.calculation.identity import only_research_calculation_fingerprint
 from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultV2
 from onlyalpha.research.calculation.result_v2_identity import only_research_calculation_result_fingerprint_v2
 from onlyalpha.research.dataset.identity import only_snapshot_fingerprint
 from onlyalpha.research.result import OnlyResearchResultAssembler
-from tests.research.artifact.test_calculation_v2 import _publication, _root
+from tests.research.artifact.test_calculation_v2 import _publication
 from tests.research.calculation.test_result_v2_store import AUDIT
 
 pytestmark = pytest.mark.contract
@@ -74,6 +71,7 @@ def test_complete_rehashed_artifact_cannot_retain_bars_outside_its_requested_ran
         readiness_result_store=SimpleNamespace(
             load_verified=lambda _: OnlyResearchCalculationResultV2(calculation, retained.outputs, retained.readiness),
         ),
+        readiness_evidence_store=SimpleNamespace(require_all_for_result=lambda _: (evidence,)),
     ).assemble(plan)
     files = tuple(
         sorted(
@@ -86,22 +84,19 @@ def test_complete_rehashed_artifact_cannot_retain_bars_outside_its_requested_ran
             key=lambda item: item.relative_path,
         )
     )
-    mutated = replace(
-        manifest,
-        result=result.manifest,
-        dataset=dataset,
-        calculations=(calculation,),
-        selected_evidence=(evidence,),
-        files=files,
-    )
-    assert OnlyResearchCalculationArtifactManifestV2.from_dict(mutated.to_dict()) == mutated
-    assert mutated.artifact_content_fingerprint != manifest.artifact_content_fingerprint
-    root = _root(tmp_path, manifest.artifact_content_fingerprint)
-    tables = {
-        item.relative_path.replace(original.calculation_fingerprint, calculation_id): pq.read_table(
-            root / item.relative_path
+    # The source-bound manifest rejects this contradiction before table admission.
+    with pytest.raises(ValueError, match="Materialization/Snapshot identity differs"):
+        replace(
+            manifest,
+            result=result.manifest,
+            dataset=dataset,
+            calculations=(calculation,),
+            selected_evidence=(evidence,),
+            files=files,
         )
-        for item in manifest.files
-    }
+    # Independently retain the original Definition/content regression obligation.
+    from onlyalpha.research.dataset.codec import only_table_to_bars
+    from onlyalpha.research.dataset.validation import only_validate_dataset_bars
+
     with pytest.raises(ValueError, match="Bar outside requested range"):
-        only_verify_calculation_artifact_tables_v2(mutated, tables)
+        only_validate_dataset_bars(definition, only_table_to_bars(artifact.dataset_table))

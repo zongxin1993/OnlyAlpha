@@ -14,12 +14,6 @@ from .lineage import (
     OnlyMarketDataRevisionBinding,
 )
 from .manifest import OnlyResearchDatasetProvenance, OnlyResearchDatasetSnapshot
-from .parquet_store import (
-    OnlyParquetResearchDatasetSnapshotStore,
-    OnlyResearchDatasetCorruptError,
-    OnlyResearchDatasetNotFoundError,
-    OnlyResearchDatasetStoreError,
-)
 from .ports import OnlyResearchDatasetSnapshotStore, OnlyResearchDatasetVerification, OnlyVerifiedResearchDataset
 from .schema import OnlyResearchBarDatasetSchema
 from .validation import OnlyResearchDatasetError
@@ -63,9 +57,17 @@ if _TYPE_CHECKING:
         OnlySealedMarketDataMaterializationResult as OnlySealedMarketDataMaterializationResult,
     )
     from .materializer import OnlyResearchDatasetMaterializer as OnlyResearchDatasetMaterializer
+    from .parquet_store import OnlyParquetResearchDatasetSnapshotStore as OnlyParquetResearchDatasetSnapshotStore
+    from .parquet_store import OnlyResearchDatasetCorruptError as OnlyResearchDatasetCorruptError
+    from .parquet_store import OnlyResearchDatasetNotFoundError as OnlyResearchDatasetNotFoundError
+    from .parquet_store import OnlyResearchDatasetStoreError as OnlyResearchDatasetStoreError
     from .plan import OnlyResearchDatasetMaterializationPlan as OnlyResearchDatasetMaterializationPlan
 
 _LAZY_EXPORTS = {
+    "OnlyParquetResearchDatasetSnapshotStore": ".parquet_store",
+    "OnlyResearchDatasetCorruptError": ".parquet_store",
+    "OnlyResearchDatasetNotFoundError": ".parquet_store",
+    "OnlyResearchDatasetStoreError": ".parquet_store",
     "OnlySealedMarketDataDatasetMaterializer": ".market_data_materializer",
     "OnlySealedMarketDataMaterializationPlan": ".market_data_materializer",
     "OnlySealedMarketDataMaterializationResult": ".market_data_materializer",

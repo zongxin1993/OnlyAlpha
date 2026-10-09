@@ -23,7 +23,8 @@ from onlyalpha.research.dataset.identity import only_canonical_bars, only_conten
 from onlyalpha.research.dataset.validation import only_validate_dataset_bars
 from onlyalpha.research.result.readiness_verification import only_verify_readiness_composition
 
-from .calculation_v2_model import OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_model import _CALCULATION_V2_JSON_FILES, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_sections import _section_tables
 from .scientific_model import OnlyResearchScientificMarketRow
 
 
@@ -52,7 +53,8 @@ def only_verify_calculation_artifact_tables_v2(
     manifest: OnlyResearchCalculationArtifactManifestV2,
     tables: Mapping[str, pa.Table],
 ) -> OnlyResearchCalculationArtifactV2:
-    if set(tables) != set(manifest.partition_descriptors):
+    expected_tables = manifest.expected_files - _CALCULATION_V2_JSON_FILES
+    if set(tables) != expected_tables:
         raise ValueError("retained partition table coverage differs")
     dataset_tables = []
     bars: list[OnlyBar] = []
@@ -133,4 +135,7 @@ def only_verify_calculation_artifact_tables_v2(
             calculation, canonical_outputs, canonical_readiness
         )
     only_verify_readiness_composition(manifest.result.plan, calculations)
+    for path, expected_table in _section_tables(manifest, dataset, calculations).items():
+        if not tables[path].equals(expected_table, check_metadata=True):
+            raise ValueError(f"required physical section differs from canonical facts: {path}")
     return OnlyResearchCalculationArtifactV2(manifest, dataset, MappingProxyType(calculations))

@@ -30,6 +30,7 @@ from onlyalpha.research.result import OnlyJsonResearchResultStore
 from tests.quant_assets.test_retained_generation_proof import retained_proof_case
 from tests.research.artifact.test_calculation_v2 import _publication, _root
 from tests.research.calculation.test_result_v2_store import AUDIT
+from tests.support.calculation_publication_input import verified_test_input
 
 pytestmark = pytest.mark.contract
 
@@ -46,12 +47,14 @@ def _reenter(root):
         graph.fingerprint,
         bindings,
     )
-    datasets = OnlyParquetResearchDatasetSnapshotStore(root / "dataset")
+    datasets = OnlyParquetResearchDatasetSnapshotStore(root / "owning-input" / "dataset")
     calculations = OnlyParquetResearchCalculationResultStoreV2(
         root / "calculations", datasets, audit_time=lambda: AUDIT
     )
     evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(root / "semantic", calculations)
-    results = OnlyJsonResearchResultStore(root / "results", None, readiness_result_store=calculations)
+    results = OnlyJsonResearchResultStore(
+        root / "results", None, readiness_result_store=calculations, readiness_evidence_store=evidence
+    )
     (result_file,) = (root / "results").rglob("manifest.json")
     plan = json.loads(result_file.read_text())["research_result_plan_fingerprint"]
     calculation = next(iter(results.load_verified(plan).manifest.calculation_results))
@@ -65,6 +68,9 @@ def _reenter(root):
         ((selected.calculation_fingerprint, selected.evidence_fingerprint),),
         runtime_context=context,
         retained_generation=proof,
+        verified_input=verified_test_input(
+            root, plan, graph.fingerprint, context.provenance.runtime_generation_fingerprint
+        ),
         artifact_store=OnlyParquetResearchCalculationArtifactStoreV2(root / "artifacts", audit_time=lambda: AUDIT),
     )
 
@@ -102,12 +108,15 @@ publish()
         )
         == after_rename
     )
+    families = ("owning-input/dataset", "calculations", "semantic", "results")
     before = {
-        path: path.read_bytes()
-        for family in ("dataset", "calculations", "semantic", "results")
-        for path in (tmp_path / family).rglob("*")
-        if path.is_file()
+        family: {path: path.read_bytes() for path in (tmp_path / family).rglob("*") if path.is_file()}
+        for family in families
     }
+    assert all(before.values()), "every monitored predecessor must have retained files"
+    source_path = tmp_path / "source-owner.json"
+    source_before = source_path.read_bytes()
+    assert source_before
     recover = r"""
 import sys
 from pathlib import Path
@@ -120,13 +129,16 @@ artifact = _reenter(Path(sys.argv[1]))
 print(artifact.manifest.artifact_content_fingerprint)
 """
     identity = subprocess.check_output([sys.executable, "-c", recover, str(tmp_path)], text=True).strip()
-    assert OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(identity)
+    (result_file,) = (tmp_path / "results").rglob("manifest.json")
+    result_id = json.loads(result_file.read_text())["research_result_fingerprint"]
+    assert OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(
+        identity, research_result_fingerprint=result_id
+    )
     assert before == {
-        path: path.read_bytes()
-        for family in ("dataset", "calculations", "semantic", "results")
-        for path in (tmp_path / family).rglob("*")
-        if path.is_file()
+        family: {path: path.read_bytes() for path in (tmp_path / family).rglob("*") if path.is_file()}
+        for family in families
     }
+    assert source_path.read_bytes() == source_before
 
 
 @pytest.mark.parametrize(
@@ -190,7 +202,13 @@ def test_each_required_fsync_or_rename_failure_never_reports_publication_success
     assert triggered
     monkeypatch.undo()
     recovered = publish()
-    assert store.load_verified(recovered.manifest.artifact_content_fingerprint).manifest == recovered.manifest
+    assert (
+        store.load_verified(
+            recovered.manifest.artifact_content_fingerprint,
+            research_result_fingerprint=recovered.manifest.result.research_result_fingerprint,
+        ).manifest
+        == recovered.manifest
+    )
     if original is not None:
         assert original.manifest == recovered.manifest
 
@@ -200,15 +218,23 @@ def test_live_predecessor_loss_does_not_restore_from_portable_publication(tmp_pa
     publish, store, _, _, _, _ = _publication(tmp_path)
     artifact = publish()
     identity = artifact.manifest.artifact_content_fingerprint
-    family = {"dataset": "dataset", "calculation": "calculations", "result": "results", "evidence": "semantic"}[
-        predecessor
-    ]
-    (tmp_path / family).rename(tmp_path / f"unavailable-{family}")
+    family = {
+        "dataset": "owning-input/dataset",
+        "calculation": "calculations",
+        "result": "results",
+        "evidence": "semantic",
+    }[predecessor]
+    (tmp_path / family).rename(tmp_path / f"unavailable-{predecessor}")
     before = {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
     with pytest.raises(OnlyResearchArtifactError):
         publish()
     assert not (tmp_path / family).exists()
-    assert store.load_verified(identity).manifest == artifact.manifest
+    assert (
+        store.load_verified(
+            identity, research_result_fingerprint=artifact.manifest.result.research_result_fingerprint
+        ).manifest
+        == artifact.manifest
+    )
     assert before == {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
 
 
@@ -224,7 +250,7 @@ def test_dataset_fsync_failure_blocks_artifact_publication_and_reuse(tmp_path, m
     def unavailable(descriptor):
         import os
 
-        path = tmp_path / "dataset"
+        path = tmp_path / "owning-input" / "dataset"
         actual, expected = os.fstat(descriptor), path.stat()
         if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
             touched.append(path)
@@ -238,7 +264,13 @@ def test_dataset_fsync_failure_blocks_artifact_publication_and_reuse(tmp_path, m
     if original is None:
         assert not tuple((tmp_path / "artifacts").iterdir())
     else:
-        assert store.load_verified(original.manifest.artifact_content_fingerprint).manifest == original.manifest
+        assert (
+            store.load_verified(
+                original.manifest.artifact_content_fingerprint,
+                research_result_fingerprint=original.manifest.result.research_result_fingerprint,
+            ).manifest
+            == original.manifest
+        )
     monkeypatch.undo()
     assert publish()
 
@@ -277,7 +309,13 @@ def test_equal_race_loser_must_acknowledge_independently_of_durable_winner(tmp_p
                 failures.append(exc)
     assert len(successes) == len(failures) == 1
     assert "ARTIFACT_COMMIT_FAILED" in str(failures[0])
-    assert store.load_verified(successes[0].manifest.artifact_content_fingerprint).manifest == successes[0].manifest
+    assert (
+        store.load_verified(
+            successes[0].manifest.artifact_content_fingerprint,
+            research_result_fingerprint=successes[0].manifest.result.research_result_fingerprint,
+        ).manifest
+        == successes[0].manifest
+    )
     monkeypatch.undo()
     assert publish().manifest == successes[0].manifest
 

@@ -14,9 +14,18 @@ from onlyalpha.research.calculation.execution_provenance import (
 )
 from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.dataset.publication_input import (
+    _only_require_verified_sealed_chart_publication_input,
+    _OnlyVerifiedSealedChartPublicationInput,
+)
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 
-from .calculation_v2_model import OnlyResearchCalculationArtifactFileV2, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_model import (
+    _CALCULATION_V2_SECTION_FILES,
+    OnlyResearchCalculationArtifactFileV2,
+    OnlyResearchCalculationArtifactManifestV2,
+)
+from .calculation_v2_sections import _section_tables
 from .calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2
 from .errors import OnlyResearchArtifactError
@@ -49,6 +58,7 @@ class OnlyResearchCalculationArtifactMaterializerV2:
         *,
         runtime_context: _OnlyResearchRuntimeExecutionContext,
         retained_generation: OnlyRetainedRuntimeGenerationProofV1,
+        verified_input: _OnlyVerifiedSealedChartPublicationInput,
         artifact_store: OnlyParquetResearchCalculationArtifactStoreV2,
     ) -> OnlyResearchCalculationArtifactV2:
         try:
@@ -77,6 +87,13 @@ class OnlyResearchCalculationArtifactMaterializerV2:
                 retained_generation.require_graph_implementations(
                     calculation.manifest.calculation_graph, context.implementation_bindings
                 )
+            sealed_input = _only_require_verified_sealed_chart_publication_input(
+                verified_input,
+                result_plan_fingerprint,
+                runtime_context.graph_fingerprint,
+                runtime_context.provenance.runtime_generation_fingerprint,
+            )
+            sealed_input.verify_snapshot(dataset.snapshot)
             tables = {}
             offset = 0
             for partition in dataset.snapshot.partitions:
@@ -114,7 +131,11 @@ class OnlyResearchCalculationArtifactMaterializerV2:
                 tuple(item.manifest for item in calculations),
                 selected,
                 retained_generation,
-                tuple(descriptors[path] for path in sorted(descriptors)),
+                sealed_input,
+                tuple(
+                    descriptors.get(path, OnlyResearchCalculationArtifactFileV2(path, "0" * 64, 1))
+                    for path in sorted(set(descriptors) | _CALCULATION_V2_SECTION_FILES)
+                ),
                 result.manifest.created_at,
             )
             if manifest.expected_runtime_provenance != runtime_context.provenance or any(
@@ -128,6 +149,14 @@ class OnlyResearchCalculationArtifactMaterializerV2:
                 raise ValueError("selected Evidence differs from verified native composition expectation")
 
             def acknowledge() -> None:
+                current_input = _only_require_verified_sealed_chart_publication_input(
+                    verified_input,
+                    result_plan_fingerprint,
+                    runtime_context.graph_fingerprint,
+                    runtime_context.provenance.runtime_generation_fingerprint,
+                )
+                if current_input != manifest.sealed_input:
+                    raise ValueError("sealed input changed after materialization")
                 _only_require_research_runtime_execution_context(runtime_context, runtime_context.graph_fingerprint)
                 current_dataset = self._datasets.acknowledge_exact(dataset.snapshot.snapshot_fingerprint)
                 if current_dataset.snapshot != dataset.snapshot or not current_dataset.table.equals(
@@ -143,6 +172,11 @@ class OnlyResearchCalculationArtifactMaterializerV2:
                     if self._evidence.acknowledge_exact(original.evidence_fingerprint) != original:
                         raise ValueError("selected Evidence changed after materialization")
 
+            tables.update(
+                _section_tables(
+                    manifest, dataset.table, {item.manifest.calculation_fingerprint: item for item in calculations}
+                )
+            )
             return artifact_store._publish_materialized(manifest, tables, acknowledge_predecessors=acknowledge)
         except OnlyResearchArtifactError:
             raise

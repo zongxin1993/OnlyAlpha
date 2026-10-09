@@ -13,6 +13,7 @@ from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCal
 from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
 from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultManifestV2
 from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
+from onlyalpha.research.dataset.sealed_input_evidence import OnlyRetainedSealedChartInputEvidenceV1
 from onlyalpha.research.dataset.strict import (
     require_exact_fields,
     require_int,
@@ -26,6 +27,17 @@ from onlyalpha.research.result.result import OnlyResearchResultManifest
 
 RESEARCH_CALCULATION_ARTIFACT_V2_PROFILE = "RESEARCH_CALCULATION_V2"
 RESEARCH_CALCULATION_ARTIFACT_V2_SCHEMA_VERSION = 2
+_CALCULATION_V2_SECTION_FILES = {
+    "market.parquet",
+    "graphs.json",
+    "variables.parquet",
+    "readiness.parquet",
+    "calculation_evidence.json",
+    "sealed_input_evidence.json",
+    "signals.parquet",
+    "statistics.parquet",
+}
+_CALCULATION_V2_JSON_FILES = {"graphs.json", "calculation_evidence.json", "sealed_input_evidence.json"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +69,7 @@ class OnlyResearchCalculationArtifactManifestV2:
     calculations: tuple[OnlyResearchCalculationResultManifestV2, ...]
     selected_evidence: tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]
     retained_generation: OnlyRetainedRuntimeGenerationProofV1
+    sealed_input: OnlyRetainedSealedChartInputEvidenceV1
     files: tuple[OnlyResearchCalculationArtifactFileV2, ...]
     created_at: datetime
     profile: str = RESEARCH_CALCULATION_ARTIFACT_V2_PROFILE
@@ -92,6 +105,9 @@ class OnlyResearchCalculationArtifactManifestV2:
             raise ValueError("retained generation proof differs")
         if self.dataset.snapshot_fingerprint != self.result.dataset_snapshot_fingerprint:
             raise ValueError("Artifact Dataset/Result relation differs")
+        if type(self.sealed_input) is not OnlyRetainedSealedChartInputEvidenceV1:
+            raise ValueError("complete retained sealed input required")
+        self.sealed_input.verify_snapshot(self.dataset)
         expected = tuple(member.calculation_fingerprint for member in self.result.calculation_results)
         if (
             tuple(item.calculation_fingerprint for item in self.calculations) != expected
@@ -99,14 +115,21 @@ class OnlyResearchCalculationArtifactManifestV2:
         ):
             raise ValueError("Artifact Calculation/Evidence selection must be a complete canonical bijection")
         self._require_relations()
-        if tuple(item.relative_path for item in self.files) != tuple(sorted(self.partition_descriptors)):
+        if tuple(item.relative_path for item in self.files) != tuple(sorted(self.expected_files)):
             raise ValueError("Artifact file set must be derived from complete canonical manifests")
         for item in self.files:
             if OnlyResearchCalculationArtifactFileV2.from_dict(item.to_dict()) != item:
                 raise ValueError("Artifact file descriptor differs")
-            if item.byte_sha256 != self.partition_descriptors[item.relative_path][0]:
+            if (
+                item.relative_path in self.partition_descriptors
+                and item.byte_sha256 != self.partition_descriptors[item.relative_path][0]
+            ):
                 raise ValueError("Artifact physical hash differs from owning partition manifest")
         require_utc_datetime({"created_at": self.created_at.isoformat()}, "created_at", "Artifact")
+
+    @property
+    def expected_files(self) -> set[str]:
+        return set(self.partition_descriptors) | _CALCULATION_V2_SECTION_FILES
 
     @property
     def expected_runtime_provenance(self) -> OnlyResearchRuntimeExecutionProvenanceV1:
@@ -213,6 +236,7 @@ class OnlyResearchCalculationArtifactManifestV2:
                 "calculations": calculations,
                 "selected_evidence": [item.to_dict() for item in self.selected_evidence],
                 "retained_generation": self.retained_generation.to_dict(),
+                "sealed_input": self.sealed_input.to_dict(),
             }
         )
 
@@ -225,6 +249,7 @@ class OnlyResearchCalculationArtifactManifestV2:
             "calculations": [item.to_dict() for item in self.calculations],
             "selected_evidence": [item.to_dict() for item in self.selected_evidence],
             "retained_generation": self.retained_generation.to_dict(),
+            "sealed_input": self.sealed_input.to_dict(),
             "files": [item.to_dict() for item in self.files],
             "created_at": self.created_at.isoformat(),
             "artifact_content_fingerprint": self.artifact_content_fingerprint,
@@ -248,6 +273,9 @@ class OnlyResearchCalculationArtifactManifestV2:
             ),
             OnlyRetainedRuntimeGenerationProofV1.from_dict(
                 require_mapping(payload["retained_generation"], "Artifact generation")
+            ),
+            OnlyRetainedSealedChartInputEvidenceV1.from_dict(
+                require_mapping(payload["sealed_input"], "Artifact sealed input")
             ),
             tuple(
                 OnlyResearchCalculationArtifactFileV2.from_dict(require_mapping(item, "Artifact file"))

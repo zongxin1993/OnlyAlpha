@@ -22,6 +22,7 @@ from onlyalpha.research.calculation.result_identity import only_research_calcula
 from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _sync_directory, _unique_object
 
 from .calculation_v2_model import OnlyResearchCalculationArtifactFileV2, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_sections import _section_json, _section_schemas
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2, only_verify_calculation_artifact_tables_v2
 from .errors import OnlyResearchArtifactStoreError
 
@@ -50,10 +51,19 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         self,
         artifact_content_fingerprint: str,
         *,
+        research_result_fingerprint: str,
         expected_runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1 | None = None,
     ) -> OnlyResearchCalculationArtifactV2:
-        """Explicit profile/schema reader: no Result-address lookup or upstream access."""
+        """Exact Result/Artifact pair; no Result-address lookup or upstream access."""
+        if (
+            type(research_result_fingerprint) is not str
+            or len(research_result_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in research_result_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Research Result fingerprint")
         loaded = self._read_verified(self._target(artifact_content_fingerprint), artifact_content_fingerprint)
+        if loaded.manifest.result.research_result_fingerprint != research_result_fingerprint:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "explicit Research Result differs")
         if (
             expected_runtime_provenance is not None
             and loaded.manifest.expected_runtime_provenance != expected_runtime_provenance
@@ -77,7 +87,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 raise ValueError("Artifact durability anchor must be preprovisioned")
             acknowledge_predecessors()
             if os.path.lexists(target):
-                return self._acknowledge(identity)
+                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(identity)
             stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -89,6 +99,11 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                     output.parent.mkdir(parents=True, exist_ok=True)
                     pq.write_table(table, output, compression=self._compression, row_group_size=self._row_group_size)
                     raw = output.read_bytes()
+                    physical[path] = OnlyResearchCalculationArtifactFileV2(
+                        path, hashlib.sha256(raw).hexdigest(), len(raw)
+                    )
+                for path, raw in _section_json(manifest).items():
+                    (stage / path).write_bytes(raw)
                     physical[path] = OnlyResearchCalculationArtifactFileV2(
                         path, hashlib.sha256(raw).hexdigest(), len(raw)
                     )
@@ -146,7 +161,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 except OSError:
                     if not os.path.lexists(target):
                         raise
-                return self._acknowledge(identity)
+                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
             finally:
                 if stage.is_dir() and not stage.is_symlink():
                     shutil.rmtree(stage)
@@ -155,10 +170,10 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
 
-    def _acknowledge(self, identity: str) -> OnlyResearchCalculationArtifactV2:
+    def _acknowledge(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
         target = self._target(identity)
         try:
-            result = self.load_verified(identity)
+            result = self.load_verified(identity, research_result_fingerprint=result_fingerprint)
             with _only_bind_publication_tree(target, self._root) as tree:
                 tree.require_exact({"artifact_manifest.json", *(item.relative_path for item in result.manifest.files)})
                 bound = self._read_verified(target, identity, tree)
@@ -212,8 +227,11 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             if sum(item.byte_size for item in manifest.files) > _MAX_CONTENT_BYTES:
                 raise ValueError("Artifact encoded content exceeds profile bound")
             tables = {}
+            section_json = _section_json(manifest)
+            section_schemas = _section_schemas(manifest)
             decoded_bytes = logical_bytes = 0
             for path, descriptor in files.items():
+                schema: object
                 raw = (
                     _read_retained_file(root, path, descriptor.byte_size)
                     if tree is None
@@ -221,11 +239,24 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 )
                 if len(raw) != descriptor.byte_size or hashlib.sha256(raw).hexdigest() != descriptor.byte_sha256:
                     raise ValueError("Artifact physical size/hash differs before decoding")
-                byte_hash, rows, schema, _ = manifest.partition_descriptors[path]
+                if path in section_json:
+                    if raw != section_json[path]:
+                        raise ValueError("required JSON section differs from retained owning facts")
+                    continue
+                if path in section_schemas:
+                    expected_schema, rows = section_schemas[path]
+                    byte_hash, schema = (
+                        descriptor.byte_sha256,
+                        only_research_calculation_arrow_schema_payload(expected_schema),
+                    )
+                else:
+                    byte_hash, rows, schema, _ = manifest.partition_descriptors[path]
+                    expected_schema = (
+                        manifest.dataset.dataset_schema.arrow_schema if path.startswith("dataset/") else None
+                    )
                 if byte_hash != descriptor.byte_sha256 or rows > _MAX_PARTITION_ROWS:
                     raise ValueError("Artifact owning partition/hash/row bound differs")
                 parquet = pq.ParquetFile(pa.BufferReader(raw))
-                expected_schema = manifest.dataset.dataset_schema.arrow_schema if path.startswith("dataset/") else None
                 if (
                     parquet.metadata.num_rows != rows
                     or (expected_schema is not None and parquet.schema_arrow != expected_schema)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from onlyalpha.calculation import OnlyCalculationDataType
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
@@ -28,6 +28,9 @@ from .scientific_model import (
     only_research_scientific_artifact_content_fingerprint,
     only_research_scientific_section_fingerprint,
 )
+
+if TYPE_CHECKING:
+    from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultV2
 
 
 class _ResultStore(Protocol):
@@ -210,7 +213,7 @@ class OnlyResearchScientificArtifactMaterializer:
 
 
 def _variable_rows(
-    member: OnlyResearchResultSeriesPlan, result: OnlyResearchCalculationResult
+    member: OnlyResearchResultSeriesPlan, result: OnlyResearchCalculationResult | OnlyResearchCalculationResultV2
 ) -> tuple[OnlyResearchScientificVariableRow, ...]:
     graph = result.manifest.calculation_graph
     node = next(item for item in graph.nodes if item.fingerprint == member.node_fingerprint)
