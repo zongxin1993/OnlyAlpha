@@ -647,6 +647,9 @@ def test_legacy_mutation_paths_cannot_touch_injected_chart_attempt(
     run = store.commit_or_replay(fixture.operation, fixture.compilation, queued_at=NOW)
     attempt_id, worker_id = OnlyResearchRunAttemptId.new(), OnlyResearchWorkerInstanceId.new()
     with psycopg.connect(postgres_dsn) as connection:
+        # Privileged corruption injection only: the native-publication DB guard
+        # now rejects ordinary Chart Attempt insertion before legacy code runs.
+        connection.execute("SET LOCAL session_replication_role = replica")
         connection.execute(
             "INSERT INTO research_run_attempt (attempt_id, run_id, attempt_number, state, worker_instance_id, claimed_at, last_heartbeat_at, lease_expires_at) VALUES (%s,%s,1,'ACTIVE',%s,clock_timestamp()-interval '2 minutes',clock_timestamp()-interval '2 minutes',clock_timestamp()+%s)",
             (attempt_id.value, run.run_id.value, worker_id.value, timedelta(minutes=-1 if expired else 1)),
