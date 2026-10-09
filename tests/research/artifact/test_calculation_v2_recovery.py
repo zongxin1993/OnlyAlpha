@@ -51,7 +51,9 @@ def _reenter(root):
         root / "calculations", datasets, audit_time=lambda: AUDIT
     )
     evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(root / "semantic", calculations)
-    results = OnlyJsonResearchResultStore(root / "results", None, readiness_result_store=calculations)
+    results = OnlyJsonResearchResultStore(
+        root / "results", None, readiness_result_store=calculations, readiness_evidence_store=evidence
+    )
     (result_file,) = (root / "results").rglob("manifest.json")
     plan = json.loads(result_file.read_text())["research_result_plan_fingerprint"]
     calculation = next(iter(results.load_verified(plan).manifest.calculation_results))
@@ -120,7 +122,11 @@ artifact = _reenter(Path(sys.argv[1]))
 print(artifact.manifest.artifact_content_fingerprint)
 """
     identity = subprocess.check_output([sys.executable, "-c", recover, str(tmp_path)], text=True).strip()
-    assert OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(identity)
+    (result_file,) = (tmp_path / "results").rglob("manifest.json")
+    result_id = json.loads(result_file.read_text())["research_result_fingerprint"]
+    assert OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(
+        identity, research_result_fingerprint=result_id
+    )
     assert before == {
         path: path.read_bytes()
         for family in ("dataset", "calculations", "semantic", "results")
@@ -190,7 +196,13 @@ def test_each_required_fsync_or_rename_failure_never_reports_publication_success
     assert triggered
     monkeypatch.undo()
     recovered = publish()
-    assert store.load_verified(recovered.manifest.artifact_content_fingerprint).manifest == recovered.manifest
+    assert (
+        store.load_verified(
+            recovered.manifest.artifact_content_fingerprint,
+            research_result_fingerprint=recovered.manifest.result.research_result_fingerprint,
+        ).manifest
+        == recovered.manifest
+    )
     if original is not None:
         assert original.manifest == recovered.manifest
 
@@ -208,7 +220,12 @@ def test_live_predecessor_loss_does_not_restore_from_portable_publication(tmp_pa
     with pytest.raises(OnlyResearchArtifactError):
         publish()
     assert not (tmp_path / family).exists()
-    assert store.load_verified(identity).manifest == artifact.manifest
+    assert (
+        store.load_verified(
+            identity, research_result_fingerprint=artifact.manifest.result.research_result_fingerprint
+        ).manifest
+        == artifact.manifest
+    )
     assert before == {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
 
 
@@ -238,7 +255,13 @@ def test_dataset_fsync_failure_blocks_artifact_publication_and_reuse(tmp_path, m
     if original is None:
         assert not tuple((tmp_path / "artifacts").iterdir())
     else:
-        assert store.load_verified(original.manifest.artifact_content_fingerprint).manifest == original.manifest
+        assert (
+            store.load_verified(
+                original.manifest.artifact_content_fingerprint,
+                research_result_fingerprint=original.manifest.result.research_result_fingerprint,
+            ).manifest
+            == original.manifest
+        )
     monkeypatch.undo()
     assert publish()
 
@@ -277,7 +300,13 @@ def test_equal_race_loser_must_acknowledge_independently_of_durable_winner(tmp_p
                 failures.append(exc)
     assert len(successes) == len(failures) == 1
     assert "ARTIFACT_COMMIT_FAILED" in str(failures[0])
-    assert store.load_verified(successes[0].manifest.artifact_content_fingerprint).manifest == successes[0].manifest
+    assert (
+        store.load_verified(
+            successes[0].manifest.artifact_content_fingerprint,
+            research_result_fingerprint=successes[0].manifest.result.research_result_fingerprint,
+        ).manifest
+        == successes[0].manifest
+    )
     monkeypatch.undo()
     assert publish().manifest == successes[0].manifest
 

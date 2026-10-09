@@ -87,7 +87,10 @@ def only_publish_native_calculation_result(
         publication.context,
     )
     result = OnlyResearchResultAssembler(
-        None, audit_time=audit_time, readiness_result_store=publication.calculations
+        None,
+        audit_time=audit_time,
+        readiness_result_store=publication.calculations,
+        readiness_evidence_store=publication.evidence,
     ).assemble(frozen.result_plan)
     publication.results.commit(result)
     producer = publication.evidence.acknowledge_exact(outcome.calculation_execution_evidence_fingerprint)
@@ -217,7 +220,9 @@ def _prepare_native_calculation(
     )
     calculations = OnlyParquetResearchCalculationResultStoreV2(calculation_result_root, datasets, audit_time=audit_time)
     evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(execution_evidence_root, calculations)
-    results = OnlyJsonResearchResultStore(research_result_root, None, readiness_result_store=calculations)
+    results = OnlyJsonResearchResultStore(
+        research_result_root, None, readiness_result_store=calculations, readiness_evidence_store=evidence
+    )
     # Retained downstream Authority forbids reconstruction of missing predecessors.
     # Check the exact Plan leaf and full upstream closure before any Job/backend call.
     try:

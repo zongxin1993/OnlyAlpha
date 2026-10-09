@@ -335,6 +335,21 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
     def require_for_result(
         self, result: OnlyResearchCalculationResultV2, authoring_generation_fingerprint: str | None = None
     ) -> OnlyResearchCalculationExecutionEvidenceV2:
+        matches = self.require_all_for_result(result, authoring_generation_fingerprint)
+        if len(matches) != 1:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "multiple exact producers; explicit provenance required"
+            )
+        return matches[0]
+
+    def require_all_for_result(
+        self, result: OnlyResearchCalculationResultV2, authoring_generation_fingerprint: str | None = None
+    ) -> tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]:
+        """Read complete attestations of scientific content, without selecting a producer.
+
+        Result composition only proves publication evidence exists. Artifact and
+        generation-bound reuse still require their own exact producer selection.
+        """
         loaded = self._reload_result(result)
         if authoring_generation_fingerprint is not None:
             _sha(authoring_generation_fingerprint, "authoring_generation_fingerprint")
@@ -361,11 +376,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise OnlyResearchCalculationError(
                 "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", loaded.manifest.calculation_result_fingerprint
             )
-        if len(matches) != 1:
-            raise OnlyResearchCalculationError(
-                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "multiple exact producers; explicit provenance required"
-            )
-        return matches[0]
+        return tuple(matches)
 
     def _reload_result(self, result: OnlyResearchCalculationResultV2) -> OnlyResearchCalculationResultV2:
         if type(result) is not OnlyResearchCalculationResultV2:

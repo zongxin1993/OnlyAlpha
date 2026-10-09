@@ -50,10 +50,19 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         self,
         artifact_content_fingerprint: str,
         *,
+        research_result_fingerprint: str,
         expected_runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1 | None = None,
     ) -> OnlyResearchCalculationArtifactV2:
-        """Explicit profile/schema reader: no Result-address lookup or upstream access."""
+        """Exact Result/Artifact pair; no Result-address lookup or upstream access."""
+        if (
+            type(research_result_fingerprint) is not str
+            or len(research_result_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in research_result_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Research Result fingerprint")
         loaded = self._read_verified(self._target(artifact_content_fingerprint), artifact_content_fingerprint)
+        if loaded.manifest.result.research_result_fingerprint != research_result_fingerprint:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "explicit Research Result differs")
         if (
             expected_runtime_provenance is not None
             and loaded.manifest.expected_runtime_provenance != expected_runtime_provenance
@@ -77,7 +86,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 raise ValueError("Artifact durability anchor must be preprovisioned")
             acknowledge_predecessors()
             if os.path.lexists(target):
-                return self._acknowledge(identity)
+                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(identity)
             stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -146,7 +155,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 except OSError:
                     if not os.path.lexists(target):
                         raise
-                return self._acknowledge(identity)
+                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
             finally:
                 if stage.is_dir() and not stage.is_symlink():
                     shutil.rmtree(stage)
@@ -155,10 +164,10 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
 
-    def _acknowledge(self, identity: str) -> OnlyResearchCalculationArtifactV2:
+    def _acknowledge(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
         target = self._target(identity)
         try:
-            result = self.load_verified(identity)
+            result = self.load_verified(identity, research_result_fingerprint=result_fingerprint)
             with _only_bind_publication_tree(target, self._root) as tree:
                 tree.require_exact({"artifact_manifest.json", *(item.relative_path for item in result.manifest.files)})
                 bound = self._read_verified(target, identity, tree)

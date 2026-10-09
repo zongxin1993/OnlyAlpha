@@ -29,6 +29,7 @@ from .identity import (
 )
 
 if TYPE_CHECKING:
+    from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
     from onlyalpha.research.calculation.result_v2_ports import OnlyResearchCalculationResultStoreV2
 from .result import (
     OnlyResearchResult,
@@ -79,11 +80,13 @@ class OnlyJsonResearchResultStore:
         calculation_result_store: _CalculationResultStore | None = None,
         *,
         readiness_result_store: OnlyResearchCalculationResultStoreV2 | None = None,
+        readiness_evidence_store: OnlyResearchCalculationExecutionEvidenceStoreV2 | None = None,
     ) -> None:
         self._root = root
         self._statistics_result_store = statistics_result_store
         self._calculation_result_store = calculation_result_store
         self._readiness_result_store = readiness_result_store
+        self._readiness_evidence_store = readiness_evidence_store
         self._source_cuts = _OnlyFileSourceCutAuthority(
             root, "RESEARCH_RESULT", 2, lambda: only_sha256_source_inventory(root), self._cut_read
         )
@@ -313,6 +316,10 @@ class OnlyJsonResearchResultStore:
             for item in manifest.calculation_results
         }
         only_verify_readiness_composition(manifest.plan, calculations)
+        if self._readiness_evidence_store is None:
+            raise ValueError("Result V4 requires Execution Evidence V2 authority")
+        for calculation in calculations.values():
+            self._readiness_evidence_store.require_all_for_result(calculation)
         for reference in manifest.calculation_results:
             if (
                 calculations[reference.calculation_fingerprint].manifest.calculation_result_fingerprint
@@ -377,12 +384,15 @@ class OnlyJsonResearchResultStore:
         if result.manifest.schema_version != RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
             raise OnlyResearchResultStoreError("RESEARCH_RESULT_INVALID", "explicit V4 acknowledgement required")
         assert self._readiness_result_store is not None
+        assert self._readiness_evidence_store is not None
         try:
             locked_descriptor = self._source_cuts._publication_lock_descriptor()
             for reference in result.manifest.calculation_results:
-                self._readiness_result_store.acknowledge_exact(
+                calculation = self._readiness_result_store.acknowledge_exact(
                     reference.calculation_fingerprint, reference.calculation_result_fingerprint
                 )
+                for evidence in self._readiness_evidence_store.require_all_for_result(calculation):
+                    self._readiness_evidence_store.acknowledge_exact(evidence.evidence_fingerprint)
             target = self._target(plan_fingerprint)
             from onlyalpha.research._durability import _only_bind_publication_tree
 

@@ -155,7 +155,8 @@ print(json.dumps(_resolve_calculation_publication(original.specification, catalo
     shutil.copytree(other / "artifacts", portable, dirs_exist_ok=True)
     for artifact in (first_artifact, second_artifact):
         loaded = OnlyParquetResearchCalculationArtifactStoreV2(portable).load_verified(
-            artifact["artifact_content_fingerprint"]
+            artifact["artifact_content_fingerprint"],
+            research_result_fingerprint=artifact["result"]["research_result_fingerprint"],
         )
         calculation = next(iter(loaded.calculations.values()))
         values = calculation.outputs[0].table["value"].to_pylist()
@@ -172,7 +173,8 @@ print(json.dumps(_resolve_calculation_publication(original.specification, catalo
         )
     assert not (tmp_path / "calculation-results").exists()
     assert OnlyParquetResearchCalculationArtifactStoreV2(portable).load_verified(
-        first_artifact["artifact_content_fingerprint"]
+        first_artifact["artifact_content_fingerprint"],
+        research_result_fingerprint=first_artifact["result"]["research_result_fingerprint"],
     )
     offline = r"""
 import importlib.abc, sys
@@ -196,13 +198,23 @@ OnlyParquetResearchDatasetSnapshotStore.acknowledge_exact = fail
 OnlyResearchCalculationExecutor._execute_verified_v2 = fail
 execution_provenance._only_issue_research_runtime_execution_context = fail
 store = OnlyParquetResearchCalculationArtifactStoreV2(Path(sys.argv[1]))
-first, second = (store.load_verified(identity) for identity in sys.argv[2:])
+first, second = (store.load_verified(identity, research_result_fingerprint=sys.argv[2]) for identity in sys.argv[3:])
 assert first.manifest.result == second.manifest.result
 assert first.manifest.artifact_content_fingerprint != second.manifest.artifact_content_fingerprint
 print(first.manifest.artifact_content_fingerprint, second.manifest.artifact_content_fingerprint)
 """
     identities = [item["artifact_content_fingerprint"] for item in (first_artifact, second_artifact)]
     assert (
-        subprocess.check_output([sys.executable, "-c", offline, str(portable), *identities], text=True).split()
+        subprocess.check_output(
+            [
+                sys.executable,
+                "-c",
+                offline,
+                str(portable),
+                first_artifact["result"]["research_result_fingerprint"],
+                *identities,
+            ],
+            text=True,
+        ).split()
         == identities
     )

@@ -72,10 +72,12 @@ def _publication(tmp_path, *, proof_case=retained_proof_case, registry=None):
         (),
         OnlyResearchCalculationPublicationSelectionV1(),
     )
-    results = OnlyJsonResearchResultStore(tmp_path / "results", None, readiness_result_store=calculations)
-    result = OnlyResearchResultAssembler(None, audit_time=lambda: AUDIT, readiness_result_store=calculations).assemble(
-        plan
+    results = OnlyJsonResearchResultStore(
+        tmp_path / "results", None, readiness_result_store=calculations, readiness_evidence_store=evidence
     )
+    result = OnlyResearchResultAssembler(
+        None, audit_time=lambda: AUDIT, readiness_result_store=calculations, readiness_evidence_store=evidence
+    ).assemble(plan)
     results.commit(result)
     (tmp_path / "artifacts").mkdir()
     store = OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts", audit_time=lambda: AUDIT)
@@ -98,7 +100,8 @@ def test_artifact_v2_complete_round_trip_and_legacy_locator_is_not_a_fallback(tm
     publish, store, _, _, _, _ = _publication(tmp_path)
     artifact = publish()
     identity = artifact.manifest.artifact_content_fingerprint
-    assert store.load_verified(identity).manifest == artifact.manifest
+    result_id = artifact.manifest.result.research_result_fingerprint
+    assert store.load_verified(identity, research_result_fingerprint=result_id).manifest == artifact.manifest
     assert publish().manifest == artifact.manifest
     assert artifact.dataset_table.num_rows == artifact.manifest.dataset.row_count
     assert len(artifact.market_rows) == artifact.dataset_table.num_rows
@@ -108,14 +111,18 @@ def test_artifact_v2_complete_round_trip_and_legacy_locator_is_not_a_fallback(tm
         == artifact.manifest.expected_runtime_provenance
     )
     reader = OnlyResearchArtifactProfileReader(tmp_path / "artifacts")
-    assert reader.load_calculation_v2_verified("RESEARCH_CALCULATION_V2", 2, identity).manifest == artifact.manifest
+    assert (
+        reader.load_calculation_v2_verified("RESEARCH_CALCULATION_V2", 2, result_id, identity).manifest
+        == artifact.manifest
+    )
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_NOT_FOUND"):
         reader.load_verified(artifact.manifest.result.research_result_fingerprint)
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_PROFILE_UNSUPPORTED"):
-        reader.load_calculation_v2_verified("RESEARCH_CALCULATION_V2", True, identity)
+        reader.load_calculation_v2_verified("RESEARCH_CALCULATION_V2", True, result_id, identity)
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_PROVENANCE_MISMATCH"):
         store.load_verified(
             identity,
+            research_result_fingerprint=result_id,
             expected_runtime_provenance=replace(
                 artifact.manifest.expected_runtime_provenance, runtime_generation_fingerprint="f" * 64
             ),
@@ -138,6 +145,22 @@ def test_artifact_selection_and_native_expectation_fail_before_publication(tmp_p
     with pytest.raises(OnlyResearchArtifactError):
         publish(**kwargs)
     assert not tuple((tmp_path / "artifacts").iterdir())
+
+
+@pytest.mark.parametrize("result_id", ("f" * 64, "", None, True))
+def test_artifact_v2_explicit_result_artifact_pair_cannot_be_mixed(tmp_path, result_id):
+    publish, store, _, _, _, _ = _publication(tmp_path)
+    artifact = publish()
+    identity = artifact.manifest.artifact_content_fingerprint
+    before = {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
+    with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_IDENTITY_MISMATCH"):
+        store.load_verified(identity, research_result_fingerprint=result_id)
+    reader = OnlyResearchArtifactProfileReader(tmp_path / "artifacts")
+    with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_IDENTITY_MISMATCH"):
+        reader.load_calculation_v2_verified("RESEARCH_CALCULATION_V2", 2, result_id, identity)
+    with pytest.raises(TypeError):
+        store.load_verified(identity)
+    assert before == {path: path.read_bytes() for path in _root(tmp_path, identity).rglob("*") if path.is_file()}
 
 
 def test_portable_artifact_copy_requires_no_upstream_runtime_or_execution(tmp_path):
@@ -167,7 +190,8 @@ OnlyResearchCalculationExecutor.execute = fail
 OnlyResearchCalculationExecutor._execute_verified_v2 = fail
 OnlyParquetResearchDatasetSnapshotStore.load_verified_table = fail
 execution_provenance._only_issue_research_runtime_execution_context = fail
-artifact = OnlyParquetResearchCalculationArtifactStoreV2(Path(sys.argv[1])).load_verified(sys.argv[2])
+artifact = OnlyParquetResearchCalculationArtifactStoreV2(Path(sys.argv[1])).load_verified(
+    sys.argv[2], research_result_fingerprint=sys.argv[3])
 assert artifact.manifest.schema_version == 2
 assert len(artifact.market_rows) == artifact.dataset_table.num_rows
 print(artifact.manifest.artifact_content_fingerprint)
@@ -177,7 +201,13 @@ print(artifact.manifest.artifact_content_fingerprint)
     shutil.rmtree(tmp_path / "calculations")
     shutil.rmtree(tmp_path / "results")
     shutil.rmtree(tmp_path / "semantic")
-    assert subprocess.check_output([sys.executable, "-c", source, str(root), identity], text=True).strip() == identity
+    assert (
+        subprocess.check_output(
+            [sys.executable, "-c", source, str(root), identity, artifact.manifest.result.research_result_fingerprint],
+            text=True,
+        ).strip()
+        == identity
+    )
 
 
 @pytest.mark.parametrize(
@@ -254,7 +284,7 @@ def test_artifact_rehashed_physical_and_structural_mutations_fail_closed(tmp_pat
             payload["retained_generation"].pop("validation")
         manifest_path.write_text(only_canonical_json(payload))
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_CORRUPT"):
-        store.load_verified(identity)
+        store.load_verified(identity, research_result_fingerprint=artifact.manifest.result.research_result_fingerprint)
     before = {
         str(path.relative_to(root)): path.read_bytes()
         for path in root.rglob("*")
@@ -283,7 +313,7 @@ def test_artifact_physical_hash_is_checked_before_parquet_decoder(tmp_path, monk
         calculation_v2_store.pq, "ParquetFile", lambda *_: pytest.fail("corrupt physical bytes reached native decoder")
     )
     with pytest.raises(OnlyResearchArtifactError, match="physical size/hash"):
-        store.load_verified(identity)
+        store.load_verified(identity, research_result_fingerprint=artifact.manifest.result.research_result_fingerprint)
 
 
 def test_artifact_equal_concurrent_publish_and_sync_failure_reentry(tmp_path, monkeypatch):
@@ -310,6 +340,12 @@ def test_artifact_equal_concurrent_publish_and_sync_failure_reentry(tmp_path, mo
     monkeypatch.setattr(calculation_v2_store, "_sync_directory", unavailable)
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_COMMIT_FAILED"):
         publish()
-    assert store.load_verified(winners[0].manifest.artifact_content_fingerprint).manifest == winners[0].manifest
+    assert (
+        store.load_verified(
+            winners[0].manifest.artifact_content_fingerprint,
+            research_result_fingerprint=winners[0].manifest.result.research_result_fingerprint,
+        ).manifest
+        == winners[0].manifest
+    )
     monkeypatch.setattr(calculation_v2_store, "_sync_directory", sync)
     assert publish().manifest == winners[0].manifest

@@ -24,6 +24,12 @@ Result4 is calculation-only: exact Snapshot, nonempty canonical Calculation/Grap
 with no Statistics, Candidate or Signal facts. Assembly and every verified load use the V2 Calculation Authority explicitly;
 matching SHA text never determines a version. They prove Snapshot/Calculation/Result/Graph/node/output linkage.
 
+Assembly, commit, verified load and durable acknowledgement additionally require complete Execution Evidence V2 through its
+owning store. The scientific composition validates all applicable attestations without choosing a producer: multiple fully
+verified producers of the same content do not change Result identity. Missing/corrupt/unavailable evidence cannot authorize
+publication or reuse. Publication acknowledgement synchronizes the verified Evidence predecessors as well as Calculation2.
+Artifact selection and exact generation-bound reuse retain their separate, explicit producer requirements.
+
 Result4 content hashes schema4 and canonical Calculation logical/Result pairs with the empty Statistics set. Its Result identity
 hashes schema4, Plan4 and content. Runtime generation, Evidence selection, execution disposition, audit time, paths, style and
 browser identity are not scientific Result identity. Multiple valid producers may attest the same scientific Result.
@@ -75,10 +81,12 @@ IPC capability or HTTP/Product API entry point.
 
 ## Artifact address and retained content
 
-For this new profile only, the exact locator is `(RESEARCH_CALCULATION_V2, 2, artifact_content_fingerprint)`. Storage is under
+For this new profile only, the exact read selection is
+`(RESEARCH_CALCULATION_V2, 2, research_result_fingerprint, artifact_content_fingerprint)`. Storage is under
 the existing Artifact root at `research-calculation-v2/sha256/<first-two-hex>/<artifact_content_fingerprint>`. This is a versioned
 extension to the Result-addressed older profiles, whose addresses and readers remain unchanged. There is no Result-SHA fallback,
-latest producer selection or new Artifact Plan/Artifact Result authority. V2 readers require the explicit locator.
+latest producer selection or new Artifact Plan/Artifact Result authority. V2 readers require both explicit identities and reject
+a Result/Artifact mismatch; they do not derive a missing Result expectation from the package being queried.
 
 Artifact logical identity binds profile/schema, exact Result4 identity, complete copied logical sections and exact selected
 Evidence/provenance. Artifact encoding byte hashes, compression, relative storage paths and audit time are excluded. Executable

@@ -18,6 +18,7 @@ from .identity import (
 )
 
 if TYPE_CHECKING:
+    from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
     from onlyalpha.research.calculation.result_v2_ports import OnlyResearchCalculationResultStoreV2
 from .plan import OnlyResearchResultPlan
 from .result import (
@@ -48,11 +49,13 @@ class OnlyResearchResultAssembler:
         audit_time: Callable[[], datetime],
         calculation_result_store: _CalculationResultStore | None = None,
         readiness_result_store: OnlyResearchCalculationResultStoreV2 | None = None,
+        readiness_evidence_store: OnlyResearchCalculationExecutionEvidenceStoreV2 | None = None,
     ) -> None:
         self._statistics_result_store = statistics_result_store
         self._audit_time = audit_time
         self._calculation_result_store = calculation_result_store
         self._readiness_result_store = readiness_result_store
+        self._readiness_evidence_store = readiness_evidence_store
 
     def assemble(self, plan: OnlyResearchResultPlan) -> OnlyResearchResult:
         if not isinstance(plan, OnlyResearchResultPlan):
@@ -74,6 +77,10 @@ class OnlyResearchResultAssembler:
                     for item in plan.calculations
                 }
                 only_verify_readiness_composition(plan, readiness_calculations)
+                if self._readiness_evidence_store is None:
+                    raise ValueError("Result V4 requires Execution Evidence V2 authority")
+                for calculation in readiness_calculations.values():
+                    self._readiness_evidence_store.require_all_for_result(calculation)
                 dataset = plan.dataset_snapshot_fingerprint
                 calculation_references = [
                     OnlyResearchCalculationResultReference(key, value.manifest.calculation_result_fingerprint)

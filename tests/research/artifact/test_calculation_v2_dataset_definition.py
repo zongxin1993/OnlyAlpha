@@ -74,6 +74,7 @@ def test_complete_rehashed_artifact_cannot_retain_bars_outside_its_requested_ran
         readiness_result_store=SimpleNamespace(
             load_verified=lambda _: OnlyResearchCalculationResultV2(calculation, retained.outputs, retained.readiness),
         ),
+        readiness_evidence_store=SimpleNamespace(require_all_for_result=lambda _: (evidence,)),
     ).assemble(plan)
     files = tuple(
         sorted(

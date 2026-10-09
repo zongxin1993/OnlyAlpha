@@ -11,6 +11,7 @@ from threading import Barrier
 import pytest
 
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
 from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationSelectionV1
 from onlyalpha.research.result import OnlyJsonResearchResultStore, OnlyResearchResultAssembler
 from onlyalpha.research.result.errors import OnlyResearchResultError, OnlyResearchResultStoreError
@@ -31,6 +32,10 @@ class _Never:
 def _composition(tmp_path):
     _, calculations, graph, sealed = _case(tmp_path)
     calculation = calculations.commit(sealed, graph)
+    evidence_root = tmp_path / "semantic"
+    evidence_root.mkdir()
+    evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(evidence_root, calculations)
+    evidence._publish_verified(sealed, calculation)
     manifest = calculation.manifest
     plan = OnlyResearchResultPlan(
         (),
@@ -43,10 +48,18 @@ def _composition(tmp_path):
         OnlyResearchCalculationPublicationSelectionV1(),
     )
     assembler = OnlyResearchResultAssembler(
-        _Never(), audit_time=lambda: AUDIT, calculation_result_store=_Never(), readiness_result_store=calculations
+        _Never(),
+        audit_time=lambda: AUDIT,
+        calculation_result_store=_Never(),
+        readiness_result_store=calculations,
+        readiness_evidence_store=evidence,
     )
     store = OnlyJsonResearchResultStore(
-        tmp_path / "compositions", _Never(), _Never(), readiness_result_store=calculations
+        tmp_path / "compositions",
+        _Never(),
+        _Never(),
+        readiness_result_store=calculations,
+        readiness_evidence_store=evidence,
     )
     return plan, assembler, store, calculations
 
@@ -199,3 +212,115 @@ def test_result_v4_rejects_missing_anchor_before_publication_barrier_creates_nam
     with pytest.raises(OnlyResearchResultStoreError, match="anchor must be preprovisioned"):
         store.commit(result)
     assert not anchor.exists()
+
+
+@pytest.mark.parametrize("mutation", ("missing", "corrupt", "disconnected", "unavailable"))
+def test_result_v4_requires_evidence_before_assembly_commit_and_every_reload(tmp_path, monkeypatch, mutation):
+    from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
+
+    plan, assembler, store, calculations = _composition(tmp_path)
+    result = assembler.assemble(plan)
+    store.commit(result)
+    evidence = store._readiness_evidence_store
+    producer = evidence.require_for_result(calculations.load_verified(plan.calculations[0].calculation_fingerprint))
+    target = evidence._target(producer.evidence_fingerprint)
+    if mutation == "missing":
+        target.rename(tmp_path / "removed-evidence")
+    elif mutation == "corrupt":
+        (target / "manifest.json").write_text("{}")
+    elif mutation == "disconnected":
+        (tmp_path / "semantic").rename(tmp_path / "unavailable-evidence")
+    else:
+        attempted_reads = []
+
+        def unavailable_read(*args):
+            attempted_reads.append(args)
+            raise PermissionError("controlled owning Evidence reader I/O failure")
+
+        monkeypatch.setattr(evidence, "_read_verified", unavailable_read)
+
+    def forbidden_execution(*args, **kwargs):
+        pytest.fail("incomplete Evidence caused numeric execution")
+
+    monkeypatch.setattr(OnlyResearchCalculationExecutor, "_execute_verified_v2", forbidden_execution)
+    retained = {
+        path: path.read_bytes()
+        for family in ("semantic", "removed-evidence", "unavailable-evidence")
+        for path in (tmp_path / family).rglob("*")
+        if path.is_file()
+    }
+    original = store._target(plan.fingerprint) / "manifest.json"
+    before = original.read_bytes()
+    with pytest.raises(OnlyResearchResultError) as rejected:
+        assembler.assemble(plan)
+    if mutation == "unavailable":
+        assert rejected.value.__cause__.code == "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+    with pytest.raises(OnlyResearchResultStoreError):
+        store.commit(result)
+    with pytest.raises(OnlyResearchResultStoreError):
+        store.load_verified(plan.fingerprint)
+    assert original.read_bytes() == before
+    other = OnlyJsonResearchResultStore(
+        tmp_path / "new-results", None, readiness_result_store=calculations, readiness_evidence_store=evidence
+    )
+    with pytest.raises(OnlyResearchResultStoreError):
+        other.commit(result)
+    assert not other._target(plan.fingerprint).exists()
+    assert retained == {
+        path: path.read_bytes()
+        for family in ("semantic", "removed-evidence", "unavailable-evidence")
+        for path in (tmp_path / family).rglob("*")
+        if path.is_file()
+    }
+    if mutation == "unavailable":
+        assert attempted_reads
+
+
+def test_result_v4_cannot_publish_a_caller_declaration_without_evidence_authority(tmp_path):
+    plan, assembler, _, calculations = _composition(tmp_path)
+    candidate = assembler.assemble(plan)
+    naked = OnlyResearchResultAssembler(None, audit_time=lambda: AUDIT, readiness_result_store=calculations)
+    with pytest.raises(OnlyResearchResultError, match="Execution Evidence V2"):
+        naked.assemble(plan)
+    store = OnlyJsonResearchResultStore(tmp_path / "unattested", None, readiness_result_store=calculations)
+    with pytest.raises(OnlyResearchResultStoreError, match="Execution Evidence V2"):
+        store.commit(candidate)
+    assert not store._target(plan.fingerprint).exists()
+
+
+def test_result_v4_complete_multiple_producers_do_not_select_or_change_scientific_identity(tmp_path):
+    from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
+    from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION
+    from tests.research.calculation.test_runtime_execution_provenance import _context
+
+    plan, assembler, store, calculations = _composition(tmp_path)
+    original = assembler.assemble(plan)
+    store.commit(original)
+    executor, _, graph, _ = _case(tmp_path / "other-producer")
+    context = _context(executor, graph, generation="b")
+    sealed = executor._execute_verified_v2(
+        plan.dataset_snapshot_fingerprint, graph, PUBLICATION, runtime_context=context
+    )
+    result = calculations.load_verified(plan.calculations[0].calculation_fingerprint)
+    evidence = store._readiness_evidence_store
+    evidence._publish_verified(sealed, result)
+    assert len(evidence.require_all_for_result(result)) == 2
+    with pytest.raises(OnlyResearchCalculationError, match="multiple exact producers"):
+        evidence.require_for_result(result)
+    assert assembler.assemble(plan) == original
+    assert store.commit(original).research_result_fingerprint == original.manifest.research_result_fingerprint
+    assert store.load_verified(plan.fingerprint) == original
+
+
+def test_result_v4_evidence_ack_failure_is_not_bypassed_by_readable_result_reuse(tmp_path, monkeypatch):
+    plan, assembler, store, _ = _composition(tmp_path)
+    result = assembler.assemble(plan)
+    evidence = store._readiness_evidence_store
+    with monkeypatch.context() as scope:
+        scope.setattr(evidence, "acknowledge_exact", lambda _: (_ for _ in ()).throw(OSError("evidence fsync")))
+        with pytest.raises(OnlyResearchResultStoreError, match="RESEARCH_RESULT_COMMIT_FAILED"):
+            store.commit(result)
+        assert store.load_verified(plan.fingerprint) == result
+        with pytest.raises(OnlyResearchResultStoreError, match="RESEARCH_RESULT_COMMIT_FAILED"):
+            store.commit(result)
+    assert store.commit(result).research_result_fingerprint == result.manifest.research_result_fingerprint

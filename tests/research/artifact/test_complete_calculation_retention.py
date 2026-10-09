@@ -131,7 +131,10 @@ def test_unselected_outputs_and_every_instrument_remain_retained_and_verified(tm
     descriptor.update(byte_sha256=partition["byte_sha256"], byte_size=len(raw))
     (root / "artifact_manifest.json").write_text(only_canonical_json(payload))
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_CORRUPT"):
-        store.load_verified(artifact.manifest.artifact_content_fingerprint)
+        store.load_verified(
+            artifact.manifest.artifact_content_fingerprint,
+            research_result_fingerprint=artifact.manifest.result.research_result_fingerprint,
+        )
 
 
 @pytest.mark.parametrize("null_states", (False, True))
@@ -155,7 +158,10 @@ def test_complete_selected_and_unselected_readiness_states_survive_portable_roun
 
     publish, store, _, _, _, _ = _complete_output_case(tmp_path, mutate)
     artifact = publish()
-    loaded = store.load_verified(artifact.manifest.artifact_content_fingerprint)
+    loaded = store.load_verified(
+        artifact.manifest.artifact_content_fingerprint,
+        research_result_fingerprint=artifact.manifest.result.research_result_fingerprint,
+    )
     for calculation in loaded.calculations.values():
         for output in calculation.outputs:
             for name in ("value", "unselected"):
