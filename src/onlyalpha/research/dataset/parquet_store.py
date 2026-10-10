@@ -548,6 +548,10 @@ class OnlyParquetResearchDatasetSnapshotStore:
             )
         except OnlyResearchDatasetStoreError:
             raise
+        except OSError as exc:
+            if exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}:
+                raise OnlyResearchDatasetStoreError("DATASET_STORE_UNAVAILABLE") from exc
+            raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
         except Exception as exc:
             raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
 

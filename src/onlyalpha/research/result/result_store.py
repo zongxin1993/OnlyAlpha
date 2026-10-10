@@ -455,10 +455,12 @@ class OnlyJsonResearchResultStore:
 
     def acknowledge_exact(self, plan_fingerprint: str, result_fingerprint: str) -> OnlyResearchResult:
         # Re-entry may acknowledge an existing owner, never recreate a lost root.
-        with self._source_cuts._publication_barrier.publication_existing():
-            return self._acknowledge_existing(plan_fingerprint, result_fingerprint)
+        with self._source_cuts._publication_barrier.publication_existing() as descriptor:
+            return self._acknowledge_existing(plan_fingerprint, result_fingerprint, descriptor)
 
-    def _acknowledge_existing(self, plan_fingerprint: str, result_fingerprint: str) -> OnlyResearchResult:
+    def _acknowledge_existing(
+        self, plan_fingerprint: str, result_fingerprint: str, locked_descriptor: int
+    ) -> OnlyResearchResult:
         """Resync an exact V4 publication and all Calculation predecessors; ordinary reads do not write."""
         from onlyalpha.research.calculation.result_v2_store import _sync_directory
 
@@ -470,7 +472,6 @@ class OnlyJsonResearchResultStore:
         assert self._readiness_result_store is not None
         assert self._readiness_evidence_store is not None
         try:
-            locked_descriptor = self._source_cuts._publication_lock_descriptor()
             for reference in result.manifest.calculation_results:
                 calculation = self._readiness_result_store.acknowledge_exact(
                     reference.calculation_fingerprint, reference.calculation_result_fingerprint
@@ -489,7 +490,6 @@ class OnlyJsonResearchResultStore:
                 tree.synchronize(_sync_directory)
                 reloaded = self._read_verified(target, plan_fingerprint, tree.read_bytes("manifest.json"))
                 tree.require_namespace()
-                self._source_cuts._publication_lock_descriptor()
                 if reloaded != bound:
                     raise ValueError("Research Result changed during acknowledgement")
                 return reloaded

@@ -431,6 +431,15 @@ class OnlyParquetResearchCalculationResultStoreV2:
                         )
             _canonical_readiness(tuple(readiness), tuple(outputs), manifest.calculation_graph, axes)
             return OnlyResearchCalculationResultV2(manifest, tuple(outputs), tuple(readiness))
+        except OnlyResearchCalculationResultStoreError:
+            raise
+        except OSError as exc:
+            code = (
+                "RESULT_STORE_UNAVAILABLE"
+                if exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESULT_CORRUPT"
+            )
+            raise OnlyResearchCalculationResultStoreError(code, "Result bytes unavailable") from exc
         except Exception as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_CORRUPT", str(exc)) from exc
 

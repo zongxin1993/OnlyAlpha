@@ -255,17 +255,8 @@ class OnlyResearchJobExecutor:
             try:
                 if context is None:
                     selected = evidence_store.require_for_result(existing, self._authoring_generation_fingerprint)
-                    _outcome_v2(
-                        plan,
-                        existing,
-                        selected,
-                        self._authoring_generation_fingerprint,
-                        OnlyResearchJobDisposition.REUSED,
-                        OnlyResearchJobPhase.RESULT_REUSE,
-                    )
-                    evidence = evidence_store.acknowledge_exact(selected.evidence_fingerprint)
                 else:
-                    evidence = evidence_store.require_exact_for_result(
+                    selected = evidence_store.load_exact_for_result(
                         existing,
                         tuple(
                             OnlyResearchCalculationImplementationBinding(*item)
@@ -286,13 +277,32 @@ class OnlyResearchJobExecutor:
             else:
                 if (
                     required_evidence_fingerprint is not None
-                    and evidence.evidence_fingerprint != required_evidence_fingerprint
+                    and selected.evidence_fingerprint != required_evidence_fingerprint
                 ):
                     raise OnlyResearchJobError(
                         OnlyResearchJobPhase.RESULT_REUSE,
                         "RESEARCH_EXECUTION_IDENTITY_MISMATCH",
                         "protected producer differs",
                     )
+                # Only initial lookup absence permits a new producer. Once selected,
+                # loss during ACK cannot be reinterpreted as fresh-work permission.
+                _outcome_v2(
+                    plan,
+                    existing,
+                    selected,
+                    self._authoring_generation_fingerprint,
+                    OnlyResearchJobDisposition.REUSED,
+                    OnlyResearchJobPhase.RESULT_REUSE,
+                    context,
+                )
+                try:
+                    evidence = evidence_store.acknowledge_exact(selected.evidence_fingerprint)
+                except OnlyResearchCalculationError as exc:
+                    raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
+                except Exception as exc:
+                    raise OnlyResearchJobError(
+                        OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED", str(exc)
+                    ) from exc
                 return _outcome_v2(
                     plan,
                     existing,
