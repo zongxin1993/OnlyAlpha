@@ -302,6 +302,10 @@ Calculation commit retains its existing permission to create its root only under
 the preprovisioned parent, after sealed input/Graph validation.
 Its parent descriptor is retained across validation and root creation; creation
 uses that directory descriptor, not a pathname that a Source/audit hook can replace.
+`publication_bound()` continues that same root/ancestor binding when creating and
+locking the regular coordination file. It does not reopen and select another owner
+between root creation and lock acquisition. The locked descriptor is the one
+retained and verified by the tree; successful return rechecks that same relation.
 Legacy publication/capture may still initialize their configured directory chain,
 but bind every existing ancestor before creating each missing child via its bound
 parent descriptor. Initial or later symlink substitution cannot redirect that

@@ -367,6 +367,14 @@ class OnlySourcePublicationBarrier:
             yield descriptor
 
     @contextmanager
+    def publication_bound(self, tree: _OnlyBoundPublicationTree) -> Iterator[int]:
+        """Continue this owner's retained binding, without choosing a new root."""
+        if tree.target != self._root.absolute():
+            raise OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_INVALID")
+        with self._lock_bound(fcntl.LOCK_SH, tree) as descriptor:
+            yield descriptor
+
+    @contextmanager
     def capture(self) -> Iterator[None]:
         with self._locked(fcntl.LOCK_EX):
             yield
@@ -413,8 +421,6 @@ class OnlySourcePublicationBarrier:
     @contextmanager
     def _locked(self, mode: int, *, provision_root: bool = True) -> Iterator[int]:
         root = self._root.absolute()
-        path = root / ".source-cut.lock"
-        flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
         # Legacy publication/capture may create missing ancestors. Preserve only
         # that exact configured chain, with no-follow binding before any write.
         anchor = Path(root.anchor) if provision_root else root
@@ -434,31 +440,44 @@ class OnlySourcePublicationBarrier:
                             current = current.parent
                     for current in reversed(pending):
                         tree.create_directory(current)
-                directory = tree.bind_directory(root)
-                descriptor = os.open(path.name, flags, 0o600, dir_fd=directory)
             except (OSError, ValueError) as exc:
                 raise _inspection_error(exc) from exc
+            with self._lock_bound(mode, tree) as descriptor:
+                yield descriptor
+
+    @contextmanager
+    def _lock_bound(self, mode: int, tree: _OnlyBoundPublicationTree) -> Iterator[int]:
+        root = self._root.absolute()
+        path = root / ".source-cut.lock"
+        flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            directory = tree.bind_directory(root)
+            self._require_inspection_binding(tree)
+            descriptor = os.open(path.name, flags, 0o600, dir_fd=directory)
+        except (OSError, ValueError) as exc:
+            raise _inspection_error(exc) from exc
+        locked_descriptor = descriptor
+        try:
+            try:
+                locked_descriptor = tree.bind_file(path, descriptor=descriptor)
+            except (OSError, ValueError) as exc:
+                raise _inspection_error(exc) from exc
+            self._require_inspection_binding(tree)
+            try:
+                fcntl.flock(locked_descriptor, mode)
+            except OSError as exc:
+                raise _inspection_error(exc) from exc
+            self._require_inspection_binding(tree)
+            yield locked_descriptor
+            self._require_inspection_binding(tree)
+        finally:
             try:
                 try:
-                    tree.bind_file(path, descriptor=descriptor)
-                except (OSError, ValueError) as exc:
-                    raise _inspection_error(exc) from exc
-                self._require_inspection_binding(tree)
-                try:
-                    fcntl.flock(descriptor, mode)
+                    fcntl.flock(locked_descriptor, fcntl.LOCK_UN)
                 except OSError as exc:
                     raise _inspection_error(exc) from exc
-                self._require_inspection_binding(tree)
-                yield descriptor
-                self._require_inspection_binding(tree)
             finally:
-                try:
-                    try:
-                        fcntl.flock(descriptor, fcntl.LOCK_UN)
-                    except OSError as exc:
-                        raise _inspection_error(exc) from exc
-                finally:
-                    os.close(descriptor)
+                os.close(descriptor)
 
     def _require_safe(self, target: Path) -> None:
         current = target

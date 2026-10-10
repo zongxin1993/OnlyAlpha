@@ -137,12 +137,12 @@ class OnlyParquetResearchCalculationResultStoreV2:
             created_at = self._audit_timestamp()
         except Exception as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", str(exc)) from exc
+        self._acknowledge_dataset(execution.dataset_snapshot_fingerprint)
         tree.create_directory(self._root)
-        with self._publication_barrier.publication_existing():
+        with self._publication_barrier.publication_bound(tree):
             target = self._target(execution.calculation_fingerprint)
             if _present(target):
                 return self._resolve_existing(execution.calculation_fingerprint, content)
-            self._acknowledge_dataset(execution.dataset_snapshot_fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(execution.calculation_fingerprint)
             stage = target.parent / f".stage-{uuid.uuid4().hex}"

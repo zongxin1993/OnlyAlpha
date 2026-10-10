@@ -8,10 +8,12 @@ import os
 import select
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
 from onlyalpha.research.source_cut import OnlySourceCutError, OnlySourcePublicationBarrier
 
 pytestmark = pytest.mark.contract
@@ -68,6 +70,41 @@ def test_existing_owner_publication_never_recreates_missing_semantic_root(tmp_pa
         with OnlySourcePublicationBarrier(root).publication_existing():
             pytest.fail("missing owner authorized publication acknowledgement")
     assert not root.exists()
+
+
+def test_bound_publication_uses_retained_regular_descriptor_and_releases_each_lock(tmp_path):
+    root = tmp_path / "owner"
+    barrier = _provision(root)
+    with closing(_OnlyBoundPublicationTree(root, tmp_path)) as tree:
+        tree.bind_directory(root)
+        retained = tree.bind_file(root / ".source-cut.lock")
+        for _ in range(2):
+            with barrier.publication_bound(tree) as descriptor:
+                assert descriptor == retained
+                probe = os.open(root / ".source-cut.lock", os.O_RDONLY)
+                try:
+                    with pytest.raises(BlockingIOError):
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    os.close(probe)
+            probe = os.open(root / ".source-cut.lock", os.O_RDONLY)
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(probe)
+
+
+def test_bound_publication_rejects_another_owner_without_creating_coordination_files(tmp_path):
+    root, other = tmp_path / "owner", tmp_path / "other"
+    root.mkdir()
+    other.mkdir()
+    with closing(_OnlyBoundPublicationTree(other, tmp_path)) as tree:
+        tree.bind_directory(other)
+        with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_BARRIER_INVALID"):
+            with OnlySourcePublicationBarrier(root).publication_bound(tree):
+                pytest.fail("another owner authorized publication")
+    assert not tuple(root.iterdir())
+    assert not tuple(other.iterdir())
 
 
 @pytest.mark.parametrize("method", ["publication", "capture"])
