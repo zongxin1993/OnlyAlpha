@@ -83,8 +83,8 @@ def _only_inspect_calculation_publication_prefix(
                 tree.bind_directory(root)
                 descriptor = tree.bind_file(root / ".source-cut.lock")
                 descriptors.append(descriptor)
-                identity = os.fstat(descriptor)
-                identities.append((identity.st_dev, identity.st_ino))
+                lock_stat = os.fstat(descriptor)
+                identities.append((lock_stat.st_dev, lock_stat.st_ino))
             for identity in set(identities):
                 positions = [index for index, value in enumerate(identities) if value == identity]
                 if positions != list(range(positions[0], positions[-1] + 1)):
@@ -144,6 +144,7 @@ def _only_inspect_calculation_publication_prefix(
                     raise
                 current_result = None
             else:
+                assert current_result is not None
                 if current_result.manifest.plan != result_plan:
                     raise OnlyResearchCalculationError(
                         "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "current Result Plan differs"

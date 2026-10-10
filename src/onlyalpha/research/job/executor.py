@@ -32,7 +32,10 @@ from .outcome import OnlyResearchJobDisposition, OnlyResearchJobOutcome, OnlyRes
 from .plan import RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION, RESEARCH_JOB_PLAN_SCHEMA_VERSION, OnlyResearchJobPlan
 
 if TYPE_CHECKING:
-    from onlyalpha.research.calculation.execution import OnlyResearchCalculationNodeOutput
+    from onlyalpha.research.calculation.execution import (
+        OnlyResearchCalculationNodeOutput,
+        OnlyResearchCalculationNodeReadiness,
+    )
     from onlyalpha.research.calculation.execution_evidence_v2 import (
         OnlyResearchCalculationExecutionEvidenceStoreV2,
         OnlyResearchCalculationExecutionEvidenceV2,
@@ -421,10 +424,18 @@ def _require_existing_execution_v2(
     axes = {item.instrument_id: tuple(item.table["ts_event_ns"].to_pylist()) for item in result.outputs}
     outputs = _canonical_outputs(execution.outputs, plan.calculation_graph, axes)
     readiness = _canonical_readiness(execution.readiness, outputs, plan.calculation_graph, axes)
+    proposed: tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...] = (
+        *outputs,
+        *readiness,
+    )
+    actual: tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...] = (
+        *result.outputs,
+        *result.readiness,
+    )
     if any(
         (left.node_fingerprint, left.instrument_id) != (right.node_fingerprint, right.instrument_id)
         or not _tables_equal(left.table, right.table)
-        for left, right in zip((*outputs, *readiness), (*result.outputs, *result.readiness), strict=True)
+        for left, right in zip(proposed, actual, strict=True)
     ):
         raise OnlyResearchJobError(
             OnlyResearchJobPhase.RESULT_COMMIT,

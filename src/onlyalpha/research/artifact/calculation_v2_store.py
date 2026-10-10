@@ -208,7 +208,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 def require_inventory() -> None:
                     owner.require_namespace()
                     for package, (artifact, original_manifest) in zip(packages, observed, strict=True):
-                        if package.read_bytes("artifact_manifest.json") != original_manifest:
+                        if package.read_bytes("artifact_manifest.json", _MAX_MANIFEST_BYTES) != original_manifest:
                             raise ValueError("Artifact manifest bytes changed during inspection")
                         if (
                             self._read_verified(
@@ -251,7 +251,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                                     raise ValueError("noncanonical Artifact content address")
                                 package = opened.enter_context(closing(_OnlyBoundPublicationTree(target, root)))
                                 packages.append(package)
-                                original_manifest = package.read_bytes("artifact_manifest.json")
+                                original_manifest = package.read_bytes("artifact_manifest.json", _MAX_MANIFEST_BYTES)
                                 artifact = self._read_verified(target, identity, package)
                                 observed.append((artifact, original_manifest))
                                 package.require_namespace()
