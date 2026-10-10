@@ -138,7 +138,9 @@ def test_prefix_retains_bindings_until_common_relation_exit(tmp_path, mutation):
     assert "CORRUPT" in str(raised.value)
 
 
-@pytest.mark.parametrize("mutation", ["result", "calculation", "evidence", "dataset", "artifact_partition"])
+@pytest.mark.parametrize(
+    "mutation", ["result", "calculation", "evidence", "dataset", "artifact_partition", "artifact_manifest"]
+)
 def test_prefix_rechecks_in_place_content_not_only_leaf_inode(tmp_path, mutation):
     store, artifact, results, evidence = _case(tmp_path)
     calculation = artifact.manifest.calculations[0]
@@ -151,6 +153,7 @@ def test_prefix_rechecks_in_place_content_not_only_leaf_inode(tmp_path, mutation
         "artifact_partition": _root(tmp_path, artifact.manifest.artifact_content_fingerprint)
         / "dataset"
         / artifact.manifest.dataset.partitions[0].relative_path,
+        "artifact_manifest": _root(tmp_path, artifact.manifest.artifact_content_fingerprint) / "artifact_manifest.json",
     }[mutation]
     inode = path.stat().st_ino
     with pytest.raises(

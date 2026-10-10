@@ -14,6 +14,9 @@ from onlyalpha.research.job.plan import OnlyResearchJobPlan
 from tests.research.artifact.test_calculation_v2 import _publication
 from tests.research.artifact.test_calculation_v2_exact_inspection import _bytes
 from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, _registry
+from tests.research.calculation.test_runtime_execution_provenance import _context
+from tests.research.job.support import readiness_job_case
+from tests.research.job.test_readiness_publication import _job
 
 pytestmark = pytest.mark.contract
 
@@ -57,6 +60,49 @@ def test_protected_generation_job_never_falls_back_to_backend_after_guard_loss(t
         == {"calculation": "RESULT_NOT_FOUND", "evidence": "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND"}[missing]
     )
     assert _bytes(tmp_path) == before
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("runtime", [False, True])
+def test_selected_producer_loss_before_ack_is_not_initial_lookup_absence(tmp_path, monkeypatch, runtime):
+    from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
+
+    plan, calculation, legacy, results, evidence = readiness_job_case(tmp_path)
+    context = _context(calculation, plan.calculation_graph) if runtime else None
+    job = _job(calculation, legacy, results, evidence)
+
+    def execute():
+        if context is None:
+            return job.execute(plan)
+        return _only_execute_generation_bound_calculation_job(
+            plan, calculation, legacy, legacy._test_execution_evidence_store, results, evidence, context
+        )
+
+    first = execute()
+    target = evidence._target(first.calculation_execution_evidence_fingerprint)
+    method = "load_exact_for_result" if runtime else "require_for_result"
+    lookup = getattr(OnlyResearchCalculationExecutionEvidenceStoreV2, method)
+    snapshots = []
+    backend_calls = []
+
+    def lose_after_read(self, *args, **kwargs):
+        selected = lookup(self, *args, **kwargs)
+        target.rename(tmp_path / "unavailable-selected-producer")
+        snapshots.append(_bytes(tmp_path))
+        return selected
+
+    def forbidden(*args, **kwargs):
+        backend_calls.append(True)
+        raise AssertionError("selected producer loss authorized numerical work")
+
+    monkeypatch.setattr(OnlyResearchCalculationExecutionEvidenceStoreV2, method, lose_after_read)
+    monkeypatch.setattr(OnlyResearchCalculationExecutor, "_execute_verified_v2", forbidden)
+    with pytest.raises(OnlyResearchJobError) as raised:
+        execute()
+    assert backend_calls == []
+    assert raised.value.code == "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND"
+    assert len(snapshots) == 1
+    assert snapshots[0] == _bytes(tmp_path)
     assert not target.exists()
 
 
