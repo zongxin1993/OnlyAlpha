@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import shutil
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 from onlyalpha.research.artifact.calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
@@ -94,13 +97,16 @@ def test_inventory_empty_optional_namespace_is_only_a_current_snapshot(tmp_path,
     assert _bytes(tmp_path) == before
 
 
-def test_inventory_consumer_failure_releases_exclusion_without_publishing(tmp_path):
+@pytest.mark.parametrize("exception_type", [RuntimeError, ValueError, OSError])
+def test_inventory_consumer_failure_releases_exclusion_without_publishing(tmp_path, exception_type):
     root = tmp_path / "artifacts"
     store = _empty(root)
+    error = exception_type("consumer stopped")
     before = _bytes(tmp_path)
-    with pytest.raises(RuntimeError, match="consumer stopped"):
+    with pytest.raises(type(error), match="consumer stopped") as raised:
         with store.inspect_retained_for_calculation("a" * 64):
-            raise RuntimeError("consumer stopped")
+            raise error
+    assert raised.value is error
     assert _bytes(tmp_path) == before
     descriptor = os.open(root / ".source-cut.lock", os.O_RDONLY)
     try:
@@ -145,6 +151,118 @@ def test_shared_calculation_inventory_retains_all_complete_producers_without_lat
         )
     with store.inspect_retained_for_calculation("f" * 64) as unrelated:
         assert unrelated == ()
+    assert _bytes(tmp_path) == before
+
+
+def test_inventory_calculation_membership_spans_different_portable_result_plans(tmp_path):
+    from onlyalpha.canonical import only_canonical_json
+    from onlyalpha.research.artifact.calculation_v2_model import (
+        OnlyResearchCalculationArtifactFileV2,
+        _only_calculation_artifact_reference_manifest,
+    )
+    from onlyalpha.research.artifact.calculation_v2_sections import _section_json, _section_tables
+    from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
+    from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
+    from onlyalpha.research.calculation.execution_provenance import _only_issue_research_runtime_execution_context
+    from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
+    from onlyalpha.research.result.plan import OnlyResearchResultCalculationPlan, OnlyResearchResultSeriesPlan
+    from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, _graph, _registry
+    from tests.research.calculation.test_result_v2_store import AUDIT
+
+    publish, store, _, _, results, evidence = _publication(tmp_path)
+    first = publish()
+    calculations = evidence._result_store
+    datasets = calculations._dataset_store
+    graph = _graph(period=1)
+    implementation = first.manifest.selected_evidence[0].research_implementation_bindings[0]
+    context = _only_issue_research_runtime_execution_context(
+        first.manifest.expected_runtime_provenance,
+        graph.fingerprint,
+        ((graph.nodes[0].fingerprint, implementation.research_implementation_fingerprint),),
+    )
+    execution = OnlyResearchCalculationExecutor(
+        datasets, OnlyResearchCalculationBackendResolver(_registry())
+    )._execute_verified_v2(first.manifest.dataset.snapshot_fingerprint, graph, PUBLICATION, runtime_context=context)
+    second_calculation = calculations.commit(execution, graph)
+    second_evidence = evidence._publish_verified(execution, second_calculation)
+    second_id = second_calculation.manifest.calculation_fingerprint
+    plan = replace(
+        first.manifest.result.plan,
+        calculations=tuple(
+            sorted(
+                (
+                    *first.manifest.result.plan.calculations,
+                    OnlyResearchResultCalculationPlan(second_id, graph.fingerprint),
+                )
+            )
+        ),
+        published_series=tuple(
+            sorted(
+                (
+                    *first.manifest.result.plan.published_series,
+                    OnlyResearchResultSeriesPlan(
+                        None, second_id, graph.nodes[0].fingerprint, graph.nodes[0].definition.outputs[0].name
+                    ),
+                )
+            )
+        ),
+    )
+    assembled = OnlyResearchResultAssembler(
+        None, audit_time=lambda: AUDIT, readiness_result_store=calculations, readiness_evidence_store=evidence
+    ).assemble(plan)
+    results.commit(assembled)
+    dataset = datasets.load_verified_table(first.manifest.dataset.snapshot_fingerprint)
+    by_calculation = {
+        first.manifest.calculations[0].calculation_fingerprint: calculations.load_verified(
+            first.manifest.calculations[0].calculation_fingerprint
+        ),
+        second_id: second_calculation,
+    }
+    by_evidence = {
+        first.manifest.calculations[0].calculation_fingerprint: first.manifest.selected_evidence[0],
+        second_id: second_evidence,
+    }
+    manifest = _only_calculation_artifact_reference_manifest(
+        result=assembled.manifest,
+        dataset=dataset.snapshot,
+        calculations=tuple(by_calculation[item.calculation_fingerprint].manifest for item in plan.calculations),
+        selected_evidence=tuple(by_evidence[item.calculation_fingerprint] for item in plan.calculations),
+        retained_generation=first.manifest.retained_generation,
+        sealed_input=first.manifest.sealed_input,
+    )
+    # Copy-only portable fixture: both Calculations/Evidence and this Result came
+    # from their canonical producers above. Encoding a replica is not a native
+    # materializer invocation, input issuance, Work or Attempt publication proof.
+    target = _root(tmp_path, manifest.artifact_content_fingerprint)
+    target.mkdir(parents=True)
+    for partition in dataset.snapshot.partitions:
+        output = target / "dataset" / partition.relative_path
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(datasets._target(dataset.snapshot.snapshot_fingerprint) / partition.relative_path, output)
+    for identity, calculation in by_calculation.items():
+        for partition in (*calculation.manifest.value_partitions, *calculation.manifest.readiness_partitions):
+            output = target / "calculations" / identity / partition.relative_path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(calculations._target(identity) / partition.relative_path, output)
+    for relative, table in _section_tables(manifest, dataset.table, by_calculation).items():
+        pq.write_table(table, target / relative)
+    for relative, raw in _section_json(manifest).items():
+        (target / relative).write_bytes(raw)
+    descriptors = []
+    for relative in sorted(manifest.expected_files):
+        raw = (target / relative).read_bytes()
+        descriptors.append(OnlyResearchCalculationArtifactFileV2(relative, hashlib.sha256(raw).hexdigest(), len(raw)))
+    manifest = replace(manifest, files=tuple(descriptors), created_at=AUDIT)
+    (target / "artifact_manifest.json").write_text(only_canonical_json(manifest.to_dict()))
+    assert manifest.result.research_result_plan_fingerprint != first.manifest.result.research_result_plan_fingerprint
+    before = _bytes(tmp_path)
+    with store.inspect_retained_for_calculation(first.manifest.calculations[0].calculation_fingerprint) as retained:
+        assert {item.manifest.artifact_content_fingerprint for item in retained} == {
+            first.manifest.artifact_content_fingerprint,
+            manifest.artifact_content_fingerprint,
+        }
+    with store.inspect_retained_for_calculation(second_id) as retained:
+        assert tuple(item.manifest for item in retained) == (manifest,)
     assert _bytes(tmp_path) == before
 
 
