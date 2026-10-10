@@ -9,6 +9,7 @@ import shutil
 import sys
 import uuid
 from collections.abc import Callable
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -84,12 +85,32 @@ class OnlyParquetResearchCalculationResultStoreV2:
     def commit(
         self, verified_execution: _OnlyVerifiedResearchCalculationExecutionV2, graph: OnlyCalculationGraphDefinition
     ) -> OnlyResearchCalculationResultV2:
-        execution = _only_require_verified_research_calculation_execution_v2(verified_execution)
+        _only_require_verified_research_calculation_execution_v2(verified_execution)
         # Deployment preprovisions this anchor; the Store may create its root,
         # but never owns creation or durability of ancestors above the anchor.
         authority_parent = self._root.parent
         if authority_parent.is_symlink() or not authority_parent.is_dir():
             raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", "authority parent must be a real directory")
+        try:
+            with closing(_OnlyBoundPublicationTree(self._root, authority_parent)) as tree:
+                tree.bind_directory(authority_parent)
+                result = self._commit_with_parent(verified_execution, graph, tree)
+                tree.require_namespace()
+                return result
+        except OnlyResearchCalculationResultStoreError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise OnlyResearchCalculationResultStoreError(
+                "RESULT_COMMIT_FAILED", "owning parent binding failed"
+            ) from exc
+
+    def _commit_with_parent(
+        self,
+        verified_execution: _OnlyVerifiedResearchCalculationExecutionV2,
+        graph: OnlyCalculationGraphDefinition,
+        tree: _OnlyBoundPublicationTree,
+    ) -> OnlyResearchCalculationResultV2:
+        execution = _only_require_verified_research_calculation_execution_v2(verified_execution)
         try:
             if execution.calculation_graph_fingerprint != graph.fingerprint:
                 raise ValueError("sealed Graph linkage mismatch")
@@ -116,7 +137,7 @@ class OnlyParquetResearchCalculationResultStoreV2:
             created_at = self._audit_timestamp()
         except Exception as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", str(exc)) from exc
-        self._root.mkdir(exist_ok=True)
+        tree.create_directory(self._root)
         with self._publication_barrier.publication_existing():
             target = self._target(execution.calculation_fingerprint)
             if _present(target):

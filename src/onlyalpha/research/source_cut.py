@@ -394,7 +394,10 @@ class OnlySourcePublicationBarrier:
                 yield
                 self._require_inspection_binding(tree)
             finally:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError as exc:
+                    raise _inspection_error(exc) from exc
 
     @staticmethod
     def _require_inspection_binding(tree: _OnlyBoundPublicationTree) -> None:
@@ -409,15 +412,29 @@ class OnlySourcePublicationBarrier:
 
     @contextmanager
     def _locked(self, mode: int, *, provision_root: bool = True) -> Iterator[int]:
-        self._require_safe(self._root)
-        if provision_root:
-            self._root.mkdir(parents=True, exist_ok=True)
-        path = self._root / ".source-cut.lock"
-        self._require_safe(path)
+        root = self._root.absolute()
+        path = root / ".source-cut.lock"
         flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
-        with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
+        # Legacy publication/capture may create missing ancestors. Preserve only
+        # that exact configured chain, with no-follow binding before any write.
+        anchor = Path(root.anchor) if provision_root else root
+        with closing(_OnlyBoundPublicationTree(root, anchor)) as tree:
             try:
-                directory = tree.bind_directory(self._root)
+                if provision_root:
+                    pending = []
+                    current = root
+                    while True:
+                        try:
+                            tree.bind_directory(current)
+                            break
+                        except FileNotFoundError:
+                            if current == current.parent:
+                                raise
+                            pending.append(current)
+                            current = current.parent
+                    for current in reversed(pending):
+                        tree.create_directory(current)
+                directory = tree.bind_directory(root)
                 descriptor = os.open(path.name, flags, 0o600, dir_fd=directory)
             except (OSError, ValueError) as exc:
                 raise _inspection_error(exc) from exc
@@ -427,13 +444,21 @@ class OnlySourcePublicationBarrier:
                 except (OSError, ValueError) as exc:
                     raise _inspection_error(exc) from exc
                 self._require_inspection_binding(tree)
-                fcntl.flock(descriptor, mode)
+                try:
+                    fcntl.flock(descriptor, mode)
+                except OSError as exc:
+                    raise _inspection_error(exc) from exc
                 self._require_inspection_binding(tree)
                 yield descriptor
                 self._require_inspection_binding(tree)
             finally:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-                os.close(descriptor)
+                try:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    except OSError as exc:
+                        raise _inspection_error(exc) from exc
+                finally:
+                    os.close(descriptor)
 
     def _require_safe(self, target: Path) -> None:
         current = target
@@ -447,6 +472,6 @@ class OnlySourcePublicationBarrier:
 
 def _inspection_error(error: OSError | ValueError) -> OnlySourceCutError:
     invalid = isinstance(error, ValueError) or (
-        isinstance(error, OSError) and error.errno in {errno.ENOTDIR, errno.ELOOP}
+        isinstance(error, OSError) and error.errno in {errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
     )
     return OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_INVALID" if invalid else "SOURCE_PUBLICATION_UNAVAILABLE")

@@ -55,6 +55,21 @@ class _OnlyBoundPublicationTree:
             raise ValueError("publication directory is outside its owning anchor")
         return self._directory(path)
 
+    def create_directory(self, path: Path) -> int:
+        """Explicit owner creation below an already bound parent, never pathname mkdir."""
+        path = path.absolute()
+        if path == self.anchor or self.anchor not in path.parents:
+            raise ValueError("directory creation must be below its preprovisioned anchor")
+        parent = self._directory(path.parent)
+        self.require_namespace()
+        try:
+            os.mkdir(path.name, dir_fd=parent)
+        except FileExistsError:
+            pass
+        descriptor = self._directory(path)
+        self.require_namespace()
+        return descriptor
+
     def bind_existing_target(self) -> bool:
         """Prove a local target lookup beneath an available, no-follow anchor.
 

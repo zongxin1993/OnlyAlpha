@@ -300,6 +300,13 @@ a substitute for this read-only primitive. Owning write paths may initialize
 coordination metadata; V2 acknowledgement never recreates a missing semantic root.
 Calculation commit retains its existing permission to create its root only under
 the preprovisioned parent, after sealed input/Graph validation.
+Its parent descriptor is retained across validation and root creation; creation
+uses that directory descriptor, not a pathname that a Source/audit hook can replace.
+Legacy publication/capture may still initialize their configured directory chain,
+but bind every existing ancestor before creating each missing child via its bound
+parent descriptor. Initial or later symlink substitution cannot redirect that
+creation into an unrelated directory. Acquisition/unlock I/O failures remain
+unavailable and always close the owned descriptors, including when unlock fails.
 
 All publishers and retained-cut captures also bind/recheck this regular lock and
 their owning ancestors. Locks are advisory, not protection against an administrator
