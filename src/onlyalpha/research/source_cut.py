@@ -454,6 +454,8 @@ class OnlySourcePublicationBarrier:
             directory = tree.bind_directory(root)
             self._require_inspection_binding(tree)
             descriptor = os.open(path.name, flags, 0o600, dir_fd=directory)
+        except OnlySourceCutError:
+            raise
         except (OSError, ValueError) as exc:
             raise _inspection_error(exc) from exc
         locked_descriptor = descriptor

@@ -306,6 +306,12 @@ uses that directory descriptor, not a pathname that a Source/audit hook can repl
 locking the regular coordination file. It does not reopen and select another owner
 between root creation and lock acquisition. The locked descriptor is the one
 retained and verified by the tree; successful return rechecks that same relation.
+Artifact similarly retains its original root across the initial full table
+verification and predecessor acknowledgement, before creating a coordination file.
+It repeats predecessor acknowledgement under exclusion and immediately before
+rename. Internal post-publication acknowledgement remains inside that same owner
+lock; it does not open another coordination lock or select another owner. These
+preflight checks grant no reuse, absence or publication permission on their own.
 Legacy publication/capture may still initialize their configured directory chain,
 but bind every existing ancestor before creating each missing child via its bound
 parent descriptor. Initial or later symlink substitution cannot redirect that

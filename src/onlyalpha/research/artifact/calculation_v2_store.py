@@ -153,9 +153,22 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         """Internal materializer hook; no public caller-authored candidate commit."""
         if self._root.is_symlink() or not self._root.is_dir():
             raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", "Artifact anchor must be preprovisioned")
-        return self._publish_under_barrier(manifest, tables, acknowledge_predecessors=acknowledge_predecessors)
+        try:
+            with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
+                tree.bind_directory(self._root)
+                only_verify_calculation_artifact_tables_v2(manifest, tables)
+                # Predecessor failure must not initialize Artifact coordination.
+                # Repeat the owning checks inside exclusion and before rename.
+                acknowledge_predecessors()
+                with self._publication_barrier.publication_bound(tree):
+                    return self._publish_under_barrier(
+                        manifest, tables, acknowledge_predecessors=acknowledge_predecessors
+                    )
+        except OnlyResearchArtifactStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
 
-    @_only_barrier_publication
     def _publish_under_barrier(
         self,
         manifest: OnlyResearchCalculationArtifactManifestV2,
@@ -164,14 +177,13 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         acknowledge_predecessors: Callable[[], None],
     ) -> OnlyResearchCalculationArtifactV2:
         try:
-            only_verify_calculation_artifact_tables_v2(manifest, tables)
             identity = manifest.artifact_content_fingerprint
             target = self._target(identity)
             if self._root.is_symlink() or not self._root.is_dir():
                 raise ValueError("Artifact durability anchor must be preprovisioned")
             acknowledge_predecessors()
             if os.path.lexists(target):
-                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
+                return self._acknowledge_under_barrier(identity, manifest.result.research_result_fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(identity)
             stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -245,7 +257,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 except OSError:
                     if not os.path.lexists(target):
                         raise
-                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
+                return self._acknowledge_under_barrier(identity, manifest.result.research_result_fingerprint)
             finally:
                 if stage.is_dir() and not stage.is_symlink():
                     shutil.rmtree(stage)
@@ -256,6 +268,9 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
 
     @_only_barrier_publication
     def _acknowledge(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
+        return self._acknowledge_under_barrier(identity, result_fingerprint)
+
+    def _acknowledge_under_barrier(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
         target = self._target(identity)
         try:
             result = self.load_verified(identity, research_result_fingerprint=result_fingerprint)
