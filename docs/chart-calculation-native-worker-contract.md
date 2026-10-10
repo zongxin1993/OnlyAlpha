@@ -130,7 +130,8 @@ callable privileged functions. The ClickHouse credential must have immutable
 Fact SELECT surface. Missing roots or schema reference, unsafe credentials and
 unavailable readers fail closed, without provisioning or Source repair.
 Effective PostgreSQL checks include PUBLIC grants on restricted PG18 filesystem,
-maintenance and replication functions (all overloads), and secret-bearing
+maintenance, replication, configuration and memory-diagnostic functions (all
+overloads, including the functions underlying restricted system views), and secret-bearing
 `pg_authid.rolpassword`, `pg_user_mapping.umoptions` and
 `pg_subscription.subconninfo` columns. Role dependency inspection alone cannot
 prove these absent: PUBLIC has no dependency on the admitted login/group.

@@ -8,9 +8,23 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
 @pytest.mark.parametrize(
-    "function", ["pg_read_file(text)", "pg_read_binary_file(text)", "pg_ls_dir(text)", "lo_import(text)"]
+    "function",
+    [
+        "pg_read_file(text)",
+        "pg_read_binary_file(text)",
+        "pg_ls_dir(text)",
+        "lo_import(text)",
+        "pg_show_all_file_settings()",
+        "pg_hba_file_rules()",
+        "pg_ident_file_mappings()",
+        "pg_config()",
+        "pg_get_shmem_allocations()",
+        "pg_get_shmem_allocations_numa()",
+        "pg_get_backend_memory_contexts()",
+        "pg_get_aios()",
+    ],
 )
-def test_source_bootstrap_rejects_public_server_file_authority(isolated_postgres_cluster, function):
+def test_source_bootstrap_rejects_public_restricted_builtin_authority(isolated_postgres_cluster, function):
     import psycopg
     from onlyalpha_runtime_generation_manager.chart_native_source import only_require_chart_source_reader
     from psycopg import sql

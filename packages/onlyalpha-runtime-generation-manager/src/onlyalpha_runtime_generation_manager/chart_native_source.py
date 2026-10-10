@@ -59,7 +59,7 @@ _SOURCE_TABLES = (
 
 
 # PG18 removes PUBLIC EXECUTE from these administrative capabilities at initdb
-# (src/backend/catalog/system_functions.sql). Check effective privileges, not
+# (src/backend/catalog/system_functions.sql and system_views.sql). Check effective privileges, not
 # proacl/dependency shape: a PUBLIC grant has no dependency on this reader. Match
 # names to cover every overload. None is required by the owning Source readers.
 _RESTRICTED_BUILTINS = (
@@ -110,6 +110,14 @@ _RESTRICTED_BUILTINS = (
     "pg_ls_logicalsnapdir",
     "pg_ls_logicalmapdir",
     "pg_ls_replslotdir",
+    "pg_show_all_file_settings",
+    "pg_hba_file_rules",
+    "pg_ident_file_mappings",
+    "pg_config",
+    "pg_get_shmem_allocations",
+    "pg_get_shmem_allocations_numa",
+    "pg_get_backend_memory_contexts",
+    "pg_get_aios",
 )
 
 
