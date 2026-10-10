@@ -12,6 +12,14 @@ from onlyalpha.research.source_cut import OnlySourcePublicationBarrier
 
 def main() -> None:
     root, mode = Path(sys.argv[1]), sys.argv[2]
+    barrier = OnlySourcePublicationBarrier(root)
+    if mode == "nested-publication":
+        with barrier.publication():
+            print("outer", flush=True)
+            assert sys.stdin.readline().strip() == "continue"
+            with barrier.publication():
+                print("nested", flush=True)
+        return
     operation = fcntl.LOCK_SH if mode == "publication" else fcntl.LOCK_EX
     descriptor = os.open(root / ".source-cut.lock", os.O_RDONLY)
     try:
@@ -23,7 +31,6 @@ def main() -> None:
             raise AssertionError("conflicting owning lock was not held")
     finally:
         os.close(descriptor)
-    barrier = OnlySourcePublicationBarrier(root)
     context = barrier.publication() if mode == "publication" else barrier.inspect_readonly()
     with context:
         print("entered", flush=True)

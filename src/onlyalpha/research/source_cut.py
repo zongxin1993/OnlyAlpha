@@ -6,6 +6,7 @@ module neither discovers source roots nor grants completeness to a caller or Mem
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
@@ -13,13 +14,14 @@ import shutil
 import stat
 import uuid
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
 from threading import local
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
 
 
 class OnlySourceCutError(ValueError):
@@ -53,6 +55,17 @@ def only_source_publication[**P, T](method: Callable[P, T]) -> Callable[P, T]:
     @wraps(method)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
         with args[0]._source_cuts.publication():  # type: ignore[attr-defined]
+            return method(*args, **kwargs)
+
+    return wrapped
+
+
+def _only_barrier_publication[**P, T](method: Callable[P, T]) -> Callable[P, T]:
+    """V2 owner write exclusion without composing a historical SourceCut Authority."""
+
+    @wraps(method)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+        with args[0]._publication_barrier.publication_existing():  # type: ignore[attr-defined]
             return method(*args, **kwargs)
 
     return wrapped
@@ -348,24 +361,79 @@ class OnlySourcePublicationBarrier:
             yield descriptor
 
     @contextmanager
+    def publication_existing(self) -> Iterator[int]:
+        """Owner write exclusion without creating/recreating its semantic root."""
+        with self._locked(fcntl.LOCK_SH, provision_root=False) as descriptor:
+            yield descriptor
+
+    @contextmanager
     def capture(self) -> Iterator[None]:
         with self._locked(fcntl.LOCK_EX):
             yield
 
     @contextmanager
-    def _locked(self, mode: int) -> Iterator[int]:
+    def inspect_readonly(self) -> Iterator[None]:
+        """Exclude publishers using an existing bound root/regular lock only.
+
+        This neither provisions the owner nor captures a durable cut. Locking alone
+        proves no semantic predicate, historical absence, acknowledgement or Run
+        outcome. The owning reader must still verify its complete relevant facts.
+        """
+        with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
+            try:
+                tree.bind_directory(self._root)
+                descriptor = tree.bind_file(self._root / ".source-cut.lock")
+            except (OSError, ValueError) as exc:
+                raise _inspection_error(exc) from exc
+            try:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX)
+                except OSError as exc:
+                    raise _inspection_error(exc) from exc
+                self._require_inspection_binding(tree)
+                yield
+                self._require_inspection_binding(tree)
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+    @staticmethod
+    def _require_inspection_binding(tree: _OnlyBoundPublicationTree) -> None:
+        try:
+            tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            # An opened anchor/lock disappearing is substitution, not initial
+            # unavailability and certainly not evidence of an empty owner.
+            if isinstance(exc, FileNotFoundError):
+                raise OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_INVALID") from exc
+            raise _inspection_error(exc) from exc
+
+    @contextmanager
+    def _locked(self, mode: int, *, provision_root: bool = True) -> Iterator[int]:
         self._require_safe(self._root)
-        self._root.mkdir(parents=True, exist_ok=True)
+        if provision_root:
+            self._root.mkdir(parents=True, exist_ok=True)
         path = self._root / ".source-cut.lock"
         self._require_safe(path)
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags, 0o600)
-        try:
-            fcntl.flock(descriptor, mode)
-            yield descriptor
-        finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+        flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+        with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
+            try:
+                directory = tree.bind_directory(self._root)
+                descriptor = os.open(path.name, flags, 0o600, dir_fd=directory)
+            except (OSError, ValueError) as exc:
+                raise _inspection_error(exc) from exc
+            try:
+                try:
+                    tree.bind_file(path, descriptor=descriptor)
+                except (OSError, ValueError) as exc:
+                    raise _inspection_error(exc) from exc
+                self._require_inspection_binding(tree)
+                fcntl.flock(descriptor, mode)
+                self._require_inspection_binding(tree)
+                yield descriptor
+                self._require_inspection_binding(tree)
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
 
     def _require_safe(self, target: Path) -> None:
         current = target
@@ -375,3 +443,10 @@ class OnlySourcePublicationBarrier:
             if current == current.parent:
                 raise OnlySourceCutError("SOURCE_CUT_UNSAFE_PATH")
             current = current.parent
+
+
+def _inspection_error(error: OSError | ValueError) -> OnlySourceCutError:
+    invalid = isinstance(error, ValueError) or (
+        isinstance(error, OSError) and error.errno in {errno.ENOTDIR, errno.ELOOP}
+    )
+    return OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_INVALID" if invalid else "SOURCE_PUBLICATION_UNAVAILABLE")

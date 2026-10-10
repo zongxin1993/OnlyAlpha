@@ -15,6 +15,7 @@ from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.research._durability import _OnlyBoundPublicationTree
+from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .errors import OnlyResearchCalculationError
 from .execution import (
@@ -185,6 +186,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         self._staging_root = self._v2_root / ".staging"
         self._root = self._v2_root / "sha256"
         self._result_store = result_store
+        self._publication_barrier = OnlySourcePublicationBarrier(semantic_root)
 
     def exists(self, evidence_fingerprint: str) -> bool:
         fingerprint = _fingerprint(evidence_fingerprint)
@@ -489,6 +491,12 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise OnlyResearchCalculationError(
                 "RESEARCH_EXECUTION_EVIDENCE_COMMIT_FAILED", "semantic root must be preprovisioned real directory"
             )
+        return self._publish_under_barrier(evidence)
+
+    @_only_barrier_publication
+    def _publish_under_barrier(
+        self, evidence: OnlyResearchCalculationExecutionEvidenceV2
+    ) -> OnlyResearchCalculationExecutionEvidenceV2:
         fingerprint = evidence.evidence_fingerprint
         target = self._target(fingerprint)
         if _present(self._staging_root) and (self._staging_root.is_symlink() or not self._staging_root.is_dir()):
@@ -523,6 +531,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             if stage.is_dir() and not stage.is_symlink():
                 shutil.rmtree(stage)
 
+    @_only_barrier_publication
     def _acknowledge(
         self, evidence: OnlyResearchCalculationExecutionEvidenceV2
     ) -> OnlyResearchCalculationExecutionEvidenceV2:

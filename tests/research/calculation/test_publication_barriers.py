@@ -13,6 +13,15 @@ from tests.research.calculation.test_result_v2_store import _case
 pytestmark = pytest.mark.contract
 
 
+def test_calculation_incomplete_graph_does_not_provision_publication_metadata(tmp_path):
+    from onlyalpha.research.calculation.errors import OnlyResearchCalculationResultStoreError
+
+    _, store, _, sealed = _case(tmp_path)
+    with pytest.raises(OnlyResearchCalculationResultStoreError, match="RESULT_INVALID"):
+        store.commit(sealed, None)
+    assert not (tmp_path / "results").exists()
+
+
 @pytest.mark.parametrize("owner", ["calculation", "evidence", "artifact"])
 @pytest.mark.parametrize("action", ["new", "reuse", "acknowledge"])
 def test_v2_writes_hold_publication_lock_through_sync(tmp_path, monkeypatch, owner, action):

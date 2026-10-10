@@ -279,6 +279,44 @@ Each predecessor is exactly verified and durably acknowledged before the next pu
 its existing Plan-keyed address and source-owned publication barrier; no second Result inventory or migration is introduced.
 Ordinary readers remain read-only. Explicit owning-store publication/reuse paths perform acknowledgement.
 
+### Read-only publication exclusion
+
+Calculation2, Evidence2 and Artifact2 publication and durability re-entry hold their
+owning shared publication barrier through staging, exclusive rename, verification,
+acknowledgement and staging cleanup. Result4 retains its existing barrier. The
+barriers add no scientific identity, producer attestation, persistent inventory or
+historical cut. Native seals, exact selected Evidence and all existing Source and
+predecessor acknowledgement requirements remain mandatory.
+
+`OnlySourcePublicationBarrier.inspect_readonly()` opens the already provisioned
+owner root and regular `.source-cut.lock` through bound no-follow descriptors and
+takes the exclusive lock. It creates no directories/lock/cut, performs no fsync,
+and rechecks every opened ancestor and the lock inode after acquisition and before
+successful return. Initial missing root/lock or I/O/permission failure is
+`SOURCE_PUBLICATION_UNAVAILABLE`; malformed lock/path or substitution of an opened
+binding is `SOURCE_PUBLICATION_BARRIER_INVALID`. Neither is an empty inventory.
+The existing `capture_closed_cut()` still writes retained cut metadata and is not
+a substitute for this read-only primitive. Owning write paths may initialize
+coordination metadata; V2 acknowledgement never recreates a missing semantic root.
+Calculation commit retains its existing permission to create its root only under
+the preprovisioned parent, after sealed input/Graph validation.
+
+All publishers and retained-cut captures also bind/recheck this regular lock and
+their owning ancestors. Locks are advisory, not protection against an administrator
+writing outside the owner. This contract requires local filesystem flock semantics;
+unsupported locking/error outcomes fail closed, with no pathname or network-lock
+fallback. Acquiring a shared publication lock while holding an exclusive inspection
+lock for the same owner is prohibited, not a read-to-write permission upgrade.
+
+A multi-owner read must use the downstream-to-predecessor order
+`Artifact → Result → Evidence → Calculation`, acquire each owning lock once, and
+retain exclusion until its final namespace/relation verification. This matches the
+publication acknowledgement direction. Exclusion alone certifies no semantic
+absence, durable acknowledgement, Run/Attempt occurrence or terminal outcome.
+Complete owning namespace inventory and exact predicate evaluation remain separate
+requirements of cancellation/recovery inspection; a local NOT_FOUND cannot satisfy
+them. No Run mutation, Attempt or Work release is added by this primitive.
+
 Calculation2, Evidence2, Result4 and Artifact2 acknowledgements bind their canonical directory tree and retained files to no-follow
 descriptors before verification and synchronization. They check inode/type relations and exact leaf sets before and after syncing
 and rereading the same descriptors. A prefix symlink, an additional retained entry, or even a byte-identical replacement inode must

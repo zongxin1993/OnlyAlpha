@@ -49,11 +49,11 @@ class _OnlyBoundPublicationTree:
             raise ValueError("publication leaf must be a regular file")
         return descriptor
 
-    def bind_directory(self, path: Path) -> None:
+    def bind_directory(self, path: Path) -> int:
         path = path.absolute()
         if path != self.anchor and self.anchor not in path.parents:
             raise ValueError("publication directory is outside its owning anchor")
-        self._directory(path)
+        return self._directory(path)
 
     def bind_existing_target(self) -> bool:
         """Prove a local target lookup beneath an available, no-follow anchor.

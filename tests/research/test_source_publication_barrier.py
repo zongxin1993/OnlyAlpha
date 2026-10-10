@@ -62,8 +62,17 @@ def test_readonly_inspection_missing_anchor_is_unavailable_without_provision(tmp
     assert not (root / ".source-cut.lock").exists()
 
 
+def test_existing_owner_publication_never_recreates_missing_semantic_root(tmp_path):
+    root = tmp_path / "owner"
+    with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_UNAVAILABLE"):
+        with OnlySourcePublicationBarrier(root).publication_existing():
+            pytest.fail("missing owner authorized publication acknowledgement")
+    assert not root.exists()
+
+
+@pytest.mark.parametrize("method", ["publication", "capture", "inspect_readonly"])
 @pytest.mark.parametrize("leaf", ["symlink", "directory", "fifo"])
-def test_readonly_inspection_rejects_nonregular_lock_without_blocking(tmp_path, leaf):
+def test_publication_barrier_rejects_nonregular_lock_without_blocking(tmp_path, leaf, method):
     root = tmp_path / "owner"
     root.mkdir()
     lock = root / ".source-cut.lock"
@@ -75,19 +84,24 @@ def test_readonly_inspection_rejects_nonregular_lock_without_blocking(tmp_path, 
         lock.mkdir()
     else:
         os.mkfifo(lock)
-    with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_BARRIER_INVALID"):
-        with OnlySourcePublicationBarrier(root).inspect_readonly():
+    expected = OnlySourceCutError if method == "inspect_readonly" else (OnlySourceCutError, OSError)
+    error = "SOURCE_PUBLICATION_BARRIER_INVALID"
+    if method != "inspect_readonly":
+        error += "|UNSAFE_PATH|directory"
+    with pytest.raises(expected, match=error):
+        with getattr(OnlySourcePublicationBarrier(root), method)():
             pytest.fail("nonregular lock authorized inspection")
 
 
+@pytest.mark.parametrize("method", ["publication", "capture", "inspect_readonly"])
 @pytest.mark.parametrize("mutation", ["lock", "owner", "ancestor"])
-def test_readonly_inspection_rechecks_complete_binding_before_return(tmp_path, mutation):
+def test_publication_barrier_rechecks_complete_binding_before_return(tmp_path, mutation, method):
     parent = tmp_path / "parent"
     parent.mkdir()
     root = parent / "owner"
     barrier = _provision(root)
     with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_BARRIER_INVALID"):
-        with barrier.inspect_readonly():
+        with getattr(barrier, method)():
             target = {"lock": root / ".source-cut.lock", "owner": root, "ancestor": parent}[mutation]
             target.rename(tmp_path / "original")
             if mutation == "lock":
@@ -158,3 +172,43 @@ def test_publication_and_readonly_inspection_exclude_each_other_across_processes
             if process.poll() is None:
                 process.kill()
             process.communicate(timeout=10)
+
+
+def test_nested_publication_does_not_deadlock_behind_waiting_inspector(tmp_path):
+    root = tmp_path / "owner"
+    _provision(root)
+    publisher = inspector = None
+    try:
+        publisher = subprocess.Popen(
+            [sys.executable, "-m", "tests.runtime_support.source_publication_lock", str(root), "nested-publication"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert publisher.stdout is not None and publisher.stdin is not None
+        ready, _, _ = select.select([publisher.stdout], [], [], 10)
+        assert ready and publisher.stdout.readline().strip() == "outer"
+        inspector = subprocess.Popen(
+            [sys.executable, "-m", "tests.runtime_support.source_publication_lock", str(root), "inspection"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert inspector.stdout is not None
+        ready, _, _ = select.select([inspector.stdout], [], [], 10)
+        assert ready and inspector.stdout.readline().strip() == "blocked"
+        publisher.stdin.write("continue\n")
+        publisher.stdin.flush()
+        output, errors = publisher.communicate(timeout=10)
+        assert publisher.returncode == 0, errors
+        assert output.strip() == "nested"
+        output, errors = inspector.communicate(timeout=10)
+        assert inspector.returncode == 0, errors
+        assert output.strip() == "entered"
+    finally:
+        for process in (publisher, inspector):
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=10)

@@ -29,6 +29,7 @@ from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _s
 from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
 from onlyalpha.research.dataset.sealed_input_evidence import OnlyRetainedSealedChartInputEvidenceV1
 from onlyalpha.research.result.result import OnlyResearchResultManifest
+from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .calculation_v2_model import (
     OnlyResearchCalculationArtifactFileV2,
@@ -59,6 +60,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         self._compression = compression
         self._row_group_size = row_group_size
         self._audit_time = audit_time
+        self._publication_barrier = OnlySourcePublicationBarrier(root)
 
     def load_verified(
         self,
@@ -149,6 +151,18 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         acknowledge_predecessors: Callable[[], None],
     ) -> OnlyResearchCalculationArtifactV2:
         """Internal materializer hook; no public caller-authored candidate commit."""
+        if self._root.is_symlink() or not self._root.is_dir():
+            raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", "Artifact anchor must be preprovisioned")
+        return self._publish_under_barrier(manifest, tables, acknowledge_predecessors=acknowledge_predecessors)
+
+    @_only_barrier_publication
+    def _publish_under_barrier(
+        self,
+        manifest: OnlyResearchCalculationArtifactManifestV2,
+        tables: Mapping[str, pa.Table],
+        *,
+        acknowledge_predecessors: Callable[[], None],
+    ) -> OnlyResearchCalculationArtifactV2:
         try:
             only_verify_calculation_artifact_tables_v2(manifest, tables)
             identity = manifest.artifact_content_fingerprint
@@ -240,6 +254,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
 
+    @_only_barrier_publication
     def _acknowledge(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
         target = self._target(identity)
         try:
