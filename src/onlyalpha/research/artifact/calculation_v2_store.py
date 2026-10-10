@@ -367,6 +367,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         if type(identity) is not str or len(identity) != 64 or any(char not in "0123456789abcdef" for char in identity):
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", "invalid content fingerprint")
         path = self._root
+        mode: int | None
         for part in ("research-calculation-v2", "sha256", identity[:2], identity):
             try:
                 mode = path.lstat().st_mode

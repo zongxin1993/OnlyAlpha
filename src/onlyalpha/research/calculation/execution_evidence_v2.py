@@ -8,7 +8,7 @@ import os
 import shutil
 import stat
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -266,7 +266,10 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                     raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
                 tree.require_exact({"manifest.json"})
                 evidence = self._read_verified(target, fingerprint, tree.read_bytes("manifest.json"))
+                result = self._result_store.load_verified(evidence.calculation_fingerprint)
+                self._require_linkage(evidence, result)
                 tree.require_namespace()
+                return evidence
         except OSError as exc:
             code = (
                 "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
@@ -278,9 +281,6 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise OnlyResearchCalculationError(
                 "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "Evidence namespace changed"
             ) from exc
-        result = self._result_store.load_verified(evidence.calculation_fingerprint)
-        self._require_linkage(evidence, result)
-        return evidence
 
     def acknowledge_exact(self, evidence_fingerprint: str) -> OnlyResearchCalculationExecutionEvidenceV2:
         """Verified publication re-entry, not a read-only lookup or a minting path."""
@@ -361,23 +361,48 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                 )
             self.load_verified(retained.evidence_fingerprint)
 
-    def _iter_retained(self) -> Iterator[OnlyResearchCalculationExecutionEvidenceV2]:
+    def _iter_retained(self) -> tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]:
+        """A bound local read snapshot, never a historical absence witness.
+
+        Read retained attestations without a Result lookup so dangling predecessor
+        checks keep their existing semantics. Consumers independently load owning
+        Results. Enumerated membership and every opened inode are rechecked before
+        returning; unavailable anchors and mid-read loss never produce an empty scan.
+        """
         self._target("0" * 64)
-        if not _present(self._root):
-            return
         try:
-            for prefix in sorted(self._root.iterdir(), key=lambda item: item.name):
-                if (
-                    len(prefix.name) != 2
-                    or any(char not in "0123456789abcdef" for char in prefix.name)
-                    or not stat.S_ISDIR(prefix.lstat().st_mode)
-                ):
-                    raise ValueError("malformed Evidence prefix")
-                for target in sorted(prefix.iterdir(), key=lambda item: item.name):
-                    _sha(target.name, "Evidence target")
-                    if target.name[:2] != prefix.name:
-                        raise ValueError("Evidence prefix/path identity differs")
-                    yield self._read_verified(target, target.name)
+            with closing(_OnlyBoundPublicationTree(self._root, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    return ()
+                retained = []
+                entries = {self._root: tree.directory_entries(self._root)}
+                for name in entries[self._root]:
+                    if len(name) != 2 or any(char not in "0123456789abcdef" for char in name):
+                        raise ValueError("malformed Evidence prefix")
+                    prefix = self._root / name
+                    entries[prefix] = tree.directory_entries(prefix)
+                    for identity in entries[prefix]:
+                        _sha(identity, "Evidence target")
+                        if identity[:2] != name:
+                            raise ValueError("Evidence prefix/path identity differs")
+                        target = prefix / identity
+                        tree.bind_file(target / "manifest.json")
+                        entries[target] = tree.directory_entries(target)
+                        if entries[target] != ("manifest.json",):
+                            raise ValueError("malformed Evidence directory/manifest")
+                        relative = f"{name}/{identity}/manifest.json"
+                        retained.append(self._read_verified(target, identity, tree.read_bytes(relative)))
+                for path, expected in entries.items():
+                    if tree.directory_entries(path) != expected:
+                        raise ValueError("Evidence namespace membership changed during scan")
+                tree.require_namespace()
+                return tuple(retained)
         except OnlyResearchCalculationError:
             raise
         except OSError as exc:
@@ -564,6 +589,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
 
     def _target(self, fingerprint: str) -> Path:
         path = self._semantic_root
+        mode: int | None
         for part in ("calculation-execution-evidence", "v2", "sha256", fingerprint[:2], fingerprint):
             try:
                 mode = path.lstat().st_mode

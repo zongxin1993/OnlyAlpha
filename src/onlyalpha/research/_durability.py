@@ -74,6 +74,14 @@ class _OnlyBoundPublicationTree:
         self.require_namespace()
         return True
 
+    def directory_entries(self, path: Path) -> tuple[str, ...]:
+        """Enumerate the bound directory, never a subsequently replaced pathname."""
+        self.bind_directory(path)
+        self.require_namespace()
+        entries = tuple(sorted(os.listdir(self._directory(path.absolute()))))
+        self.require_namespace()
+        return entries
+
     def read_bytes(self, relative: str, limit: int | None = None) -> bytes:
         path = Path(relative)
         if path.is_absolute() or any(part in {"..", "."} for part in path.parts) or str(path) != relative:

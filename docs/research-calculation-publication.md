@@ -85,6 +85,13 @@ An unavailable owning semantic anchor or permission/device/read failure reports
 `RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE`, not local NOT_FOUND or corruption.
 An available anchor with an unpublished optional namespace can report local
 NOT_FOUND. Existing malformed packages and missing mandatory files remain corrupt.
+Evidence bindings stay open through the owning Calculation Result read and linkage
+check, followed by the final namespace recheck. Exact-miss fallback and dangling
+Evidence inspection enumerate bound directories and read bound regular manifests,
+not unbound pathname text. All visited directory memberships and opened inodes are
+rechecked before returning a local scan snapshot; anchor loss or substitution
+cannot turn relevant incomplete provenance into an empty scan. The snapshot is
+still not a historical/cancellation absence witness and mints no producer authority.
 
 Hosted verification proves execution location, not Chart Work permission. This foundation grants no production Chart dispatch,
 Search-worker durable writes, Claim, Attempt, lease or Run transition. A future Chart caller must independently prove original
