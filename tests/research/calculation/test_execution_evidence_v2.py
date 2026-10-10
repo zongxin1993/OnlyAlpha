@@ -367,7 +367,7 @@ def test_v2_retained_scan_rejects_manifest_substitution_after_bound_read(tmp_pat
     monkeypatch.setattr(durability._OnlyBoundPublicationTree, "read_bytes", substitute)
     monkeypatch.setattr(durability.os, "open", guarded_open)
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
-        store._iter_retained()
+        tuple(store._iter_retained())
 
 
 @pytest.mark.parametrize("action", ["load", "exact"])
@@ -438,7 +438,7 @@ def test_v2_retained_scan_fifo_is_rejected_without_blocking_open(tmp_path, monke
 
     monkeypatch.setattr(durability.os, "open", guarded_open)
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
-        store._iter_retained()
+        tuple(store._iter_retained())
 
 
 def test_v2_evidence_strict_round_trip_binds_versions_result_and_implementation(tmp_path):
