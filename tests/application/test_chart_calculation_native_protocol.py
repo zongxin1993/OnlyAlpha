@@ -43,7 +43,7 @@ def handshake():
     )
 
 
-def test_exact_profile_and_request_roundtrip_is_structural_only(frozen) -> None:
+def test_exact_profile_and_request_roundtrip_is_structural_only(frozen, monkeypatch) -> None:
     request = native_request(frozen)
     assert OnlyChartCalculationNativeExecutionRequestV1.from_dict(request.to_dict()) == request
     request.verify_compilation(frozen)
@@ -52,13 +52,22 @@ def test_exact_profile_and_request_roundtrip_is_structural_only(frozen) -> None:
     assert request.profile.publication == frozen.specification.publication
     assert set(request.to_dict()) == set(OnlyChartCalculationNativeExecutionRequestV1.__dataclass_fields__)
     from onlyalpha.application.chart_calculation_run_admission import only_chart_calculation_queued_run
-    from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError
+    from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
+    from onlyalpha.research.run.errors import OnlyResearchRunStateConflictError
     from tests.application.test_chart_calculation_admission import NOW
 
     run = only_chart_calculation_queued_run(frozen, queued_at=NOW)
-    # A complete valid protocol DTO STILL cannot start the Domain lifecycle.
-    with pytest.raises(OnlyResearchRunIntegrityError, match="execution is not admitted"):
-        run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a structural protocol DTO bypassed the generic Store execution fence")
+
+    monkeypatch.setattr("onlyalpha.persistence.postgres.research_run_store.psycopg.connect", forbidden)
+    # A representable Domain successor and complete protocol DTO STILL cannot
+    # commit execution through the generic Store or mint an Attempt permission.
+    with pytest.raises(OnlyResearchRunStateConflictError, match="fenced Research Execution Store"):
+        OnlyPostgresResearchRunStore("dbname=onlyalpha_test").commit_transition(
+            run, run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+        )
 
 
 @pytest.mark.parametrize(

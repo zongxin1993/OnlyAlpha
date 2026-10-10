@@ -12,6 +12,7 @@ from onlyalpha.application.chart_calculation_run_admission import (
     only_chart_calculation_queued_run,
     only_verify_chart_calculation_run,
 )
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.persistence.postgres.research_run_store import _COLUMNS, OnlyPostgresResearchRunStore
 from onlyalpha.research.run.errors import OnlyResearchRunIntegrityError, OnlyResearchRunStateConflictError
 from onlyalpha.research.run.model import (
@@ -172,11 +173,71 @@ def test_chart_admission_verification_never_uses_lifecycle_to_excuse_wrong_owner
         only_verify_chart_calculation_run(replace(run, **{field: wrong}), frozen)
 
 
-def test_chart_domain_successor_never_grants_generic_store_execution_permission(admitted):
+def test_chart_domain_successor_never_grants_generic_store_execution_permission(admitted, monkeypatch):
     queued, _ = admitted
     running = _running(queued)
-    store = OnlyPostgresResearchRunStore("not-a-connection-string")
+    store = OnlyPostgresResearchRunStore("dbname=onlyalpha_test")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a Domain value bypassed the generic Store execution fence")
+
+    monkeypatch.setattr("onlyalpha.persistence.postgres.research_run_store.psycopg.connect", forbidden)
     with pytest.raises(OnlyResearchRunStateConflictError, match="fenced Research Execution Store"):
         store.commit_transition(queued, running)
     with pytest.raises(OnlyResearchRunStateConflictError, match="fenced Research Execution Store"):
         store.commit_transition(running, _completed(running))
+
+
+def test_chart_failed_value_keeps_publication_locators_without_asserting_completion(admitted):
+    queued, frozen = admitted
+    running = _running(queued)
+    failed = running.transition(
+        OnlyResearchRunState.FAILED,
+        at=NOW + timedelta(seconds=3),
+        failure=FAILURE,
+        research_result_fingerprint=RESULT,
+        artifact_content_fingerprint=ARTIFACT,
+        calculation_execution_evidence_fingerprints=(EVIDENCE,),
+    )
+    only_verify_chart_calculation_run(failed, frozen)
+    assert failed.state is OnlyResearchRunState.FAILED
+    assert failed.failure == FAILURE
+    with pytest.raises(OnlyResearchRunIntegrityError):
+        replace(failed, calculation_execution_evidence_fingerprints=("d" * 64, "e" * 64))
+
+
+@pytest.mark.parametrize("malformed", [None, [], True])
+def test_chart_completed_value_cannot_use_missing_or_untyped_evidence_collection(admitted, malformed):
+    queued, _ = admitted
+    with pytest.raises(OnlyResearchRunIntegrityError):
+        replace(_completed(_running(queued)), calculation_execution_evidence_fingerprints=malformed)
+
+
+def test_chart_failed_value_requires_structured_failure(admitted):
+    queued, _ = admitted
+    failed = _running(queued).transition(OnlyResearchRunState.FAILED, at=NOW + timedelta(seconds=3), failure=FAILURE)
+    with pytest.raises(OnlyResearchRunIntegrityError):
+        replace(failed, failure={"code": "EXECUTION_FAILED"})
+
+
+def test_chart_admission_requires_complete_specification_equality_not_just_compilation_sha(admitted):
+    queued, frozen = admitted
+    specification = replace(queued.specification, dataset_snapshot_fingerprint="f" * 64)
+    different = replace(
+        _running(queued),
+        specification=specification,
+        specification_fingerprint=specification.specification_fingerprint,
+        canonical_specification_payload=only_canonical_json(specification.to_dict()),
+    )
+    assert different.admission_resolution_fingerprint == frozen.compilation_fingerprint
+    with pytest.raises(OnlyChartCalculationError, match="CHART_RUN_ADMISSION_RELATION_CORRUPT"):
+        only_verify_chart_calculation_run(different, frozen)
+
+
+def test_chart_admission_rejects_complete_legacy_owner_even_with_matching_run_locator(admitted):
+    from tests.research.run.test_contract import _queued
+
+    queued, frozen = admitted
+    legacy = replace(_queued(), run_id=queued.run_id, admission_resolution_fingerprint=frozen.compilation_fingerprint)
+    with pytest.raises(OnlyChartCalculationError, match="CHART_RUN_ADMISSION_RELATION_CORRUPT"):
+        only_verify_chart_calculation_run(legacy, frozen)
