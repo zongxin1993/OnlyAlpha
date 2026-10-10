@@ -149,6 +149,73 @@ def _root(tmp_path, evidence):
     return tmp_path / "semantic" / "calculation-execution-evidence" / "v2" / "sha256" / fingerprint[:2] / fingerprint
 
 
+def test_v2_exact_inspection_is_read_only_and_acknowledgement_remains_separate(tmp_path, monkeypatch):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("read-only inspection acknowledged or published")
+
+    with monkeypatch.context() as scope:
+        scope.setattr(store, "_acknowledge", forbidden)
+        scope.setattr(store, "_publish", forbidden)
+        scope.setattr(store._result_store, "commit", forbidden)
+        scope.setattr("onlyalpha.research.calculation.execution_evidence_v2.os.fsync", forbidden)
+        assert (
+            store.load_exact_for_result(calculation, producer.research_implementation_bindings, context.provenance)
+            == producer
+        )
+        with pytest.raises(AssertionError, match="read-only inspection acknowledged or published"):
+            store.require_exact_for_result(calculation, producer.research_implementation_bindings, context.provenance)
+    assert before == {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "runtime_generation_fingerprint",
+        "validation_evidence_fingerprint",
+        "core_execution_fingerprint",
+        "catalog_generation_fingerprint",
+    ],
+)
+def test_v2_read_only_exact_inspection_never_selects_a_complete_different_producer(tmp_path, field):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    different = replace(context.provenance, **{field: "f" * 64})
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND"):
+        store.load_exact_for_result(calculation, producer.research_implementation_bindings, different)
+
+
+def test_v2_read_only_exact_inspection_rejects_relevant_missing_runtime_proof(tmp_path):
+    from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
+
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_IDENTITY_MISMATCH"):
+        store.load_exact_for_result(
+            result,
+            producer.research_implementation_bindings,
+            OnlyResearchRuntimeExecutionProvenanceV1("a" * 64, "b" * 64, "c" * 64, "d" * 64),
+        )
+
+
+@pytest.mark.parametrize("expectation", [None, {}, True])
+def test_v2_exact_inspection_cannot_select_unattested_evidence_without_runtime_expectation(tmp_path, expectation):
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    for action in (store.load_exact_for_result, store.require_exact_for_result):
+        with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_IDENTITY_MISMATCH"):
+            action(result, producer.research_implementation_bindings, expectation)
+
+
 def test_v2_evidence_strict_round_trip_binds_versions_result_and_implementation(tmp_path):
     _, _, _, sealed, result, _ = _case(tmp_path)
     evidence = _model(sealed, result)
