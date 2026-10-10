@@ -188,10 +188,11 @@ def test_chart_domain_successor_never_grants_generic_store_execution_permission(
         store.commit_transition(running, _completed(running))
 
 
-def test_chart_failed_value_keeps_publication_locators_without_asserting_completion(admitted):
+@pytest.mark.parametrize("cancel_requested", [False, True])
+def test_chart_failed_value_keeps_publication_locators_without_asserting_completion(admitted, cancel_requested):
     queued, frozen = admitted
-    running = _running(queued)
-    failed = running.transition(
+    previous = _requested(queued) if cancel_requested else _running(queued)
+    failed = previous.transition(
         OnlyResearchRunState.FAILED,
         at=NOW + timedelta(seconds=3),
         failure=FAILURE,
@@ -202,6 +203,11 @@ def test_chart_failed_value_keeps_publication_locators_without_asserting_complet
     only_verify_chart_calculation_run(failed, frozen)
     assert failed.state is OnlyResearchRunState.FAILED
     assert failed.failure == FAILURE
+    assert failed.revision == (3 if cancel_requested else 2)
+    assert failed.cancel_requested_at == previous.cancel_requested_at
+    assert failed.is_exact_successor_of(previous)
+    row = dict(zip(_COLUMNS, OnlyPostgresResearchRunStore._values(failed), strict=True))
+    assert OnlyPostgresResearchRunStore._decode(row) == failed
     with pytest.raises(OnlyResearchRunIntegrityError):
         replace(failed, calculation_execution_evidence_fingerprints=("d" * 64, "e" * 64))
 
