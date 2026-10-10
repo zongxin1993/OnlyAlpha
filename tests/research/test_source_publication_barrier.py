@@ -70,6 +70,66 @@ def test_existing_owner_publication_never_recreates_missing_semantic_root(tmp_pa
     assert not root.exists()
 
 
+@pytest.mark.parametrize("method", ["publication", "capture"])
+def test_publication_ancestor_symlink_never_creates_directories_before_rejection(tmp_path, method):
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    sentinel = unrelated / "retained"
+    sentinel.write_bytes(b"original")
+    parent = tmp_path / "configured"
+    parent.symlink_to(unrelated, target_is_directory=True)
+    root = parent / "nested" / "owner"
+    with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_BARRIER_INVALID"):
+        with getattr(OnlySourcePublicationBarrier(root), method)():
+            pytest.fail("symlink ancestor authorized owner creation")
+    assert {entry.name for entry in unrelated.iterdir()} == {"retained"}
+    assert sentinel.read_bytes() == b"original"
+
+
+@pytest.mark.parametrize("method", ["publication", "capture"])
+def test_legacy_publication_can_create_only_its_missing_configured_directory_chain(tmp_path, method):
+    root = tmp_path / "first" / "second" / "owner"
+    with getattr(OnlySourcePublicationBarrier(root), method)():
+        assert root.is_dir()
+        assert {entry.name for entry in root.iterdir()} == {".source-cut.lock"}
+    assert {entry.name for entry in tmp_path.iterdir()} == {"first"}
+
+
+@pytest.mark.parametrize("method", ["publication", "capture", "inspect_readonly"])
+@pytest.mark.parametrize("fault_at", ["acquire", "unlock"])
+def test_publication_lock_failures_close_descriptors_and_remain_unavailable(tmp_path, monkeypatch, method, fault_at):
+    root = tmp_path / "owner"
+    barrier = _provision(root)
+    actual_flock, actual_close = fcntl.flock, os.close
+    failed, closed = [], []
+
+    def fail_lock(descriptor, operation):
+        if (operation == fcntl.LOCK_UN) == (fault_at == "unlock"):
+            failed.append(descriptor)
+            raise OSError(errno.EIO, "controlled lock failure")
+        return actual_flock(descriptor, operation)
+
+    def record_close(descriptor):
+        closed.append(descriptor)
+        return actual_close(descriptor)
+
+    with monkeypatch.context() as scope:
+        scope.setattr(fcntl, "flock", fail_lock)
+        scope.setattr(os, "close", record_close)
+        with pytest.raises((OnlySourceCutError, OSError)) as error:
+            with getattr(barrier, method)():
+                assert fault_at == "unlock"
+    assert len(failed) == 1
+    assert failed[0] in closed
+    descriptor = os.open(root / ".source-cut.lock", os.O_RDONLY)
+    try:
+        actual_flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        actual_close(descriptor)
+    assert isinstance(error.value, OnlySourceCutError)
+    assert str(error.value) == "SOURCE_PUBLICATION_UNAVAILABLE"
+
+
 @pytest.mark.parametrize("method", ["publication", "capture", "inspect_readonly"])
 @pytest.mark.parametrize("leaf", ["symlink", "directory", "fifo"])
 def test_publication_barrier_rejects_nonregular_lock_without_blocking(tmp_path, leaf, method):

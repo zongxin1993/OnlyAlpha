@@ -22,6 +22,48 @@ def test_calculation_incomplete_graph_does_not_provision_publication_metadata(tm
     assert not (tmp_path / "results").exists()
 
 
+@pytest.mark.parametrize("boundary", ["source", "audit_time"])
+def test_calculation_parent_substitution_never_creates_root_through_replacement(tmp_path, monkeypatch, boundary):
+    from onlyalpha.research.calculation.errors import OnlyResearchCalculationResultStoreError
+    from onlyalpha.research.source_cut import OnlySourceCutError
+    from tests.research.calculation.test_result_v2_store import AUDIT
+
+    parent = tmp_path / "owner"
+    _, store, graph, sealed = _case(parent)
+    replacement = tmp_path / "unrelated"
+    replacement.mkdir()
+    sentinel = replacement / "retained"
+    sentinel.write_bytes(b"original unrelated bytes")
+
+    def substitute():
+        parent.rename(tmp_path / "original-owner")
+        parent.symlink_to(replacement, target_is_directory=True)
+
+    if boundary == "source":
+        source = store._source
+
+        def changed_source(*args):
+            axes = source(*args)
+            substitute()
+            return axes
+
+        monkeypatch.setattr(store, "_source", changed_source)
+    else:
+
+        def changed_audit():
+            substitute()
+            return AUDIT
+
+        monkeypatch.setattr(store, "_audit_time", changed_audit)
+    with pytest.raises((OnlyResearchCalculationResultStoreError, OnlySourceCutError)) as error:
+        store.commit(sealed, graph)
+    assert {entry.name for entry in replacement.iterdir()} == {"retained"}
+    assert sentinel.read_bytes() == b"original unrelated bytes"
+    assert not (tmp_path / "original-owner" / "results").exists()
+    assert isinstance(error.value, OnlyResearchCalculationResultStoreError)
+    assert error.value.code == "RESULT_COMMIT_FAILED"
+
+
 @pytest.mark.parametrize("owner", ["calculation", "evidence", "artifact"])
 @pytest.mark.parametrize("action", ["new", "reuse", "acknowledge"])
 def test_v2_writes_hold_publication_lock_through_sync(tmp_path, monkeypatch, owner, action):
