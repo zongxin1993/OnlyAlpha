@@ -265,6 +265,30 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1,
         authoring_generation_fingerprint: str | None = None,
     ) -> OnlyResearchCalculationExecutionEvidenceV2:
+        """Exact producer re-entry, including the existing durability acknowledgement."""
+        return self._acknowledge(
+            self.load_exact_for_result(
+                result, implementation_bindings, runtime_provenance, authoring_generation_fingerprint
+            )
+        )
+
+    def load_exact_for_result(
+        self,
+        result: OnlyResearchCalculationResultV2,
+        implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...],
+        runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1,
+        authoring_generation_fingerprint: str | None = None,
+    ) -> OnlyResearchCalculationExecutionEvidenceV2:
+        """Read the exact producer without minting, fsync or publication repair.
+
+        NOT_FOUND is a lookup outcome, not a certified scientific absence. Relevant
+        retained Evidence with incomplete mandatory provenance remains a conflict;
+        a complete different producer never substitutes for the exact expectation.
+        """
+        if type(runtime_provenance) is not OnlyResearchRuntimeExecutionProvenanceV1:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "complete exact Runtime expectation required"
+            )
         loaded = self._reload_result(result)
         manifest = loaded.manifest
         expected = OnlyResearchCalculationExecutionEvidenceV2(
@@ -297,7 +321,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise
         if selected != expected:
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_IDENTITY_MISMATCH", "exact producer differs")
-        return self._acknowledge(selected)
+        return selected
 
     def require_no_retained_evidence_for_calculation(self, calculation_fingerprint: str) -> None:
         """Reject dangling local attestations before interpreting a missing Result as fresh work."""

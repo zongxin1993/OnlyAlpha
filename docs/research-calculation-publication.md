@@ -74,6 +74,14 @@ Generation-bound reuse selects exact Result2, full implementation bindings, full
 provenance when applicable. Finding one numerically equal Result or one otherwise matching Evidence is insufficient. Evidence
 without mandatory generation proof is incomplete for this path, not a proved different producer or permission to overwrite.
 
+`ExecutionEvidenceStoreV2.load_exact_for_result` is the non-mutating exact-producer
+read: full Result2, implementation, Runtime and authoring expectations remain
+mandatory, with no publication or durability acknowledgement. The existing
+`require_exact_for_result` delegates that verification and still acknowledges the
+selected predecessor for publication/re-entry. Neither path accepts a missing
+Runtime expectation for generation-bound selection. Local NOT_FOUND is not a
+scientific-absence witness.
+
 Hosted verification proves execution location, not Chart Work permission. This foundation grants no production Chart dispatch,
 Search-worker durable writes, Claim, Attempt, lease or Run transition. A future Chart caller must independently prove original
 Work eligibility and owning compilation relations through the formal Run boundary.
@@ -88,6 +96,20 @@ the existing Artifact root at `research-calculation-v2/sha256/<first-two-hex>/<a
 extension to the Result-addressed older profiles, whose addresses and readers remain unchanged. There is no Result-SHA fallback,
 latest producer selection or new Artifact Plan/Artifact Result authority. V2 readers require both explicit identities and reject
 a Result/Artifact mismatch; they do not derive a missing Result expectation from the package being queried.
+
+For receipt-less lookup, `ArtifactStoreV2.load_exact_for_publication` derives the
+same existing Manifest2 logical identity from complete verified Result4, Dataset,
+Calculation2, selected Evidence2, retained Generation and sealed Source references.
+It reads the resulting exact Result/Artifact pair using bound no-follow descriptors,
+rechecks the complete package and namespace bindings, and performs no scan, write,
+fsync, acknowledgement or repair. Physical encoding and audit-time differences
+remain excluded by the canonical Manifest identity; no duplicate hash formula or
+new index is introduced. The caller must obtain expectations through owning
+verified readers: parsed copies grant no live Source, producer or Attempt authority.
+Unavailable roots, incomplete context, corruption and substitution fail closed;
+even an exact local NOT_FOUND cannot authorize cancellation or certify scientific
+or historical absence. Stable semantic-absence inspection remains a separate
+reconciliation obligation, not implemented by this lookup.
 
 Artifact logical identity binds profile/schema, exact Result4 identity, complete copied logical sections and exact selected
 Evidence/provenance. Artifact encoding byte hashes, compression, relative storage paths and audit time are excluded. Executable

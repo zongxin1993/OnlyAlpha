@@ -20,11 +20,7 @@ from onlyalpha.research.dataset.publication_input import (
 )
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 
-from .calculation_v2_model import (
-    _CALCULATION_V2_SECTION_FILES,
-    OnlyResearchCalculationArtifactFileV2,
-    OnlyResearchCalculationArtifactManifestV2,
-)
+from .calculation_v2_model import _only_calculation_artifact_reference_manifest
 from .calculation_v2_sections import _section_tables
 from .calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2
@@ -112,31 +108,13 @@ class OnlyResearchCalculationArtifactMaterializerV2:
                     tables[
                         f"calculations/{calculation.manifest.calculation_fingerprint}/{calculation_partition.relative_path}"
                     ] = output.table
-            descriptors = {}
-            for partition in dataset.snapshot.partitions:
-                path = f"dataset/{partition.relative_path}"
-                descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, partition.byte_sha256, 1)
-            for calculation in calculations:
-                for calculation_partition in (
-                    *calculation.manifest.value_partitions,
-                    *calculation.manifest.readiness_partitions,
-                ):
-                    path = f"calculations/{calculation.manifest.calculation_fingerprint}/{calculation_partition.relative_path}"
-                    descriptors[path] = OnlyResearchCalculationArtifactFileV2(
-                        path, calculation_partition.byte_sha256, 1
-                    )
-            manifest = OnlyResearchCalculationArtifactManifestV2(
-                result.manifest,
-                dataset.snapshot,
-                tuple(item.manifest for item in calculations),
-                selected,
-                retained_generation,
-                sealed_input,
-                tuple(
-                    descriptors.get(path, OnlyResearchCalculationArtifactFileV2(path, "0" * 64, 1))
-                    for path in sorted(set(descriptors) | _CALCULATION_V2_SECTION_FILES)
-                ),
-                result.manifest.created_at,
+            manifest = _only_calculation_artifact_reference_manifest(
+                result=result.manifest,
+                dataset=dataset.snapshot,
+                calculations=tuple(item.manifest for item in calculations),
+                selected_evidence=selected,
+                retained_generation=retained_generation,
+                sealed_input=sealed_input,
             )
             if manifest.expected_runtime_provenance != runtime_context.provenance or any(
                 tuple(

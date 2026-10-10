@@ -16,12 +16,22 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.quant_assets.retained_generation import OnlyRetainedRuntimeGenerationProofV1
 from onlyalpha.research._durability import _only_bind_publication_tree, _OnlyBoundPublicationTree
+from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceV2
 from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
 from onlyalpha.research.calculation.result_identity import only_research_calculation_arrow_schema_payload
+from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultManifestV2
 from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _sync_directory, _unique_object
+from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
+from onlyalpha.research.dataset.sealed_input_evidence import OnlyRetainedSealedChartInputEvidenceV1
+from onlyalpha.research.result.result import OnlyResearchResultManifest
 
-from .calculation_v2_model import OnlyResearchCalculationArtifactFileV2, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_model import (
+    OnlyResearchCalculationArtifactFileV2,
+    OnlyResearchCalculationArtifactManifestV2,
+    _only_calculation_artifact_reference_manifest,
+)
 from .calculation_v2_sections import _section_json, _section_schemas
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2, only_verify_calculation_artifact_tables_v2
 from .errors import OnlyResearchArtifactStoreError
@@ -70,6 +80,52 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         ):
             raise OnlyResearchArtifactStoreError("ARTIFACT_PROVENANCE_MISMATCH", "explicit Runtime expectation differs")
         return loaded
+
+    def load_exact_for_publication(
+        self,
+        *,
+        result: OnlyResearchResultManifest,
+        dataset: OnlyResearchDatasetSnapshot,
+        calculations: tuple[OnlyResearchCalculationResultManifestV2, ...],
+        selected_evidence: tuple[OnlyResearchCalculationExecutionEvidenceV2, ...],
+        retained_generation: OnlyRetainedRuntimeGenerationProofV1,
+        sealed_input: OnlyRetainedSealedChartInputEvidenceV1,
+    ) -> OnlyResearchCalculationArtifactV2:
+        """Derive the exact pair from complete references and read its bound package.
+
+        Callers obtain the expectations from owning verified readers. Parsed copies
+        are not Source/producer/Attempt authority. No scan, latest selection, new
+        index, acknowledgement or publication occurs. A local NOT_FOUND cannot
+        certify historical or scientific absence, nor authorize cancellation.
+        """
+        try:
+            reference = _only_calculation_artifact_reference_manifest(
+                result=result,
+                dataset=dataset,
+                calculations=calculations,
+                selected_evidence=selected_evidence,
+                retained_generation=retained_generation,
+                sealed_input=sealed_input,
+            )
+            identity = reference.artifact_content_fingerprint
+            target = self._target(identity)
+            if not self._root.is_dir() or self._root.is_symlink():
+                raise ValueError("Artifact owning root is unavailable or malformed")
+            if not os.path.lexists(target):
+                raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", identity)
+            with _only_bind_publication_tree(target, self._root) as tree:
+                loaded = self._read_verified(target, identity, tree)
+                if (
+                    loaded.manifest.result.research_result_fingerprint != result.research_result_fingerprint
+                    or loaded.manifest.expected_runtime_provenance != reference.expected_runtime_provenance
+                ):
+                    raise ValueError("exact publication references differ")
+                tree.require_namespace()
+                return loaded
+        except OnlyResearchArtifactStoreError:
+            raise
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "exact publication inspection failed") from exc
 
     def _publish_materialized(
         self,

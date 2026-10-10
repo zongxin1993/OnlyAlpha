@@ -299,3 +299,41 @@ def _logical_manifest(payload: dict[str, object], partitions: tuple[str, ...]) -
             item.pop("relative_path")
             item.pop("byte_sha256")
     return payload
+
+
+def _only_calculation_artifact_reference_manifest(
+    *,
+    result: OnlyResearchResultManifest,
+    dataset: OnlyResearchDatasetSnapshot,
+    calculations: tuple[OnlyResearchCalculationResultManifestV2, ...],
+    selected_evidence: tuple[OnlyResearchCalculationExecutionEvidenceV2, ...],
+    retained_generation: OnlyRetainedRuntimeGenerationProofV1,
+    sealed_input: OnlyRetainedSealedChartInputEvidenceV1,
+) -> OnlyResearchCalculationArtifactManifestV2:
+    """Validated logical reference only; placeholder files are never physical proof.
+
+    Publication replaces the descriptors with measured durable bytes. Exact lookup
+    uses only the manifest's existing logical identity, then independently verifies
+    the real package. Neither use issues a producer capability.
+    """
+    descriptors = {}
+    for partition in dataset.partitions:
+        path = f"dataset/{partition.relative_path}"
+        descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, partition.byte_sha256, 1)
+    for calculation in calculations:
+        for partition in (*calculation.value_partitions, *calculation.readiness_partitions):
+            path = f"calculations/{calculation.calculation_fingerprint}/{partition.relative_path}"
+            descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, partition.byte_sha256, 1)
+    return OnlyResearchCalculationArtifactManifestV2(
+        result,
+        dataset,
+        calculations,
+        selected_evidence,
+        retained_generation,
+        sealed_input,
+        tuple(
+            descriptors.get(path, OnlyResearchCalculationArtifactFileV2(path, "0" * 64, 1))
+            for path in sorted(set(descriptors) | _CALCULATION_V2_SECTION_FILES)
+        ),
+        result.created_at,
+    )
