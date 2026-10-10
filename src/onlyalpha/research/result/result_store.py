@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, closing, contextmanager
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
 from onlyalpha.research.calculation.result import OnlyResearchCalculationResult
 from onlyalpha.research.source_cut import (
     OnlySourceClosedCutV1,
@@ -150,6 +153,83 @@ class OnlyJsonResearchResultStore:
 
     def load_verified(self, research_result_plan_fingerprint: str) -> OnlyResearchResult:
         return self._read_verified(self._target(research_result_plan_fingerprint), research_result_plan_fingerprint)
+
+    @contextmanager
+    def inspect_readiness_verified(self, plan_fingerprint: str) -> Iterator[OnlyResearchResult]:
+        """Retain Result4 and every owning predecessor through relation inspection."""
+        from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
+        from onlyalpha.research.calculation.result_v2_store import (
+            OnlyParquetResearchCalculationResultStoreV2,
+            _unique_object,
+        )
+
+        from .readiness_verification import only_verify_readiness_composition
+
+        calculations = self._readiness_result_store
+        evidence = self._readiness_evidence_store
+        if not isinstance(calculations, OnlyParquetResearchCalculationResultStoreV2) or not isinstance(
+            evidence, OnlyResearchCalculationExecutionEvidenceStoreV2
+        ):
+            raise OnlyResearchResultStoreError("RESEARCH_RESULT_CORRUPT", "scoped readiness owners required")
+        target = self._target(plan_fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree, ExitStack() as opened:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchResultStoreError(
+                        "RESEARCH_RESULT_STORE_UNAVAILABLE", "owning root missing"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchResultStoreError("RESEARCH_RESULT_NOT_FOUND", plan_fingerprint)
+                tree.require_exact({"manifest.json"})
+                original_manifest = tree.read_bytes("manifest.json")
+                payload = json.loads(original_manifest, object_pairs_hook=_unique_object)
+                if not isinstance(payload, dict):
+                    raise ValueError("Result manifest must be an object")
+                result = OnlyResearchResult(OnlyResearchResultManifest.from_dict(payload))
+                if result.manifest.research_result_plan_fingerprint != plan_fingerprint:
+                    raise ValueError("Research Result path identity differs")
+                if result.manifest.schema_version != RESEARCH_RESULT_CALCULATION_READINESS_SCHEMA_VERSION:
+                    raise ValueError("Result4 required for readiness inspection")
+                retained = {}
+                published_producers = opened.enter_context(evidence._inspect_retained())
+                for reference in result.manifest.calculation_results:
+                    calculation = opened.enter_context(calculations.inspect_verified(reference.calculation_fingerprint))
+                    if calculation.manifest.calculation_result_fingerprint != reference.calculation_result_fingerprint:
+                        raise ValueError("Result4 exact Calculation relation differs")
+                    retained[reference.calculation_fingerprint] = calculation
+                    matched = False
+                    for producer in published_producers:
+                        verified = opened.enter_context(evidence.inspect_verified(producer.evidence_fingerprint))
+                        if verified != producer:
+                            raise ValueError("Result4 producer changed during inspection")
+                        if verified.calculation_fingerprint == reference.calculation_fingerprint:
+                            evidence._require_linkage(verified, calculation)
+                            matched = True
+                    if not matched:
+                        raise ValueError("Result4 has no owning producer Evidence")
+                only_verify_readiness_composition(result.manifest.plan, retained)
+                tree.require_namespace()
+                try:
+                    yield result
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+                if tree.read_bytes("manifest.json") != original_manifest:
+                    raise ValueError("Research Result manifest changed in place during inspection")
+                tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESEARCH_RESULT_STORE_UNAVAILABLE"
+                if isinstance(exc, OSError)
+                and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESEARCH_RESULT_CORRUPT"
+            )
+            raise OnlyResearchResultStoreError(code, "scoped Result binding failed") from exc
 
     def _admit(self, result: OnlyResearchResult) -> OnlyResearchResult:
         if not isinstance(result, OnlyResearchResult):
@@ -373,8 +453,14 @@ class OnlyJsonResearchResultStore:
             if stage.is_dir() and not stage.is_symlink():
                 shutil.rmtree(stage)
 
-    @only_source_publication
     def acknowledge_exact(self, plan_fingerprint: str, result_fingerprint: str) -> OnlyResearchResult:
+        # Re-entry may acknowledge an existing owner, never recreate a lost root.
+        with self._source_cuts._publication_barrier.publication_existing() as descriptor:
+            return self._acknowledge_existing(plan_fingerprint, result_fingerprint, descriptor)
+
+    def _acknowledge_existing(
+        self, plan_fingerprint: str, result_fingerprint: str, locked_descriptor: int
+    ) -> OnlyResearchResult:
         """Resync an exact V4 publication and all Calculation predecessors; ordinary reads do not write."""
         from onlyalpha.research.calculation.result_v2_store import _sync_directory
 
@@ -386,7 +472,6 @@ class OnlyJsonResearchResultStore:
         assert self._readiness_result_store is not None
         assert self._readiness_evidence_store is not None
         try:
-            locked_descriptor = self._source_cuts._publication_lock_descriptor()
             for reference in result.manifest.calculation_results:
                 calculation = self._readiness_result_store.acknowledge_exact(
                     reference.calculation_fingerprint, reference.calculation_result_fingerprint
@@ -405,7 +490,6 @@ class OnlyJsonResearchResultStore:
                 tree.synchronize(_sync_directory)
                 reloaded = self._read_verified(target, plan_fingerprint, tree.read_bytes("manifest.json"))
                 tree.require_namespace()
-                self._source_cuts._publication_lock_descriptor()
                 if reloaded != bound:
                     raise ValueError("Research Result changed during acknowledgement")
                 return reloaded

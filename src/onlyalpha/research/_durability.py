@@ -49,11 +49,53 @@ class _OnlyBoundPublicationTree:
             raise ValueError("publication leaf must be a regular file")
         return descriptor
 
-    def bind_directory(self, path: Path) -> None:
+    def bind_directory(self, path: Path) -> int:
         path = path.absolute()
         if path != self.anchor and self.anchor not in path.parents:
             raise ValueError("publication directory is outside its owning anchor")
-        self._directory(path)
+        return self._directory(path)
+
+    def create_directory(self, path: Path) -> int:
+        """Explicit owner creation below an already bound parent, never pathname mkdir."""
+        path = path.absolute()
+        if path == self.anchor or self.anchor not in path.parents:
+            raise ValueError("directory creation must be below its preprovisioned anchor")
+        parent = self._directory(path.parent)
+        self.require_namespace()
+        try:
+            os.mkdir(path.name, dir_fd=parent)
+        except FileExistsError:
+            pass
+        descriptor = self._directory(path)
+        self.require_namespace()
+        return descriptor
+
+    def bind_existing_target(self) -> bool:
+        """Prove a local target lookup beneath an available, no-follow anchor.
+
+        Missing anchor/IO errors propagate, never become local absence. A missing
+        optional namespace link proves only this local lookup, not historical or
+        scientific absence. Already-open ancestors are rechecked on either outcome.
+        """
+        self.bind_directory(self.anchor)
+        path = self.anchor
+        for part in self.target.relative_to(self.anchor).parts:
+            path = path / part
+            try:
+                self.bind_directory(path)
+            except FileNotFoundError:
+                self.require_namespace()
+                return False
+        self.require_namespace()
+        return True
+
+    def directory_entries(self, path: Path) -> tuple[str, ...]:
+        """Enumerate the bound directory, never a subsequently replaced pathname."""
+        self.bind_directory(path)
+        self.require_namespace()
+        entries = tuple(sorted(os.listdir(self._directory(path.absolute()))))
+        self.require_namespace()
+        return entries
 
     def read_bytes(self, relative: str, limit: int | None = None) -> bytes:
         path = Path(relative)

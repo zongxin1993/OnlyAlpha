@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from hashlib import sha256
+from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
@@ -32,7 +33,7 @@ from onlyalpha.market_data.durable.revision import OnlyMarketDataConflictError
 from onlyalpha.market_data.resolution import OnlyBarConstructionIdentity
 
 from .config import OnlyPostgresConfig
-from .migration import OnlyPostgresSchemaVerifier
+from .migration import DEFAULT_MIGRATION_ROOT, OnlyPostgresSchemaVerifier
 from .version import only_assert_supported_postgres_server
 
 
@@ -53,9 +54,15 @@ class _PostgresAcquisitionExecutionLease:
 
 
 class OnlyPostgresMarketDataCatalog:
-    def __init__(self, dsn: str, *, now: Callable[[], datetime] = only_system_utc_now) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        now: Callable[[], datetime] = only_system_utc_now,
+        migration_root: Path = DEFAULT_MIGRATION_ROOT,
+    ) -> None:
         only_assert_supported_postgres_server(dsn)
-        OnlyPostgresSchemaVerifier(dsn).assert_compatible()
+        OnlyPostgresSchemaVerifier(dsn, migration_root=migration_root).assert_compatible()
         self._dsn = OnlyPostgresConfig(dsn).operational_dsn()
         self._now = now
 

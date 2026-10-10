@@ -253,8 +253,15 @@ def test_result_v4_requires_evidence_before_assembly_commit_and_every_reload(tmp
     before = original.read_bytes()
     with pytest.raises(OnlyResearchResultError) as rejected:
         assembler.assemble(plan)
-    if mutation == "unavailable":
-        assert rejected.value.__cause__.code == "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+    assert (
+        rejected.value.__cause__.code
+        == {
+            "missing": "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND",
+            "corrupt": "RESEARCH_EXECUTION_EVIDENCE_CORRUPT",
+            "disconnected": "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE",
+            "unavailable": "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE",
+        }[mutation]
+    )
     with pytest.raises(OnlyResearchResultStoreError):
         store.commit(result)
     with pytest.raises(OnlyResearchResultStoreError):

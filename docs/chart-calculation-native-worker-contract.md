@@ -22,8 +22,19 @@ names and serialized issued capabilities are not request fields. Constructors
 and structural parsers reject wrong types, boolean versions/counters, unsupported
 versions, missing/unknown fields and malformed canonical identities. The complete
 frozen compilation comparison is structural equality, never owning-read issuance.
-Duplicate-key rejection and bounded confidential transport are responsibilities
-of a future actual wire decoder; there is no JSON transport entry here.
+The Chart-only wire decoder accepts one bounded UTF-8 JSON object followed by LF,
+rejects duplicate keys at every depth and non-finite JSON numbers, and applies the
+same exact structural parsers. It accepts no bootstrap/configuration fields.
+Decoding still neither verifies owning facts nor grants execution permission.
+
+A publication receipt binds the complete original request, Runtime provenance,
+frozen Result Plan and Calculation identities, and exact Calculation Result2,
+Evidence2, Research Result4 and Artifact2 fingerprints. Result4 may be shared;
+Artifact2 is selected by the full `(research_result_fingerprint,
+artifact_content_fingerprint)` pair and Evidence2 is separately mandatory.
+Receipt comparison is structural, not a native seal or independent verified-load.
+The Controller must verify these references through the owning Stores before any
+terminal transaction; a self-consistent receipt is not proof of publication.
 
 The separate native handshake carries the exact existing Runtime execution
 provenance (Generation, Validation Evidence, Core and Catalog) and version profile.
@@ -107,6 +118,34 @@ not caller operation fields, inherited plugin state or test-only `runpy` readers
 It receives no Run/Attempt/receipt/lifecycle mutation credentials. Search/E1's
 compute-only bootstrap remains unchanged.
 
+`only_chart_native_input_export` in the Runtime Generation Manager composes the
+existing PostgreSQL Operation/Preparation/Compilation/Integration/catalog readers,
+the physical ClickHouse reader and the Dataset/Runtime owning readers in the
+calling process. Its infrastructure-supplied configuration is separate from the
+Chart request. It does not deserialize an issued input or use a test loader.
+PostgreSQL admission checks the real authenticated non-owner reader principal,
+column/table mutation and extra read privileges, inherited roles, ownership and
+callable privileged functions. The ClickHouse credential must have immutable
+`readonly=1` (not mutable `readonly=2`); deployment must grant only the physical
+Fact SELECT surface. Missing roots or schema reference, unsafe credentials and
+unavailable readers fail closed, without provisioning or Source repair.
+Effective PostgreSQL checks include PUBLIC grants on restricted PG18 filesystem,
+maintenance, replication, configuration and memory-diagnostic functions (all
+overloads, including the functions underlying restricted system views), and secret-bearing
+`pg_authid.rolpassword`, `pg_user_mapping.umoptions` and
+`pg_subscription.subconninfo` columns. Role dependency inspection alone cannot
+prove these absent: PUBLIC has no dependency on the admitted login/group.
+The trusted `schema_reference_root` is handed to
+`OnlyPostgresMarketDataCatalog(migration_root=...)` and its existing exact-ledger
+verifier. An installed interpreter therefore needs no repository loader, copied
+module, or mutation of its site-packages tree to locate the schema reference.
+Changed checksums, missing history and AHEAD/BEHIND remain incompatibility, not
+permission to skip schema verification. The default catalog composition is
+unchanged for existing consumers.
+The Registry's existing lock-file permission is distinct from permission to
+append Generation events. Calling this composition is not installed-byte
+verification, Host readiness, native producer registration or Attempt permission.
+
 The trusted controller retains operational Authority: complete pre-Claim
 Operation/Receipt/Preparation/Pin/Source/physical Dataset/Materialization/Compilation
 verification, exact installed-host capability, and original active Work/Generation.
@@ -117,6 +156,23 @@ verified before fenced terminal commit. PostgreSQL proves operational relations,
 lease and CAS, not external scientific file authenticity. It must not store a
 parallel scientific proof Authority or trust a caller hash/session flag.
 
+The Runtime Generation Manager's `only_verify_chart_native_publication` performs
+that scientific verified-load independently of the installed producer. It compares
+the full original request, original owning Source export, frozen plan/graph,
+live Dataset/Calculation2/Evidence2/Result4 and the explicitly selected Artifact2
+pair against the original Registry Manifest/Validation/Core/Catalog. It issues no
+native seal and performs no SQL mutation or Work release. Missing live
+predecessors refuse current completion even if the offline Artifact is readable.
+The operational Attempt/lease/revision proof remains a separate mandatory
+Controller responsibility; passing a structural request with nonexistent Attempt
+IDs does not satisfy that responsibility.
+
+Human cancellation serializes its Command, acquires Run table ROW EXCLUSIVE write
+intent and the original Run row, and only then writes Admission/history frontier.
+The table lock is necessary because T1 takes SHARE: a row's FOR UPDATE alone holds
+ROW SHARE and could otherwise upgrade behind a SHARE holder waiting on frontier.
+Receipt replay remains read-only; Command conflicts and rollback remain atomic.
+
 Ordinary finalization requires the exact ACTIVE Attempt and valid PG lease.
 No-ACTIVE cancellation reconciliation is a distinct read-only semantic-inspection
 port under ADR0090; it cannot create an execution Attempt or treat incomplete,
@@ -126,3 +182,6 @@ Work release, with exact unknown-ACK/release reconciliation and no rebind.
 Until this complete connection and its PostgreSQL/installed-host failure seams
 exist, parsing these DTOs, acquiring an exact compute-only host or reading original
 input still cannot start a Chart Attempt or mark its Run COMPLETED.
+Chart Domain lifecycle values and immutable admission validation are likewise not
+SQL execution permission: migrations 0048/0049 still prohibit durable execution
+states/Attempts, and current historical readers retain their closed-first fence.

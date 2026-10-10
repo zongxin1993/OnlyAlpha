@@ -66,14 +66,31 @@ def only_require_chart_calculation_new_admission(
 
 
 def only_verify_chart_calculation_run(run: OnlyResearchRun, frozen: OnlyChartCalculationCompilationV1) -> None:
+    """Verify immutable admission projection, independently from lifecycle facts.
+
+    Domain validates the lifecycle value shape. Owning persistence additionally
+    proves original queue time and occurrence relation; execution consumers must
+    prove Attempt/lease/history and scientific closure. This check grants none of
+    those permissions and never interprets optional downstream facts as occurrence.
+    """
     if type(run) is not OnlyResearchRun:
         raise OnlyChartCalculationError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
     run.__post_init__()
     expected = only_chart_calculation_queued_run(frozen, queued_at=run.queued_at)
-    if run.state is OnlyResearchRunState.CANCELLED:
-        assert run.finished_at is not None
-        expected = expected.transition(run.state, at=run.finished_at)
-    if run != expected:
+    if any(
+        getattr(run, name) != getattr(expected, name)
+        for name in (
+            "run_id",
+            "specification",
+            "specification_fingerprint",
+            "canonical_specification_payload",
+            "admission_resolution_fingerprint",
+            "queued_at",
+            "authoring_provenance",
+            "strategy_research_composition_fingerprint",
+            "origin_kind",
+        )
+    ):
         raise OnlyChartCalculationError("CHART_RUN_ADMISSION_RELATION_CORRUPT")
 
 
