@@ -22,7 +22,7 @@ from onlyalpha.application.chart_calculation_compilation import OnlyChartCalcula
 from onlyalpha.application.integration_configuration import OnlyIntegrationId
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.persistence.clickhouse.client import OnlyClickHouseClient
-from onlyalpha.persistence.clickhouse.config import OnlyClickHouseConfig, only_assert_clickhouse_test_database
+from onlyalpha.persistence.clickhouse.config import only_assert_clickhouse_test_database
 from onlyalpha.persistence.clickhouse.market_data_store import OnlyClickHouseMarketFactStore
 from onlyalpha.persistence.clickhouse.migration import OnlyClickHouseMigrationAuthority
 from onlyalpha.persistence.postgres.chart_calculation_compilation_store import (
@@ -37,6 +37,7 @@ from onlyalpha.plugin.integration import OnlyIntegrationTypeId
 from onlyalpha.research.artifact import OnlyParquetResearchCalculationArtifactStoreV2
 from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
 from tests.application.test_market_data_product import _FakeSource
+from tests.market_data_durable.test_real_database_acceptance import _clickhouse
 from tests.research.postgres import test_chart_calculation_preparation as preparation_tests
 from tests.research.postgres.test_chart_calculation_native_publication import _provision_schema_reference
 from tests.research.postgres.test_chart_native_publication_permissions import runtime_login, snapshot
@@ -86,7 +87,7 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
 ):
     from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
 
-    admin = OnlyClickHouseClient(OnlyClickHouseConfig.from_environment())
+    admin = _clickhouse("default")
     name = "onlyalpha_test_chart_source_" + uuid.uuid4().hex
     only_assert_clickhouse_test_database(name)
     user = "chart_source_" + uuid.uuid4().hex
