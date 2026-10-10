@@ -198,6 +198,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             with ExitStack() as opened:
                 memberships: dict[Path, tuple[str, ...]] = {}
                 packages: list[_OnlyBoundPublicationTree] = []
+                observed: list[OnlyResearchCalculationArtifactV2] = []
 
                 def entries(path: Path) -> tuple[str, ...]:
                     names = owner.directory_entries(path)
@@ -206,7 +207,14 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
 
                 def require_inventory() -> None:
                     owner.require_namespace()
-                    for package in packages:
+                    for package, artifact in zip(packages, observed, strict=True):
+                        if (
+                            self._read_verified(
+                                package.target, artifact.manifest.artifact_content_fingerprint, package
+                            ).manifest
+                            != artifact.manifest
+                        ):
+                            raise ValueError("Artifact content changed in place during inspection")
                         package.require_namespace()
                     for path, names in memberships.items():
                         if owner.directory_entries(path) != names:
@@ -242,6 +250,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                                 package = opened.enter_context(closing(_OnlyBoundPublicationTree(target, root)))
                                 packages.append(package)
                                 artifact = self._read_verified(target, identity, package)
+                                observed.append(artifact)
                                 package.require_namespace()
                                 if any(
                                     item.calculation_fingerprint == calculation_fingerprint

@@ -311,7 +311,8 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                 if not tree.bind_existing_target():
                     raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
                 tree.require_exact({"manifest.json"})
-                evidence = self._read_verified(target, fingerprint, tree.read_bytes("manifest.json"))
+                original_manifest = tree.read_bytes("manifest.json")
+                evidence = self._read_verified(target, fingerprint, original_manifest)
                 with self._result_store.inspect_verified(evidence.calculation_fingerprint) as result:
                     self._require_linkage(evidence, result)
                     tree.require_namespace()
@@ -320,6 +321,8 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                     except BaseException as exc:
                         consumer_error = exc
                         raise
+                    if tree.read_bytes("manifest.json") != original_manifest:
+                        raise ValueError("Evidence manifest changed in place during inspection")
                     tree.require_namespace()
         except (OSError, ValueError) as exc:
             if exc is consumer_error:

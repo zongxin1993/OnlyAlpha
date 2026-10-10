@@ -290,6 +290,7 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 if not tree.bind_existing_target():
                     raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
                 retained = {"manifest.json": tree.bind_file(target / "manifest.json")}
+                original_manifest = tree.read_bytes("manifest.json")
                 snapshot, _ = self._load_manifest(target, retained)
                 files = {"manifest.json", *(part.relative_path for part in snapshot.partitions)}
                 tree.require_exact(files)
@@ -303,6 +304,11 @@ class OnlyParquetResearchDatasetSnapshotStore:
                 except BaseException as exc:
                     consumer_error = exc
                     raise
+                if tree.read_bytes("manifest.json") != original_manifest:
+                    raise ValueError("Dataset manifest changed in place during inspection")
+                _, reloaded_snapshot, reloaded_table = self._read_verified(target, snapshot_fingerprint, retained)
+                if reloaded_snapshot != snapshot or not reloaded_table.equals(table, check_metadata=True):
+                    raise ValueError("Dataset content changed during inspection")
                 tree.require_namespace()
         except (OSError, ValueError) as exc:
             if exc is consumer_error:

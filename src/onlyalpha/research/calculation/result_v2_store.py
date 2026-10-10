@@ -236,7 +236,8 @@ class OnlyParquetResearchCalculationResultStoreV2:
                     ) from exc
                 if not tree.bind_existing_target():
                     raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", calculation_fingerprint)
-                payload = json.loads(tree.read_bytes("manifest.json"), object_pairs_hook=_unique_object)
+                original_manifest = tree.read_bytes("manifest.json")
+                payload = json.loads(original_manifest, object_pairs_hook=_unique_object)
                 if not isinstance(payload, dict):
                     raise ValueError("manifest must be an object")
                 manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
@@ -254,6 +255,11 @@ class OnlyParquetResearchCalculationResultStoreV2:
                     except BaseException as exc:
                         consumer_error = exc
                         raise
+                    if tree.read_bytes("manifest.json") != original_manifest:
+                        raise ValueError("Calculation manifest changed in place during inspection")
+                    reloaded = self._read_verified(target, calculation_fingerprint, tree, dataset)
+                    if reloaded.manifest != result.manifest:
+                        raise ValueError("Calculation changed during inspection")
                     tree.require_namespace()
         except (OSError, ValueError) as exc:
             if exc is consumer_error:

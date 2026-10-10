@@ -184,7 +184,8 @@ class OnlyJsonResearchResultStore:
                 if not tree.bind_existing_target():
                     raise OnlyResearchResultStoreError("RESEARCH_RESULT_NOT_FOUND", plan_fingerprint)
                 tree.require_exact({"manifest.json"})
-                payload = json.loads(tree.read_bytes("manifest.json"), object_pairs_hook=_unique_object)
+                original_manifest = tree.read_bytes("manifest.json")
+                payload = json.loads(original_manifest, object_pairs_hook=_unique_object)
                 if not isinstance(payload, dict):
                     raise ValueError("Result manifest must be an object")
                 result = OnlyResearchResult(OnlyResearchResultManifest.from_dict(payload))
@@ -216,6 +217,8 @@ class OnlyJsonResearchResultStore:
                 except BaseException as exc:
                     consumer_error = exc
                     raise
+                if tree.read_bytes("manifest.json") != original_manifest:
+                    raise ValueError("Research Result manifest changed in place during inspection")
                 tree.require_namespace()
         except (OSError, ValueError) as exc:
             if exc is consumer_error:

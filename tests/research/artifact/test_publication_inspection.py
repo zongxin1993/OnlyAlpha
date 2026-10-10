@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 import pytest
 
+from onlyalpha.research.artifact.errors import OnlyResearchArtifactError
 from onlyalpha.research.artifact.publication_inspection import _only_inspect_calculation_publication_prefix
 from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
 from onlyalpha.research.dataset.parquet_store import (
@@ -134,6 +135,35 @@ def test_prefix_retains_bindings_until_common_relation_exit(tmp_path, mutation):
                 shutil.copytree(original, path)
             else:
                 path.write_bytes(original.read_bytes())
+    assert "CORRUPT" in str(raised.value)
+
+
+@pytest.mark.parametrize("mutation", ["result", "calculation", "evidence", "dataset", "artifact_partition"])
+def test_prefix_rechecks_in_place_content_not_only_leaf_inode(tmp_path, mutation):
+    store, artifact, results, evidence = _case(tmp_path)
+    calculation = artifact.manifest.calculations[0]
+    path = {
+        "result": results._target(artifact.manifest.result.research_result_plan_fingerprint) / "manifest.json",
+        "calculation": evidence._result_store._target(calculation.calculation_fingerprint) / "manifest.json",
+        "evidence": evidence._target(artifact.manifest.selected_evidence[0].evidence_fingerprint) / "manifest.json",
+        "dataset": evidence._result_store._dataset_store._target(calculation.dataset_snapshot_fingerprint)
+        / "manifest.json",
+        "artifact_partition": _root(tmp_path, artifact.manifest.artifact_content_fingerprint)
+        / "dataset"
+        / artifact.manifest.dataset.partitions[0].relative_path,
+    }[mutation]
+    inode = path.stat().st_ino
+    with pytest.raises(
+        (
+            OnlyResearchCalculationError,
+            OnlyResearchResultStoreError,
+            OnlyResearchDatasetStoreError,
+            OnlyResearchArtifactError,
+        )
+    ) as raised:
+        with _inspection(store, artifact, results, evidence):
+            path.write_bytes(path.read_bytes() + b" ")
+            assert path.stat().st_ino == inode
     assert "CORRUPT" in str(raised.value)
 
 
