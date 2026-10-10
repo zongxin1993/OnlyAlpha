@@ -255,13 +255,25 @@ def test_inventory_rechecks_every_binding_before_successful_exit(tmp_path, mutat
 
 
 @pytest.mark.parametrize("selected", [True, False])
-def test_incomplete_provenance_cannot_be_filtered_as_an_unrelated_calculation(tmp_path, selected):
+@pytest.mark.parametrize("mutation", ["generation", "result_owner", "nested_result", "source", "duplicate", "family"])
+def test_incomplete_provenance_cannot_be_filtered_as_an_unrelated_calculation(tmp_path, selected, mutation):
     publish, store, _, _, _, _ = _publication(tmp_path)
     artifact = publish()
     target = _root(tmp_path, artifact.manifest.artifact_content_fingerprint)
     manifest = target / "artifact_manifest.json"
     payload = json.loads(manifest.read_text())
-    payload["retained_generation"] = {}
+    if mutation == "generation":
+        payload["retained_generation"] = {}
+    elif mutation == "result_owner":
+        payload["result"]["research_result_fingerprint"] = "f" * 64
+    elif mutation == "nested_result":
+        payload["selected_evidence"][0]["calculation_result_fingerprint"] = "f" * 64
+    elif mutation == "source":
+        payload["sealed_input"] = {}
+    elif mutation == "duplicate":
+        payload["selected_evidence"] *= 2
+    else:
+        payload["profile"] = "RESEARCH_SCIENTIFIC_V1"
     manifest.write_text(json.dumps(payload))
     calculation = artifact.manifest.calculations[0].calculation_fingerprint if selected else "f" * 64
     before = _bytes(tmp_path)
