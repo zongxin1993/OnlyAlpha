@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import errno
 import json
+import os
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -292,6 +294,151 @@ def test_v2_exact_inspection_missing_authoring_is_incomplete_before_runtime_equa
     different = replace(context.provenance, runtime_generation_fingerprint="f" * 64)
     with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_IDENTITY_MISMATCH"):
         store.load_exact_for_result(calculation, producer.research_implementation_bindings, different, "a" * 64)
+
+
+def test_v2_exact_miss_cannot_lose_incomplete_proof_when_anchor_disappears_before_scan(tmp_path, monkeypatch):
+    from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
+
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    target = store._target
+
+    def lose_anchor(identity):
+        path = target(identity)
+        if identity == "0" * 64:
+            store._semantic_root.rename(tmp_path / "unavailable")
+        return path
+
+    monkeypatch.setattr(store, "_target", lose_anchor)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"):
+        store.load_exact_for_result(
+            result,
+            producer.research_implementation_bindings,
+            OnlyResearchRuntimeExecutionProvenanceV1("a" * 64, "b" * 64, "c" * 64, "d" * 64),
+        )
+
+
+def test_v2_retained_scan_never_uses_unbound_pathname_reads(tmp_path, monkeypatch):
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("retained scan used an unbound pathname read")
+
+    monkeypatch.setattr(Path, "read_text", forbidden)
+    assert tuple(store._iter_retained()) == (producer,)
+
+
+@pytest.mark.parametrize("mutation", ["inode", "symlink", "fifo"])
+def test_v2_retained_scan_rejects_manifest_substitution_after_bound_read(tmp_path, monkeypatch, mutation):
+    import onlyalpha.research._durability as durability
+
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    target = store._target(producer.evidence_fingerprint)
+    manifest = target / "manifest.json"
+    read = durability._OnlyBoundPublicationTree.read_bytes
+    substituted = False
+
+    def substitute(tree, relative, *args, **kwargs):
+        nonlocal substituted
+        raw = read(tree, relative, *args, **kwargs)
+        if relative.endswith(f"{producer.evidence_fingerprint}/manifest.json") and not substituted:
+            substituted = True
+            saved = target.parent / "original-manifest"
+            manifest.rename(saved)
+            if mutation == "inode":
+                manifest.write_bytes(saved.read_bytes())
+            elif mutation == "symlink":
+                manifest.symlink_to(saved)
+            else:
+                os.mkfifo(manifest)
+        return raw
+
+    # Guard flags before the real FIFO open, so a broken implementation cannot
+    # make this correctness test block or require a timing-based assertion.
+    original_open = durability.os.open
+
+    def guarded_open(path, flags, *args, **kwargs):
+        if mutation == "fifo" and path == "manifest.json":
+            assert flags & os.O_NONBLOCK
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(durability._OnlyBoundPublicationTree, "read_bytes", substitute)
+    monkeypatch.setattr(durability.os, "open", guarded_open)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
+        store._iter_retained()
+
+
+@pytest.mark.parametrize("action", ["load", "exact"])
+@pytest.mark.parametrize("entry", ["manifest", "target", "prefix"])
+def test_v2_evidence_binding_survives_full_owning_result_verification(tmp_path, monkeypatch, action, entry):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    target = store._target(producer.evidence_fingerprint)
+    path = {"manifest": target / "manifest.json", "target": target, "prefix": target.parent}[entry]
+    load_result = store._result_store.load_verified
+    reads = 0
+
+    def substitute(*args, **kwargs):
+        nonlocal reads
+        loaded = load_result(*args, **kwargs)
+        reads += 1
+        if reads == (2 if action == "exact" else 1):
+            saved = path.with_name(".original")
+            path.rename(saved)
+            if saved.is_dir():
+                shutil.copytree(saved, path)
+                shutil.rmtree(saved)
+            else:
+                path.write_bytes(saved.read_bytes())
+                saved.unlink()
+        return loaded
+
+    monkeypatch.setattr(store._result_store, "load_verified", substitute)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
+        if action == "load":
+            store.load_verified(producer.evidence_fingerprint)
+        else:
+            store.load_exact_for_result(calculation, producer.research_implementation_bindings, context.provenance)
+
+
+def test_v2_bound_evidence_read_preserves_owning_result_error(tmp_path, monkeypatch):
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    fault = OnlyResearchCalculationResultStoreError("RESEARCH_RESULT_UNAVAILABLE", "owning reader")
+
+    def unavailable(*args, **kwargs):
+        raise fault
+
+    monkeypatch.setattr(store._result_store, "load_verified", unavailable)
+    with pytest.raises(OnlyResearchCalculationResultStoreError) as observed:
+        store.load_verified(producer.evidence_fingerprint)
+    assert observed.value is fault
+
+
+def test_v2_retained_scan_fifo_is_rejected_without_blocking_open(tmp_path, monkeypatch):
+    import onlyalpha.research._durability as durability
+
+    _, _, _, sealed, result, store = _case(tmp_path)
+    producer = store._publish_verified(sealed, result)
+    manifest = store._target(producer.evidence_fingerprint) / "manifest.json"
+    manifest.unlink()
+    os.mkfifo(manifest)
+    original_open = durability.os.open
+
+    def guarded_open(path, flags, *args, **kwargs):
+        if path == "manifest.json":
+            assert flags & os.O_NONBLOCK
+            assert flags & os.O_NOFOLLOW
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(durability.os, "open", guarded_open)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_CORRUPT"):
+        store._iter_retained()
 
 
 def test_v2_evidence_strict_round_trip_binds_versions_result_and_implementation(tmp_path):
