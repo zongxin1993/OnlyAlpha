@@ -98,7 +98,7 @@ def test_exact_artifact_inspection_never_uses_incomplete_or_wrong_selected_proof
     assert _bytes(tmp_path) == before
 
 
-def test_exact_artifact_inspection_never_selects_shared_result_from_different_generation(tmp_path):
+def _other_generation_publication(tmp_path, first, results, evidence_store):
     from onlyalpha.distribution import (
         OnlyArtifactSourceProvenanceAuthority,
         OnlyDistributionArtifactManifest,
@@ -136,8 +136,6 @@ def test_exact_artifact_inspection_never_selects_shared_result_from_different_ge
         payload = _replace_proof_payload(proof, distributions=(*proof.distributions, support))
         return OnlyRetainedRuntimeGenerationProofV1.from_dict(payload), graph, bindings
 
-    publish, store, context, selection, results, evidence_store = _publication(tmp_path)
-    first = publish()
     proof, graph, bindings = different_generation()
     provenance = OnlyResearchRuntimeExecutionProvenanceV1(
         proof.generation.runtime_generation_fingerprint,
@@ -170,6 +168,15 @@ def test_exact_artifact_inspection_never_selects_shared_result_from_different_ge
             provenance.runtime_generation_fingerprint,
         ),
     )
+    return second, calculation, other_evidence, provenance
+
+
+def test_exact_artifact_inspection_never_selects_shared_result_from_different_generation(tmp_path):
+    publish, store, context, selection, results, evidence_store = _publication(tmp_path)
+    first = publish()
+    second, calculation, other_evidence, provenance = _other_generation_publication(
+        tmp_path, first, results, evidence_store
+    )
     assert first.manifest.result.research_result_fingerprint == second.manifest.result.research_result_fingerprint
     assert first.manifest.artifact_content_fingerprint != second.manifest.artifact_content_fingerprint
     with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_NOT_FOUND"):
@@ -178,7 +185,9 @@ def test_exact_artifact_inspection_never_selects_shared_result_from_different_ge
     target = _root(tmp_path, second.manifest.artifact_content_fingerprint)
     target.parent.mkdir(parents=True, exist_ok=True)
     identity = second.manifest.artifact_content_fingerprint
-    shutil.copytree(other_root / "research-calculation-v2" / "sha256" / identity[:2] / identity, target)
+    shutil.copytree(
+        tmp_path / "other-artifacts" / "research-calculation-v2" / "sha256" / identity[:2] / identity, target
+    )
     assert store.load_exact_for_publication(**_references(second.manifest)).manifest == second.manifest
     assert store.load_exact_for_publication(**_references(first.manifest)).manifest == first.manifest
     assert (
