@@ -182,3 +182,6 @@ Work release, with exact unknown-ACK/release reconciliation and no rebind.
 Until this complete connection and its PostgreSQL/installed-host failure seams
 exist, parsing these DTOs, acquiring an exact compute-only host or reading original
 input still cannot start a Chart Attempt or mark its Run COMPLETED.
+Chart Domain lifecycle values and immutable admission validation are likewise not
+SQL execution permission: migrations 0048/0049 still prohibit durable execution
+states/Attempts, and current historical readers retain their closed-first fence.

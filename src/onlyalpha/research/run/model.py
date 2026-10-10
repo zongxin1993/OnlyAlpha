@@ -166,18 +166,36 @@ class OnlyResearchRun:
             if self.origin_kind is OnlyResearchOriginKind.CHART_CALCULATION:
                 if self.specification.schema_version != 3 or self.authoring_provenance is not None:
                     raise ValueError("CHART_CALCULATION requires exact Specification V3 without authoring provenance")
-                if self.state not in {OnlyResearchRunState.QUEUED, OnlyResearchRunState.CANCELLED}:
-                    raise ValueError("CHART_CALCULATION execution is not admitted")
-                if self.started_at is not None:
-                    raise ValueError("CHART_CALCULATION cannot contain execution lifecycle facts")
-                if (
+                if type(self.calculation_execution_evidence_fingerprints) is not tuple:
+                    raise ValueError("CHART_CALCULATION Evidence references require a canonical tuple")
+                if self.failure is not None:
+                    if type(self.failure) is not OnlyResearchRunFailure:
+                        raise ValueError("CHART_CALCULATION requires a structured failure")
+                    self.failure.__post_init__()
+                # These are lifecycle values, not Claim/lease/scientific permission.
+                # Retry/heartbeat changes Attempt facts, never this Run revision.
+                terminal_revision = 2 if self.cancel_requested_at is None else 3
+                expected_revision = {
+                    OnlyResearchRunState.QUEUED: 0,
+                    OnlyResearchRunState.RUNNING: 1,
+                    OnlyResearchRunState.CANCEL_REQUESTED: 2,
+                    OnlyResearchRunState.COMPLETED: terminal_revision,
+                    OnlyResearchRunState.FAILED: terminal_revision,
+                    OnlyResearchRunState.CANCELLED: 1 if self.started_at is None else 3,
+                }[self.state]
+                if self.revision != expected_revision:
+                    raise ValueError("CHART_CALCULATION requires its exact lifecycle revision")
+                if self.state not in {OnlyResearchRunState.COMPLETED, OnlyResearchRunState.FAILED} and (
                     self.research_result_fingerprint is not None
                     or self.artifact_content_fingerprint is not None
                     or self.calculation_execution_evidence_fingerprints
                 ):
-                    raise ValueError("CHART_CALCULATION cannot contain execution/publication references")
-                if self.revision != (1 if self.state is OnlyResearchRunState.CANCELLED else 0):
-                    raise ValueError("CHART_CALCULATION requires its exact admission/cancellation revision")
+                    raise ValueError("CHART_CALCULATION nonpublication states cannot contain publication references")
+                if len(self.calculation_execution_evidence_fingerprints) > 1 or (
+                    self.state is OnlyResearchRunState.COMPLETED
+                    and len(self.calculation_execution_evidence_fingerprints) != 1
+                ):
+                    raise ValueError("CHART_CALCULATION completion requires one exact selected Evidence reference")
             elif self.specification.schema_version not in {1, 2}:
                 raise ValueError("legacy Research origins require Specification V1/V2")
             evidence = tuple(sorted(self.calculation_execution_evidence_fingerprints))
