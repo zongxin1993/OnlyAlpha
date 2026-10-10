@@ -55,6 +55,25 @@ class _OnlyBoundPublicationTree:
             raise ValueError("publication directory is outside its owning anchor")
         self._directory(path)
 
+    def bind_existing_target(self) -> bool:
+        """Prove a local target lookup beneath an available, no-follow anchor.
+
+        Missing anchor/IO errors propagate, never become local absence. A missing
+        optional namespace link proves only this local lookup, not historical or
+        scientific absence. Already-open ancestors are rechecked on either outcome.
+        """
+        self.bind_directory(self.anchor)
+        path = self.anchor
+        for part in self.target.relative_to(self.anchor).parts:
+            path = path / part
+            try:
+                self.bind_directory(path)
+            except FileNotFoundError:
+                self.require_namespace()
+                return False
+        self.require_namespace()
+        return True
+
     def read_bytes(self, relative: str, limit: int | None = None) -> bytes:
         path = Path(relative)
         if path.is_absolute() or any(part in {"..", "."} for part in path.parts) or str(path) != relative:

@@ -81,6 +81,10 @@ mandatory, with no publication or durability acknowledgement. The existing
 selected predecessor for publication/re-entry. Neither path accepts a missing
 Runtime expectation for generation-bound selection. Local NOT_FOUND is not a
 scientific-absence witness.
+An unavailable owning semantic anchor or permission/device/read failure reports
+`RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE`, not local NOT_FOUND or corruption.
+An available anchor with an unpublished optional namespace can report local
+NOT_FOUND. Existing malformed packages and missing mandatory files remain corrupt.
 
 Hosted verification proves execution location, not Chart Work permission. This foundation grants no production Chart dispatch,
 Search-worker durable writes, Claim, Attempt, lease or Run transition. A future Chart caller must independently prove original
@@ -110,6 +114,11 @@ Unavailable roots, incomplete context, corruption and substitution fail closed;
 even an exact local NOT_FOUND cannot authorize cancellation or certify scientific
 or historical absence. Stable semantic-absence inspection remains a separate
 reconciliation obligation, not implemented by this lookup.
+`ARTIFACT_STORE_UNAVAILABLE` distinguishes an unavailable owning anchor and
+permission/device/read failures. Local NOT_FOUND is returned only after no-follow
+descriptor traversal and rechecking the opened existing ancestors. Malformed
+namespace links, incomplete retained packages and inode substitutions remain
+`ARTIFACT_CORRUPT`. These failures cannot be interchanged by a reconciliation caller.
 
 Artifact logical identity binds profile/schema, exact Result4 identity, complete copied logical sections and exact selected
 Evidence/provenance. Artifact encoding byte hashes, compression, relative storage paths and audit time are excluded. Executable

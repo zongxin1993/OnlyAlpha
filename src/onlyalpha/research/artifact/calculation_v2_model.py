@@ -321,9 +321,9 @@ def _only_calculation_artifact_reference_manifest(
         path = f"dataset/{partition.relative_path}"
         descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, partition.byte_sha256, 1)
     for calculation in calculations:
-        for partition in (*calculation.value_partitions, *calculation.readiness_partitions):
-            path = f"calculations/{calculation.calculation_fingerprint}/{partition.relative_path}"
-            descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, partition.byte_sha256, 1)
+        for calculation_partition in (*calculation.value_partitions, *calculation.readiness_partitions):
+            path = f"calculations/{calculation.calculation_fingerprint}/{calculation_partition.relative_path}"
+            descriptors[path] = OnlyResearchCalculationArtifactFileV2(path, calculation_partition.byte_sha256, 1)
     return OnlyResearchCalculationArtifactManifestV2(
         result,
         dataset,

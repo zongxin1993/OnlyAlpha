@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
+import stat
 import uuid
 from collections.abc import Iterator, Mapping
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
 
 from .errors import OnlyResearchCalculationError
 from .execution import (
@@ -249,7 +253,31 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
 
     def load_verified(self, evidence_fingerprint: str) -> OnlyResearchCalculationExecutionEvidenceV2:
         fingerprint = _fingerprint(evidence_fingerprint)
-        evidence = self._read_verified(self._target(fingerprint), fingerprint)
+        target = self._target(fingerprint)
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
+                tree.require_exact({"manifest.json"})
+                evidence = self._read_verified(target, fingerprint, tree.read_bytes("manifest.json"))
+                tree.require_namespace()
+        except OSError as exc:
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "Evidence read failed") from exc
+        except ValueError as exc:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "Evidence namespace changed"
+            ) from exc
         result = self._result_store.load_verified(evidence.calculation_fingerprint)
         self._require_linkage(evidence, result)
         return evidence
@@ -342,8 +370,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                 if (
                     len(prefix.name) != 2
                     or any(char not in "0123456789abcdef" for char in prefix.name)
-                    or prefix.is_symlink()
-                    or not prefix.is_dir()
+                    or not stat.S_ISDIR(prefix.lstat().st_mode)
                 ):
                     raise ValueError("malformed Evidence prefix")
                 for target in sorted(prefix.iterdir(), key=lambda item: item.name):
@@ -353,7 +380,14 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                     yield self._read_verified(target, target.name)
         except OnlyResearchCalculationError:
             raise
-        except (OSError, ValueError) as exc:
+        except OSError as exc:
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "authority scan") from exc
+        except ValueError as exc:
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "authority scan") from exc
 
     def require_for_result(
@@ -503,10 +537,8 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         try:
             manifest = root / "manifest.json"
             if retained_manifest is None and (
-                root.is_symlink()
-                or not root.is_dir()
-                or manifest.is_symlink()
-                or not manifest.is_file()
+                not stat.S_ISDIR(root.lstat().st_mode)
+                or not stat.S_ISREG(manifest.lstat().st_mode)
                 or {item.name for item in root.iterdir()} != {"manifest.json"}
             ):
                 raise ValueError("malformed Evidence directory/manifest")
@@ -520,13 +552,35 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             if evidence.evidence_fingerprint != expected or raw != only_canonical_json(evidence.to_dict()):
                 raise ValueError("Evidence path/content identity differs")
             return evidence
-        except (OSError, ValueError, TypeError) as exc:
+        except OSError as exc:
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "Evidence read failed") from exc
+        except (ValueError, TypeError) as exc:
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", expected) from exc
 
     def _target(self, fingerprint: str) -> Path:
         path = self._semantic_root
         for part in ("calculation-execution-evidence", "v2", "sha256", fingerprint[:2], fingerprint):
-            if _present(path) and (path.is_symlink() or not path.is_dir()):
+            try:
+                mode = path.lstat().st_mode
+            except FileNotFoundError as exc:
+                if path == self._semantic_root:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                mode = None
+            except OSError as exc:
+                code = (
+                    "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                    if exc.errno in {errno.ENOTDIR, errno.ELOOP}
+                    else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+                )
+                raise OnlyResearchCalculationError(code, "Evidence namespace unavailable") from exc
+            if mode is not None and not stat.S_ISDIR(mode):
                 raise OnlyResearchCalculationError(
                     "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "malformed authority directory"
                 )
@@ -572,9 +626,12 @@ def _present(path: Path) -> bool:
     except FileNotFoundError:
         return False
     except OSError as exc:
-        raise OnlyResearchCalculationError(
-            "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "authority entry unavailable"
-        ) from exc
+        code = (
+            "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+            if exc.errno in {errno.ENOTDIR, errno.ELOOP}
+            else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+        )
+        raise OnlyResearchCalculationError(code, "authority entry unavailable") from exc
     return True
 
 

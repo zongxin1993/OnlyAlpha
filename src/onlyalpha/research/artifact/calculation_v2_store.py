@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import shutil
+import stat
 import uuid
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -109,11 +112,15 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             )
             identity = reference.artifact_content_fingerprint
             target = self._target(identity)
-            if not self._root.is_dir() or self._root.is_symlink():
-                raise ValueError("Artifact owning root is unavailable or malformed")
-            if not os.path.lexists(target):
-                raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", identity)
-            with _only_bind_publication_tree(target, self._root) as tree:
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchArtifactStoreError(
+                        "ARTIFACT_STORE_UNAVAILABLE", "owning root unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", identity)
                 loaded = self._read_verified(target, identity, tree)
                 if (
                     loaded.manifest.result.research_result_fingerprint != result.research_result_fingerprint
@@ -124,7 +131,14 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 return loaded
         except OnlyResearchArtifactStoreError:
             raise
-        except (OSError, ValueError, TypeError, AttributeError) as exc:
+        except OSError as exc:
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "exact publication inspection failed") from exc
+        except (ValueError, TypeError, AttributeError) as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "exact publication inspection failed") from exc
 
     def _publish_materialized(
@@ -339,6 +353,13 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             return only_verify_calculation_artifact_tables_v2(manifest, tables)
         except OnlyResearchArtifactStoreError:
             raise
+        except OSError as exc:
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "retained package read failed") from exc
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", str(exc)) from exc
 
@@ -347,7 +368,14 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", "invalid content fingerprint")
         path = self._root
         for part in ("research-calculation-v2", "sha256", identity[:2], identity):
-            if os.path.lexists(path) and (path.is_symlink() or not path.is_dir()):
+            try:
+                mode = path.lstat().st_mode
+            except FileNotFoundError:
+                mode = None
+            except OSError as exc:
+                code = "ARTIFACT_CORRUPT" if exc.errno in {errno.ENOTDIR, errno.ELOOP} else "ARTIFACT_STORE_UNAVAILABLE"
+                raise OnlyResearchArtifactStoreError(code, "Artifact namespace unavailable") from exc
+            if mode is not None and not stat.S_ISDIR(mode):
                 raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "malformed Artifact namespace")
             path = path / part
         return path
