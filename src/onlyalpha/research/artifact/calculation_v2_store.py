@@ -162,6 +162,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         ):
             raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
         root = self._root.absolute()
+        consumer_error: BaseException | None = None
         try:
             with (
                 closing(_OnlyBoundPublicationTree(root, root)) as owner,
@@ -221,14 +222,22 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                                 ):
                                     matches.append(artifact)
                 require_inventory()
-                yield tuple(matches)
+                try:
+                    yield tuple(matches)
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
                 require_inventory()
         except OnlyResearchArtifactStoreError:
             raise
         except OnlySourceCutError as exc:
+            if exc is consumer_error:
+                raise
             code = "ARTIFACT_STORE_UNAVAILABLE" if str(exc) == "SOURCE_PUBLICATION_UNAVAILABLE" else "ARTIFACT_CORRUPT"
             raise OnlyResearchArtifactStoreError(code, "owning inventory exclusion failed") from exc
         except OSError as exc:
+            if exc is consumer_error:
+                raise
             code = (
                 "ARTIFACT_CORRUPT"
                 if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
@@ -236,6 +245,8 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             )
             raise OnlyResearchArtifactStoreError(code, "owning inventory read failed") from exc
         except ValueError as exc:
+            if exc is consumer_error:
+                raise
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "owning inventory verification failed") from exc
 
     def _publish_materialized(

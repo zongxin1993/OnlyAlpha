@@ -194,7 +194,9 @@ Artifact exclusion while acquiring any other necessary owners in the documented
 downstream-to-predecessor order, without reopening the Artifact read session. They
 must not publish/acknowledge under EX or use the snapshot before successful exit.
 The snapshot's linearization is its final owning checks, not its first directory
-read. An empty tuple cannot authorize cancellation or certify historical absence;
+read. Consumer exceptions propagate unchanged rather than being reclassified as
+Artifact corruption/unavailability; lock release and descriptor cleanup still run.
+An empty tuple cannot authorize cancellation or certify historical absence;
 readable retained copies do not prove durable ACK, live Source/predecessor closure,
 Run/Attempt occurrence or terminal outcome. Native forward guarding and complete
 multi-owner cancellation/recovery inspection remain separate consumer obligations.
