@@ -378,14 +378,18 @@ class OnlyPostgresResearchRunStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 authority = OnlyPostgresProductCommandAuthority
-                authority.insert_or_verify_admission(
-                    connection,
-                    OnlyProductCommandAdmissionV1(
-                        receipt.command_id,
-                        receipt.command_kind,
-                        receipt.command_fingerprint,
-                    ),
+                # Admission INSERT writes the source-history frontier. Serialize
+                # the command without writing first, then lock the owning Run;
+                # cancellation and execution now use Run -> history frontier.
+                authority.lock_command(connection, receipt.command_id)
+                admission = OnlyProductCommandAdmissionV1(
+                    receipt.command_id,
+                    receipt.command_kind,
+                    receipt.command_fingerprint,
                 )
+                prior_admission = authority.load_admission_in_transaction(connection, receipt.command_id)
+                if prior_admission is not None and prior_admission != admission:
+                    raise OnlyProductCommandConflictError(receipt.command_id.value)
                 existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
                 if existing is not None:
                     return existing
@@ -395,6 +399,7 @@ class OnlyPostgresResearchRunStore:
                 ).fetchone()
                 if row is None:
                     raise OnlyResearchRunNotFoundError(str(run_id))
+                authority.insert_or_verify_admission(connection, admission)
                 current = self._decode(cast(Mapping[str, object], row))
                 if current.state in {OnlyResearchRunState.COMPLETED, OnlyResearchRunState.FAILED}:
                     raise OnlyResearchCancellationConflictError()
