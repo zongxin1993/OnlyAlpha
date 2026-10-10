@@ -201,6 +201,42 @@ readable retained copies do not prove durable ACK, live Source/predecessor closu
 Run/Attempt occurrence or terminal outcome. Native forward guarding and complete
 multi-owner cancellation/recovery inspection remain separate consumer obligations.
 
+### Native forward re-entry inspection
+
+Both native publication entry points require the approved Artifact root in addition
+to their live predecessor roots. Before native context issuance, Job/backend work
+or semantic publication they inspect all retained V2 packages containing the exact
+Calculation, not just the current Result Plan. Complete different Plan, Generation
+or Source packages remain relevant to protecting their shared live predecessors.
+Every related package must have its original live Result4, all referenced
+Calculation2/Datasets and every exact selected Evidence2; a readable portable copy
+never repairs a missing live owner or grants Source/execution permission.
+
+The inspection prebinds four existing roots and regular locks and acquires EX in
+Artifact → Result → Evidence → Calculation order. Actual lock inodes are deduplicated;
+only contiguous alias classes preserve this order. Non-contiguous aliases form an
+order cycle and reject before lock acquisition. The Artifact inventory continues
+the same retained owner binding instead of re-locking itself. Owning scoped
+Dataset/Calculation/Evidence/Result readers retain full package/file bindings and
+Evidence inventory membership through common relation checks. No ACK, mkdir,
+coordination creation, Source issuance or fsync occurs in this inspection.
+
+An available zero/partial prefix may continue the original authorized producer
+path. Missing anchors/locks and I/O remain unavailable; incomplete/corrupt relations
+reject rather than become non-match. Exact query refs derived from verified reads
+only restrict later work: any observed Calculation, selected current Evidence or
+current Result must still exist for exact reuse/ACK after inspection. Job result-only
+recovery can produce a new attestation but cannot recreate an observed Calculation
+that disappears during numerical execution, and must prove equal values/readiness
+before reusing it. Existing Result ACK does not recreate a lost owning root.
+
+The inspection's final relation checks are its current-view linearization, not a
+cross-filesystem transaction covering later numerical work. Locks are released
+before that work; subsequent owning operations must refuse missing protected refs.
+This is not historical absence, no-ACTIVE cancellation certification, lease/Work
+permission or a durable ACK witness. Those Controller/reconciliation obligations
+remain separate, and no SQL Claim capability follows from this guard.
+
 ### Physical section contract
 
 The original physical baseline is mandatory; it is not waived in favor of embedded or partitioned equivalents. Full owning

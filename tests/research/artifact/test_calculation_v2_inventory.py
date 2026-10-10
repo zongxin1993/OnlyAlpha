@@ -154,7 +154,7 @@ def test_shared_calculation_inventory_retains_all_complete_producers_without_lat
     assert _bytes(tmp_path) == before
 
 
-def test_inventory_calculation_membership_spans_different_portable_result_plans(tmp_path):
+def _other_plan_portable_copy(tmp_path, store, first, results, evidence):
     from onlyalpha.canonical import only_canonical_json
     from onlyalpha.research.artifact.calculation_v2_model import (
         OnlyResearchCalculationArtifactFileV2,
@@ -169,8 +169,6 @@ def test_inventory_calculation_membership_spans_different_portable_result_plans(
     from tests.research.calculation.test_execution_readiness_v2 import PUBLICATION, _graph, _registry
     from tests.research.calculation.test_result_v2_store import AUDIT
 
-    publish, store, _, _, results, evidence = _publication(tmp_path)
-    first = publish()
     calculations = evidence._result_store
     datasets = calculations._dataset_store
     graph = _graph(period=1)
@@ -254,6 +252,18 @@ def test_inventory_calculation_membership_spans_different_portable_result_plans(
         descriptors.append(OnlyResearchCalculationArtifactFileV2(relative, hashlib.sha256(raw).hexdigest(), len(raw)))
     manifest = replace(manifest, files=tuple(descriptors), created_at=AUDIT)
     (target / "artifact_manifest.json").write_text(only_canonical_json(manifest.to_dict()))
+    return manifest
+
+
+def test_inventory_calculation_membership_spans_different_portable_result_plans(tmp_path):
+    publish, store, _, _, results, evidence = _publication(tmp_path)
+    first = publish()
+    manifest = _other_plan_portable_copy(tmp_path, store, first, results, evidence)
+    second_id = next(
+        item.calculation_fingerprint
+        for item in manifest.calculations
+        if item.calculation_fingerprint != first.manifest.calculations[0].calculation_fingerprint
+    )
     assert manifest.result.research_result_plan_fingerprint != first.manifest.result.research_result_plan_fingerprint
     before = _bytes(tmp_path)
     with store.inspect_retained_for_calculation(first.manifest.calculations[0].calculation_fingerprint) as retained:

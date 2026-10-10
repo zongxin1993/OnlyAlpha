@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import os
 import shutil
 import sys
 import uuid
-from collections.abc import Callable
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyFact
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.research._durability import _only_bind_publication_tree, _OnlyBoundPublicationTree
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
 from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .errors import OnlyResearchCalculationResultStoreError
@@ -215,6 +217,55 @@ class OnlyParquetResearchCalculationResultStoreV2:
     def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResultV2:
         return self._read_verified(self._target(calculation_fingerprint), calculation_fingerprint)
 
+    @contextmanager
+    def inspect_verified(self, calculation_fingerprint: str) -> Iterator[OnlyResearchCalculationResultV2]:
+        """Retain the complete Result and owning Dataset, without durability acknowledgement."""
+        from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+
+        if not isinstance(self._dataset_store, OnlyParquetResearchDatasetSnapshotStore):
+            raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", "scoped Dataset reader required")
+        target = self._target(calculation_fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationResultStoreError(
+                        "RESULT_STORE_UNAVAILABLE", "owning root missing"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", calculation_fingerprint)
+                payload = json.loads(tree.read_bytes("manifest.json"), object_pairs_hook=_unique_object)
+                if not isinstance(payload, dict):
+                    raise ValueError("manifest must be an object")
+                manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
+                tree.require_exact(
+                    {
+                        "manifest.json",
+                        *(part.relative_path for part in (*manifest.value_partitions, *manifest.readiness_partitions)),
+                    }
+                )
+                with self._dataset_store.inspect_verified_table(manifest.dataset_snapshot_fingerprint) as dataset:
+                    result = self._read_verified(target, calculation_fingerprint, tree, dataset)
+                    tree.require_namespace()
+                    try:
+                        yield result
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESULT_STORE_UNAVAILABLE"
+                if isinstance(exc, OSError)
+                and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESULT_CORRUPT"
+            )
+            raise OnlyResearchCalculationResultStoreError(code, "scoped Result binding failed") from exc
+
     @_only_barrier_publication
     def acknowledge_exact(
         self, calculation_fingerprint: str, result_fingerprint: str
@@ -276,13 +327,19 @@ class OnlyParquetResearchCalculationResultStoreV2:
                 "RESULT_COMMIT_FAILED", "Dataset acknowledgement failed"
             ) from exc
 
-    def _source(self, fingerprint: str, graph: OnlyCalculationGraphDefinition) -> dict[str, tuple[int, ...]]:
+    def _source(
+        self,
+        fingerprint: str,
+        graph: OnlyCalculationGraphDefinition,
+        verified: OnlyVerifiedResearchDataset | None = None,
+    ) -> dict[str, tuple[int, ...]]:
         if (
             len(graph.nodes) != 1
             or only_calculation_execution_shape(graph.nodes[0].definition) is not OnlyFactorKind.TIME_SERIES
         ):
             raise ValueError("V2 requires one TIME_SERIES node")
-        verified = self._dataset_store.load_verified_table(fingerprint)
+        if verified is None:
+            verified = self._dataset_store.load_verified_table(fingerprint)
         if verified.snapshot.snapshot_fingerprint != fingerprint:
             raise ValueError("upstream Dataset identity mismatch")
         # Revalidate actual source contracts, not only matching row counts/timestamps.
@@ -293,7 +350,11 @@ class OnlyParquetResearchCalculationResultStoreV2:
         return _expected_axes(verified.table)
 
     def _read_verified(
-        self, root: Path, expected: str, tree: _OnlyBoundPublicationTree | None = None
+        self,
+        root: Path,
+        expected: str,
+        tree: _OnlyBoundPublicationTree | None = None,
+        dataset: OnlyVerifiedResearchDataset | None = None,
     ) -> OnlyResearchCalculationResultV2:
         if tree is None and not _present(root):
             raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", expected)
@@ -314,7 +375,7 @@ class OnlyParquetResearchCalculationResultStoreV2:
             manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
             if manifest.calculation_fingerprint != expected:
                 raise ValueError("Result path identity mismatch")
-            axes = self._source(manifest.dataset_snapshot_fingerprint, manifest.calculation_graph)
+            axes = self._source(manifest.dataset_snapshot_fingerprint, manifest.calculation_graph, dataset)
             expected_keys = _expected_partition_keys(manifest.calculation_graph, axes)
             outputs = []
             readiness = []

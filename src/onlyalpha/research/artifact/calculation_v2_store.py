@@ -161,14 +161,41 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             or any(char not in "0123456789abcdef" for char in calculation_fingerprint)
         ):
             raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
-        root = self._root.absolute()
         consumer_error: BaseException | None = None
         try:
             with (
-                closing(_OnlyBoundPublicationTree(root, root)) as owner,
+                closing(_OnlyBoundPublicationTree(self._root, self._root)) as owner,
                 self._publication_barrier.inspect_bound_readonly(owner),
-                ExitStack() as opened,
+                self._inspect_retained_bound(calculation_fingerprint, owner) as retained,
             ):
+                try:
+                    yield retained
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+        except OnlySourceCutError as exc:
+            if exc is consumer_error:
+                raise
+            code = "ARTIFACT_STORE_UNAVAILABLE" if str(exc) == "SOURCE_PUBLICATION_UNAVAILABLE" else "ARTIFACT_CORRUPT"
+            raise OnlyResearchArtifactStoreError(code, "owning inventory exclusion failed") from exc
+
+    @contextmanager
+    def _inspect_retained_bound(
+        self, calculation_fingerprint: str, owner: _OnlyBoundPublicationTree
+    ) -> Iterator[tuple[OnlyResearchCalculationArtifactV2, ...]]:
+        """Internal composition: caller holds EX on this exact retained owner/lock."""
+        if owner.target != self._root.absolute() or owner.anchor != self._root.absolute():
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "wrong inventory owner binding")
+        if (
+            type(calculation_fingerprint) is not str
+            or len(calculation_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in calculation_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
+        root = self._root.absolute()
+        consumer_error: BaseException | None = None
+        try:
+            with ExitStack() as opened:
                 memberships: dict[Path, tuple[str, ...]] = {}
                 packages: list[_OnlyBoundPublicationTree] = []
 

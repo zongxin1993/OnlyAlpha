@@ -49,6 +49,7 @@ from tests.research.postgres import test_chart_calculation_preparation as prepar
 from tests.research.postgres.test_chart_native_publication_permissions import runtime_login, snapshot
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
 from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
+from tests.runtime_support.native_calculation_publication import provision_native_publication_roots
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse]
 
@@ -79,10 +80,11 @@ kwargs = dict(generations=OnlyRuntimeGenerationRegistry(root/'registry'),
     distribution_artifact_store=OnlyLocalImmutableArtifactStore(Path(cfg['distribution_artifacts'])),
     frozen=compiled.resolution, dataset_store_root=root/'chart-input'/'dataset',
     calculation_result_root=root/'calculation-results', execution_evidence_root=root/'semantic',
-    research_result_root=root/'research-results', audit_time=lambda: datetime(2026,10,10,tzinfo=UTC))
+    research_result_root=root/'research-results', research_artifact_root=root/'artifacts',
+    audit_time=lambda: datetime(2026,10,10,tzinfo=UTC))
 result, producer = only_publish_native_calculation_result(**kwargs)
 artifact = only_publish_native_calculation_artifact(**kwargs,
-    research_artifact_root=root/'artifacts', verified_input=issued)
+    verified_input=issued)
 print(json.dumps(dict(result=result.manifest.research_result_fingerprint,
     artifact=artifact.manifest.artifact_content_fingerprint, evidence=producer.evidence_fingerprint)))
 """
@@ -198,7 +200,7 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
         integration_store.insert_revision(integration, ())
         python = builder.artifact_store.root.parent / "built" / "bin" / "python"
         (tmp_path / "semantic").mkdir()
-        (tmp_path / "artifacts").mkdir()
+        provision_native_publication_roots(tmp_path)
         before = snapshot(postgres_dsn)
         source_bytes = {p: p.read_bytes() for p in system.dataset._root.rglob("*") if p.is_file()}
         registry_bytes = {p: p.read_bytes() for p in registry.root.rglob("*") if p.is_file()}

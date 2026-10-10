@@ -8,8 +8,8 @@ import os
 import shutil
 import stat
 import uuid
-from collections.abc import Mapping
-from contextlib import closing
+from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -288,6 +288,50 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         """Verified publication re-entry, not a read-only lookup or a minting path."""
         return self._acknowledge(self.load_verified(evidence_fingerprint))
 
+    @contextmanager
+    def inspect_verified(self, evidence_fingerprint: str) -> Iterator[OnlyResearchCalculationExecutionEvidenceV2]:
+        """Keep Evidence and its complete owning Calculation/Dataset binding open."""
+        from .result_v2_store import OnlyParquetResearchCalculationResultStoreV2
+
+        if not isinstance(self._result_store, OnlyParquetResearchCalculationResultStoreV2):
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "scoped Calculation reader required"
+            )
+        fingerprint = _fingerprint(evidence_fingerprint)
+        target = self._target(fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning root missing"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
+                tree.require_exact({"manifest.json"})
+                evidence = self._read_verified(target, fingerprint, tree.read_bytes("manifest.json"))
+                with self._result_store.inspect_verified(evidence.calculation_fingerprint) as result:
+                    self._require_linkage(evidence, result)
+                    tree.require_namespace()
+                    try:
+                        yield evidence
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+                if isinstance(exc, OSError)
+                and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+            )
+            raise OnlyResearchCalculationError(code, "scoped Evidence binding failed") from exc
+
     def require_exact_for_result(
         self,
         result: OnlyResearchCalculationResultV2,
@@ -371,7 +415,14 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         Results. Enumerated membership and every opened inode are rechecked before
         returning; unavailable anchors and mid-read loss never produce an empty scan.
         """
+        with self._inspect_retained() as retained:
+            return retained
+
+    @contextmanager
+    def _inspect_retained(self) -> Iterator[tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]]:
+        """Retain inventory bindings while owning consumers prove live relations."""
         self._target("0" * 64)
+        consumer_error: BaseException | None = None
         try:
             with closing(_OnlyBoundPublicationTree(self._root, self._semantic_root)) as tree:
                 try:
@@ -381,7 +432,13 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                         "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
                     ) from exc
                 if not tree.bind_existing_target():
-                    return ()
+                    try:
+                        yield ()
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    tree.require_namespace()
+                    return
                 retained = []
                 entries = {self._root: tree.directory_entries(self._root)}
                 for name in entries[self._root]:
@@ -404,10 +461,20 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                     if tree.directory_entries(path) != expected:
                         raise ValueError("Evidence namespace membership changed during scan")
                 tree.require_namespace()
-                return tuple(retained)
+                try:
+                    yield tuple(retained)
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+                for path, expected in entries.items():
+                    if tree.directory_entries(path) != expected:
+                        raise ValueError("Evidence namespace membership changed during inspection")
+                tree.require_namespace()
         except OnlyResearchCalculationError:
             raise
         except OSError as exc:
+            if exc is consumer_error:
+                raise
             code = (
                 "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
                 if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
@@ -415,6 +482,8 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             )
             raise OnlyResearchCalculationError(code, "authority scan") from exc
         except ValueError as exc:
+            if exc is consumer_error:
+                raise
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "authority scan") from exc
 
     def require_for_result(

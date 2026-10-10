@@ -13,6 +13,7 @@ from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
 from tests.runtime_support.chart_execution_host import compile_chart_in_exact_host
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
 from tests.runtime_support.native_calculation_publication import PUBLISH as _PUBLISH
+from tests.runtime_support.native_calculation_publication import provision_native_publication_roots
 
 pytestmark = pytest.mark.contract
 
@@ -43,6 +44,7 @@ def native_publication_case(exact_host_environment, tmp_path):
 
 def test_installed_native_publication_and_fresh_process_exact_reuse(native_publication_case, tmp_path):
     chart, compilation, registry, python, _ = native_publication_case
+    provision_native_publication_roots(tmp_path)
     source = {path: path.read_bytes() for path in chart.dataset._root.rglob("*") if path.is_file()}
     registry_bytes = {path: path.read_bytes() for path in registry.root.rglob("*") if path.is_file()}
     first = json.loads(
@@ -87,6 +89,7 @@ def test_ambient_process_cannot_issue_runtime_provenance(native_publication_case
             calculation_result_root=tmp_path / "calculation-results",
             execution_evidence_root=tmp_path / "semantic",
             research_result_root=tmp_path / "research-results",
+            research_artifact_root=tmp_path / "artifacts",
             audit_time=lambda: datetime(2026, 10, 9, tzinfo=UTC),
         )
     assert not (tmp_path / "calculation-results").exists()
@@ -108,6 +111,7 @@ def test_native_foundation_rejects_unverified_authoring_provenance(native_public
             calculation_result_root=tmp_path / "calculation-results",
             execution_evidence_root=tmp_path / "semantic",
             research_result_root=tmp_path / "research-results",
+            research_artifact_root=tmp_path / "artifacts",
             audit_time=lambda: datetime(2026, 10, 9, tzinfo=UTC),
             authoring_generation_fingerprint="a" * 64,
         )
@@ -116,6 +120,7 @@ def test_native_foundation_rejects_unverified_authoring_provenance(native_public
 
 def test_retained_result_with_missing_calculation_cannot_reconstruct_upstream(native_publication_case, tmp_path):
     _, _, _, python, _ = native_publication_case
+    provision_native_publication_roots(tmp_path)
     first = json.loads(
         subprocess.check_output([str(python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], text=True)
     )
@@ -135,3 +140,65 @@ def test_retained_result_with_missing_calculation_cannot_reconstruct_upstream(na
     assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert not root.exists()
     assert not evidence_root.exists()
+
+
+@pytest.mark.parametrize("missing", ["calculation", "evidence", "result"])
+def test_installed_guard_handover_never_recreates_an_observed_prefix(native_publication_case, tmp_path, missing):
+    import hashlib
+
+    _, _, _, python, _ = native_publication_case
+    provision_native_publication_roots(tmp_path)
+    first = json.loads(
+        subprocess.check_output([str(python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], text=True)
+    )
+    calculation = first["evidence"]["calculation_fingerprint"]
+    evidence = first["evidence"]["evidence_fingerprint"]
+    plan = first["result"]["research_result_plan_fingerprint"]
+    paths = {
+        "calculation": tmp_path / "calculation-results" / "v2" / "sha256" / calculation[:2] / calculation,
+        "evidence": tmp_path
+        / "semantic"
+        / "calculation-execution-evidence"
+        / "v2"
+        / "sha256"
+        / evidence[:2]
+        / evidence,
+        "result": tmp_path / "research-results" / "sha256" / plan[:2] / plan,
+    }
+    # Fault injected after the guard's successful release, in the real installed
+    # process, before Job entry. This launcher is not the production wire protocol.
+    fault = r"""
+import hashlib
+from onlyalpha_runtime_generation_manager import native_publication
+issue = native_publication._only_issue_research_runtime_execution_context
+def lose_prefix(*args, **kwargs):
+    context = issue(*args, **kwargs)
+    root = Path(sys.argv[1])
+    target = Path(sys.argv[3])
+    target.rename(root / 'unavailable-prefix')
+    before = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in root.rglob('*') if p.is_file()}
+    (root/'guard-handover-snapshot.json').write_text(json.dumps(before))
+    return context
+native_publication._only_issue_research_runtime_execution_context = lose_prefix
+"""
+    launch = _PUBLISH.replace(
+        "result, evidence = only_publish_native_calculation_result(",
+        fault + "\nresult, evidence = only_publish_native_calculation_result(",
+    )
+    attempt = subprocess.run(
+        [str(python), "-I", "-c", launch, str(tmp_path), "execute", str(paths[missing])], capture_output=True, text=True
+    )
+    assert attempt.returncode != 0
+    assert {
+        "calculation": "RESULT_NOT_FOUND",
+        "evidence": "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND",
+        "result": "RESEARCH_RESULT_NOT_FOUND",
+    }[missing] in attempt.stderr
+    snapshot = tmp_path / "guard-handover-snapshot.json"
+    assert json.loads(snapshot.read_text()) == {
+        str(path.relative_to(tmp_path)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in tmp_path.rglob("*")
+        if path.is_file() and path != snapshot
+    }
+    assert not paths[missing].exists()
