@@ -129,6 +129,13 @@ callable privileged functions. The ClickHouse credential must have immutable
 `readonly=1` (not mutable `readonly=2`); deployment must grant only the physical
 Fact SELECT surface. Missing roots or schema reference, unsafe credentials and
 unavailable readers fail closed, without provisioning or Source repair.
+The trusted `schema_reference_root` is handed to
+`OnlyPostgresMarketDataCatalog(migration_root=...)` and its existing exact-ledger
+verifier. An installed interpreter therefore needs no repository loader, copied
+module, or mutation of its site-packages tree to locate the schema reference.
+Changed checksums, missing history and AHEAD/BEHIND remain incompatibility, not
+permission to skip schema verification. The default catalog composition is
+unchanged for existing consumers.
 The Registry's existing lock-file permission is distinct from permission to
 append Generation events. Calling this composition is not installed-byte
 verification, Host readiness, native producer registration or Attempt permission.

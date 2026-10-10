@@ -68,3 +68,39 @@ def test_source_bootstrap_rejects_login_with_additional_mutation_authority(postg
             )
         with pytest.raises(ValueError, match="CHART_NATIVE_SOURCE_READER_UNSAFE"):
             only_require_chart_source_reader(dsn)
+
+
+def test_reader_schema_reference_is_explicit_and_checksum_verified(postgres_dsn, tmp_path):
+    import hashlib
+    from pathlib import Path
+
+    import psycopg
+
+    from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarketDataCatalog
+    from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+    from onlyalpha.research.run.errors import OnlyPostgresSchemaIncompatibleError
+    from tests.research.postgres.migration_support import copy_migrations_through
+
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    root = tmp_path / "reference"
+    root.mkdir()
+    copy_migrations_through(root, "0049_chart_native_publication_permissions")
+    with psycopg.connect(postgres_dsn) as connection:
+        before = connection.execute("SELECT * FROM public.onlyalpha_schema_migration ORDER BY migration_id").fetchall()
+    originals = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob("*.sql")}
+    with runtime_login(postgres_dsn, "onlyalpha_chart_input_reader") as dsn:
+        OnlyPostgresMarketDataCatalog(dsn, migration_root=root)
+        leaf = root / "0049_chart_native_publication_permissions.sql"
+        leaf.write_bytes(leaf.read_bytes() + b"\n-- changed reference\n")
+        with pytest.raises(OnlyPostgresSchemaIncompatibleError, match="CHECKSUM_MISMATCH"):
+            OnlyPostgresMarketDataCatalog(dsn, migration_root=root)
+        leaf.unlink()
+        with pytest.raises(OnlyPostgresSchemaIncompatibleError, match="AHEAD"):
+            OnlyPostgresMarketDataCatalog(dsn, migration_root=root)
+    with psycopg.connect(postgres_dsn) as connection:
+        assert (
+            before
+            == connection.execute("SELECT * FROM public.onlyalpha_schema_migration ORDER BY migration_id").fetchall()
+        )
+    repository = Path(__file__).resolve().parents[3] / "database/postgres/migrations"
+    assert originals == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in repository.glob("*.sql")}

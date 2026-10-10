@@ -12,6 +12,7 @@ import uuid
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
@@ -45,7 +46,6 @@ from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGeneratio
 from tests.application.test_market_data_product import _FakeSource
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
 from tests.research.postgres import test_chart_calculation_preparation as preparation_tests
-from tests.research.postgres.test_chart_calculation_native_publication import _provision_schema_reference
 from tests.research.postgres.test_chart_native_publication_permissions import runtime_login, snapshot
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
 from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
@@ -70,7 +70,8 @@ cfg = json.loads(Path(sys.argv[1]).read_text())
 root = Path(cfg['root'])
 export = only_chart_native_input_export(
     postgres_reader_dsn=cfg['dsn'], clickhouse_reader=OnlyClickHouseConfig(**cfg['clickhouse']),
-    dataset_root=root/'chart-input'/'dataset', runtime_registry_root=root/'registry')
+    dataset_root=root/'chart-input'/'dataset', runtime_registry_root=root/'registry',
+    schema_reference_root=Path(cfg['schema_reference']))
 operation = OnlyPostgresChartCalculationAdmissionStore(cfg['dsn']).load_verified(OnlyProductCommandId(cfg['operation']))
 compiled = OnlyPostgresChartCalculationCompilationStore(cfg['dsn']).load_verified(operation)
 issued = export.export(operation.operation_id)
@@ -196,7 +197,6 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
         )
         integration_store.insert_revision(integration, ())
         python = builder.artifact_store.root.parent / "built" / "bin" / "python"
-        _provision_schema_reference(python)
         (tmp_path / "semantic").mkdir()
         (tmp_path / "artifacts").mkdir()
         before = snapshot(postgres_dsn)
@@ -212,6 +212,7 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
                         "root": str(tmp_path),
                         "operation": system.operation.operation_id.value,
                         "distribution_artifacts": str(builder.artifact_store.root),
+                        "schema_reference": str(Path(__file__).resolve().parents[3] / "database/postgres/migrations"),
                     }
                 )
             )
@@ -272,6 +273,7 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
                     clickhouse_reader=reader_config,
                     dataset_root=system.dataset._root,
                     runtime_registry_root=registry.root,
+                    schema_reference_root=Path(__file__).resolve().parents[3] / "database/postgres/migrations",
                 ),
                 generations=registry,
                 dataset_root=system.dataset._root,

@@ -128,16 +128,18 @@ def only_chart_native_input_export(
     clickhouse_reader: OnlyClickHouseConfig,
     dataset_root: Path,
     runtime_registry_root: Path,
+    schema_reference_root: Path,
 ) -> OnlyChartCalculationInputExportService:
     """Compose existing owning ports only, with no Acquisition/Provider credentials.
 
     Both roots must be provisioned. Registry lock-file access is needed by its
     owning shared-read contract; generation events and Dataset bytes remain under
     their existing deployment permissions. No release/bind/repair is called here.
-    The installed deployment must also supply the unchanged schema reference used
-    by the PostgreSQL catalog's formal compatibility verifier.
+    The unchanged schema reference is supplied as a trusted deployment asset to
+    the PostgreSQL catalog's existing compatibility verifier, not installed into
+    a guessed site-packages directory or supplied by a Chart caller.
     """
-    for root in (dataset_root, runtime_registry_root):
+    for root in (dataset_root, runtime_registry_root, schema_reference_root):
         if not isinstance(root, Path):
             raise ValueError("CHART_NATIVE_SOURCE_ROOT_UNAVAILABLE")
         if root.is_symlink() or not root.is_dir() or root.resolve() != root.absolute():
@@ -164,7 +166,7 @@ def only_chart_native_input_export(
             datasets=datasets, materializations=datasets, runtime_generations=registry
         ),
         integrations=OnlyPostgresIntegrationStore(postgres_reader_dsn),
-        catalog=OnlyPostgresMarketDataCatalog(postgres_reader_dsn),
+        catalog=OnlyPostgresMarketDataCatalog(postgres_reader_dsn, migration_root=schema_reference_root),
         facts=OnlyClickHouseMarketFactStore(client),
         materializations=datasets,
     )
