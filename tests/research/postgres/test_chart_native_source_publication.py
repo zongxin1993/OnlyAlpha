@@ -19,6 +19,10 @@ from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.chart_calculation import OnlyChartCalculationCatalogWitnessV1
 from onlyalpha.application.chart_calculation_compilation import OnlyChartCalculationCompilationService
+from onlyalpha.application.chart_calculation_native_protocol import (
+    OnlyChartCalculationNativeExecutionRequestV1,
+    OnlyChartCalculationNativePublicationReceiptV1,
+)
 from onlyalpha.application.integration_configuration import OnlyIntegrationId
 from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha.persistence.clickhouse.client import OnlyClickHouseClient
@@ -35,6 +39,8 @@ from onlyalpha.persistence.postgres.research_chart_calculation_run_admission_sto
 )
 from onlyalpha.plugin.integration import OnlyIntegrationTypeId
 from onlyalpha.research.artifact import OnlyParquetResearchCalculationArtifactStoreV2
+from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
+from onlyalpha.research.execution.model import OnlyResearchRunAttemptId, OnlyResearchWorkerInstanceId
 from onlyalpha.research.run.generation import OnlyResearchHostedRuntimeGenerationResolver
 from tests.application.test_market_data_product import _FakeSource
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
@@ -224,6 +230,96 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
         calculation = next(iter(artifact.calculations.values()))
         assert run.run_id.value == compiled.runtime_work_id != system.operation.operation_id.value
         assert artifact.manifest.selected_evidence[0].evidence_fingerprint == receipt["evidence"]
+        # A structural receipt does not assert that these Attempt IDs exist. The
+        # publication reader owns only scientific verification, not the PG fence.
+        from onlyalpha_runtime_generation_manager.chart_native_publication_reader import (
+            only_verify_chart_native_publication,
+        )
+        from onlyalpha_runtime_generation_manager.chart_native_source import only_chart_native_input_export
+
+        request = OnlyChartCalculationNativeExecutionRequestV1(
+            system.operation.operation_id,
+            run.run_id,
+            OnlyResearchRunAttemptId.new(),
+            OnlyResearchWorkerInstanceId.new(),
+            1,
+            1,
+            compiled.compilation_fingerprint,
+            generation,
+        )
+        provenance = OnlyResearchRuntimeExecutionProvenanceV1(
+            generation,
+            built.validation_evidence.validation_evidence_fingerprint,
+            built.manifest.core_execution.fingerprint,
+            built.manifest.catalog_generation_fingerprint,
+        )
+        publication = OnlyChartCalculationNativePublicationReceiptV1(
+            request,
+            provenance,
+            compiled.result_plan_fingerprint,
+            compiled.resolution.job_plan.calculation_fingerprint,
+            calculation.manifest.calculation_result_fingerprint,
+            receipt["evidence"],
+            receipt["result"],
+            receipt["artifact"],
+        )
+        with runtime_login(postgres_dsn, "onlyalpha_chart_input_reader") as reader_dsn:
+            verify = dict(
+                request=request,
+                frozen=compiled,
+                inputs=only_chart_native_input_export(
+                    postgres_reader_dsn=reader_dsn,
+                    clickhouse_reader=reader_config,
+                    dataset_root=system.dataset._root,
+                    runtime_registry_root=registry.root,
+                ),
+                generations=registry,
+                dataset_root=system.dataset._root,
+                calculation_result_root=tmp_path / "calculation-results",
+                execution_evidence_root=tmp_path / "semantic",
+                research_result_root=tmp_path / "research-results",
+                artifact_root=tmp_path / "artifacts",
+            )
+            verified = only_verify_chart_native_publication(receipt=publication, **verify)
+            assert verified.manifest == artifact.manifest
+            for field in (
+                "request",
+                "runtime_provenance",
+                "calculation_result_fingerprint",
+                "execution_evidence_fingerprint",
+                "research_result_fingerprint",
+                "artifact_content_fingerprint",
+            ):
+                value = (
+                    replace(request, attempt_id=OnlyResearchRunAttemptId.new())
+                    if field == "request"
+                    else replace(provenance, core_execution_fingerprint="f" * 64)
+                    if field == "runtime_provenance"
+                    else "f" * 64
+                )
+                with pytest.raises((ValueError, RuntimeError)):
+                    only_verify_chart_native_publication(receipt=replace(publication, **{field: value}), **verify)
+            # An independent portable Artifact remains readable after any live
+            # predecessor is unavailable; that never authorizes current completion.
+            for root_name in (
+                "dataset_root",
+                "calculation_result_root",
+                "execution_evidence_root",
+                "research_result_root",
+            ):
+                root = verify[root_name]
+                unavailable = tmp_path / ("unavailable-" + root_name)
+                root.rename(unavailable)
+                try:
+                    offline = OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(
+                        receipt["artifact"], research_result_fingerprint=receipt["result"]
+                    )
+                    assert offline.manifest == artifact.manifest
+                    with pytest.raises((ValueError, RuntimeError)):
+                        only_verify_chart_native_publication(receipt=publication, **verify)
+                    assert not root.exists()
+                finally:
+                    unavailable.rename(root)
         values = calculation.outputs[0].table["value"].to_pylist()
         readiness = calculation.readiness[0].table.to_pylist()
         if period == 1:

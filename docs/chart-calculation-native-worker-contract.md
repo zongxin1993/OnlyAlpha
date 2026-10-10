@@ -143,6 +143,17 @@ verified before fenced terminal commit. PostgreSQL proves operational relations,
 lease and CAS, not external scientific file authenticity. It must not store a
 parallel scientific proof Authority or trust a caller hash/session flag.
 
+The Runtime Generation Manager's `only_verify_chart_native_publication` performs
+that scientific verified-load independently of the installed producer. It compares
+the full original request, original owning Source export, frozen plan/graph,
+live Dataset/Calculation2/Evidence2/Result4 and the explicitly selected Artifact2
+pair against the original Registry Manifest/Validation/Core/Catalog. It issues no
+native seal and performs no SQL mutation or Work release. Missing live
+predecessors refuse current completion even if the offline Artifact is readable.
+The operational Attempt/lease/revision proof remains a separate mandatory
+Controller responsibility; passing a structural request with nonexistent Attempt
+IDs does not satisfy that responsibility.
+
 Ordinary finalization requires the exact ACTIVE Attempt and valid PG lease.
 No-ACTIVE cancellation reconciliation is a distinct read-only semantic-inspection
 port under ADR0090; it cannot create an execution Attempt or treat incomplete,
