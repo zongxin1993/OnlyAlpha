@@ -135,7 +135,9 @@ def test_retained_result_with_missing_calculation_cannot_reconstruct_upstream(na
         [str(python), "-I", "-c", _PUBLISH, str(tmp_path), "no_reexecute"], capture_output=True, text=True
     )
     assert attempt.returncode != 0
-    assert "RESEARCH_RESULT_CORRUPT" in attempt.stderr
+    # The scoped owning reader reports the actual missing Calculation, rather
+    # than the former unbound Result wrapper's generic corruption classification.
+    assert f"RESULT_NOT_FOUND: {calculation}" in attempt.stderr
     assert "reuse reexecuted" not in attempt.stderr
     assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert not root.exists()
