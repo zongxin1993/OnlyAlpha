@@ -64,6 +64,42 @@ def test_calculation_parent_substitution_never_creates_root_through_replacement(
     assert error.value.code == "RESULT_COMMIT_FAILED"
 
 
+@pytest.mark.parametrize("owner", ["parent", "root"])
+def test_calculation_root_binding_handover_never_selects_replacement_owner(tmp_path, monkeypatch, owner):
+    from onlyalpha.research._durability import _OnlyBoundPublicationTree
+    from onlyalpha.research.calculation.errors import OnlyResearchCalculationResultStoreError
+
+    parent = tmp_path / "owner"
+    _, store, graph, sealed = _case(parent)
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    replacement_root = replacement / "results"
+    replacement_root.mkdir()
+    (replacement_root / "retained").write_bytes(b"unrelated original")
+    create = _OnlyBoundPublicationTree.create_directory
+    changed = []
+
+    def substitute_after_create(tree, path):
+        descriptor = create(tree, path)
+        if path == store._root and not changed:
+            changed.append(True)
+            if owner == "parent":
+                parent.rename(tmp_path / "original-owner")
+                replacement.rename(parent)
+            else:
+                store._root.rename(tmp_path / "original-root")
+                replacement_root.rename(store._root)
+        return descriptor
+
+    monkeypatch.setattr(_OnlyBoundPublicationTree, "create_directory", substitute_after_create)
+    with pytest.raises(OnlyResearchCalculationResultStoreError) as error:
+        store.commit(sealed, graph)
+    assert changed == [True]
+    assert {entry.name for entry in store._root.iterdir()} == {"retained"}
+    assert (store._root / "retained").read_bytes() == b"unrelated original"
+    assert error.value.code == "RESULT_COMMIT_FAILED"
+
+
 @pytest.mark.parametrize("owner", ["calculation", "evidence", "artifact"])
 @pytest.mark.parametrize("action", ["new", "reuse", "acknowledge"])
 def test_v2_writes_hold_publication_lock_through_sync(tmp_path, monkeypatch, owner, action):
