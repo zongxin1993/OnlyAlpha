@@ -388,24 +388,32 @@ class OnlySourcePublicationBarrier:
         outcome. The owning reader must still verify its complete relevant facts.
         """
         with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
-            try:
-                tree.bind_directory(self._root)
-                descriptor = tree.bind_file(self._root / ".source-cut.lock")
-            except (OSError, ValueError) as exc:
-                raise _inspection_error(exc) from exc
-            try:
-                try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX)
-                except OSError as exc:
-                    raise _inspection_error(exc) from exc
-                self._require_inspection_binding(tree)
+            with self.inspect_bound_readonly(tree):
                 yield
-                self._require_inspection_binding(tree)
-            finally:
-                try:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
-                except OSError as exc:
-                    raise _inspection_error(exc) from exc
+
+    @contextmanager
+    def inspect_bound_readonly(self, tree: _OnlyBoundPublicationTree) -> Iterator[None]:
+        """Retain the caller's exact owner binding throughout a read-only session."""
+        if tree.target != self._root.absolute():
+            raise OnlySourceCutError("SOURCE_PUBLICATION_BARRIER_INVALID")
+        try:
+            tree.bind_directory(self._root)
+            descriptor = tree.bind_file(self._root / ".source-cut.lock")
+        except (OSError, ValueError) as exc:
+            raise _inspection_error(exc) from exc
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            except OSError as exc:
+                raise _inspection_error(exc) from exc
+            self._require_inspection_binding(tree)
+            yield
+            self._require_inspection_binding(tree)
+        finally:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError as exc:
+                raise _inspection_error(exc) from exc
 
     @staticmethod
     def _require_inspection_binding(tree: _OnlyBoundPublicationTree) -> None:

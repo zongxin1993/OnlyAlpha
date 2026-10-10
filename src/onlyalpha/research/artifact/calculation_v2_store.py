@@ -9,8 +9,8 @@ import os
 import shutil
 import stat
 import uuid
-from collections.abc import Callable, Mapping
-from contextlib import closing
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, closing, contextmanager
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +29,7 @@ from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _s
 from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
 from onlyalpha.research.dataset.sealed_input_evidence import OnlyRetainedSealedChartInputEvidenceV1
 from onlyalpha.research.result.result import OnlyResearchResultManifest
-from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
+from onlyalpha.research.source_cut import OnlySourceCutError, OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .calculation_v2_model import (
     OnlyResearchCalculationArtifactFileV2,
@@ -142,6 +142,101 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             raise OnlyResearchArtifactStoreError(code, "exact publication inspection failed") from exc
         except (ValueError, TypeError, AttributeError) as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "exact publication inspection failed") from exc
+
+    @contextmanager
+    def inspect_retained_for_calculation(
+        self, calculation_fingerprint: str
+    ) -> Iterator[tuple[OnlyResearchCalculationArtifactV2, ...]]:
+        """Hold zero-write owning exclusion over a complete current V2 inventory.
+
+        Verify every published candidate before selecting Calculation membership,
+        including other Plans/producers. No live predecessor or Source is read or
+        restored. An empty tuple is not a historical/Run absence witness. Consumers
+        must exit successfully before using this snapshot and cannot publish or
+        acknowledge under its exclusive lock.
+        """
+        if (
+            type(calculation_fingerprint) is not str
+            or len(calculation_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in calculation_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
+        root = self._root.absolute()
+        try:
+            with (
+                closing(_OnlyBoundPublicationTree(root, root)) as owner,
+                self._publication_barrier.inspect_bound_readonly(owner),
+                ExitStack() as opened,
+            ):
+                memberships: dict[Path, tuple[str, ...]] = {}
+                packages: list[_OnlyBoundPublicationTree] = []
+
+                def entries(path: Path) -> tuple[str, ...]:
+                    names = owner.directory_entries(path)
+                    memberships[path] = names
+                    return names
+
+                def require_inventory() -> None:
+                    owner.require_namespace()
+                    for package in packages:
+                        package.require_namespace()
+                    for path, names in memberships.items():
+                        if owner.directory_entries(path) != names:
+                            raise ValueError("Artifact inventory membership changed")
+
+                matches = []
+                family = root / "research-calculation-v2"
+                if family.name in entries(root):
+                    names = entries(family)
+                    if set(names) - {"sha256"}:
+                        raise ValueError("unknown Artifact V2 namespace entry")
+                    if "sha256" in names:
+                        addressed = family / "sha256"
+                        for prefix in entries(addressed):
+                            if len(prefix) != 2 or any(char not in "0123456789abcdef" for char in prefix):
+                                raise ValueError("noncanonical Artifact prefix")
+                            directory = addressed / prefix
+                            for identity in entries(directory):
+                                target = directory / identity
+                                owner.bind_directory(target)
+                                if identity.startswith(".stage-"):
+                                    token = identity.removeprefix(".stage-")
+                                    stage = uuid.UUID(hex=token)
+                                    if stage.hex != token or stage.version != 4:
+                                        raise ValueError("noncanonical Artifact staging directory")
+                                    continue
+                                if (
+                                    len(identity) != 64
+                                    or any(char not in "0123456789abcdef" for char in identity)
+                                    or not identity.startswith(prefix)
+                                ):
+                                    raise ValueError("noncanonical Artifact content address")
+                                package = opened.enter_context(closing(_OnlyBoundPublicationTree(target, root)))
+                                packages.append(package)
+                                artifact = self._read_verified(target, identity, package)
+                                package.require_namespace()
+                                if any(
+                                    item.calculation_fingerprint == calculation_fingerprint
+                                    for item in artifact.manifest.calculations
+                                ):
+                                    matches.append(artifact)
+                require_inventory()
+                yield tuple(matches)
+                require_inventory()
+        except OnlyResearchArtifactStoreError:
+            raise
+        except OnlySourceCutError as exc:
+            code = "ARTIFACT_STORE_UNAVAILABLE" if str(exc) == "SOURCE_PUBLICATION_UNAVAILABLE" else "ARTIFACT_CORRUPT"
+            raise OnlyResearchArtifactStoreError(code, "owning inventory exclusion failed") from exc
+        except OSError as exc:
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "owning inventory read failed") from exc
+        except ValueError as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "owning inventory verification failed") from exc
 
     def _publish_materialized(
         self,

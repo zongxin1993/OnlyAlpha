@@ -167,6 +167,38 @@ Runtime provenance and the older Scientific/Calculation Artifact profiles are un
 currently covers the admitted one-instrument native 15-minute Chart input; it does not admit arbitrary multi-source inputs.
 That bounded capability does not redefine long-term Research or Source scope.
 
+### Current owning Artifact inventory
+
+`ArtifactStoreV2.inspect_retained_for_calculation(calculation_fingerprint)` is a
+scoped read-only session, separate from exact pair lookup. It holds the existing
+owning exclusive publication lock until successful context exit and returns all
+fully verified V2 packages containing that canonical Calculation. It verifies each
+published candidate before applying membership selection, regardless of Result
+Plan, Generation, Source or selected Evidence. It performs no live predecessor
+read, reconstruction, Source issuance, execution, acknowledgement or fsync. It
+does not add an index, identity, historical cut or negative witness.
+
+The root and regular lock must already exist; missing/permission/device failures
+are `ARTIFACT_STORE_UNAVAILABLE`, not an empty inventory. Malformed V2 namespace,
+packages, applicable proof, addresses, or any binding/membership substitution are
+`ARTIFACT_CORRUPT`. Other Artifact profiles are not inspected. Within the optional
+V2 namespace only `sha256`, canonical two-hex prefixes and exact content-addressed
+directories are published locators. A `.stage-<canonical UUID4 hex>` directory in
+its writer-defined prefix position is an unpublished crash staging area, not a
+retained publication; noncanonical staging names, non-directories and symlinks
+reject. Empty optional namespace links remain a current view, not history.
+
+Inventory membership and all package/ancestor/file inode bindings are retained and
+rechecked before yielding and before successful exit. Consumers retain this same
+Artifact exclusion while acquiring any other necessary owners in the documented
+downstream-to-predecessor order, without reopening the Artifact read session. They
+must not publish/acknowledge under EX or use the snapshot before successful exit.
+The snapshot's linearization is its final owning checks, not its first directory
+read. An empty tuple cannot authorize cancellation or certify historical absence;
+readable retained copies do not prove durable ACK, live Source/predecessor closure,
+Run/Attempt occurrence or terminal outcome. Native forward guarding and complete
+multi-owner cancellation/recovery inspection remain separate consumer obligations.
+
 ### Physical section contract
 
 The original physical baseline is mandatory; it is not waived in favor of embedded or partitioned equivalents. Full owning
