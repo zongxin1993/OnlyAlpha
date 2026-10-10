@@ -10,6 +10,8 @@ from contextlib import contextmanager
 
 import pytest
 
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
+from onlyalpha.research.artifact import calculation_v2_store
 from onlyalpha.research.artifact.errors import OnlyResearchArtifactError
 from onlyalpha.research.artifact.publication_inspection import _only_inspect_calculation_publication_prefix
 from onlyalpha.research.calculation.errors import OnlyResearchCalculationError
@@ -136,6 +138,45 @@ def test_prefix_retains_bindings_until_common_relation_exit(tmp_path, mutation):
             else:
                 path.write_bytes(original.read_bytes())
     assert "CORRUPT" in str(raised.value)
+
+
+@pytest.mark.parametrize("phase", ["read", "exit"])
+def test_artifact_manifest_growth_is_bounded_on_the_first_retained_byte_read(tmp_path, monkeypatch, phase):
+    store, artifact, results, evidence = _case(tmp_path)
+    path = _root(tmp_path, artifact.manifest.artifact_content_fingerprint) / "artifact_manifest.json"
+    original = path.read_bytes()
+    # Lower the existing cap to the valid fixture length; one extra byte exercises
+    # exactly the production limit without allocating a large payload or OOM.
+    limit = len(original)
+    monkeypatch.setattr(calculation_v2_store, "_MAX_MANIFEST_BYTES", limit)
+    read_bytes = _OnlyBoundPublicationTree.read_bytes
+    observed = []
+
+    def tracked(self, relative, limit=None):
+        if relative == "artifact_manifest.json":
+            observed.append(limit)
+        return read_bytes(self, relative, limit)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("oversized manifest inspection attempted acknowledgement")
+
+    monkeypatch.setattr(_OnlyBoundPublicationTree, "read_bytes", tracked)
+    monkeypatch.setattr(os, "fsync", forbidden)
+    if phase == "read":
+        path.write_bytes(original + b" ")
+    inode = path.stat().st_ino
+    with pytest.raises(OnlyResearchArtifactError, match="ARTIFACT_CORRUPT"):
+        with _inspection(store, artifact, results, evidence):
+            assert phase == "exit"
+            path.write_bytes(original + b" ")
+            assert path.stat().st_ino == inode
+    assert observed and all(value == limit for value in observed)
+    for root in (store._root, results._root, evidence._semantic_root, evidence._result_store._root):
+        descriptor = os.open(root / ".source-cut.lock", os.O_RDONLY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(descriptor)
 
 
 @pytest.mark.parametrize(
