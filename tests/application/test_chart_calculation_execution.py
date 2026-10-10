@@ -114,6 +114,7 @@ def test_nonqueued_chart_lifecycle_never_authorizes_e1_compute(tmp_path, state, 
             capability.validate_dispatch()
             computation()
         else:
+            chart.runtime.hold_work_binding_evidence.side_effect = lambda *args: nullcontext(chart.binding)
             chart.runs.hold_queued_run.side_effect = lambda *args: nullcontext(successor)
             with capability.hold_dispatch():
                 computation()
@@ -128,6 +129,9 @@ def test_nonqueued_chart_lifecycle_never_authorizes_e1_compute(tmp_path, state, 
         chart.host.execute_chart_calculation.assert_not_called()
     else:
         chart.host.execute_chart_calculation.assert_called_once()
+    if boundary == "dispatch_hold":
+        chart.runtime.hold_work_binding_evidence.assert_called_once_with(chart.compilation.runtime_work_id)
+        chart.runs.hold_queued_run.assert_called_once_with(chart.operation, chart.compilation)
     chart.runs.commit_or_replay.assert_not_called()
     chart.runtime.release_work.assert_not_called()
     chart.runtime.bind_new_work.assert_not_called()
