@@ -173,7 +173,6 @@ class OnlyResearchRun:
                         raise ValueError("CHART_CALCULATION requires a structured failure")
                     self.failure.__post_init__()
                 # These are lifecycle values, not Claim/lease/scientific permission.
-                # Retry/heartbeat changes Attempt facts, never this Run revision.
                 terminal_revision = 2 if self.cancel_requested_at is None else 3
                 expected_revision = {
                     OnlyResearchRunState.QUEUED: 0,
