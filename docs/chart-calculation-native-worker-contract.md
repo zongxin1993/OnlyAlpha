@@ -129,6 +129,11 @@ callable privileged functions. The ClickHouse credential must have immutable
 `readonly=1` (not mutable `readonly=2`); deployment must grant only the physical
 Fact SELECT surface. Missing roots or schema reference, unsafe credentials and
 unavailable readers fail closed, without provisioning or Source repair.
+Effective PostgreSQL checks include PUBLIC grants on restricted PG18 filesystem,
+maintenance and replication functions (all overloads), and secret-bearing
+`pg_authid.rolpassword`, `pg_user_mapping.umoptions` and
+`pg_subscription.subconninfo` columns. Role dependency inspection alone cannot
+prove these absent: PUBLIC has no dependency on the admitted login/group.
 The trusted `schema_reference_root` is handed to
 `OnlyPostgresMarketDataCatalog(migration_root=...)` and its existing exact-ledger
 verifier. An installed interpreter therefore needs no repository loader, copied
@@ -160,6 +165,12 @@ predecessors refuse current completion even if the offline Artifact is readable.
 The operational Attempt/lease/revision proof remains a separate mandatory
 Controller responsibility; passing a structural request with nonexistent Attempt
 IDs does not satisfy that responsibility.
+
+Human cancellation serializes its Command, acquires Run table ROW EXCLUSIVE write
+intent and the original Run row, and only then writes Admission/history frontier.
+The table lock is necessary because T1 takes SHARE: a row's FOR UPDATE alone holds
+ROW SHARE and could otherwise upgrade behind a SHARE holder waiting on frontier.
+Receipt replay remains read-only; Command conflicts and rollback remain atomic.
 
 Ordinary finalization requires the exact ACTIVE Attempt and valid PG lease.
 No-ACTIVE cancellation reconciliation is a distinct read-only semantic-inspection

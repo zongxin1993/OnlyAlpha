@@ -26,7 +26,10 @@ from tests.research.postgres.test_chart_calculation_run_admission import handoff
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
-def test_cancellation_locks_run_before_admission_writes_source_frontier(compilation_system, postgres_dsn, monkeypatch):
+@pytest.mark.parametrize("lock", ["row", "table_write_intent"])
+def test_cancellation_locks_run_before_admission_writes_source_frontier(
+    compilation_system, postgres_dsn, monkeypatch, lock
+):
     fixture = compilation_system
     run = handoff(fixture, postgres_dsn).commit_or_replay(fixture.operation, fixture.compilation, queued_at=NOW)
     receipt = OnlyProductCommandReceipt(
@@ -45,9 +48,17 @@ def test_cancellation_locks_run_before_admission_writes_source_frontier(compilat
                 # NOWAIT observes the actual held row lock, without time/sleep or
                 # relying on a scheduler to arrange a deadlock.
                 with pytest.raises(psycopg.errors.LockNotAvailable), observer.transaction():
-                    observer.execute(
-                        "SELECT run_id FROM public.research_run WHERE run_id=%s FOR UPDATE NOWAIT", (run.run_id.value,)
-                    )
+                    if lock == "row":
+                        observer.execute(
+                            "SELECT run_id FROM public.research_run WHERE run_id=%s FOR UPDATE NOWAIT",
+                            (run.run_id.value,),
+                        )
+                    else:
+                        # T1 takes SHARE before its first frontier write. A mere
+                        # Run FOR UPDATE holds ROW SHARE and is compatible with
+                        # that SHARE. C would then upgrade after owning frontier:
+                        # C(frontier)->O(SHARE), O(SHARE)->C(frontier).
+                        observer.execute("LOCK TABLE public.research_run IN SHARE MODE NOWAIT")
                 # The first admission write must not already hold the frontier.
                 observer.execute(
                     "SELECT last_index FROM public.research_source_history_frontier WHERE singleton=TRUE FOR UPDATE NOWAIT"

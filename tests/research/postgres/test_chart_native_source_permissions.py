@@ -7,6 +7,62 @@ from tests.research.postgres.test_chart_native_publication_permissions import ru
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
+@pytest.mark.parametrize(
+    "function", ["pg_read_file(text)", "pg_read_binary_file(text)", "pg_ls_dir(text)", "lo_import(text)"]
+)
+def test_source_bootstrap_rejects_public_server_file_authority(isolated_postgres_cluster, function):
+    import psycopg
+    from onlyalpha_runtime_generation_manager.chart_native_source import only_require_chart_source_reader
+    from psycopg import sql
+
+    from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+
+    # Builtin ACLs are database-independent administration state. Use a physically
+    # fresh canonical PG18 cluster rather than leaking this PUBLIC grant into a
+    # shared lane. The fixture owns and tears down the whole cluster.
+    dsn = isolated_postgres_cluster
+    OnlyPostgresMigrationAuthority(dsn).migrate()
+    with runtime_login(dsn, "onlyalpha_chart_input_reader") as reader:
+        only_require_chart_source_reader(reader)
+        with psycopg.connect(dsn, autocommit=True) as operator:
+            operator.execute(sql.SQL("GRANT EXECUTE ON FUNCTION pg_catalog.{} TO PUBLIC").format(sql.SQL(function)))
+        with psycopg.connect(reader) as connection:
+            assert connection.execute(
+                "SELECT pg_catalog.has_function_privilege(current_user, %s, 'EXECUTE')", ("pg_catalog." + function,)
+            ).fetchone() == (True,)
+        with pytest.raises(ValueError, match="CHART_NATIVE_SOURCE_READER_UNSAFE"):
+            only_require_chart_source_reader(reader)
+
+
+@pytest.mark.parametrize(
+    "table,column", [("pg_authid", "rolpassword"), ("pg_user_mapping", "umoptions"), ("pg_subscription", "subconninfo")]
+)
+def test_source_bootstrap_rejects_public_secret_catalog_column(isolated_postgres_cluster, table, column):
+    import psycopg
+    from onlyalpha_runtime_generation_manager.chart_native_source import only_require_chart_source_reader
+    from psycopg import sql
+
+    from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+
+    dsn = isolated_postgres_cluster
+    OnlyPostgresMigrationAuthority(dsn).migrate()
+    with runtime_login(dsn, "onlyalpha_chart_input_reader") as reader:
+        only_require_chart_source_reader(reader)
+        with psycopg.connect(dsn, autocommit=True) as operator:
+            operator.execute(
+                sql.SQL("GRANT SELECT({}) ON pg_catalog.{} TO PUBLIC").format(
+                    sql.Identifier(column), sql.Identifier(table)
+                )
+            )
+        with psycopg.connect(reader) as connection:
+            assert connection.execute(
+                "SELECT pg_catalog.has_column_privilege(current_user, %s, %s, 'SELECT')",
+                ("pg_catalog." + table, column),
+            ).fetchone() == (True,)
+        with pytest.raises(ValueError, match="CHART_NATIVE_SOURCE_READER_UNSAFE"):
+            only_require_chart_source_reader(reader)
+
+
 def test_source_bootstrap_accepts_real_reader_login_but_not_operator_or_controller(postgres_dsn):
     import psycopg
     from onlyalpha_runtime_generation_manager.chart_native_source import only_require_chart_source_reader

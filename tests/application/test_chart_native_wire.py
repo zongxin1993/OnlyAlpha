@@ -6,16 +6,11 @@ import pytest
 
 from onlyalpha.application.chart_calculation_native_protocol import (
     OnlyChartCalculationNativeExecutionRequestV1,
+    only_decode_chart_native_request,
 )
 from onlyalpha.canonical import only_canonical_json
 from tests.application.test_chart_calculation_native_protocol import frozen as frozen
 from tests.application.test_chart_calculation_native_protocol import native_request
-
-
-def only_decode_chart_native_request(wire):
-    from onlyalpha.application.chart_calculation_native_protocol import only_decode_chart_native_request as decode
-
-    return decode(wire)
 
 
 def test_wire_request_roundtrip_is_not_execution_permission(frozen):

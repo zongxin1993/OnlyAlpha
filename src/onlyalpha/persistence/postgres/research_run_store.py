@@ -393,6 +393,10 @@ class OnlyPostgresResearchRunStore:
                 existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
                 if existing is not None:
                     return existing
+                # FOR UPDATE alone acquires only ROW SHARE, compatible with T1's
+                # SHARE table lock. Acquire write intent before any frontier write
+                # so UPDATE never upgrades behind a SHARE holder waiting on us.
+                connection.execute("LOCK TABLE public.research_run IN ROW EXCLUSIVE MODE")
                 row = connection.execute(
                     "SELECT * FROM research_run WHERE run_id = %s FOR UPDATE",
                     (run_id.value,),

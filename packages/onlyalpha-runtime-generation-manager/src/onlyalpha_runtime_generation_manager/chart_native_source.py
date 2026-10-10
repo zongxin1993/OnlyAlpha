@@ -58,6 +58,61 @@ _SOURCE_TABLES = (
 )
 
 
+# PG18 removes PUBLIC EXECUTE from these administrative capabilities at initdb
+# (src/backend/catalog/system_functions.sql). Check effective privileges, not
+# proacl/dependency shape: a PUBLIC grant has no dependency on this reader. Match
+# names to cover every overload. None is required by the owning Source readers.
+_RESTRICTED_BUILTINS = (
+    "pg_backup_start",
+    "pg_backup_stop",
+    "pg_create_restore_point",
+    "pg_switch_wal",
+    "pg_log_standby_snapshot",
+    "pg_wal_replay_pause",
+    "pg_wal_replay_resume",
+    "pg_rotate_logfile",
+    "pg_reload_conf",
+    "pg_current_logfile",
+    "pg_promote",
+    "pg_stat_reset",
+    "pg_stat_reset_shared",
+    "pg_stat_reset_slru",
+    "pg_stat_reset_single_table_counters",
+    "pg_stat_reset_single_function_counters",
+    "pg_stat_reset_backend_stats",
+    "pg_stat_reset_replication_slot",
+    "pg_stat_have_stats",
+    "pg_stat_reset_subscription_stats",
+    "lo_import",
+    "lo_export",
+    "pg_ls_logdir",
+    "pg_ls_waldir",
+    "pg_ls_archive_statusdir",
+    "pg_ls_summariesdir",
+    "pg_ls_tmpdir",
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_replication_origin_advance",
+    "pg_replication_origin_create",
+    "pg_replication_origin_drop",
+    "pg_replication_origin_oid",
+    "pg_replication_origin_progress",
+    "pg_replication_origin_session_is_setup",
+    "pg_replication_origin_session_progress",
+    "pg_replication_origin_session_reset",
+    "pg_replication_origin_session_setup",
+    "pg_replication_origin_xact_reset",
+    "pg_replication_origin_xact_setup",
+    "pg_show_replication_origin_status",
+    "pg_stat_file",
+    "pg_ls_dir",
+    "pg_log_backend_memory_contexts",
+    "pg_ls_logicalsnapdir",
+    "pg_ls_logicalmapdir",
+    "pg_ls_replslotdir",
+)
+
+
 def only_require_chart_source_reader(dsn: str) -> None:
     """Inspect a real authenticated principal, not SET ROLE on an operator session.
 
@@ -108,15 +163,24 @@ def only_require_chart_source_reader(dsn: str) -> None:
                 WHERE n.nspname NOT LIKE 'pg_%%' AND c.relkind = 'S'
                   AND pg_catalog.has_sequence_privilege(session_user, c.oid, 'USAGE,UPDATE'))
               AND NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                JOIN (VALUES ('pg_authid', 'rolpassword'), ('pg_user_mapping', 'umoptions'),
+                             ('pg_subscription', 'subconninfo')) AS secret(relation, column_name)
+                  ON secret.relation = c.relname
+                WHERE n.nspname = 'pg_catalog'
+                  AND pg_catalog.has_column_privilege(session_user, c.oid, secret.column_name, 'SELECT'))
+              AND NOT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_proc p
                 JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-                WHERE n.nspname NOT LIKE 'pg_%%' AND n.nspname <> 'information_schema'
-                  AND p.prosecdef AND p.prorettype <> 'pg_catalog.trigger'::regtype
+                WHERE ((n.nspname = 'pg_catalog' AND p.proname = ANY(%s))
+                   OR (n.nspname NOT LIKE 'pg_%%' AND n.nspname <> 'information_schema'
+                       AND p.prosecdef AND p.prorettype <> 'pg_catalog.trigger'::regtype))
                   AND pg_catalog.has_function_privilege(session_user, p.oid, 'EXECUTE'))
             FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_roles g
             WHERE r.rolname = session_user AND g.rolname = 'onlyalpha_chart_input_reader'
             """,
-            (list(_SOURCE_TABLES),),
+            (list(_SOURCE_TABLES), list(_RESTRICTED_BUILTINS)),
         ).fetchone()
         if row != (True,):
             raise ValueError("CHART_NATIVE_SOURCE_READER_UNSAFE")

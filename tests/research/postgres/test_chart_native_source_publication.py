@@ -331,6 +331,14 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
         else:
             assert values == [Decimal(v) for v in ("0", "0", "0.666666666667", "2.333333333333", "2.333333333333", "2")]
             assert [row["readiness"] for row in readiness] == ["PARTIAL", "PARTIAL", "READY", "READY", "READY", "READY"]
+            assert [row["reason"] for row in readiness] == [
+                "WARMUP_INCOMPLETE",
+                "WARMUP_INCOMPLETE",
+                "NONE",
+                "NONE",
+                "NONE",
+                "NONE",
+            ]
         assert before == snapshot(postgres_dsn)
         assert source_bytes == {p: p.read_bytes() for p in system.dataset._root.rglob("*") if p.is_file()}
         assert registry_bytes == {p: p.read_bytes() for p in registry.root.rglob("*") if p.is_file()}
