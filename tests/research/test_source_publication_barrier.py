@@ -5,6 +5,9 @@ from __future__ import annotations
 import errno
 import fcntl
 import os
+import select
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -126,3 +129,32 @@ def test_readonly_inspection_io_error_is_not_absence(tmp_path, monkeypatch, faul
     with pytest.raises(OnlySourceCutError, match="SOURCE_PUBLICATION_UNAVAILABLE"):
         with barrier.inspect_readonly():
             pytest.fail("IO error authorized inspection")
+
+
+@pytest.mark.parametrize("first", ["publication", "inspection"])
+def test_publication_and_readonly_inspection_exclude_each_other_across_processes(tmp_path, first):
+    root = tmp_path / "owner"
+    barrier = _provision(root)
+    context = barrier.publication() if first == "publication" else barrier.inspect_readonly()
+    second = "inspection" if first == "publication" else "publication"
+    process = None
+    try:
+        with context:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "tests.runtime_support.source_publication_lock", str(root), second],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stdout is not None
+            ready, _, _ = select.select([process.stdout], [], [], 10)
+            assert ready, "child did not reach its nonblocking lock probe"
+            assert process.stdout.readline().strip() == "blocked"
+        output, errors = process.communicate(timeout=10)
+        assert process.returncode == 0, errors
+        assert output.strip() == "entered"
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)

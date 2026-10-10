@@ -69,6 +69,10 @@ def test_v2_writes_hold_publication_lock_through_sync(tmp_path, monkeypatch, own
                     artifact.manifest.artifact_content_fingerprint, artifact.manifest.result.research_result_fingerprint
                 )
 
+    # Explicit provisioning is separate from read-only inspection. A real lock
+    # already exists so failure proves missing exclusion, not missing lock setup.
+    root.mkdir(exist_ok=True)
+    (root / ".source-cut.lock").touch()
     if action != "new":
         publish()
     import importlib
