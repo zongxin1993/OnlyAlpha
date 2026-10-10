@@ -36,7 +36,7 @@ pytestmark = pytest.mark.contract
 def hosted_chart(exact_host_environment, tmp_path):
     from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
-    builder, built, manager_type = exact_host_environment
+    builder, built, manager_type, _ = exact_host_environment
     registry = OnlyRuntimeGenerationRegistry(tmp_path / "registry")
     now = datetime(2026, 10, 8, tzinfo=UTC)
     generation = built.manifest.runtime_generation_fingerprint

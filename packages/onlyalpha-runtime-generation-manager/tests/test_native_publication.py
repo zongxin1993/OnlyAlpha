@@ -21,7 +21,7 @@ pytestmark = pytest.mark.contract
 def native_publication_case(exact_host_environment, tmp_path):
     from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
 
-    builder, built, host_type = exact_host_environment
+    builder, built, host_type, _ = exact_host_environment
     registry = OnlyRuntimeGenerationRegistry(tmp_path / "registry")
     now = datetime(2026, 10, 9, tzinfo=UTC)
     generation = built.manifest.runtime_generation_fingerprint

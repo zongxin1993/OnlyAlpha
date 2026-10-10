@@ -72,6 +72,7 @@ from onlyalpha.runtime.generation import (
     OnlyRuntimeProviderBinding,
 )
 from tests.quant_assets.test_private_strategy_composition import _case
+from tests.research.postgres.migration_support import current_migrations
 from tests.research.specification.support import registry, specification
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
@@ -182,7 +183,7 @@ def _provenance() -> OnlyResearchAuthoringProvenance:
 
 
 def test_private_factor_strategy_authoring_round_trip_publish_and_history(postgres_dsn: str) -> None:
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0048_chart_calculation_run_admission"
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == current_migrations()
     store = OnlyPostgresPrivateAssetStore(postgres_dsn)
 
     factor_asset = OnlyPrivateFactorAsset("private.factor.momentum")

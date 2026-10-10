@@ -74,6 +74,44 @@ Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 
 日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
 “未执行”，不得记为通过。性能数据保留为当前运行产物，不提交历史 PASS/基线报告作为 Authority。
 
+### PostgreSQL cluster-scoped Role isolation
+
+`postgres_dsn` resets only the current database's public schema, not cluster roles
+or other databases' dependencies. Tests of fresh role creation use the canonical
+test image's pinned PostgreSQL 18 server tools and `isolated_postgres_cluster`:
+non-root `initdb`, private temporary data/socket directories, no TCP listener,
+and `pg_ctl -w` startup/shutdown. Only this fixture's data is removed; its server
+log remains in `test-results/`. It temporarily uses the sole existing
+`ONLYALPHA_POSTGRES_DSN` configuration, retaining the `_test` database check.
+Private-socket trust is restricted to this container's fixture owner; actual
+low-permission credential tests still use the canonical shared PostgreSQL service.
+
+Preexisting-role rollback tests keep a separate, test-owned database alive in that
+shared cluster, inventory its complete dependencies/facts and preserve them through
+failure and retry. Cleanup drops only that newly created database, never shared
+groups or other databases' grants. Both paths execute the unchanged official SQL;
+creating another database alone cannot prove cluster-scoped roles are fresh.
+
+### Exact installed-host test resources
+
+Chart host fixtures build and validate real artifacts in a clean environment. A
+separate read-only installed-code template is frozen under that exact Runtime
+Generation fingerprint before a scenario provisions its schema reference. Cases
+copy it into new, case-owned host caches; they never share workers, interpreters,
+registries, Work, SQL state, Source facts or credentials. Existing destinations
+are rejected, not merged. Symlinks may address the template itself or the approved
+base interpreter, never another mutable environment/package tree. Permission
+changes skip symlinks and are limited to fixture-owned copies.
+
+This only avoids repeated construction of identical installed code. Each real
+host still loads its own owning manifest/evidence, starts a fresh isolated Python
+process, verifies installed seal/wheels/RECORD and checks the exact handshake.
+Directory names/copies grant no Authority. Different generations remain separate;
+their cold construction and corruption/rebuild coverage is not replaced. Template
+cleanup restores its own directories even when setup fails before yielding. The
+native Python module entrypoint is checked at its destination prefix; copying is
+not a general promise that virtualenv entrypoint scripts are relocatable.
+
 ### 固定测试数据与重生成
 
 标准 Result Fixture 位于 `test-data/results/`，由正式 `OnlyEngine` 场景生成；Analytics、Report、Artifact、

@@ -15,6 +15,7 @@ from onlyalpha.application.search_generation_execution import (
 )
 from onlyalpha.research.run.model import OnlyResearchRunState
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
+from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -46,7 +47,7 @@ def test_postgres_owning_chain_through_real_isolated_host_is_readonly(
     from tests.application.test_chart_calculation_admission import NOW
     from tests.research.postgres import test_chart_calculation_preparation as preparation_fixtures
 
-    builder, built, manager_type = exact_host_environment
+    builder, built, manager_type, template = exact_host_environment
     registry = OnlyRuntimeGenerationRegistry(tmp_path / "runtime")
     generation = built.manifest.runtime_generation_fingerprint
     registry.prepare(built.manifest, actor="fixture", occurred_at=NOW)
@@ -68,6 +69,7 @@ def test_postgres_owning_chain_through_real_isolated_host_is_readonly(
         occurred_at=NOW,
     )
     assert ready.state == "INPUT_READY"
+    materialize_exact_host_environment(template, generation, tmp_path / "hosts")
     host = manager_type(registry=registry, builder=builder, cache_root=tmp_path / "hosts")
     compilations = OnlyPostgresChartCalculationCompilationStore(postgres_dsn)
     runs = OnlyPostgresChartCalculationRunAdmissionStore(postgres_dsn, runtime_generations=registry)

@@ -18,6 +18,7 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.quant_assets import OnlyPrivateFactorAsset, OnlyPrivateStrategyAsset
+from tests.research.postgres.migration_support import current_migrations
 from tests.research.postgres.test_private_asset_authority import _factor, _strategy
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
@@ -39,7 +40,7 @@ def _published_assets(postgres_dsn: str) -> OnlyPostgresPrivateAssetStore:
 
 
 def test_current_registry_enumeration_excludes_drafts_and_is_sorted(postgres_dsn: str) -> None:
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate()[-1] == "0048_chart_calculation_run_admission"
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == current_migrations()
     assets = _published_assets(postgres_dsn)
 
     factors = assets.list_current_factor_revisions()
