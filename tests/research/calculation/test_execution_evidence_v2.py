@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import Decimal
+from pathlib import Path
 from threading import Barrier
 
 import pyarrow as pa
@@ -214,6 +216,82 @@ def test_v2_exact_inspection_cannot_select_unattested_evidence_without_runtime_e
     for action in (store.load_exact_for_result, store.require_exact_for_result):
         with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_IDENTITY_MISMATCH"):
             action(result, producer.research_implementation_bindings, expectation)
+
+
+def test_v2_exact_inspection_unavailable_anchor_is_not_missing(tmp_path):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    store._semantic_root.rename(tmp_path / "unavailable")
+    for action in (store.load_exact_for_result, store.require_exact_for_result):
+        with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"):
+            action(calculation, producer.research_implementation_bindings, context.provenance)
+    assert not store._semantic_root.exists()
+
+
+@pytest.mark.parametrize("point", ["lookup", "open", "read"])
+@pytest.mark.parametrize("error", [errno.EACCES, errno.EIO])
+def test_v2_exact_inspection_io_error_is_unavailable_not_missing_or_corrupt(tmp_path, monkeypatch, point, error):
+    import onlyalpha.research._durability as durability
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    reload_result = store._reload_result
+
+    # Inject only after the distinct Calculation owning reader has succeeded.
+    def inject(result):
+        loaded = reload_result(result)
+        if point == "lookup":
+            original = Path.lstat
+
+            def fail_lookup(path, *args, **kwargs):
+                if path == store._semantic_root:
+                    raise OSError(error, "injected Evidence lookup IO")
+                return original(path, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "lstat", fail_lookup)
+        else:
+
+            def fail(*args, **kwargs):
+                raise OSError(error, "injected Evidence descriptor IO")
+
+            if point == "open":
+                monkeypatch.setattr(durability.os, "open", fail)
+            else:
+                monkeypatch.setattr(durability._OnlyBoundPublicationTree, "read_bytes", fail)
+        return loaded
+
+    monkeypatch.setattr(store, "_reload_result", inject)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"):
+        store.load_exact_for_result(calculation, producer.research_implementation_bindings, context.provenance)
+
+
+def test_v2_exact_inspection_available_empty_namespace_is_local_not_found(tmp_path):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    store._semantic_root.rename(tmp_path / "saved")
+    store._semantic_root.mkdir()
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND"):
+        store.load_exact_for_result(calculation, producer.research_implementation_bindings, context.provenance)
+    assert not tuple(store._semantic_root.iterdir())
+
+
+def test_v2_exact_inspection_missing_authoring_is_incomplete_before_runtime_equality(tmp_path):
+    from tests.research.artifact.test_calculation_v2 import _publication
+
+    _, _, context, selection, _, store = _publication(tmp_path)
+    calculation = store._result_store.load_verified(selection[0][0])
+    producer = store.load_verified(selection[0][1])
+    different = replace(context.provenance, runtime_generation_fingerprint="f" * 64)
+    with pytest.raises(OnlyResearchCalculationError, match="RESEARCH_EXECUTION_IDENTITY_MISMATCH"):
+        store.load_exact_for_result(calculation, producer.research_implementation_bindings, different, "a" * 64)
 
 
 def test_v2_evidence_strict_round_trip_binds_versions_result_and_implementation(tmp_path):
