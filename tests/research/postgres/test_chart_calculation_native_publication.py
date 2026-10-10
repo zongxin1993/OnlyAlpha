@@ -21,6 +21,7 @@ from onlyalpha.distribution import (
 )
 from onlyalpha.research.artifact import OnlyParquetResearchCalculationArtifactStoreV2
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
+from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
 from tests.runtime_support.market_fact_reference import save_reference_facts
 from tests.runtime_support.native_calculation_publication import PUBLISH as _PUBLISH
 from tests.support.runtime_distribution_wheels import installed_distribution_wheel, plain_artifact
@@ -88,7 +89,7 @@ def native_publication_case(exact_host_environment, postgres_dsn, tmp_path, monk
 
     monkeypatch.setattr(_FakeSource, "_update", recorded_update)
 
-    builder, built, host_type = exact_host_environment
+    builder, built, host_type, template = exact_host_environment
     registry = OnlyRuntimeGenerationRegistry(tmp_path / "registry")
     now = datetime(2026, 10, 9, tzinfo=UTC)
     generation = built.manifest.runtime_generation_fingerprint
@@ -114,6 +115,7 @@ def native_publication_case(exact_host_environment, postgres_dsn, tmp_path, monk
         system.operation, worker_id=WORKER, runtime_generation_fingerprint=generation, occurred_at=now
     )
     assert ready.state == "INPUT_READY"
+    materialize_exact_host_environment(template, generation, tmp_path / "hosts")
     host = host_type(registry=registry, builder=builder, cache_root=tmp_path / "hosts")
     compilations = OnlyPostgresChartCalculationCompilationStore(postgres_dsn)
     try:
@@ -214,7 +216,7 @@ def test_two_installed_generations_publish_same_result_and_distinct_portable_art
     from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 
     chart, compilation, registry, first_python, _ = native_publication_case
-    builder, built, _ = exact_host_environment
+    builder, built, _, _ = exact_host_environment
     original_registry = {path: path.read_bytes() for path in registry.root.rglob("*") if path.is_file()}
     original_dataset = {path: path.read_bytes() for path in chart.dataset._root.rglob("*") if path.is_file()}
     owner = json.loads((tmp_path / "input-owner.json").read_text())

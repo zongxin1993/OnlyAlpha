@@ -25,6 +25,7 @@ from tests.research.postgres.test_chart_calculation_native_publication import (
 )
 from tests.research.postgres.test_chart_calculation_run_admission import handoff
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
+from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 _PREVIOUS = "0048_chart_calculation_run_admission"
@@ -722,7 +723,10 @@ def test_real_source_read_role_and_installed_host_still_do_not_authorize_chart_c
             compilation.graph_fingerprint,
             compilation.runtime_generation_fingerprint,
         )
-    builder, _, host_type = exact_host_environment
+    builder, built, host_type, template = exact_host_environment
+    materialize_exact_host_environment(
+        template, built.manifest.runtime_generation_fingerprint, tmp_path / "permission-host"
+    )
     host = host_type(registry=registry, builder=builder, cache_root=tmp_path / "permission-host")
     try:
         actual = host.acquire(compilation.runtime_generation_fingerprint)

@@ -92,6 +92,26 @@ failure and retry. Cleanup drops only that newly created database, never shared
 groups or other databases' grants. Both paths execute the unchanged official SQL;
 creating another database alone cannot prove cluster-scoped roles are fresh.
 
+### Exact installed-host test resources
+
+Chart host fixtures build and validate real artifacts in a clean environment. A
+separate read-only installed-code template is frozen under that exact Runtime
+Generation fingerprint before a scenario provisions its schema reference. Cases
+copy it into new, case-owned host caches; they never share workers, interpreters,
+registries, Work, SQL state, Source facts or credentials. Existing destinations
+are rejected, not merged. Symlinks may address the template itself or the approved
+base interpreter, never another mutable environment/package tree. Permission
+changes skip symlinks and are limited to fixture-owned copies.
+
+This only avoids repeated construction of identical installed code. Each real
+host still loads its own owning manifest/evidence, starts a fresh isolated Python
+process, verifies installed seal/wheels/RECORD and checks the exact handshake.
+Directory names/copies grant no Authority. Different generations remain separate;
+their cold construction and corruption/rebuild coverage is not replaced. Template
+cleanup restores its own directories even when setup fails before yielding. The
+native Python module entrypoint is checked at its destination prefix; copying is
+not a general promise that virtualenv entrypoint scripts are relocatable.
+
 ### 固定测试数据与重生成
 
 标准 Result Fixture 位于 `test-data/results/`，由正式 `OnlyEngine` 场景生成；Analytics、Report、Artifact、

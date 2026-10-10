@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import stat
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -97,7 +99,56 @@ def exact_host_environment(tmp_path_factory):
         expected_catalog=OnlyQuantAssetCatalogGeneration((provider,)),
         environment_root=root / "built",
     )
-    return builder, built, OnlyHistoricalGenerationHostManager
+    # Freeze only installed code, before a publication case provisions its own
+    # schema reference in `built`. No registry, Work, process or database is here.
+    template = root / "host-template" / built.manifest.runtime_generation_fingerprint
+    try:
+        shutil.copytree(root / "built", template, symlinks=True)
+        _require_environment_symlinks(template)
+        for entry in (template, *template.rglob("*")):
+            if not entry.is_symlink():
+                entry.chmod(entry.stat().st_mode & ~0o222)
+        yield builder, built, OnlyHistoricalGenerationHostManager, template
+    finally:
+        # Only this fixture's copy is restored for pytest cleanup, including
+        # failures before yield. Never chmod a base-interpreter symlink target.
+        _make_environment_directories_writable(template)
+
+
+def _require_environment_symlinks(root: Path) -> None:
+    interpreter = Path(sys.executable).resolve()
+    for entry in root.rglob("*"):
+        if entry.is_symlink():
+            target = entry.resolve(strict=True)
+            assert target.is_relative_to(root.resolve()) or target == interpreter, "external template symlink"
+
+
+def _make_environment_directories_writable(root: Path) -> None:
+    if root.exists():
+        for entry in (root, *root.rglob("*")):
+            if not entry.is_symlink() and entry.is_dir():
+                entry.chmod(entry.stat().st_mode | stat.S_IWUSR)
+
+
+def materialize_exact_host_environment(template: Path, generation_fingerprint: str, cache_root: Path) -> Path:
+    """Copy immutable code into a new case cache; this grants no host Authority."""
+    assert template.is_dir() and template.name == generation_fingerprint, "exact host template required"
+    _require_environment_symlinks(template)
+    assert all(entry.is_symlink() or not entry.stat().st_mode & 0o222 for entry in (template, *template.rglob("*")))
+    target = cache_root / generation_fingerprint
+    try:
+        shutil.copytree(template, target, symlinks=True)
+    except FileExistsError:
+        # A preexisting destination is not ours to merge, sanitize or chmod.
+        raise
+    except OSError:
+        _make_environment_directories_writable(target)
+        raise
+    _make_environment_directories_writable(target)
+    # The real manager still exact-loads the owning manifest/evidence, starts a
+    # fresh interpreter, and verifies installed seal/RECORD/handshake. A copied
+    # directory, matching name, or template permission is never admission proof.
+    return target
 
 
 def compile_chart_in_exact_host(tmp_path, registry, builder, generation, host, *, period=3, price_field="VOLUME"):
