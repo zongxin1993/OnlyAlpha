@@ -107,6 +107,26 @@ def test_bound_publication_rejects_another_owner_without_creating_coordination_f
     assert not tuple(other.iterdir())
 
 
+@pytest.mark.parametrize("method", ["existing", "bound"])
+@pytest.mark.parametrize("fault", [errno.EACCES, errno.EIO])
+def test_prelock_binding_io_failure_remains_unavailable_without_lock_creation(tmp_path, monkeypatch, method, fault):
+    root = tmp_path / "owner"
+    root.mkdir()
+    barrier = OnlySourcePublicationBarrier(root)
+
+    def unavailable(tree):
+        raise OSError(fault, "controlled pre-lock namespace failure")
+
+    with closing(_OnlyBoundPublicationTree(root, tmp_path)) as tree:
+        tree.bind_directory(root)
+        monkeypatch.setattr(_OnlyBoundPublicationTree, "require_namespace", unavailable)
+        context = barrier.publication_existing() if method == "existing" else barrier.publication_bound(tree)
+        with pytest.raises(OnlySourceCutError, match="^SOURCE_PUBLICATION_UNAVAILABLE$"):
+            with context:
+                pytest.fail("unavailable binding authorized publication")
+    assert not tuple(root.iterdir())
+
+
 @pytest.mark.parametrize("method", ["publication", "capture"])
 def test_publication_ancestor_symlink_never_creates_directories_before_rejection(tmp_path, method):
     unrelated = tmp_path / "unrelated"
