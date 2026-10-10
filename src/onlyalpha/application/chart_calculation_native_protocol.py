@@ -7,6 +7,7 @@ and fenced Run/Attempt consumer are implemented and verified.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ from onlyalpha.research.execution.model import OnlyResearchRunAttemptId, OnlyRes
 from onlyalpha.research.run.model import OnlyResearchRunId
 
 ONLYALPHA_CHART_NATIVE_PUBLICATION_CONTRACT_VERSION = "ONLYALPHA_CHART_NATIVE_PUBLICATION_V1"
+ONLYALPHA_CHART_NATIVE_MAX_WIRE_BYTES = 64 * 1024
 _CONTEXT = "Chart native publication protocol"
 
 
@@ -228,3 +230,112 @@ class OnlyChartCalculationNativeWorkerHandshakeV1:
             execution_contract_version=require_str(raw, "execution_contract_version", _CONTEXT),
             schema_version=require_int(raw, "schema_version", _CONTEXT),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyChartCalculationNativePublicationReceiptV1:
+    """Publication locators, not a producer seal or permission to complete a Run."""
+
+    request: OnlyChartCalculationNativeExecutionRequestV1
+    runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1
+    research_result_plan_fingerprint: str
+    calculation_fingerprint: str
+    calculation_result_fingerprint: str
+    execution_evidence_fingerprint: str
+    research_result_fingerprint: str
+    artifact_content_fingerprint: str
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.request) is not OnlyChartCalculationNativeExecutionRequestV1:
+            raise ValueError("Chart native receipt requires the original request")
+        self.request.__post_init__()
+        if type(self.runtime_provenance) is not OnlyResearchRuntimeExecutionProvenanceV1:
+            raise ValueError("Chart native receipt Runtime provenance is invalid")
+        self.runtime_provenance.__post_init__()
+        if self.runtime_provenance.runtime_generation_fingerprint != self.request.runtime_generation_fingerprint:
+            raise ValueError("Chart native receipt names another Runtime Generation")
+        for name in (
+            "research_result_plan_fingerprint",
+            "calculation_fingerprint",
+            "calculation_result_fingerprint",
+            "execution_evidence_fingerprint",
+            "research_result_fingerprint",
+            "artifact_content_fingerprint",
+        ):
+            require_sha256({name: getattr(self, name)}, name, _CONTEXT)
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise ValueError("unsupported Chart native receipt version")
+
+    def verify_compilation(self, frozen: OnlyChartCalculationCompilationV1) -> None:
+        """Structural comparison only; owning scientific verified-load is mandatory."""
+        self.__post_init__()
+        self.request.verify_compilation(frozen)
+        if (
+            self.research_result_plan_fingerprint != frozen.result_plan_fingerprint
+            or self.calculation_fingerprint != frozen.resolution.job_plan.calculation_fingerprint
+        ):
+            raise ValueError("Chart native receipt differs from frozen publication")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "request": self.request.to_dict(),
+            "runtime_provenance": self.runtime_provenance.to_dict(),
+            "research_result_plan_fingerprint": self.research_result_plan_fingerprint,
+            "calculation_fingerprint": self.calculation_fingerprint,
+            "calculation_result_fingerprint": self.calculation_result_fingerprint,
+            "execution_evidence_fingerprint": self.execution_evidence_fingerprint,
+            "research_result_fingerprint": self.research_result_fingerprint,
+            "artifact_content_fingerprint": self.artifact_content_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> OnlyChartCalculationNativePublicationReceiptV1:
+        raw = require_mapping(raw, _CONTEXT)
+        require_exact_fields(raw, set(cls.__dataclass_fields__), _CONTEXT)
+        return cls(
+            request=OnlyChartCalculationNativeExecutionRequestV1.from_dict(require_mapping(raw["request"], _CONTEXT)),
+            runtime_provenance=OnlyResearchRuntimeExecutionProvenanceV1.from_dict(
+                require_mapping(raw["runtime_provenance"], _CONTEXT)
+            ),
+            research_result_plan_fingerprint=require_sha256(raw, "research_result_plan_fingerprint", _CONTEXT),
+            calculation_fingerprint=require_sha256(raw, "calculation_fingerprint", _CONTEXT),
+            calculation_result_fingerprint=require_sha256(raw, "calculation_result_fingerprint", _CONTEXT),
+            execution_evidence_fingerprint=require_sha256(raw, "execution_evidence_fingerprint", _CONTEXT),
+            research_result_fingerprint=require_sha256(raw, "research_result_fingerprint", _CONTEXT),
+            artifact_content_fingerprint=require_sha256(raw, "artifact_content_fingerprint", _CONTEXT),
+            schema_version=require_int(raw, "schema_version", _CONTEXT),
+        )
+
+
+def _only_decode_chart_native_frame(wire: bytes) -> Mapping[str, object]:
+    if type(wire) is not bytes or not wire or len(wire) > ONLYALPHA_CHART_NATIVE_MAX_WIRE_BYTES:
+        raise ValueError("Chart native frame exceeds wire limit or is empty")
+    if not wire.endswith(b"\n") or b"\n" in wire[:-1] or b"\r" in wire:
+        raise ValueError("Chart native transport requires one complete LF frame")
+
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Chart native frame has duplicate JSON key")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> object:
+        raise ValueError("Chart native frame has non-finite JSON number")
+
+    try:
+        raw = json.loads(wire.decode("utf-8"), object_pairs_hook=object_pairs, parse_constant=reject_constant)
+    except (UnicodeDecodeError, RecursionError) as exc:
+        raise ValueError("Chart native frame is not bounded UTF-8 JSON") from exc
+    return require_mapping(raw, _CONTEXT)
+
+
+def only_decode_chart_native_request(wire: bytes) -> OnlyChartCalculationNativeExecutionRequestV1:
+    return OnlyChartCalculationNativeExecutionRequestV1.from_dict(_only_decode_chart_native_frame(wire))
+
+
+def only_decode_chart_native_receipt(wire: bytes) -> OnlyChartCalculationNativePublicationReceiptV1:
+    return OnlyChartCalculationNativePublicationReceiptV1.from_dict(_only_decode_chart_native_frame(wire))
