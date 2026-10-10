@@ -162,13 +162,13 @@ def _only_inspect_calculation_publication_prefix(
                 current_calculation = None
             current_evidence = None
             if current_calculation is not None:
-                manifest = current_calculation.manifest
+                calculation_manifest = current_calculation.manifest
                 exact = OnlyResearchCalculationExecutionEvidenceV2(
-                    manifest.calculation_fingerprint,
-                    manifest.dataset_snapshot_fingerprint,
-                    manifest.calculation_graph_fingerprint,
-                    manifest.calculation_result_fingerprint,
-                    manifest.result_content_fingerprint,
+                    calculation_manifest.calculation_fingerprint,
+                    calculation_manifest.dataset_snapshot_fingerprint,
+                    calculation_manifest.calculation_graph_fingerprint,
+                    calculation_manifest.calculation_result_fingerprint,
+                    calculation_manifest.result_content_fingerprint,
                     implementation_bindings,
                     runtime_execution_provenance=runtime_provenance,
                 )
