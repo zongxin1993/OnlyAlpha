@@ -20,6 +20,7 @@ _AGENT_WORKFLOW_STDLIB_IMPORTS = {
     "datetime",
     "decimal",
     "enum",
+    "errno",
     "fcntl",
     "functools",
     "hashlib",
