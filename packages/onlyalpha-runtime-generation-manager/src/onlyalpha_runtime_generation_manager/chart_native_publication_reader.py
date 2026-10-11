@@ -16,7 +16,6 @@ from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCal
 from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
 from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
 from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
-from onlyalpha.research.dataset.publication_input import _only_require_verified_sealed_chart_publication_input
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 
 from .registry import OnlyRuntimeGenerationRegistry
@@ -59,10 +58,7 @@ def only_verify_chart_native_publication(
     )
     if receipt.runtime_provenance != expected_provenance:
         raise ValueError("CHART_NATIVE_PUBLICATION_GENERATION_MISMATCH")
-    issued = inputs.export(request.operation_id)
-    retained = _only_require_verified_sealed_chart_publication_input(
-        issued, frozen.result_plan_fingerprint, frozen.graph_fingerprint, frozen.runtime_generation_fingerprint
-    )
+    retained = inputs.verify_frozen(request.operation_id, frozen)
     datasets = OnlyParquetResearchDatasetSnapshotStore(dataset_root)
     dataset = datasets.load_verified_table(frozen.dataset_snapshot_fingerprint)
     retained.verify_snapshot(dataset.snapshot)
@@ -107,4 +103,6 @@ def only_verify_chart_native_publication(
         or not artifact.dataset_table.equals(dataset.table, check_metadata=True)
     ):
         raise ValueError("CHART_NATIVE_PUBLICATION_ARTIFACT_MISMATCH")
+    if inputs.verify_frozen(request.operation_id, frozen) != retained:
+        raise ValueError("CHART_NATIVE_PUBLICATION_SOURCE_CHANGED")
     return artifact

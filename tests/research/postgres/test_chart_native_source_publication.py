@@ -284,8 +284,35 @@ def test_installed_source_bootstrap_issues_in_process_without_operational_author
                 research_result_root=tmp_path / "research-results",
                 artifact_root=tmp_path / "artifacts",
             )
+
+            def forbidden_issuance(*args, **kwargs):
+                pytest.fail("independent scientific verification issued publication input")
+
+            # Source is re-read via the same authenticated owners, but the parent
+            # never needs producer input issuance or durable acknowledgement.
+            import onlyalpha.application.chart_calculation_input_export as input_module
+
+            monkeypatch.setattr(input_module, "_only_issue_verified_sealed_chart_publication_input", forbidden_issuance)
+            monkeypatch.setattr(verify["inputs"], "export", forbidden_issuance)
             verified = only_verify_chart_native_publication(receipt=publication, **verify)
             assert verified.manifest == artifact.manifest
+
+            with monkeypatch.context() as fault:
+                original_load = OnlyParquetResearchCalculationArtifactStoreV2.load_verified
+
+                def lose_source_after_artifact_read(store, *args, **kwargs):
+                    loaded = original_load(store, *args, **kwargs)
+                    fault.setattr(verify["inputs"]._query, "read_exact", unavailable_source)
+                    return loaded
+
+                def unavailable_source(*args, **kwargs):
+                    raise OSError("original Source unavailable after scientific reads")
+
+                fault.setattr(
+                    OnlyParquetResearchCalculationArtifactStoreV2, "load_verified", lose_source_after_artifact_read
+                )
+                with pytest.raises(OSError, match="original Source unavailable after scientific reads"):
+                    only_verify_chart_native_publication(receipt=publication, **verify)
             for field in (
                 "request",
                 "runtime_provenance",

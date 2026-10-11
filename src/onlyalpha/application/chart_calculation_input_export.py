@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import cast
 
 from onlyalpha.application.chart_calculation import OnlyChartCalculationError
-from onlyalpha.application.chart_calculation_compilation import OnlyChartCalculationInputVerifier
+from onlyalpha.application.chart_calculation_compilation import (
+    OnlyChartCalculationCompilationV1,
+    OnlyChartCalculationInputVerifier,
+)
 from onlyalpha.application.chart_calculation_compilation_ports import (
     OnlyChartCalculationCompilationStore,
     OnlyChartCalculationPreparationReader,
@@ -56,17 +59,38 @@ class OnlyChartCalculationInputExportService:
         self._query = OnlyHistoricalMarketDataQueryService(catalog, facts)
 
     def export(self, operation_id: OnlyProductCommandId) -> _OnlyVerifiedSealedChartPublicationInput:
-        retained, plan, graph, generation = self._read(operation_id)
+        retained, compilation = self._read(operation_id)
 
         def reverify() -> OnlyRetainedSealedChartInputEvidenceV1:
-            current, current_plan, current_graph, current_generation = self._read(operation_id)
-            if (current_plan, current_graph, current_generation) != (plan, graph, generation):
-                raise OnlyChartCalculationError("CHART_COMPILATION_RELATION_CORRUPT")
-            return current
+            return self.verify_frozen(operation_id, compilation)
 
-        return _only_issue_verified_sealed_chart_publication_input(retained, plan, graph, generation, reverify)
+        return _only_issue_verified_sealed_chart_publication_input(
+            retained,
+            compilation.result_plan_fingerprint,
+            compilation.graph_fingerprint,
+            compilation.runtime_generation_fingerprint,
+            reverify,
+        )
 
-    def _read(self, operation_id: OnlyProductCommandId) -> tuple[OnlyRetainedSealedChartInputEvidenceV1, str, str, str]:
+    def verify_frozen(
+        self, operation_id: OnlyProductCommandId, frozen: OnlyChartCalculationCompilationV1
+    ) -> OnlyRetainedSealedChartInputEvidenceV1:
+        """Read original owners and exact whole Compilation without issuing input.
+
+        The returned representation is not a publication capability, absence/ACK
+        witness or Work/Attempt permission. Owning read failures propagate unchanged.
+        """
+        if type(frozen) is not OnlyChartCalculationCompilationV1:
+            raise OnlyChartCalculationError("CHART_COMPILATION_RELATION_CORRUPT")
+        frozen.__post_init__()
+        retained, compilation = self._read(operation_id)
+        if compilation != frozen:
+            raise OnlyChartCalculationError("CHART_COMPILATION_RELATION_CORRUPT")
+        return retained
+
+    def _read(
+        self, operation_id: OnlyProductCommandId
+    ) -> tuple[OnlyRetainedSealedChartInputEvidenceV1, OnlyChartCalculationCompilationV1]:
         if type(operation_id) is not OnlyProductCommandId:
             raise OnlyChartCalculationError("CHART_OPERATION_RELATION_CORRUPT")
         operation = self._operations.load_verified(operation_id)
@@ -141,9 +165,4 @@ class OnlyChartCalculationInputExportService:
             )
         )
         retained.verify_snapshot(dataset.snapshot)
-        return (
-            retained,
-            compilation.result_plan_fingerprint,
-            compilation.graph_fingerprint,
-            compilation.runtime_generation_fingerprint,
-        )
+        return retained, compilation

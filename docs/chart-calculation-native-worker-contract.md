@@ -158,7 +158,7 @@ parallel scientific proof Authority or trust a caller hash/session flag.
 
 The Runtime Generation Manager's `only_verify_chart_native_publication` performs
 that scientific verified-load independently of the installed producer. It compares
-the full original request, original owning Source export, frozen plan/graph,
+the full original request, original owning non-issuing Source verification, whole frozen Compilation,
 live Dataset/Calculation2/Evidence2/Result4 and the explicitly selected Artifact2
 pair against the original Registry Manifest/Validation/Core/Catalog. It issues no
 native seal and performs no SQL mutation or Work release. Missing live
@@ -166,6 +166,9 @@ predecessors refuse current completion even if the offline Artifact is readable.
 The operational Attempt/lease/revision proof remains a separate mandatory
 Controller responsibility; passing a structural request with nonexistent Attempt
 IDs does not satisfy that responsibility.
+Source verification repeats after the scientific reads and does not issue a
+publication input or native context. It propagates missing/corrupt/unavailable
+owning proof and cannot certify absence or replace retained inspection/PG fencing.
 
 Human cancellation serializes its Command, acquires Run table ROW EXCLUSIVE write
 intent and the original Run row, and only then writes Admission/history frontier.
