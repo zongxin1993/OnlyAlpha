@@ -1256,6 +1256,30 @@ it("accepts a custom seven-minute specification through the real Product query",
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("custom");
 });
 
+it("shows missing coverage without issuing an Acquisition when read credentials are supplied", async () => {
+    const client = marketDataClient({
+        listInstruments: () => Promise.resolve([marketDataInstrument()]),
+        queryBars: (_reference, query) =>
+            Promise.resolve(marketDataBarsForQuery(query, incompleteBars()))
+    });
+    const acquisition = vi.spyOn(client, "createAcquisition");
+    renderWorkspace(client);
+    const user = userEvent.setup();
+    await user.click(screen.getByText("本地只读访问", { exact: true }));
+    await user.type(screen.getByLabelText("本地行情凭据"), "a1".repeat(32));
+    await user.click(screen.getByRole("button", { name: "连接只读行情" }));
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "只读行情覆盖不足；请从独立管理入口采集"
+        );
+    });
+    expect(acquisition).not.toHaveBeenCalled();
+    expect(streams.requests).toEqual([]);
+    expect(renderedPrices()).toEqual([]);
+});
+
 it("requests an explicit acquisition for incomplete coverage and then renders database bars", async () => {
     const user = userEvent.setup();
     const calls: string[] = [];

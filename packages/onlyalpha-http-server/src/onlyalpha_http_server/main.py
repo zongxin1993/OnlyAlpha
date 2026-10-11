@@ -57,6 +57,7 @@ from onlyalpha.application.search_product import (
     OnlySearchProductCommandServiceV1,
     OnlySearchProductQueryServiceV1,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.application.strategy_authority import (
     OnlyStrategyFreezeApplicationService,
     OnlyStrategyFreezeProjectionReconciliationApplicationService,
@@ -196,6 +197,7 @@ from onlyalpha.strategy.qualification_store import (
     _only_compose_qualification_decision_authority,
 )
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
+from onlyalpha_http_server.local_read_access import only_load_local_read_configuration
 
 from .agent_gateway import OnlyAgentNodeGatewayConfigV1, OnlyAgentNodeHttpGatewayV1
 from .app import create_product_app
@@ -611,6 +613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--user-data-root", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--local-read-auth-config", type=Path)
     parser.add_argument(
         "--backtest-product-config",
         action="append",
@@ -638,6 +641,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="verified plugin-owned Market Product resource document; repeat as required",
     )
     args = parser.parse_args(argv)
+    local_read_configuration = None
+    if args.local_read_auth_config is not None:
+        if args.host not in {"127.0.0.1", "::1"}:
+            raise OnlySourceReadAccessError("LOCAL_READ_TRANSPORT_NOT_ADMITTED")
+        try:
+            excluded = tuple(
+                path.read_text(encoding="utf-8").strip()
+                for path in (args.agent_control_token_file, args.agent_runtime_token_file)
+                if path is not None
+            )
+            local_read_configuration = only_load_local_read_configuration(
+                args.local_read_auth_config, excluded_credentials=excluded
+            )
+        except (OSError, OnlySourceReadAccessError):
+            raise OnlySourceReadAccessError("LOCAL_READ_CONFIG_INVALID") from None
     if (args.agent_node_url is None) != (args.agent_control_token_file is None):
         raise ValueError("AGENT_GATEWAY_CONFIG_INCOMPLETE")
     postgres = OnlyPostgresConfig.from_environment()
@@ -1115,10 +1133,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             market_data=market_data,
             market_data_stream=market_data_stream,
+            local_read_configuration=local_read_configuration,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.experiment_memory_projection_builder = memory_builder
-        uvicorn.run(app, host=args.host, port=args.port, access_log=False)
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            access_log=False,
+            ws_max_size=4096 if local_read_configuration is not None else 16 * 1024 * 1024,
+            ws_per_message_deflate=False if local_read_configuration is not None else True,
+            proxy_headers=False if local_read_configuration is not None else True,
+        )
     finally:
         generation_host.close()
         if kernel.state is OnlyKernelState.READY:

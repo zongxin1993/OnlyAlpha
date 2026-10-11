@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { LocalReadCredentials } from "./localReadCredentials";
 import {
     marketDataAcquisitionSchema,
     marketDataBarsSchema,
@@ -109,6 +110,21 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
     return admitted.data;
 }
 
+async function protectedRead<T>(
+    credentials: LocalReadCredentials,
+    schema: z.ZodType<T>,
+    url: string,
+    signal?: AbortSignal
+): Promise<T> {
+    const captured = credentials.capture();
+    const headers = new Headers();
+    if (captured.bearer !== null) headers.set("Authorization", `Bearer ${captured.bearer}`);
+    const value = await request(schema, url, { ...read(signal), headers, credentials: "omit" });
+    if (!credentials.isCurrent(captured.generation))
+        throw new MarketDataWebError("LOCAL_READ_GENERATION_CHANGED", "本地访问已改变");
+    return value;
+}
+
 function referenceParams(reference: MarketDataSourceReference): URLSearchParams {
     const params = new URLSearchParams({
         integration_id: reference.integration_id,
@@ -135,11 +151,14 @@ function barsParams(
 const read = (signal?: AbortSignal): RequestInit => (signal === undefined ? {} : { signal });
 
 export class FetchMarketDataApiClient implements MarketDataApiClient {
+    constructor(private readonly credentials = new LocalReadCredentials()) {}
+
     async listSources(signal?: AbortSignal) {
-        const value = await request(
+        const value = await protectedRead(
+            this.credentials,
             marketDataSourceListSchema,
             "/api/v2/market-data/sources",
-            read(signal)
+            signal
         );
         return value.sources;
     }
@@ -150,10 +169,11 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
     ) {
         const params = referenceParams(reference);
         params.set("query", query);
-        const value = await request(
+        const value = await protectedRead(
+            this.credentials,
             marketDataInstrumentListSchema,
             `/api/v2/market/instruments?${params.toString()}`,
-            read(signal)
+            signal
         );
         if (
             value.source_selection.integration_id !== reference.integration_id ||
@@ -173,10 +193,11 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         query: MarketDataBarsQuery,
         signal?: AbortSignal
     ) {
-        const result = await request(
+        const result = await protectedRead(
+            this.credentials,
             marketDataBarsSchema,
             `/api/v2/market-data/bars?${barsParams(reference, query).toString()}`,
-            read(signal)
+            signal
         );
         if (JSON.stringify(result.bar_semantic) !== JSON.stringify(query.bar_semantic))
             throw new MarketDataWebError(
@@ -206,10 +227,11 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         acquisitionId: string,
         signal?: AbortSignal
     ) {
-        return request(
+        return protectedRead(
+            this.credentials,
             marketDataAcquisitionSchema,
             `/api/v2/market-data/acquisitions/${encodeURIComponent(acquisitionId)}?${referenceParams(reference).toString()}`,
-            read(signal)
+            signal
         );
     }
 }

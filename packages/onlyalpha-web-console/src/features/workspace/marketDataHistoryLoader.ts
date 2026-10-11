@@ -37,6 +37,7 @@ interface OlderHistoryLoaderOptions {
     readonly isCurrent: () => boolean;
     readonly merge: (bars: readonly MarketDataBar[]) => MarketDataBarLedgerMerge;
     readonly onAcquiring?: () => void;
+    readonly readOnly?: boolean;
 }
 
 interface OlderHistoryRequest {
@@ -100,6 +101,7 @@ export class OnlyMarketDataHistoryLoader {
         onlyAssertMarketDataBarsAuthority(expectation, page);
 
         if (page.coverage.status !== "COMPLETE") {
+            if (this.options.readOnly) throw new Error("只读行情覆盖不足；请从独立管理入口采集");
             this.options.onAcquiring?.();
             for (const range of page.coverage.planned_acquisition_ranges) {
                 let acquisition = await this.options.client.createAcquisition(

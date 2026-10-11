@@ -9,6 +9,7 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
+import { LocalReadAccess } from "./LocalReadAccess";
 import { ChartStudies } from "./ChartStudies";
 import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
 import {
@@ -170,6 +171,10 @@ export function WorkspacePage() {
             </div>
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
+                    <details>
+                        <summary>本地只读访问</summary>
+                        <LocalReadAccess />
+                    </details>
                     <span className="chart-region__title" title={realInstrument?.instrument_id}>
                         {realInstrument?.display_symbol ?? "行情工作区"} ·{" "}
                         {formatBarSemantic(marketData.barSemantic)}

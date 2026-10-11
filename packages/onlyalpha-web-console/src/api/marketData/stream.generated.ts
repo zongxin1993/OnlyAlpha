@@ -128,5 +128,14 @@ export const marketDataStreamEventSchema = z.union([
     MarketDataBarClosedDtoSchema,
     MarketDataStreamErrorDtoSchema
 ]);
+export const marketDataStreamAuthSchema = z.strictObject({
+    schema_version: z.literal(1),
+    operation: z.literal("AUTH"),
+    bearer: z.string().min(64).max(64).regex(new RegExp("^[0-9a-f]{64}$"))
+});
+export const marketDataStreamAuthenticatedSchema = z.strictObject({
+    schema_version: z.literal(1),
+    event: z.literal("AUTHENTICATED")
+});
 export type MarketDataStreamSubscribe = z.infer<typeof marketDataStreamSubscribeSchema>;
 export type MarketDataStreamEvent = z.infer<typeof marketDataStreamEventSchema>;

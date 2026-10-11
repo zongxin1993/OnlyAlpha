@@ -68,6 +68,30 @@ const load = (loader: OnlyMarketDataHistoryLoader, semantic = marketDataBarSeman
     });
 
 describe("older Market Data history", () => {
+    it("does not acquire or merge missing coverage in the read-only context", async () => {
+        const page = {
+            ...completePage([]),
+            history_projection_fingerprint: null,
+            resume_after_sequence: null,
+            resume_plan_fingerprint: null,
+            coverage: { ...completePage().coverage, status: "INCOMPLETE" as const }
+        };
+        const client = marketDataClient({ queryBars: () => Promise.resolve(page) });
+        const acquisition = vi.spyOn(client, "createAcquisition");
+        const merge = vi.fn();
+        const loader = new OnlyMarketDataHistoryLoader({
+            client,
+            reference: FIXTURE_REFERENCE,
+            expectedSourceId: "test.market_data.live",
+            contextKey: "read-only",
+            isCurrent: () => true,
+            merge,
+            readOnly: true
+        });
+        await expect(load(loader)).rejects.toThrow("只读行情覆盖不足");
+        expect(acquisition).not.toHaveBeenCalled();
+        expect(merge).not.toHaveBeenCalled();
+    });
     it.each(["first query", "frozen re-query"])(
         "rejects a mismatched %s without merging or registering the page",
         async (path) => {

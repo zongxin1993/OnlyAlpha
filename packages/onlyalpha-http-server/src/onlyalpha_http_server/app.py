@@ -64,6 +64,7 @@ from onlyalpha.application.search_product import (
     OnlySearchRuntimeGenerationUnavailable,
     OnlySearchRuntimeGenerationUnbound,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeProductService,
     OnlyStrategyPromotionProductService,
@@ -104,6 +105,7 @@ from .integration_types import (
 )
 from .integrations import INTEGRATION_ROUTE_TAG, create_integration_router
 from .integrations.routes import integration_error_response, integration_request_validation_error_response
+from .local_read_access import OnlyLocalReadConfiguration, OnlyLocalReadIngress
 from .market_data import (
     MARKET_DATA_ROUTE_TAG,
     create_market_data_router,
@@ -275,6 +277,7 @@ def create_research_app(
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
+    local_read_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
@@ -290,7 +293,20 @@ def create_research_app(
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
     app = FastAPI(title="OnlyAlpha Research API", version=str(RESEARCH_API_SCHEMA_VERSION))
+    if local_read_configuration is not None:
+        app.add_middleware(OnlyLocalReadIngress, configuration=local_read_configuration)
     artifact_service = OnlyResearchQueryService(reader)
+
+    @app.exception_handler(OnlySourceReadAccessError)
+    async def source_access_error_handler(_request: Request, error: OnlySourceReadAccessError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401
+            if error.code == "LOCAL_READ_UNAUTHORIZED"
+            else 503
+            if error.code.endswith("UNAVAILABLE")
+            else 403,
+            content={"schema_version": 1, "error": {"phase": "QUERY", "code": error.code, "detail": error.code}},
+        )
 
     def require_research_ready() -> None:
         inspected = readiness_probe.inspect()
@@ -717,6 +733,7 @@ def create_product_app(
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
+    local_read_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -761,6 +778,7 @@ def create_product_app(
         agent_provider_runtime,
         market_data,
         market_data_stream,
+        local_read_configuration,
     )
     app.title = "OnlyAlpha Product API"
     return app

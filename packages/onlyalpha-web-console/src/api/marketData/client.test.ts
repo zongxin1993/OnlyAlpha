@@ -1,4 +1,5 @@
 import { FetchMarketDataApiClient, MarketDataWebError } from "./client";
+import { LocalReadCredentials } from "./localReadCredentials";
 import { marketDataBarSemantic } from "./model";
 import {
     FIXTURE_REFERENCE,
@@ -43,6 +44,57 @@ function stubFetch(response: Response): ReturnType<typeof vi.fn> {
 afterEach(() => {
     vi.unstubAllGlobals();
 });
+
+it("uses memory-only bearer headers for every read, never as Acquisition authority", async () => {
+    const credentials = new LocalReadCredentials();
+    const token = "a1".repeat(32);
+    credentials.replace(token);
+    const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(json(sources))
+        .mockResolvedValueOnce(json(instrumentList))
+        .mockResolvedValueOnce(json(marketDataBars()))
+        .mockResolvedValueOnce(json(marketDataAcquisition()))
+        .mockResolvedValueOnce(json(marketDataAcquisition()));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new FetchMarketDataApiClient(credentials);
+    await client.listSources();
+    await client.listInstruments(FIXTURE_REFERENCE, "BTC");
+    await client.queryBars(FIXTURE_REFERENCE, query);
+    await client.getAcquisition(FIXTURE_REFERENCE, "a");
+    await client.createAcquisition(FIXTURE_REFERENCE, acquisitionQuery);
+    for (const [url, init] of fetchMock.mock.calls.slice(0, 4)) {
+        expect(url instanceof Request ? url.url : url.toString()).not.toContain(token);
+        expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${token}`);
+        expect(init?.credentials).toBe("omit");
+    }
+    expect(new Headers(fetchMock.mock.calls[4]?.[1]?.headers).has("Authorization")).toBe(false);
+    expect(JSON.stringify(credentials)).toBe("{}");
+});
+
+it.each(["logout", "replacement", "restored-token"])(
+    "fences delayed Source reads after %s without relying on abort",
+    async (operation) => {
+        const credentials = new LocalReadCredentials();
+        const token = "a1".repeat(32);
+        credentials.replace(token);
+        let release!: (response: Response) => void;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(
+                () =>
+                    new Promise<Response>((resolve) => {
+                        release = resolve;
+                    })
+            )
+        );
+        const pending = new FetchMarketDataApiClient(credentials).listSources();
+        credentials.replace(operation === "replacement" ? "b2".repeat(32) : null);
+        if (operation === "restored-token") credentials.replace(token);
+        release(json(sources));
+        await expect(pending).rejects.toMatchObject({ code: "LOCAL_READ_GENERATION_CHANGED" });
+    }
+);
 
 it("reads the eligible source projection from the formal Product query", async () => {
     const fetchMock = stubFetch(json(sources));

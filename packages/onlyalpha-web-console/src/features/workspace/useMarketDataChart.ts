@@ -20,7 +20,7 @@ import type {
     MarketDataSourceReference
 } from "../../api/marketData/model";
 import { marketDataBarSemantic } from "../../api/marketData/model";
-import { useMarketDataApi } from "../../app/providers";
+import { useMarketDataApi, useLocalReadCredentials } from "../../app/providers";
 import {
     MarketDataBarLedgerConflictError,
     OnlyMarketDataBarLedger,
@@ -98,6 +98,7 @@ export function onlyMarketDataSourceReference(source: MarketDataSource): MarketD
 
 export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
+    const credentials = useLocalReadCredentials();
     const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
     const [sourceId, setSourceId] = useState("");
     const selectedSourceId = useRef("");
@@ -213,6 +214,7 @@ export function useMarketDataChart(): MarketDataChartState {
                       }
                     : null;
             olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
+                readOnly: credentials.capture().bearer !== null,
                 client,
                 reference: active,
                 expectedSourceId,
@@ -239,7 +241,7 @@ export function useMarketDataChart(): MarketDataChartState {
             setStatus("ready");
             setMessage(null);
         },
-        [client, failLedger]
+        [client, credentials, failLedger]
     );
 
     const acquire = useCallback(
@@ -387,6 +389,11 @@ export function useMarketDataChart(): MarketDataChartState {
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
+                if (credentials.capture().bearer !== null) {
+                    setStatus("failed");
+                    setMessage("只读行情覆盖不足；请从独立管理入口采集");
+                    return;
+                }
                 await acquire(
                     active,
                     expectedSourceId,
@@ -403,7 +410,7 @@ export function useMarketDataChart(): MarketDataChartState {
                 if (generation === historyGeneration.current) apply(error);
             }
         },
-        [acquire, apply, client, publishCompleteHistory]
+        [acquire, apply, client, credentials, publishCompleteHistory]
     );
 
     useEffect(() => {
@@ -588,7 +595,8 @@ export function useMarketDataChart(): MarketDataChartState {
                             Math.min(reconnectAttempt++, STREAM_RECONNECT_DELAYS_MS.length - 1)
                         ]
                     );
-                }
+                },
+                credentials
             );
         };
         queueMicrotask(() => {
@@ -603,7 +611,16 @@ export function useMarketDataChart(): MarketDataChartState {
             if (reconnect !== undefined) window.clearTimeout(reconnect);
             close();
         };
-    }, [barSemantic, failLedger, instrument, load, reference, resolvedSourceId, status]);
+    }, [
+        barSemantic,
+        credentials,
+        failLedger,
+        instrument,
+        load,
+        reference,
+        resolvedSourceId,
+        status
+    ]);
 
     const selectSource = useCallback((integrationId: string) => {
         if (integrationId !== "" && integrationId === selectedSourceId.current) return;

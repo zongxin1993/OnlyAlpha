@@ -448,6 +448,83 @@ logout/A→B→A. They must show no backend/source read on an unauthorized reque
 same-source read plane, no Research/Work writes, and no usable capabilities before numeric/composition admission. Configuration
 file paths and credential digests are not API fields or market/numeric identities.
 
+#### Local Source read ingress and WebSocket authentication
+
+The native Browser WebSocket cannot attach an Authorization header. Its independently versioned first control message is
+`{schema_version:1,operation:"AUTH",bearer:<64 lowercase hexadecimal characters>}`; it contains no subject, grant, URL token or
+client-authored generation. HTTP uses `Authorization: Bearer <same credential>`. The server's existing WS schema generator owns
+this control DTO and `{schema_version:1,event:"AUTHENTICATED"}` acknowledgement separately from Market Data protocol V2. After
+that acknowledgement the client sends exactly one existing V2 `SUBSCRIBE_BAR`. AUTH is accepted only as the first message;
+subscribe-before-auth, repeated AUTH/Subscribe, unknown fields, binary/oversized frames or malformed JSON close without Source
+lookup/open or data. A failed authentication never echoes its input. The credential proves the configured subject, not a
+one-time ticket: reuse by that subject is allowed only within bounded capacity while the admission generation is active.
+
+Before accepting the upgrade, require the exact configured Browser Origin (absent/`null`/cross-origin are rejected for WS),
+no query parameters/subprotocol/forwarded identity, and a free connection slot. AUTH and Subscribe each have a 5-second deadline
+and a 4096-byte text-frame limit before JSON decoding; transport frame size is bounded too. There are at most 4 active/pending
+WS connections and 4 in-flight HTTP reads, acquired without a waiting queue. A body is not accepted on the GET read plane.
+The 5-second handshake deadline is a resource policy, not a correctness timeout or latency promise. Slots remain charged until
+the actual owning work/session closes, including abandoned blocked thread work; cancellation does not free capacity early.
+
+State machine: `ORIGIN_CHECK -> SLOT -> AUTH_PENDING -> AUTHENTICATED -> SUBSCRIBE_PENDING -> GRANT_VERIFIED -> OPEN -> CLOSED`.
+Any invalid/unavailable/revoked state goes to CLOSED without a replacement identity or blind retry. The server checks the
+immutable credential generation and exact grant before resolving owning Source metadata, proves canonical Source/environment
+before opening the session, and rechecks generation plus bound Source on every outbound event. Preview is a distinct explicit
+grant (`realtime_preview`), not permission to evaluate an unclosed Study or a scientific fact. A `closed_history`-only grant
+cannot open the realtime session. Grant relation is Integration ID + exact Revision + type + canonical Source + environment;
+missing owning proof is unavailable, a complete different proof is denied. No Subject/Source match is inferred from resume
+cursor, event timestamp, source name or numeric equality.
+
+The connection has a concurrent receive/disconnect watcher and a generation-withdrawal signal. Withdrawal prevents admission
+and outbound send before closing the session; late open/read results are disposed and never released. Session close must wake
+a blocked event consumer. An uninterruptible Provider open/close cannot prove bounded cleanup: retain its resource slot and
+require process withdrawal/termination before declaring global revocation effective. Tests use barriers at pre-open, blocked
+event, pre-send and close, not sleep or polling. Browser logout/replacement closes old sockets and invalidates both fetch and
+message callbacks using a fresh authentication generation, also for the same token restored after A->B->A.
+
+| Route in the local read ingress | Responsibility |
+|---|---|
+| GET `/api/v2/market-data/sources` | Authenticate before Integration listing; enumerate only configured exact grants, never resolve unauthorized candidates then filter |
+| GET `/api/v2/market/instruments` | Authenticate + exact reference grant before provider catalog; reprove Source/environment before provider IO |
+| GET `/api/v2/market-data/bars` | Same grant/reproof before history facts; existing owning window/projection semantics retained |
+| GET `/api/v2/market-data/acquisitions/{id}` | Grant/reproof before status lookup; read-only status never creates Acquisition |
+| WS `/api/v2/market-data/stream` | AUTH first frame + explicit realtime grant, one exact subscription, continuous withdrawal/send fence |
+| Future Chart capabilities/evaluate | Not implemented by this auth slice and not admitted by a successful read or AUTH |
+| POST Acquisition, Integration/probe/secret routes, Research/Backtest/Agent/Trading and Artifact aliases | No permission from the read credential; unavailable at a configured local read ingress |
+
+The repository owner explicitly approved this opt-in local read-only ingress in the task conversation on 2026-10-11, including
+its intentional path/method restriction and independent management protection prerequisite; legacy business services are not
+removed or redefined. The owner also authorized an optional Browser-capable build target for the same canonical Compose test
+service to prove loopback HTTP/WS/Browser behavior, without changing the default test target, topology or quality thresholds.
+
+The configured local ingress is deliberately read-only: only the explicit owning GET/WS routes and non-sensitive health routes
+are mounted/reachable; every other Product path/method is denied before dispatch. This prevents anonymous alternate read or
+Command paths from bypassing grants merely by omitting the bearer header. It does not introduce management credentials or
+change those services' business lifecycle. The unconfigured legacy Product composition remains separate and does not qualify
+for W3 admission. In a deployment, that legacy/management composition must be independently protected and unreachable from the
+read ingress; leaving it anonymously reachable means feature admission is disabled. Existing acquisition is tested in the
+legacy management composition, while a configured read ingress intentionally returns forbidden instead of auto-acquiring.
+An enabled local read frontend therefore presents missing coverage as unavailable, not as automatic backfill permission.
+
+Infrastructure must prove actual loopback/TLS ingress and no direct API/management bypass. The current canonical Compose's
+default API/Web port publications are not that proof. No Unraid/LAN safety is inferred from isolated test networking. Configured
+production CLI startup must reject non-loopback cleartext binding; alternative ingress needs an explicit reviewed deployment
+contract, not a flag that claims trust. No existing protected service is redeployed by this slice. Live stream's pre-existing
+Market Data recording is still owned by its existing recorder; authentication does not promote it into Research Evidence or
+authorize Acquisition. AUTH-12's zero protected business-fact writes remains mandatory: seed immutable closed history before the
+inventory, then use a deterministic preview-only Provider for the protected Browser/HTTP/WS flow and compare every business
+table's count/content hash. This does not waive or hide recording writes: separately identify normal live recording and never
+claim such a closed-fact-producing stream is zero-write. Scientific/Run/Work/Strategy facts also remain zero-write.
+
+Relevant external engineering evidence is advisory: the
+[websockets authentication discussion](https://websockets.readthedocs.io/en/stable/topics/authentication.html) explains native
+Browser header limitations and the URL-token leakage pattern; the
+[OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html) supplies
+Origin, continuous authorization and resource-abuse failure patterns; and
+[Gitpod CVE-2023-0957](https://github.com/advisories/GHSA-f53g-frr2-jhpf) demonstrates cross-site takeover from missing WebSocket
+Origin validation. OnlyAlpha derives AUTH-first control DTOs, strict Origin, frame/deadline/capacity tests and generation
+withdrawal barriers; it rejects cookie/URL credentials, library-specific retry behavior and cancellation-as-cleanup assumptions.
+
 Proposed error shape: `{schema_version:1,error:{phase:QUERY,code,detail}}`. Details are sanitized, no credentials/files/source code.
 No values are returned with an error and no fallback type/source is selected.
 

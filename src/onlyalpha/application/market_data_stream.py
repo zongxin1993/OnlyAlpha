@@ -22,6 +22,7 @@ from onlyalpha.application.market_data_product import (
     OnlyResolvedMarketDataRuntime,
     only_product_bar_semantic,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadPermission, OnlySourceReadSession
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
 from onlyalpha.core.clock import OnlyClock
@@ -320,6 +321,7 @@ class OnlyMarketDataStreamProductService:
         bar_semantic: OnlyBarSemantic,
         resume_after_sequence: int,
         resume_plan_fingerprint: str | None = None,
+        read_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataStreamSession:
         if not self._slots.acquire(blocking=False):
             raise OnlyMarketDataProductError("MARKET_DATA_STREAM_CAPACITY_EXCEEDED")
@@ -330,6 +332,7 @@ class OnlyMarketDataStreamProductService:
                 bar_semantic=bar_semantic,
                 resume_after_sequence=resume_after_sequence,
                 resume_plan_fingerprint=resume_plan_fingerprint,
+                read_session=read_session,
             )
         except Exception:
             self._slots.release()
@@ -343,9 +346,12 @@ class OnlyMarketDataStreamProductService:
         bar_semantic: OnlyBarSemantic,
         resume_after_sequence: int,
         resume_plan_fingerprint: str | None,
+        read_session: OnlySourceReadSession | None,
     ) -> OnlyMarketDataStreamSession:
         only_product_bar_semantic(bar_semantic)
-        resolved = self._historical.resolve_runtime(reference)
+        resolved = self._historical.resolve_read_runtime(
+            reference, read_session=read_session, permission=OnlySourceReadPermission.REALTIME_PREVIEW
+        )
         plan = self._historical._plan(resolved, instrument_id, bar_semantic)
         if resume_after_sequence > 0 and resume_plan_fingerprint != plan.fingerprint:
             raise OnlyMarketDataProductError("MARKET_DATA_RESUME_PLAN_MISMATCH")

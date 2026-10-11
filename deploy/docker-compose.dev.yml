@@ -244,7 +244,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
-      target: test
+      target: ${ONLYALPHA_TEST_BUILD_TARGET:-test}
     entrypoint: ["python", "scripts/compose_test.py"]
     command: ["python", "scripts/test_suite.py", "architecture"]
     environment:

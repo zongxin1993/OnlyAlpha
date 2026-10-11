@@ -22,6 +22,7 @@ from onlyalpha.application.integration_runtime import (
     OnlyIntegrationRuntimeError,
     OnlyIntegrationRuntimeResolver,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadPermission, OnlySourceReadSession
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.config.models import (
@@ -441,7 +442,9 @@ class OnlyMarketDataProductService:
             self._scope(resolved, instrument_id, start_ns, end_ns, plan),
         )
 
-    def list_sources(self) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
+    def list_sources(
+        self, *, read_session: OnlySourceReadSession | None = None
+    ) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
         """Configured Integrations that this Market Data Product can actually serve.
 
         Eligibility is a Product judgement, not a Web filter: the candidate must be an
@@ -450,6 +453,8 @@ class OnlyMarketDataProductService:
         must provide the Market Source identity and Instrument Catalog the Product reads.
         """
 
+        if read_session is not None:
+            read_session.check_active()
         try:
             candidates = self._integrations.list_integrations(
                 type_id=None, lifecycle_state=OnlyIntegrationLifecycleState.ACTIVE
@@ -464,8 +469,13 @@ class OnlyMarketDataProductService:
             if fingerprint is None:
                 continue
             reference = OnlyMarketDataSourceReferenceV1(candidate.integration_id.value, fingerprint, candidate.type_id)
+            if read_session is not None and not any(
+                grant.matches_reference(reference) and OnlySourceReadPermission.CLOSED_HISTORY in grant.permissions
+                for grant in read_session.authority.grants
+            ):
+                continue
             try:
-                resolved = self.resolve_runtime(reference)
+                resolved = self.resolve_read_runtime(reference, read_session=read_session)
             except OnlyMarketDataProductError as exc:
                 if exc.code in _INELIGIBLE_SOURCE_CODES:
                     continue
@@ -494,8 +504,9 @@ class OnlyMarketDataProductService:
         instrument_ids: tuple[str, ...] = (),
         query: str = "",
         limit: int = 25,
+        read_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataInstrumentListProjectionV1:
-        resolved = self.resolve_runtime(reference)
+        resolved = self.resolve_read_runtime(reference, read_session=read_session)
         request = OnlyDataSourceInstrumentCatalogRequestV1(
             resolved.plugin_config,
             instrument_ids=tuple(sorted(set(instrument_ids))),
@@ -539,6 +550,7 @@ class OnlyMarketDataProductService:
         target_bar_count: int,
         before_ns: int | None = None,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        read_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataBarWindowProjectionV1:
         with only_market_data_performance("QUERY"):
             return self._query_bars(
@@ -548,6 +560,7 @@ class OnlyMarketDataProductService:
                 target_bar_count=target_bar_count,
                 before_ns=before_ns,
                 bar_semantic=bar_semantic,
+                read_session=read_session,
             )
 
     def _query_bars(
@@ -559,11 +572,12 @@ class OnlyMarketDataProductService:
         target_bar_count: int,
         before_ns: int | None,
         bar_semantic: OnlyBarSemantic,
+        read_session: OnlySourceReadSession | None,
     ) -> OnlyMarketDataBarWindowProjectionV1:
         """DB-first verified range read; a Query never acquires or mutates state."""
 
         query_started = perf_counter_ns()
-        resolved = self.resolve_runtime(reference)
+        resolved = self.resolve_read_runtime(reference, read_session=read_session)
         semantic = only_product_bar_semantic(bar_semantic)
         if target_bar_count < 1 or target_bar_count > MAX_TARGET_BAR_COUNT:
             raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID")
@@ -841,9 +855,13 @@ class OnlyMarketDataProductService:
             lease.close()
 
     def acquisition_status(
-        self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        acquisition_id: str,
+        *,
+        read_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
-        resolved = self.resolve_runtime(reference)
+        resolved = self.resolve_read_runtime(reference, read_session=read_session)
         try:
             intent = self._catalog.load_acquisition_intent(acquisition_id)
             attempt = None if intent is None else self._catalog.latest_acquisition_attempt(acquisition_id)
@@ -876,6 +894,21 @@ class OnlyMarketDataProductService:
         return self._projection(resolved, intent, status="PENDING", sealed=None, failure_detail=None)
 
     # --- Internals ---------------------------------------------------------------------
+
+    def resolve_read_runtime(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        read_session: OnlySourceReadSession | None,
+        permission: OnlySourceReadPermission = OnlySourceReadPermission.CLOSED_HISTORY,
+    ) -> OnlyResolvedMarketDataRuntime:
+        """Fence the actual owning resolution before provider/fact IO; no HTTP-only preflight."""
+        if read_session is not None:
+            read_session.require_reference(reference, permission)
+        resolved = self.resolve_runtime(reference)
+        if read_session is not None:
+            read_session.require_selection(resolved.selection, permission)
+        return resolved
 
     @only_market_data_timed("resolve_runtime")
     def resolve_runtime(self, reference: OnlyMarketDataSourceReferenceV1) -> OnlyResolvedMarketDataRuntime:

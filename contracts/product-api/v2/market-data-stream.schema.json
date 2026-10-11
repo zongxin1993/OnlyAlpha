@@ -666,6 +666,56 @@
           "$ref": "#/$defs/MarketDataStreamErrorDto"
         }
       ]
+    },
+    "auth": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "AUTH",
+          "title": "Operation",
+          "type": "string"
+        },
+        "bearer": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bearer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation",
+        "bearer"
+      ],
+      "title": "MarketDataStreamAuthDto",
+      "type": "object"
+    },
+    "authenticated": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event": {
+          "const": "AUTHENTICATED",
+          "title": "Event",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event"
+      ],
+      "title": "MarketDataStreamAuthenticatedDto",
+      "type": "object"
     }
   },
   "oneOf": [
@@ -674,6 +724,12 @@
     },
     {
       "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/auth"
+    },
+    {
+      "$ref": "#/$defs/authenticated"
     }
   ]
 }

@@ -6047,6 +6047,24 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -6072,6 +6090,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
             /** @description Internal Server Error */
@@ -6127,6 +6154,24 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -6152,6 +6197,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
             /** @description Internal Server Error */
@@ -6210,6 +6264,24 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -6235,6 +6307,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
             /** @description Internal Server Error */
@@ -6284,6 +6365,24 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -6295,6 +6394,15 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6355,6 +6463,24 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -6380,6 +6506,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
                 };
             };
             /** @description Internal Server Error */
