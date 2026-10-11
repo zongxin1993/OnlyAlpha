@@ -23,6 +23,7 @@ from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from onlyalpha_agent_orchestrator.config import OnlyOpenAICompatibleEndpointConfigV1
 from onlyalpha_agent_orchestrator.provider_integration import (
     OnlyAgentModelProfileV1,
@@ -179,7 +180,10 @@ class _RuntimeGenerations:
 
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
         assert runtime_generation_fingerprint == RUNTIME_FP
-        return SimpleNamespace(runtime_generation_fingerprint=runtime_generation_fingerprint)
+        return SimpleNamespace(
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
+            catalog_generation_fingerprint=CATALOG_FP,
+        )
 
 
 class _Authoring:
@@ -559,6 +563,18 @@ def _product_app(agent_url: str, search: _SearchAuthority) -> FastAPI:
     app.include_router(create_artifact_router(cast(Any, _Artifacts())))
     app.include_router(create_exact_statistics_router(cast(Any, _Statistics())))
     return app
+
+
+def test_product_fixture_exposes_exact_runtime_catalog_binding():
+    """The installed Agent's owning-reference read must use the full Product contract."""
+    with TestClient(_product_app("http://agent", _SearchAuthority())) as client:
+        response = client.get(f"/api/v2/research/runtime-generations/{RUNTIME_FP}")
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema_version": 1,
+        "runtime_generation_fingerprint": RUNTIME_FP,
+        "catalog_generation_fingerprint": CATALOG_FP,
+    }
 
 
 @contextmanager
