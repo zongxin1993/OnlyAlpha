@@ -27,12 +27,39 @@ from onlyalpha.research.calculation.execution_provenance import (
 from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
 from onlyalpha.research.dataset import OnlyParquetResearchDatasetSnapshotStore
 from onlyalpha.research.result import OnlyJsonResearchResultStore
+from onlyalpha.research.source_cut import OnlySourceCutError
 from tests.quant_assets.test_retained_generation_proof import retained_proof_case
 from tests.research.artifact.test_calculation_v2 import _publication, _root
 from tests.research.calculation.test_result_v2_store import AUDIT
 from tests.support.calculation_publication_input import verified_test_input
 
 pytestmark = pytest.mark.contract
+
+
+def test_artifact_predecessor_ack_substitution_never_selects_replacement_owner(tmp_path, monkeypatch):
+    publish, store, _, _, _, _ = _publication(tmp_path)
+    replacement = tmp_path / "replacement-artifacts"
+    replacement.mkdir()
+    (replacement / "retained").write_bytes(b"unrelated original")
+    acknowledge = OnlyParquetResearchDatasetSnapshotStore.acknowledge_exact
+    changed = []
+
+    def substitute_after_ack(self, identity):
+        result = acknowledge(self, identity)
+        if not changed:
+            changed.append(True)
+            store._root.rename(tmp_path / "original-artifacts")
+            replacement.rename(store._root)
+        return result
+
+    monkeypatch.setattr(OnlyParquetResearchDatasetSnapshotStore, "acknowledge_exact", substitute_after_ack)
+    with pytest.raises((OnlyResearchArtifactError, OnlySourceCutError)) as error:
+        publish()
+    assert changed == [True]
+    assert {entry.name for entry in store._root.iterdir()} == {"retained"}
+    assert (store._root / "retained").read_bytes() == b"unrelated original"
+    assert isinstance(error.value, OnlyResearchArtifactError)
+    assert error.value.code == "ARTIFACT_COMMIT_FAILED"
 
 
 def _reenter(root):

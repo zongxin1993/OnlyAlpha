@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import os
 import shutil
 import sys
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -19,6 +21,8 @@ from onlyalpha.calculation.definition import OnlyCalculationDefinition, OnlyFact
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 from onlyalpha.research._durability import _only_bind_publication_tree, _OnlyBoundPublicationTree
 from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
+from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .errors import OnlyResearchCalculationResultStoreError
 from .execution import (
@@ -71,6 +75,7 @@ class OnlyParquetResearchCalculationResultStoreV2:
         self._compression = compression
         self._row_group_size = row_group_size
         self._audit_time = audit_time
+        self._publication_barrier = OnlySourcePublicationBarrier(root)
 
     def exists(self, calculation_fingerprint: str) -> bool:
         target = self._target(calculation_fingerprint)
@@ -82,12 +87,32 @@ class OnlyParquetResearchCalculationResultStoreV2:
     def commit(
         self, verified_execution: _OnlyVerifiedResearchCalculationExecutionV2, graph: OnlyCalculationGraphDefinition
     ) -> OnlyResearchCalculationResultV2:
-        execution = _only_require_verified_research_calculation_execution_v2(verified_execution)
+        _only_require_verified_research_calculation_execution_v2(verified_execution)
         # Deployment preprovisions this anchor; the Store may create its root,
         # but never owns creation or durability of ancestors above the anchor.
         authority_parent = self._root.parent
         if authority_parent.is_symlink() or not authority_parent.is_dir():
             raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", "authority parent must be a real directory")
+        try:
+            with closing(_OnlyBoundPublicationTree(self._root, authority_parent)) as tree:
+                tree.bind_directory(authority_parent)
+                result = self._commit_with_parent(verified_execution, graph, tree)
+                tree.require_namespace()
+                return result
+        except OnlyResearchCalculationResultStoreError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise OnlyResearchCalculationResultStoreError(
+                "RESULT_COMMIT_FAILED", "owning parent binding failed"
+            ) from exc
+
+    def _commit_with_parent(
+        self,
+        verified_execution: _OnlyVerifiedResearchCalculationExecutionV2,
+        graph: OnlyCalculationGraphDefinition,
+        tree: _OnlyBoundPublicationTree,
+    ) -> OnlyResearchCalculationResultV2:
+        execution = _only_require_verified_research_calculation_execution_v2(verified_execution)
         try:
             if execution.calculation_graph_fingerprint != graph.fingerprint:
                 raise ValueError("sealed Graph linkage mismatch")
@@ -114,79 +139,140 @@ class OnlyParquetResearchCalculationResultStoreV2:
             created_at = self._audit_timestamp()
         except Exception as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", str(exc)) from exc
-        target = self._target(execution.calculation_fingerprint)
-        if _present(target):
-            return self._resolve_existing(execution.calculation_fingerprint, content)
         self._acknowledge_dataset(execution.dataset_snapshot_fingerprint)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._target(execution.calculation_fingerprint)
-        stage = target.parent / f".stage-{uuid.uuid4().hex}"
-        stage.mkdir()
-        try:
-            families = []
-            sections: tuple[
-                tuple[str, tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...]], ...
-            ] = (("values", outputs), ("readiness", readiness))
-            for name, partitions in sections:
-                (stage / name).mkdir()
-                descriptors = []
-                for index, item in enumerate(partitions):
-                    relative = f"{name}/p-{index:06d}.parquet"
-                    path = stage / relative
-                    pq.write_table(item.table, path, compression=self._compression, row_group_size=self._row_group_size)
-                    if not _tables_equal(pq.read_table(path), item.table):
-                        raise ValueError("Parquet logical round-trip mismatch")
-                    node, instrument, rows, semantic, schema = _descriptor(
-                        item.node_fingerprint, item.instrument_id, item.table, readiness=name == "readiness"
-                    )
-                    descriptors.append(
-                        OnlyResearchCalculationResultPartitionManifest(
-                            node, instrument, rows, schema, semantic, relative, _sha(path)
-                        )
-                    )
-                families.append(tuple(descriptors))
-            manifest = OnlyResearchCalculationResultManifestV2(
-                execution.calculation_fingerprint,
-                execution.dataset_snapshot_fingerprint,
-                graph.fingerprint,
-                graph,
-                only_research_calculation_value_projection_fingerprint(values_logical),
-                content,
-                result_id,
-                families[0],
-                families[1],
-                created_at,
-            )
-            (stage / "manifest.json").write_text(
-                json.dumps(manifest.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-                encoding="utf-8",
-            )
-            try:
-                self._read_verified(stage, execution.calculation_fingerprint)
-            except OnlyResearchCalculationResultStoreError as exc:
-                raise OnlyResearchCalculationResultStoreError(
-                    "RESULT_COMMIT_FAILED", "staged verification failed"
-                ) from exc
-            _sync_tree(stage)
-            try:
-                _rename_exclusive(stage, target)
-            except OSError:
-                # A race loser has no authority to replace or repair its winner.
-                if not _present(target):
-                    raise
+        tree.create_directory(self._root)
+        with self._publication_barrier.publication_bound(tree):
+            target = self._target(execution.calculation_fingerprint)
+            if _present(target):
                 return self._resolve_existing(execution.calculation_fingerprint, content)
-            return self._resolve_existing(execution.calculation_fingerprint, content)
-        except OnlyResearchCalculationResultStoreError:
-            raise
-        except Exception as exc:
-            raise OnlyResearchCalculationResultStoreError("RESULT_COMMIT_FAILED", str(exc)) from exc
-        finally:
-            if stage.is_dir():
-                shutil.rmtree(stage)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._target(execution.calculation_fingerprint)
+            stage = target.parent / f".stage-{uuid.uuid4().hex}"
+            stage.mkdir()
+            try:
+                families = []
+                sections: tuple[
+                    tuple[str, tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...]],
+                    ...,
+                ] = (("values", outputs), ("readiness", readiness))
+                for name, partitions in sections:
+                    (stage / name).mkdir()
+                    descriptors = []
+                    for index, item in enumerate(partitions):
+                        relative = f"{name}/p-{index:06d}.parquet"
+                        path = stage / relative
+                        pq.write_table(
+                            item.table, path, compression=self._compression, row_group_size=self._row_group_size
+                        )
+                        if not _tables_equal(pq.read_table(path), item.table):
+                            raise ValueError("Parquet logical round-trip mismatch")
+                        node, instrument, rows, semantic, schema = _descriptor(
+                            item.node_fingerprint, item.instrument_id, item.table, readiness=name == "readiness"
+                        )
+                        descriptors.append(
+                            OnlyResearchCalculationResultPartitionManifest(
+                                node, instrument, rows, schema, semantic, relative, _sha(path)
+                            )
+                        )
+                    families.append(tuple(descriptors))
+                manifest = OnlyResearchCalculationResultManifestV2(
+                    execution.calculation_fingerprint,
+                    execution.dataset_snapshot_fingerprint,
+                    graph.fingerprint,
+                    graph,
+                    only_research_calculation_value_projection_fingerprint(values_logical),
+                    content,
+                    result_id,
+                    families[0],
+                    families[1],
+                    created_at,
+                )
+                (stage / "manifest.json").write_text(
+                    json.dumps(manifest.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                try:
+                    self._read_verified(stage, execution.calculation_fingerprint)
+                except OnlyResearchCalculationResultStoreError as exc:
+                    raise OnlyResearchCalculationResultStoreError(
+                        "RESULT_COMMIT_FAILED", "staged verification failed"
+                    ) from exc
+                _sync_tree(stage)
+                try:
+                    _rename_exclusive(stage, target)
+                except OSError:
+                    # A race loser has no authority to replace or repair its winner.
+                    if not _present(target):
+                        raise
+                    return self._resolve_existing(execution.calculation_fingerprint, content)
+                return self._resolve_existing(execution.calculation_fingerprint, content)
+            except OnlyResearchCalculationResultStoreError:
+                raise
+            except Exception as exc:
+                raise OnlyResearchCalculationResultStoreError("RESULT_COMMIT_FAILED", str(exc)) from exc
+            finally:
+                if stage.is_dir():
+                    shutil.rmtree(stage)
 
     def load_verified(self, calculation_fingerprint: str) -> OnlyResearchCalculationResultV2:
         return self._read_verified(self._target(calculation_fingerprint), calculation_fingerprint)
 
+    @contextmanager
+    def inspect_verified(self, calculation_fingerprint: str) -> Iterator[OnlyResearchCalculationResultV2]:
+        """Retain the complete Result and owning Dataset, without durability acknowledgement."""
+        from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+
+        if not isinstance(self._dataset_store, OnlyParquetResearchDatasetSnapshotStore):
+            raise OnlyResearchCalculationResultStoreError("RESULT_INVALID", "scoped Dataset reader required")
+        target = self._target(calculation_fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationResultStoreError(
+                        "RESULT_STORE_UNAVAILABLE", "owning root missing"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", calculation_fingerprint)
+                original_manifest = tree.read_bytes("manifest.json")
+                payload = json.loads(original_manifest, object_pairs_hook=_unique_object)
+                if not isinstance(payload, dict):
+                    raise ValueError("manifest must be an object")
+                manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
+                tree.require_exact(
+                    {
+                        "manifest.json",
+                        *(part.relative_path for part in (*manifest.value_partitions, *manifest.readiness_partitions)),
+                    }
+                )
+                with self._dataset_store.inspect_verified_table(manifest.dataset_snapshot_fingerprint) as dataset:
+                    result = self._read_verified(target, calculation_fingerprint, tree, dataset)
+                    tree.require_namespace()
+                    try:
+                        yield result
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    if tree.read_bytes("manifest.json") != original_manifest:
+                        raise ValueError("Calculation manifest changed in place during inspection")
+                    reloaded = self._read_verified(target, calculation_fingerprint, tree, dataset)
+                    if reloaded.manifest != result.manifest:
+                        raise ValueError("Calculation changed during inspection")
+                    tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESULT_STORE_UNAVAILABLE"
+                if isinstance(exc, OSError)
+                and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESULT_CORRUPT"
+            )
+            raise OnlyResearchCalculationResultStoreError(code, "scoped Result binding failed") from exc
+
+    @_only_barrier_publication
     def acknowledge_exact(
         self, calculation_fingerprint: str, result_fingerprint: str
     ) -> OnlyResearchCalculationResultV2:
@@ -247,13 +333,19 @@ class OnlyParquetResearchCalculationResultStoreV2:
                 "RESULT_COMMIT_FAILED", "Dataset acknowledgement failed"
             ) from exc
 
-    def _source(self, fingerprint: str, graph: OnlyCalculationGraphDefinition) -> dict[str, tuple[int, ...]]:
+    def _source(
+        self,
+        fingerprint: str,
+        graph: OnlyCalculationGraphDefinition,
+        verified: OnlyVerifiedResearchDataset | None = None,
+    ) -> dict[str, tuple[int, ...]]:
         if (
             len(graph.nodes) != 1
             or only_calculation_execution_shape(graph.nodes[0].definition) is not OnlyFactorKind.TIME_SERIES
         ):
             raise ValueError("V2 requires one TIME_SERIES node")
-        verified = self._dataset_store.load_verified_table(fingerprint)
+        if verified is None:
+            verified = self._dataset_store.load_verified_table(fingerprint)
         if verified.snapshot.snapshot_fingerprint != fingerprint:
             raise ValueError("upstream Dataset identity mismatch")
         # Revalidate actual source contracts, not only matching row counts/timestamps.
@@ -264,7 +356,11 @@ class OnlyParquetResearchCalculationResultStoreV2:
         return _expected_axes(verified.table)
 
     def _read_verified(
-        self, root: Path, expected: str, tree: _OnlyBoundPublicationTree | None = None
+        self,
+        root: Path,
+        expected: str,
+        tree: _OnlyBoundPublicationTree | None = None,
+        dataset: OnlyVerifiedResearchDataset | None = None,
     ) -> OnlyResearchCalculationResultV2:
         if tree is None and not _present(root):
             raise OnlyResearchCalculationResultStoreError("RESULT_NOT_FOUND", expected)
@@ -285,7 +381,7 @@ class OnlyParquetResearchCalculationResultStoreV2:
             manifest = OnlyResearchCalculationResultManifestV2.from_dict(payload)
             if manifest.calculation_fingerprint != expected:
                 raise ValueError("Result path identity mismatch")
-            axes = self._source(manifest.dataset_snapshot_fingerprint, manifest.calculation_graph)
+            axes = self._source(manifest.dataset_snapshot_fingerprint, manifest.calculation_graph, dataset)
             expected_keys = _expected_partition_keys(manifest.calculation_graph, axes)
             outputs = []
             readiness = []
@@ -335,6 +431,15 @@ class OnlyParquetResearchCalculationResultStoreV2:
                         )
             _canonical_readiness(tuple(readiness), tuple(outputs), manifest.calculation_graph, axes)
             return OnlyResearchCalculationResultV2(manifest, tuple(outputs), tuple(readiness))
+        except OnlyResearchCalculationResultStoreError:
+            raise
+        except OSError as exc:
+            code = (
+                "RESULT_STORE_UNAVAILABLE"
+                if exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESULT_CORRUPT"
+            )
+            raise OnlyResearchCalculationResultStoreError(code, "Result bytes unavailable") from exc
         except Exception as exc:
             raise OnlyResearchCalculationResultStoreError("RESULT_CORRUPT", str(exc)) from exc
 

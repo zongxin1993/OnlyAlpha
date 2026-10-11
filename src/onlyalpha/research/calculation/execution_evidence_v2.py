@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
+import stat
 import uuid
 from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
+from onlyalpha.research.source_cut import OnlySourcePublicationBarrier, _only_barrier_publication
 
 from .errors import OnlyResearchCalculationError
 from .execution import (
@@ -181,6 +186,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         self._staging_root = self._v2_root / ".staging"
         self._root = self._v2_root / "sha256"
         self._result_store = result_store
+        self._publication_barrier = OnlySourcePublicationBarrier(semantic_root)
 
     def exists(self, evidence_fingerprint: str) -> bool:
         fingerprint = _fingerprint(evidence_fingerprint)
@@ -249,14 +255,85 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
 
     def load_verified(self, evidence_fingerprint: str) -> OnlyResearchCalculationExecutionEvidenceV2:
         fingerprint = _fingerprint(evidence_fingerprint)
-        evidence = self._read_verified(self._target(fingerprint), fingerprint)
-        result = self._result_store.load_verified(evidence.calculation_fingerprint)
-        self._require_linkage(evidence, result)
-        return evidence
+        target = self._target(fingerprint)
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
+                tree.require_exact({"manifest.json"})
+                evidence = self._read_verified(target, fingerprint, tree.read_bytes("manifest.json"))
+                result = self._result_store.load_verified(evidence.calculation_fingerprint)
+                self._require_linkage(evidence, result)
+                tree.require_namespace()
+                return evidence
+        except OSError as exc:
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "Evidence read failed") from exc
+        except ValueError as exc:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "Evidence namespace changed"
+            ) from exc
 
     def acknowledge_exact(self, evidence_fingerprint: str) -> OnlyResearchCalculationExecutionEvidenceV2:
         """Verified publication re-entry, not a read-only lookup or a minting path."""
         return self._acknowledge(self.load_verified(evidence_fingerprint))
+
+    @contextmanager
+    def inspect_verified(self, evidence_fingerprint: str) -> Iterator[OnlyResearchCalculationExecutionEvidenceV2]:
+        """Keep Evidence and its complete owning Calculation/Dataset binding open."""
+        from .result_v2_store import OnlyParquetResearchCalculationResultStoreV2
+
+        if not isinstance(self._result_store, OnlyParquetResearchCalculationResultStoreV2):
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "scoped Calculation reader required"
+            )
+        fingerprint = _fingerprint(evidence_fingerprint)
+        target = self._target(fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning root missing"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", fingerprint)
+                tree.require_exact({"manifest.json"})
+                original_manifest = tree.read_bytes("manifest.json")
+                evidence = self._read_verified(target, fingerprint, original_manifest)
+                with self._result_store.inspect_verified(evidence.calculation_fingerprint) as result:
+                    self._require_linkage(evidence, result)
+                    tree.require_namespace()
+                    try:
+                        yield evidence
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    if tree.read_bytes("manifest.json") != original_manifest:
+                        raise ValueError("Evidence manifest changed in place during inspection")
+                    tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+                if isinstance(exc, OSError)
+                and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+            )
+            raise OnlyResearchCalculationError(code, "scoped Evidence binding failed") from exc
 
     def require_exact_for_result(
         self,
@@ -265,6 +342,30 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1,
         authoring_generation_fingerprint: str | None = None,
     ) -> OnlyResearchCalculationExecutionEvidenceV2:
+        """Exact producer re-entry, including the existing durability acknowledgement."""
+        return self._acknowledge(
+            self.load_exact_for_result(
+                result, implementation_bindings, runtime_provenance, authoring_generation_fingerprint
+            )
+        )
+
+    def load_exact_for_result(
+        self,
+        result: OnlyResearchCalculationResultV2,
+        implementation_bindings: tuple[OnlyResearchCalculationImplementationBinding, ...],
+        runtime_provenance: OnlyResearchRuntimeExecutionProvenanceV1,
+        authoring_generation_fingerprint: str | None = None,
+    ) -> OnlyResearchCalculationExecutionEvidenceV2:
+        """Read the exact producer without minting, fsync or publication repair.
+
+        NOT_FOUND is a lookup outcome, not a certified scientific absence. Relevant
+        retained Evidence with incomplete mandatory provenance remains a conflict;
+        a complete different producer never substitutes for the exact expectation.
+        """
+        if type(runtime_provenance) is not OnlyResearchRuntimeExecutionProvenanceV1:
+            raise OnlyResearchCalculationError(
+                "RESEARCH_EXECUTION_IDENTITY_MISMATCH", "complete exact Runtime expectation required"
+            )
         loaded = self._reload_result(result)
         manifest = loaded.manifest
         expected = OnlyResearchCalculationExecutionEvidenceV2(
@@ -297,7 +398,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise
         if selected != expected:
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_IDENTITY_MISMATCH", "exact producer differs")
-        return self._acknowledge(selected)
+        return selected
 
     def require_no_retained_evidence_for_calculation(self, calculation_fingerprint: str) -> None:
         """Reject dangling local attestations before interpreting a missing Result as fresh work."""
@@ -309,27 +410,83 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
                 )
             self.load_verified(retained.evidence_fingerprint)
 
-    def _iter_retained(self) -> Iterator[OnlyResearchCalculationExecutionEvidenceV2]:
+    def _iter_retained(self) -> tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]:
+        """A bound local read snapshot, never a historical absence witness.
+
+        Read retained attestations without a Result lookup so dangling predecessor
+        checks keep their existing semantics. Consumers independently load owning
+        Results. Enumerated membership and every opened inode are rechecked before
+        returning; unavailable anchors and mid-read loss never produce an empty scan.
+        """
+        with self._inspect_retained() as retained:
+            return retained
+
+    @contextmanager
+    def _inspect_retained(self) -> Iterator[tuple[OnlyResearchCalculationExecutionEvidenceV2, ...]]:
+        """Retain inventory bindings while owning consumers prove live relations."""
         self._target("0" * 64)
-        if not _present(self._root):
-            return
+        consumer_error: BaseException | None = None
         try:
-            for prefix in sorted(self._root.iterdir(), key=lambda item: item.name):
-                if (
-                    len(prefix.name) != 2
-                    or any(char not in "0123456789abcdef" for char in prefix.name)
-                    or prefix.is_symlink()
-                    or not prefix.is_dir()
-                ):
-                    raise ValueError("malformed Evidence prefix")
-                for target in sorted(prefix.iterdir(), key=lambda item: item.name):
-                    _sha(target.name, "Evidence target")
-                    if target.name[:2] != prefix.name:
-                        raise ValueError("Evidence prefix/path identity differs")
-                    yield self._read_verified(target, target.name)
+            with closing(_OnlyBoundPublicationTree(self._root, self._semantic_root)) as tree:
+                try:
+                    tree.bind_directory(self._semantic_root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    try:
+                        yield ()
+                    except BaseException as exc:
+                        consumer_error = exc
+                        raise
+                    tree.require_namespace()
+                    return
+                retained = []
+                entries = {self._root: tree.directory_entries(self._root)}
+                for name in entries[self._root]:
+                    if len(name) != 2 or any(char not in "0123456789abcdef" for char in name):
+                        raise ValueError("malformed Evidence prefix")
+                    prefix = self._root / name
+                    entries[prefix] = tree.directory_entries(prefix)
+                    for identity in entries[prefix]:
+                        _sha(identity, "Evidence target")
+                        if identity[:2] != name:
+                            raise ValueError("Evidence prefix/path identity differs")
+                        target = prefix / identity
+                        tree.bind_file(target / "manifest.json")
+                        entries[target] = tree.directory_entries(target)
+                        if entries[target] != ("manifest.json",):
+                            raise ValueError("malformed Evidence directory/manifest")
+                        relative = f"{name}/{identity}/manifest.json"
+                        retained.append(self._read_verified(target, identity, tree.read_bytes(relative)))
+                for path, expected in entries.items():
+                    if tree.directory_entries(path) != expected:
+                        raise ValueError("Evidence namespace membership changed during scan")
+                tree.require_namespace()
+                try:
+                    yield tuple(retained)
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+                for path, expected in entries.items():
+                    if tree.directory_entries(path) != expected:
+                        raise ValueError("Evidence namespace membership changed during inspection")
+                tree.require_namespace()
         except OnlyResearchCalculationError:
             raise
-        except (OSError, ValueError) as exc:
+        except OSError as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "authority scan") from exc
+        except ValueError as exc:
+            if exc is consumer_error:
+                raise
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "authority scan") from exc
 
     def require_for_result(
@@ -406,6 +563,12 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             raise OnlyResearchCalculationError(
                 "RESEARCH_EXECUTION_EVIDENCE_COMMIT_FAILED", "semantic root must be preprovisioned real directory"
             )
+        return self._publish_under_barrier(evidence)
+
+    @_only_barrier_publication
+    def _publish_under_barrier(
+        self, evidence: OnlyResearchCalculationExecutionEvidenceV2
+    ) -> OnlyResearchCalculationExecutionEvidenceV2:
         fingerprint = evidence.evidence_fingerprint
         target = self._target(fingerprint)
         if _present(self._staging_root) and (self._staging_root.is_symlink() or not self._staging_root.is_dir()):
@@ -440,6 +603,7 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             if stage.is_dir() and not stage.is_symlink():
                 shutil.rmtree(stage)
 
+    @_only_barrier_publication
     def _acknowledge(
         self, evidence: OnlyResearchCalculationExecutionEvidenceV2
     ) -> OnlyResearchCalculationExecutionEvidenceV2:
@@ -479,10 +643,8 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
         try:
             manifest = root / "manifest.json"
             if retained_manifest is None and (
-                root.is_symlink()
-                or not root.is_dir()
-                or manifest.is_symlink()
-                or not manifest.is_file()
+                not stat.S_ISDIR(root.lstat().st_mode)
+                or not stat.S_ISREG(manifest.lstat().st_mode)
                 or {item.name for item in root.iterdir()} != {"manifest.json"}
             ):
                 raise ValueError("malformed Evidence directory/manifest")
@@ -496,13 +658,36 @@ class OnlyResearchCalculationExecutionEvidenceStoreV2:
             if evidence.evidence_fingerprint != expected or raw != only_canonical_json(evidence.to_dict()):
                 raise ValueError("Evidence path/content identity differs")
             return evidence
-        except (OSError, ValueError, TypeError) as exc:
+        except OSError as exc:
+            code = (
+                "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchCalculationError(code, "Evidence read failed") from exc
+        except (ValueError, TypeError) as exc:
             raise OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_CORRUPT", expected) from exc
 
     def _target(self, fingerprint: str) -> Path:
         path = self._semantic_root
+        mode: int | None
         for part in ("calculation-execution-evidence", "v2", "sha256", fingerprint[:2], fingerprint):
-            if _present(path) and (path.is_symlink() or not path.is_dir()):
+            try:
+                mode = path.lstat().st_mode
+            except FileNotFoundError as exc:
+                if path == self._semantic_root:
+                    raise OnlyResearchCalculationError(
+                        "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE", "owning anchor unavailable"
+                    ) from exc
+                mode = None
+            except OSError as exc:
+                code = (
+                    "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+                    if exc.errno in {errno.ENOTDIR, errno.ELOOP}
+                    else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+                )
+                raise OnlyResearchCalculationError(code, "Evidence namespace unavailable") from exc
+            if mode is not None and not stat.S_ISDIR(mode):
                 raise OnlyResearchCalculationError(
                     "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "malformed authority directory"
                 )
@@ -548,9 +733,12 @@ def _present(path: Path) -> bool:
     except FileNotFoundError:
         return False
     except OSError as exc:
-        raise OnlyResearchCalculationError(
-            "RESEARCH_EXECUTION_EVIDENCE_CORRUPT", "authority entry unavailable"
-        ) from exc
+        code = (
+            "RESEARCH_EXECUTION_EVIDENCE_CORRUPT"
+            if exc.errno in {errno.ENOTDIR, errno.ELOOP}
+            else "RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE"
+        )
+        raise OnlyResearchCalculationError(code, "authority entry unavailable") from exc
     return True
 
 

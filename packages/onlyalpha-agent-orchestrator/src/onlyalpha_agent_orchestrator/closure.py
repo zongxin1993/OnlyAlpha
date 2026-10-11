@@ -164,6 +164,7 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.lifecycle.py", "onlyalpha.plugin", "lifecycle.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.version.py", "onlyalpha.plugin", "version.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.__init__.py", "onlyalpha.research", "__init__.py"),
+    OnlyAgentWorkflowResourceSpecV1("onlyalpha.research._durability.py", "onlyalpha.research", "_durability.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.agent.__init__.py", "onlyalpha.research.agent", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1(
         "onlyalpha.research.agent.application.py", "onlyalpha.research.agent", "application.py"

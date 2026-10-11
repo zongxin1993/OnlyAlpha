@@ -87,6 +87,56 @@ def test_no_execution_permission_from_historical_readability(tmp_path, change):
     chart.host.execute_chart_calculation.assert_not_called()
 
 
+@pytest.mark.parametrize("state", ["RUNNING", "CANCEL_REQUESTED", "COMPLETED"])
+@pytest.mark.parametrize("boundary", ["initial_read", "dispatch_read", "dispatch_hold"])
+def test_nonqueued_chart_lifecycle_never_authorizes_e1_compute(tmp_path, state, boundary):
+    from onlyalpha.application.chart_calculation_execution import _only_require_chart_execution_request
+    from onlyalpha.research.run.model import OnlyResearchRunState
+
+    chart = execution_system(tmp_path)
+    successor = chart.run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+    if state == "CANCEL_REQUESTED":
+        successor = successor.transition(OnlyResearchRunState.CANCEL_REQUESTED, at=NOW)
+    elif state == "COMPLETED":
+        successor = successor.transition(
+            OnlyResearchRunState.COMPLETED,
+            at=NOW,
+            research_result_fingerprint="a" * 64,
+            artifact_content_fingerprint="b" * 64,
+            calculation_execution_evidence_fingerprints=("c" * 64,),
+        )
+    computation = Mock(side_effect=AssertionError("E1 computed after its queued permission was revoked"))
+
+    def dispatch(capability, *, cancellation):
+        _only_require_chart_execution_request(capability)
+        if boundary == "dispatch_read":
+            chart.runs.load_verified.return_value = successor
+            capability.validate_dispatch()
+            computation()
+        else:
+            chart.runtime.hold_work_binding_evidence.side_effect = lambda *args: nullcontext(chart.binding)
+            chart.runs.hold_queued_run.side_effect = lambda *args: nullcontext(successor)
+            with capability.hold_dispatch():
+                computation()
+
+    chart.host.execute_chart_calculation.side_effect = dispatch
+    if boundary == "initial_read":
+        chart.runs.load_verified.return_value = successor
+    with pytest.raises(OnlyChartCalculationError, match="CHART_EXECUTION_RUN_NOT_QUEUED"):
+        chart.execution.execute(chart.operation.operation_id)
+    computation.assert_not_called()
+    if boundary == "initial_read":
+        chart.host.execute_chart_calculation.assert_not_called()
+    else:
+        chart.host.execute_chart_calculation.assert_called_once()
+    if boundary == "dispatch_hold":
+        chart.runtime.hold_work_binding_evidence.assert_called_once_with(chart.compilation.runtime_work_id)
+        chart.runs.hold_queued_run.assert_called_once_with(chart.operation, chart.compilation)
+    chart.runs.commit_or_replay.assert_not_called()
+    chart.runtime.release_work.assert_not_called()
+    chart.runtime.bind_new_work.assert_not_called()
+
+
 def test_cancelled_request_never_dispatches(tmp_path):
     chart = execution_system(tmp_path)
     cancelled = Event()

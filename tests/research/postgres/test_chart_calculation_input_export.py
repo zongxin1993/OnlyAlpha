@@ -108,3 +108,31 @@ def test_original_source_unavailable_cannot_become_absence_or_reissued_input(own
             compiled.runtime_generation_fingerprint,
         )
     assert authority_facts(postgres_dsn) == before
+
+
+def test_postgres_readonly_source_verification_preserves_authorities_without_issuance(
+    owning_input_export, postgres_dsn, tmp_path, monkeypatch
+):
+    import onlyalpha.application.chart_calculation_input_export as module
+
+    system, ready, compiled, exporter, registry = owning_input_export
+    expected = exporter.export(system.operation.operation_id).retained
+    before = authority_facts(postgres_dsn)
+    files = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("read-only owning Source verification issued publication input")
+
+    monkeypatch.setattr(module, "_only_issue_verified_sealed_chart_publication_input", forbidden)
+    monkeypatch.setattr(exporter, "export", forbidden)
+    assert exporter.verify_frozen(system.operation.operation_id, compiled) == expected
+    assert authority_facts(postgres_dsn) == before
+    assert files == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    newer = publish_revision(system, ready.input_pin.revision_id)
+    assert newer.revision_id != ready.input_pin.revision_id
+    assert exporter.verify_frozen(system.operation.operation_id, compiled) == expected
+    registry.release_work(system.operation.reserved_run_id.value, actor="owner", occurred_at=NOW)
+    assert exporter.verify_frozen(system.operation.operation_id, compiled) == expected
+    system.market.faults.fact_read = OSError("original physical source unavailable")
+    with pytest.raises(OSError, match="original physical source unavailable"):
+        exporter.verify_frozen(system.operation.operation_id, compiled)

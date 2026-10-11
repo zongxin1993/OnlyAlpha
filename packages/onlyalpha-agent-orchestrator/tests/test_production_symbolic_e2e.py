@@ -23,6 +23,7 @@ from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from onlyalpha_agent_orchestrator.config import OnlyOpenAICompatibleEndpointConfigV1
 from onlyalpha_agent_orchestrator.provider_integration import (
     OnlyAgentModelProfileV1,
@@ -179,7 +180,10 @@ class _RuntimeGenerations:
 
     def require_runtime_generation(self, runtime_generation_fingerprint: str) -> object:
         assert runtime_generation_fingerprint == RUNTIME_FP
-        return SimpleNamespace(runtime_generation_fingerprint=runtime_generation_fingerprint)
+        return SimpleNamespace(
+            runtime_generation_fingerprint=runtime_generation_fingerprint,
+            catalog_generation_fingerprint=CATALOG_FP,
+        )
 
 
 class _Authoring:
@@ -561,6 +565,18 @@ def _product_app(agent_url: str, search: _SearchAuthority) -> FastAPI:
     return app
 
 
+def test_product_fixture_exposes_exact_runtime_catalog_binding():
+    """The installed Agent's owning-reference read must use the full Product contract."""
+    with TestClient(_product_app("http://agent", _SearchAuthority())) as client:
+        response = client.get(f"/api/v2/research/runtime-generations/{RUNTIME_FP}")
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema_version": 1,
+        "runtime_generation_fingerprint": RUNTIME_FP,
+        "catalog_generation_fingerprint": CATALOG_FP,
+    }
+
+
 @contextmanager
 def _serve(app: FastAPI) -> Iterator[str]:
     listener = socket.socket()
@@ -751,15 +767,45 @@ def _start_agent(
         stderr=subprocess.PIPE,
         text=True,
     )
-    selector = selectors.DefaultSelector()
     assert process.stderr is not None
-    selector.register(process.stderr, selectors.EVENT_READ)
-    lines: list[str] = []
-    while "Application startup complete." not in "".join(lines):
-        assert selector.select(timeout=20), "Agent startup barrier timed out"
-        lines.append(process.stderr.readline())
-        assert process.poll() is None, "Agent exited during startup: " + "".join(lines)
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stderr, selectors.EVENT_READ)
+        startup = bytearray()
+        while b"Application startup complete." not in startup:
+            assert selector.select(timeout=20), "Agent startup barrier timed out"
+            chunk = os.read(process.stderr.fileno(), 64 * 1024)
+            startup.extend(chunk)
+            assert chunk and process.poll() is None, "Agent exited during startup: " + startup.decode(
+                "utf-8", errors="replace"
+            )
     return process
+
+
+def test_startup_barrier_consumes_a_single_ready_pipe_burst(tmp_path, monkeypatch):
+    """Read-ahead must not hide the marker behind another selector wait."""
+    from unittest.mock import Mock
+
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, "r") as stderr:
+        process = Mock(stderr=stderr)
+        process.poll.return_value = None
+        monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+        original_selector = selectors.DefaultSelector
+
+        def ready_selector():
+            selector = original_selector()
+            select = selector.select
+            # The fixture has already written its entire burst. Never advance
+            # real time to prove that a second wait lost buffered bytes.
+            selector.select = lambda timeout: select(timeout=0)
+            return selector
+
+        monkeypatch.setattr(selectors, "DefaultSelector", ready_selector)
+        try:
+            os.write(write_fd, b"INFO: Started server process\nINFO: Application startup complete.\n")
+            assert _start_agent(tmp_path, "http://product", "http://runtime", 1, tmp_path / "agent", {}) is process
+        finally:
+            os.close(write_fd)
 
 
 def _stop_agent(process: subprocess.Popen[str]) -> tuple[str, str]:

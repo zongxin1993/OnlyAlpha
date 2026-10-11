@@ -37,6 +37,16 @@ the original owning chain. Copies, replacements, in-place mutation, caller-const
 are not issued inputs. The narrowly internal issuer has one production composition caller: this Application exporter.
 This is a trusted in-process boundary, not protection against arbitrary malicious Python already running inside the process.
 
+`verify_frozen(operation_id, compilation)` performs the same complete original
+owning reads and compares the whole stored Compilation with the expected frozen
+relation, including occurrence and preparation/binding context, not just Plan,
+Graph and Generation hashes. It returns only the retained neutral representation;
+it never calls `export()` or the input issuer. The publication input's revalidation
+callback uses this same comparison. Independent scientific verification may use
+this non-issuing read before and after its predecessor/Artifact reads. These
+reads are not a retained cross-owner transaction, durability ACK, absence witness
+or permission to finalize a Run; Controller fencing remains separately mandatory.
+
 `OnlyRetainedSealedChartInputEvidenceV1` is a separate neutral representation. Its schema 1 retains:
 
 - exact source reference and server-derived source selection;

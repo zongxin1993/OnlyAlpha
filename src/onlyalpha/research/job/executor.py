@@ -32,7 +32,10 @@ from .outcome import OnlyResearchJobDisposition, OnlyResearchJobOutcome, OnlyRes
 from .plan import RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION, RESEARCH_JOB_PLAN_SCHEMA_VERSION, OnlyResearchJobPlan
 
 if TYPE_CHECKING:
-    from onlyalpha.research.calculation.execution import OnlyResearchCalculationNodeOutput
+    from onlyalpha.research.calculation.execution import (
+        OnlyResearchCalculationNodeOutput,
+        OnlyResearchCalculationNodeReadiness,
+    )
     from onlyalpha.research.calculation.execution_evidence_v2 import (
         OnlyResearchCalculationExecutionEvidenceStoreV2,
         OnlyResearchCalculationExecutionEvidenceV2,
@@ -66,19 +69,28 @@ def _only_execute_generation_bound_calculation_job(
     results: OnlyResearchCalculationResultStoreV2,
     evidence: OnlyResearchCalculationExecutionEvidenceStoreV2,
     context: _OnlyResearchRuntimeExecutionContext,
+    *,
+    required_result_fingerprint: str | None = None,
+    required_evidence_fingerprint: str | None = None,
 ) -> OnlyResearchJobOutcome:
     """Owning Job composition; Infrastructure supplies a verified native context, not Job Authority."""
     if plan.schema_version != RESEARCH_JOB_PLAN_READINESS_SCHEMA_VERSION:
         raise OnlyResearchJobError(OnlyResearchJobPhase.PLAN_VALIDATION, "RESEARCH_JOB_INVALID", "Plan V2 required")
     context = _only_require_research_runtime_execution_context(context, plan.calculation_graph.fingerprint)
-    return OnlyResearchJobExecutor(
+    plan.__post_init__()
+    executor = OnlyResearchJobExecutor(
         calculation_executor,
         legacy_results,
         legacy_evidence,
         readiness_result_store=results,
         readiness_execution_evidence_store=evidence,
         runtime_execution_context=context,
-    ).execute(plan)
+    )
+    return executor._execute_v2(
+        plan,
+        required_result_fingerprint=required_result_fingerprint,
+        required_evidence_fingerprint=required_evidence_fingerprint,
+    )
 
 
 class OnlyResearchJobExecutor:
@@ -192,7 +204,13 @@ class OnlyResearchJobExecutor:
             OnlyResearchJobPhase.RESULT_COMMIT,
         )
 
-    def _execute_v2(self, plan: OnlyResearchJobPlan) -> OnlyResearchJobOutcome:
+    def _execute_v2(
+        self,
+        plan: OnlyResearchJobPlan,
+        *,
+        required_result_fingerprint: str | None = None,
+        required_evidence_fingerprint: str | None = None,
+    ) -> OnlyResearchJobOutcome:
         results = self._readiness_result_store
         evidence_store = self._readiness_execution_evidence_store
         publication = plan.publication
@@ -203,6 +221,7 @@ class OnlyResearchJobExecutor:
                 "Result V2 and Evidence V2 authorities are required",
             )
         assert publication is not None  # execute revalidated the exact Plan contract.
+        observed_result_fingerprint = required_result_fingerprint
         context = self._runtime_execution_context
         if context is not None:
             try:
@@ -212,7 +231,11 @@ class OnlyResearchJobExecutor:
         try:
             existing = results.load_verified(plan.calculation_fingerprint)
         except OnlyResearchCalculationResultStoreError as exc:
-            if exc.code != "RESULT_NOT_FOUND":
+            if (
+                exc.code != "RESULT_NOT_FOUND"
+                or required_result_fingerprint is not None
+                or required_evidence_fingerprint is not None
+            ):
                 raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
             try:
                 evidence_store.require_no_retained_evidence_for_calculation(plan.calculation_fingerprint)
@@ -224,20 +247,19 @@ class OnlyResearchJobExecutor:
             ) from exc
         else:
             _require_result_v2(plan, existing, OnlyResearchJobPhase.RESULT_REUSE)
+            if (
+                required_result_fingerprint is not None
+                and existing.manifest.calculation_result_fingerprint != required_result_fingerprint
+            ):
+                raise OnlyResearchJobError(
+                    OnlyResearchJobPhase.RESULT_REUSE, "DETERMINISTIC_RESULT_CONFLICT", "protected Calculation changed"
+                )
+            observed_result_fingerprint = existing.manifest.calculation_result_fingerprint
             try:
                 if context is None:
                     selected = evidence_store.require_for_result(existing, self._authoring_generation_fingerprint)
-                    _outcome_v2(
-                        plan,
-                        existing,
-                        selected,
-                        self._authoring_generation_fingerprint,
-                        OnlyResearchJobDisposition.REUSED,
-                        OnlyResearchJobPhase.RESULT_REUSE,
-                    )
-                    evidence = evidence_store.acknowledge_exact(selected.evidence_fingerprint)
                 else:
-                    evidence = evidence_store.require_exact_for_result(
+                    selected = evidence_store.load_exact_for_result(
                         existing,
                         tuple(
                             OnlyResearchCalculationImplementationBinding(*item)
@@ -249,13 +271,41 @@ class OnlyResearchJobExecutor:
             except OnlyResearchJobError:
                 raise
             except OnlyResearchCalculationError as exc:
-                if exc.code != "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND":
+                if exc.code != "RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND" or required_evidence_fingerprint is not None:
                     raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
             except Exception as exc:
                 raise OnlyResearchJobError(
                     OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED", str(exc)
                 ) from exc
             else:
+                if (
+                    required_evidence_fingerprint is not None
+                    and selected.evidence_fingerprint != required_evidence_fingerprint
+                ):
+                    raise OnlyResearchJobError(
+                        OnlyResearchJobPhase.RESULT_REUSE,
+                        "RESEARCH_EXECUTION_IDENTITY_MISMATCH",
+                        "protected producer differs",
+                    )
+                # Only initial lookup absence permits a new producer. Once selected,
+                # loss during ACK cannot be reinterpreted as fresh-work permission.
+                _outcome_v2(
+                    plan,
+                    existing,
+                    selected,
+                    self._authoring_generation_fingerprint,
+                    OnlyResearchJobDisposition.REUSED,
+                    OnlyResearchJobPhase.RESULT_REUSE,
+                    context,
+                )
+                try:
+                    evidence = evidence_store.acknowledge_exact(selected.evidence_fingerprint)
+                except OnlyResearchCalculationError as exc:
+                    raise _job_error(OnlyResearchJobPhase.RESULT_REUSE, exc) from exc
+                except Exception as exc:
+                    raise OnlyResearchJobError(
+                        OnlyResearchJobPhase.RESULT_REUSE, "RESEARCH_JOB_RESULT_REUSE_FAILED", str(exc)
+                    ) from exc
                 return _outcome_v2(
                     plan,
                     existing,
@@ -328,7 +378,14 @@ class OnlyResearchJobExecutor:
                 OnlyResearchJobPhase.CALCULATION_EXECUTION, "RESEARCH_JOB_EXECUTION_FAILED", str(exc)
             ) from exc
         try:
-            committed = results.commit(sealed, plan.calculation_graph)
+            if observed_result_fingerprint is None:
+                committed = results.commit(sealed, plan.calculation_graph)
+            else:
+                # Observing a committed prefix never grants permission to rebuild
+                # it if it disappears during a new producer's numerical work.
+                current = results.load_verified(plan.calculation_fingerprint)
+                _require_existing_execution_v2(plan, current, execution)
+                committed = results.acknowledge_exact(plan.calculation_fingerprint, observed_result_fingerprint)
             _require_result_v2(plan, committed, OnlyResearchJobPhase.RESULT_COMMIT)
             evidence = evidence_store._publish_verified(sealed, committed, self._authoring_generation_fingerprint)
         except OnlyResearchCalculationError as exc:
@@ -347,6 +404,43 @@ class OnlyResearchJobExecutor:
             OnlyResearchJobDisposition.EXECUTED,
             OnlyResearchJobPhase.RESULT_COMMIT,
             context,
+        )
+
+
+def _require_existing_execution_v2(
+    plan: OnlyResearchJobPlan,
+    result: OnlyResearchCalculationResultV2,
+    execution: object,
+) -> None:
+    from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutionV2
+    from onlyalpha.research.calculation.result_store import _canonical_outputs, _tables_equal
+    from onlyalpha.research.calculation.result_v2_store import _canonical_readiness
+
+    if not isinstance(execution, OnlyResearchCalculationExecutionV2):
+        raise OnlyResearchJobError(
+            OnlyResearchJobPhase.RESULT_COMMIT, "RESULT_INVALID", "verified V2 execution required"
+        )
+    _require_result_v2(plan, result, OnlyResearchJobPhase.RESULT_COMMIT)
+    axes = {item.instrument_id: tuple(item.table["ts_event_ns"].to_pylist()) for item in result.outputs}
+    outputs = _canonical_outputs(execution.outputs, plan.calculation_graph, axes)
+    readiness = _canonical_readiness(execution.readiness, outputs, plan.calculation_graph, axes)
+    proposed: tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...] = (
+        *outputs,
+        *readiness,
+    )
+    actual: tuple[OnlyResearchCalculationNodeOutput | OnlyResearchCalculationNodeReadiness, ...] = (
+        *result.outputs,
+        *result.readiness,
+    )
+    if any(
+        (left.node_fingerprint, left.instrument_id) != (right.node_fingerprint, right.instrument_id)
+        or not _tables_equal(left.table, right.table)
+        for left, right in zip(proposed, actual, strict=True)
+    ):
+        raise OnlyResearchJobError(
+            OnlyResearchJobPhase.RESULT_COMMIT,
+            "DETERMINISTIC_RESULT_CONFLICT",
+            "live producer differs from protected Result",
         )
 
 

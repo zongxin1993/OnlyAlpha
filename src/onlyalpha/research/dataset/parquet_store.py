@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import shutil
 import stat
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +18,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.domain.market import OnlyBar
+from onlyalpha.research._durability import _OnlyBoundPublicationTree
 
 from .codec import only_bars_to_table, only_table_to_bars
 from .definition import OnlyResearchDatasetDefinition
@@ -273,6 +276,47 @@ class OnlyParquetResearchDatasetSnapshotStore:
         _, snapshot, table = self._read_verified(self._target(snapshot_fingerprint), snapshot_fingerprint)
         return OnlyVerifiedResearchDataset(snapshot, table)
 
+    @contextmanager
+    def inspect_verified_table(self, snapshot_fingerprint: str) -> Iterator[OnlyVerifiedResearchDataset]:
+        """Retain a complete no-write Snapshot binding through the caller's relation checks."""
+        target = self._target(snapshot_fingerprint)
+        consumer_error: BaseException | None = None
+        try:
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchDatasetStoreError("DATASET_STORE_UNAVAILABLE") from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchDatasetNotFoundError("DATASET_SNAPSHOT_NOT_FOUND")
+                retained = {"manifest.json": tree.bind_file(target / "manifest.json")}
+                original_manifest = tree.read_bytes("manifest.json")
+                snapshot, _ = self._load_manifest(target, retained)
+                files = {"manifest.json", *(part.relative_path for part in snapshot.partitions)}
+                tree.require_exact(files)
+                retained.update(
+                    {part.relative_path: tree.bind_file(target / part.relative_path) for part in snapshot.partitions}
+                )
+                _, snapshot, table = self._read_verified(target, snapshot_fingerprint, retained)
+                tree.require_namespace()
+                try:
+                    yield OnlyVerifiedResearchDataset(snapshot, table)
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+                if tree.read_bytes("manifest.json") != original_manifest:
+                    raise ValueError("Dataset manifest changed in place during inspection")
+                _, reloaded_snapshot, reloaded_table = self._read_verified(target, snapshot_fingerprint, retained)
+                if reloaded_snapshot != snapshot or not reloaded_table.equals(table, check_metadata=True):
+                    raise ValueError("Dataset content changed during inspection")
+                tree.require_namespace()
+        except (OSError, ValueError) as exc:
+            if exc is consumer_error:
+                raise
+            if isinstance(exc, OSError) and exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}:
+                raise OnlyResearchDatasetStoreError("DATASET_STORE_UNAVAILABLE") from exc
+            raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
+
     def resolve_verified(self, definition: OnlyResearchDatasetDefinition) -> OnlyVerifiedResearchDataset:
         """Resolve one exact Definition only when the immutable Store proves a unique Snapshot."""
 
@@ -504,6 +548,10 @@ class OnlyParquetResearchDatasetSnapshotStore:
             )
         except OnlyResearchDatasetStoreError:
             raise
+        except OSError as exc:
+            if exc.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}:
+                raise OnlyResearchDatasetStoreError("DATASET_STORE_UNAVAILABLE") from exc
+            raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
         except Exception as exc:
             raise OnlyResearchDatasetCorruptError("DATASET_SNAPSHOT_CORRUPT") from exc
 

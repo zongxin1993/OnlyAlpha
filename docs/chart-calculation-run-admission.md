@@ -68,9 +68,36 @@ uses the existing `QUEUED → CANCELLED` command, retains the immutable admissio
 
 ## Worker and Novelty fences
 
+### Immutable admission versus lifecycle values
+
+The Chart Domain representation uses the existing Run enum and transition
+authority; it does not confer database execution permission. Immutable admission
+verification compares the original reserved Run, exact Specification/canonical
+payload, frozen Compilation identity and origin, independently of later lifecycle
+fields. The owning D3 relation separately verifies the original queue timestamp.
+Missing optional Result/Artifact facts never negate the occurrence or its owner.
+
+Chart lifecycle value shapes have exact revisions: QUEUED0, RUNNING1,
+CANCEL_REQUESTED2, direct CANCELLED1, and execution terminal revision2 without a
+cancel request or revision3 after one. Retry gaps and heartbeat do not change Run
+revision; Attempt facts belong to their separate Authority. COMPLETED values need
+Result/Artifact and exactly one selected Evidence reference. FAILED may retain an
+already committed Result and selected Evidence; refs are locators, not scientific
+verification. Other Chart states carry no finalized publication projection. An
+absent Run ref is not a statement that immutable scientific facts do not exist.
+
+Domain shape/admission validation does not prove Attempt ownership, lease,
+authoritative history, scientific closure or terminal COMMIT. Current database
+guards remain closed under migrations 0048/0049; owning historical readers remain
+closed-first until the complete forward lifecycle/recovery boundary is delivered.
+The generic Store still allows only Human cancellation intent, the legacy Worker
+retains its Spec1/2 allowlist, and E1 `hold_queued_run` still requires QUEUED.
+
 Claim SQL uses a positive origin-and-Specification capability allowlist before any Run/Attempt mutation, even when Runtime eligible
 IDs explicitly contain Chart work. Expiry, heartbeat, cancellation recovery and direct finalization retain the same capability
-fence. D3 Chart Runs cannot enter RUNNING/CANCEL_REQUESTED/FAILED/COMPLETED. Legacy V1/V2 work is not starved by an older Chart row.
+fence. Under the current 0048/0049 database, durable Chart Runs cannot enter
+RUNNING/CANCEL_REQUESTED/FAILED/COMPLETED merely because those Domain values are
+representable. Legacy V1/V2 work is not starved by an older Chart row.
 
 Chart operational occurrences are not scientific Novelty candidates. Both in-flight classification and post-cut freshness checks
 exclude only verified typed Chart relations. Historical classification uses retained event origin/payload and exact immutable

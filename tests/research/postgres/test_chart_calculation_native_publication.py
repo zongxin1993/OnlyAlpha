@@ -24,6 +24,7 @@ from tests.runtime_support.chart_execution_host import exact_host_environment as
 from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
 from tests.runtime_support.market_fact_reference import save_reference_facts
 from tests.runtime_support.native_calculation_publication import PUBLISH as _PUBLISH
+from tests.runtime_support.native_calculation_publication import provision_native_publication_roots
 from tests.support.runtime_distribution_wheels import installed_distribution_wheel, plain_artifact
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -223,7 +224,7 @@ def test_two_installed_generations_publish_same_result_and_distinct_portable_art
     from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
 
     runs = OnlyPostgresResearchRunStore(owner["dsn"])
-    (tmp_path / "artifacts").mkdir()
+    provision_native_publication_roots(tmp_path)
     first_result = json.loads(
         subprocess.check_output([str(first_python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], text=True)
     )
@@ -265,7 +266,7 @@ def test_two_installed_generations_publish_same_result_and_distinct_portable_art
     )
     shutil.copytree(tmp_path / "chart-input", other / "chart-input")
     (other / "semantic").mkdir()
-    (other / "artifacts").mkdir()
+    provision_native_publication_roots(other)
     (other / "artifact-store-root.txt").write_text(str(builder.artifact_store.root))
     second_python = builder._environment_python(tmp_path / "independent-generation")
     _provision_schema_reference(second_python)
@@ -418,7 +419,7 @@ print(first.manifest.artifact_content_fingerprint, second.manifest.artifact_cont
 @pytest.mark.parametrize("native_publication_case", (1,), indirect=True)
 def test_native_period_one_preserves_exact_zero_as_ready(native_publication_case, tmp_path):
     chart, compiled, registry, python, _ = native_publication_case
-    (tmp_path / "artifacts").mkdir()
+    provision_native_publication_roots(tmp_path)
     subprocess.check_output([str(python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], text=True)
     manifest = json.loads(subprocess.check_output([str(python), "-I", "-c", _ARTIFACT, str(tmp_path)], text=True))
     artifact = OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(
@@ -432,3 +433,37 @@ def test_native_period_one_preserves_exact_zero_as_ready(native_publication_case
     assert all(
         row["readiness"] == "READY" and row["reason"] == "NONE" for row in calculation.readiness[0].table.to_pylist()
     )
+
+
+def test_installed_native_result_reentry_refuses_an_artifact_only_survivor(native_publication_case, tmp_path):
+    _, _, _, python, _ = native_publication_case
+    provision_native_publication_roots(tmp_path)
+    first = json.loads(
+        subprocess.check_output([str(python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], text=True)
+    )
+    published = json.loads(subprocess.check_output([str(python), "-I", "-c", _ARTIFACT, str(tmp_path)], text=True))
+    calculation = first["evidence"]["calculation_fingerprint"]
+    evidence = first["evidence"]["evidence_fingerprint"]
+    plan = first["result"]["research_result_plan_fingerprint"]
+    paths = (
+        tmp_path / "calculation-results" / "v2" / "sha256" / calculation[:2] / calculation,
+        tmp_path / "semantic" / "calculation-execution-evidence" / "v2" / "sha256" / evidence[:2] / evidence,
+        tmp_path / "research-results" / "sha256" / plan[:2] / plan,
+    )
+    for index, path in enumerate(paths):
+        path.rename(tmp_path / f"unavailable-prefix-{index}")
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    attempt = subprocess.run(
+        [str(python), "-I", "-c", _PUBLISH, str(tmp_path), "execute"], capture_output=True, text=True
+    )
+    assert attempt.returncode != 0
+    assert "RESEARCH_RESULT_NOT_FOUND" in attempt.stderr
+    assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    assert all(not path.exists() for path in paths)
+    from onlyalpha.research.artifact.calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
+
+    retained = OnlyParquetResearchCalculationArtifactStoreV2(tmp_path / "artifacts").load_verified(
+        published["artifact_content_fingerprint"],
+        research_result_fingerprint=published["result"]["research_result_fingerprint"],
+    )
+    assert retained.manifest.artifact_content_fingerprint == published["artifact_content_fingerprint"]

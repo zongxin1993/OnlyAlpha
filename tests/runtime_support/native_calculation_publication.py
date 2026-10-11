@@ -1,5 +1,16 @@
 """Installed native Result publication script shared by exact-host tests."""
 
+from pathlib import Path
+
+
+def provision_native_publication_roots(root: Path) -> None:
+    """Fixture deployment, never producer fallback after an unavailable owner."""
+    for name in ("artifacts", "research-results", "semantic", "calculation-results"):
+        owner = root / name
+        owner.mkdir(exist_ok=True)
+        (owner / ".source-cut.lock").touch(exist_ok=True)
+
+
 PUBLISH = """
 import json, sys
 from pathlib import Path
@@ -22,6 +33,7 @@ result, evidence = only_publish_native_calculation_result(
     dataset_store_root=root / 'chart-input' / 'dataset',
     calculation_result_root=root / 'calculation-results',
     execution_evidence_root=root / 'semantic', research_result_root=root / 'research-results',
+    research_artifact_root=root / 'artifacts',
     audit_time=lambda: datetime(2026, 10, 9, tzinfo=UTC),
 )
 print(json.dumps({'result': result.manifest.to_dict(), 'evidence': evidence.to_dict()}))

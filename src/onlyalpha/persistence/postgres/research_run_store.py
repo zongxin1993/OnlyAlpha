@@ -378,23 +378,32 @@ class OnlyPostgresResearchRunStore:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
                 authority = OnlyPostgresProductCommandAuthority
-                authority.insert_or_verify_admission(
-                    connection,
-                    OnlyProductCommandAdmissionV1(
-                        receipt.command_id,
-                        receipt.command_kind,
-                        receipt.command_fingerprint,
-                    ),
+                # Admission INSERT writes the source-history frontier. Serialize
+                # the command without writing first, then lock the owning Run;
+                # cancellation and execution now use Run -> history frontier.
+                authority.lock_command(connection, receipt.command_id)
+                admission = OnlyProductCommandAdmissionV1(
+                    receipt.command_id,
+                    receipt.command_kind,
+                    receipt.command_fingerprint,
                 )
+                prior_admission = authority.load_admission_in_transaction(connection, receipt.command_id)
+                if prior_admission is not None and prior_admission != admission:
+                    raise OnlyProductCommandConflictError(receipt.command_id.value)
                 existing = authority.load_verified_receipt_in_transaction(connection, receipt.command_id)
                 if existing is not None:
                     return existing
+                # FOR UPDATE alone acquires only ROW SHARE, compatible with T1's
+                # SHARE table lock. Acquire write intent before any frontier write
+                # so UPDATE never upgrades behind a SHARE holder waiting on us.
+                connection.execute("LOCK TABLE public.research_run IN ROW EXCLUSIVE MODE")
                 row = connection.execute(
                     "SELECT * FROM research_run WHERE run_id = %s FOR UPDATE",
                     (run_id.value,),
                 ).fetchone()
                 if row is None:
                     raise OnlyResearchRunNotFoundError(str(run_id))
+                authority.insert_or_verify_admission(connection, admission)
                 current = self._decode(cast(Mapping[str, object], row))
                 if current.state in {OnlyResearchRunState.COMPLETED, OnlyResearchRunState.FAILED}:
                     raise OnlyResearchCancellationConflictError()

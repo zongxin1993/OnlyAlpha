@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import shutil
+import stat
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, closing, contextmanager
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -16,12 +19,23 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha.quant_assets.retained_generation import OnlyRetainedRuntimeGenerationProofV1
 from onlyalpha.research._durability import _only_bind_publication_tree, _OnlyBoundPublicationTree
+from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceV2
 from onlyalpha.research.calculation.execution_provenance import OnlyResearchRuntimeExecutionProvenanceV1
 from onlyalpha.research.calculation.result_identity import only_research_calculation_arrow_schema_payload
+from onlyalpha.research.calculation.result_v2 import OnlyResearchCalculationResultManifestV2
 from onlyalpha.research.calculation.result_v2_store import _rename_exclusive, _sync_directory, _unique_object
+from onlyalpha.research.dataset.manifest import OnlyResearchDatasetSnapshot
+from onlyalpha.research.dataset.sealed_input_evidence import OnlyRetainedSealedChartInputEvidenceV1
+from onlyalpha.research.result.result import OnlyResearchResultManifest
+from onlyalpha.research.source_cut import OnlySourceCutError, OnlySourcePublicationBarrier, _only_barrier_publication
 
-from .calculation_v2_model import OnlyResearchCalculationArtifactFileV2, OnlyResearchCalculationArtifactManifestV2
+from .calculation_v2_model import (
+    OnlyResearchCalculationArtifactFileV2,
+    OnlyResearchCalculationArtifactManifestV2,
+    _only_calculation_artifact_reference_manifest,
+)
 from .calculation_v2_sections import _section_json, _section_schemas
 from .calculation_v2_verification import OnlyResearchCalculationArtifactV2, only_verify_calculation_artifact_tables_v2
 from .errors import OnlyResearchArtifactStoreError
@@ -46,6 +60,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         self._compression = compression
         self._row_group_size = row_group_size
         self._audit_time = audit_time
+        self._publication_barrier = OnlySourcePublicationBarrier(root)
 
     def load_verified(
         self,
@@ -71,6 +86,208 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             raise OnlyResearchArtifactStoreError("ARTIFACT_PROVENANCE_MISMATCH", "explicit Runtime expectation differs")
         return loaded
 
+    def load_exact_for_publication(
+        self,
+        *,
+        result: OnlyResearchResultManifest,
+        dataset: OnlyResearchDatasetSnapshot,
+        calculations: tuple[OnlyResearchCalculationResultManifestV2, ...],
+        selected_evidence: tuple[OnlyResearchCalculationExecutionEvidenceV2, ...],
+        retained_generation: OnlyRetainedRuntimeGenerationProofV1,
+        sealed_input: OnlyRetainedSealedChartInputEvidenceV1,
+    ) -> OnlyResearchCalculationArtifactV2:
+        """Derive the exact pair from complete references and read its bound package.
+
+        Callers obtain the expectations from owning verified readers. Parsed copies
+        are not Source/producer/Attempt authority. No scan, latest selection, new
+        index, acknowledgement or publication occurs. A local NOT_FOUND cannot
+        certify historical or scientific absence, nor authorize cancellation.
+        """
+        try:
+            reference = _only_calculation_artifact_reference_manifest(
+                result=result,
+                dataset=dataset,
+                calculations=calculations,
+                selected_evidence=selected_evidence,
+                retained_generation=retained_generation,
+                sealed_input=sealed_input,
+            )
+            identity = reference.artifact_content_fingerprint
+            target = self._target(identity)
+            with closing(_OnlyBoundPublicationTree(target, self._root)) as tree:
+                try:
+                    tree.bind_directory(self._root)
+                except FileNotFoundError as exc:
+                    raise OnlyResearchArtifactStoreError(
+                        "ARTIFACT_STORE_UNAVAILABLE", "owning root unavailable"
+                    ) from exc
+                if not tree.bind_existing_target():
+                    raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", identity)
+                loaded = self._read_verified(target, identity, tree)
+                if (
+                    loaded.manifest.result.research_result_fingerprint != result.research_result_fingerprint
+                    or loaded.manifest.expected_runtime_provenance != reference.expected_runtime_provenance
+                ):
+                    raise ValueError("exact publication references differ")
+                tree.require_namespace()
+                return loaded
+        except OnlyResearchArtifactStoreError:
+            raise
+        except OSError as exc:
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "exact publication inspection failed") from exc
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "exact publication inspection failed") from exc
+
+    @contextmanager
+    def inspect_retained_for_calculation(
+        self, calculation_fingerprint: str
+    ) -> Iterator[tuple[OnlyResearchCalculationArtifactV2, ...]]:
+        """Hold zero-write owning exclusion over a complete current V2 inventory.
+
+        Verify every published candidate before selecting Calculation membership,
+        including other Plans/producers. No live predecessor or Source is read or
+        restored. An empty tuple is not a historical/Run absence witness. Consumers
+        must exit successfully before using this snapshot and cannot publish or
+        acknowledge under its exclusive lock.
+        """
+        if (
+            type(calculation_fingerprint) is not str
+            or len(calculation_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in calculation_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
+        consumer_error: BaseException | None = None
+        try:
+            with (
+                closing(_OnlyBoundPublicationTree(self._root, self._root)) as owner,
+                self._publication_barrier.inspect_bound_readonly(owner),
+                self._inspect_retained_bound(calculation_fingerprint, owner) as retained,
+            ):
+                try:
+                    yield retained
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+        except OnlySourceCutError as exc:
+            if exc is consumer_error:
+                raise
+            code = "ARTIFACT_STORE_UNAVAILABLE" if str(exc) == "SOURCE_PUBLICATION_UNAVAILABLE" else "ARTIFACT_CORRUPT"
+            raise OnlyResearchArtifactStoreError(code, "owning inventory exclusion failed") from exc
+
+    @contextmanager
+    def _inspect_retained_bound(
+        self, calculation_fingerprint: str, owner: _OnlyBoundPublicationTree
+    ) -> Iterator[tuple[OnlyResearchCalculationArtifactV2, ...]]:
+        """Internal composition: caller holds EX on this exact retained owner/lock."""
+        if owner.target != self._root.absolute() or owner.anchor != self._root.absolute():
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "wrong inventory owner binding")
+        if (
+            type(calculation_fingerprint) is not str
+            or len(calculation_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in calculation_fingerprint)
+        ):
+            raise OnlyResearchArtifactStoreError("ARTIFACT_IDENTITY_MISMATCH", "invalid Calculation fingerprint")
+        root = self._root.absolute()
+        consumer_error: BaseException | None = None
+        try:
+            with ExitStack() as opened:
+                memberships: dict[Path, tuple[str, ...]] = {}
+                packages: list[_OnlyBoundPublicationTree] = []
+                observed: list[tuple[OnlyResearchCalculationArtifactV2, bytes]] = []
+
+                def entries(path: Path) -> tuple[str, ...]:
+                    names = owner.directory_entries(path)
+                    memberships[path] = names
+                    return names
+
+                def require_inventory() -> None:
+                    owner.require_namespace()
+                    for package, (artifact, original_manifest) in zip(packages, observed, strict=True):
+                        if package.read_bytes("artifact_manifest.json", _MAX_MANIFEST_BYTES) != original_manifest:
+                            raise ValueError("Artifact manifest bytes changed during inspection")
+                        if (
+                            self._read_verified(
+                                package.target, artifact.manifest.artifact_content_fingerprint, package
+                            ).manifest
+                            != artifact.manifest
+                        ):
+                            raise ValueError("Artifact content changed in place during inspection")
+                        package.require_namespace()
+                    for path, names in memberships.items():
+                        if owner.directory_entries(path) != names:
+                            raise ValueError("Artifact inventory membership changed")
+
+                matches = []
+                family = root / "research-calculation-v2"
+                if family.name in entries(root):
+                    names = entries(family)
+                    if set(names) - {"sha256"}:
+                        raise ValueError("unknown Artifact V2 namespace entry")
+                    if "sha256" in names:
+                        addressed = family / "sha256"
+                        for prefix in entries(addressed):
+                            if len(prefix) != 2 or any(char not in "0123456789abcdef" for char in prefix):
+                                raise ValueError("noncanonical Artifact prefix")
+                            directory = addressed / prefix
+                            for identity in entries(directory):
+                                target = directory / identity
+                                owner.bind_directory(target)
+                                if identity.startswith(".stage-"):
+                                    token = identity.removeprefix(".stage-")
+                                    stage = uuid.UUID(hex=token)
+                                    if stage.hex != token or stage.version != 4:
+                                        raise ValueError("noncanonical Artifact staging directory")
+                                    continue
+                                if (
+                                    len(identity) != 64
+                                    or any(char not in "0123456789abcdef" for char in identity)
+                                    or not identity.startswith(prefix)
+                                ):
+                                    raise ValueError("noncanonical Artifact content address")
+                                package = opened.enter_context(closing(_OnlyBoundPublicationTree(target, root)))
+                                packages.append(package)
+                                original_manifest = package.read_bytes("artifact_manifest.json", _MAX_MANIFEST_BYTES)
+                                artifact = self._read_verified(target, identity, package)
+                                observed.append((artifact, original_manifest))
+                                package.require_namespace()
+                                if any(
+                                    item.calculation_fingerprint == calculation_fingerprint
+                                    for item in artifact.manifest.calculations
+                                ):
+                                    matches.append(artifact)
+                require_inventory()
+                try:
+                    yield tuple(matches)
+                except BaseException as exc:
+                    consumer_error = exc
+                    raise
+                require_inventory()
+        except OnlyResearchArtifactStoreError:
+            raise
+        except OnlySourceCutError as exc:
+            if exc is consumer_error:
+                raise
+            code = "ARTIFACT_STORE_UNAVAILABLE" if str(exc) == "SOURCE_PUBLICATION_UNAVAILABLE" else "ARTIFACT_CORRUPT"
+            raise OnlyResearchArtifactStoreError(code, "owning inventory exclusion failed") from exc
+        except OSError as exc:
+            if exc is consumer_error:
+                raise
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EISDIR}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "owning inventory read failed") from exc
+        except ValueError as exc:
+            if exc is consumer_error:
+                raise
+            raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "owning inventory verification failed") from exc
+
     def _publish_materialized(
         self,
         manifest: OnlyResearchCalculationArtifactManifestV2,
@@ -79,15 +296,39 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         acknowledge_predecessors: Callable[[], None],
     ) -> OnlyResearchCalculationArtifactV2:
         """Internal materializer hook; no public caller-authored candidate commit."""
+        if self._root.is_symlink() or not self._root.is_dir():
+            raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", "Artifact anchor must be preprovisioned")
         try:
-            only_verify_calculation_artifact_tables_v2(manifest, tables)
+            with closing(_OnlyBoundPublicationTree(self._root, self._root)) as tree:
+                tree.bind_directory(self._root)
+                only_verify_calculation_artifact_tables_v2(manifest, tables)
+                # Predecessor failure must not initialize Artifact coordination.
+                # Repeat the owning checks inside exclusion and before rename.
+                acknowledge_predecessors()
+                with self._publication_barrier.publication_bound(tree):
+                    return self._publish_under_barrier(
+                        manifest, tables, acknowledge_predecessors=acknowledge_predecessors
+                    )
+        except OnlyResearchArtifactStoreError:
+            raise
+        except Exception as exc:
+            raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
+
+    def _publish_under_barrier(
+        self,
+        manifest: OnlyResearchCalculationArtifactManifestV2,
+        tables: Mapping[str, pa.Table],
+        *,
+        acknowledge_predecessors: Callable[[], None],
+    ) -> OnlyResearchCalculationArtifactV2:
+        try:
             identity = manifest.artifact_content_fingerprint
             target = self._target(identity)
             if self._root.is_symlink() or not self._root.is_dir():
                 raise ValueError("Artifact durability anchor must be preprovisioned")
             acknowledge_predecessors()
             if os.path.lexists(target):
-                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
+                return self._acknowledge_under_barrier(identity, manifest.result.research_result_fingerprint)
             target.parent.mkdir(parents=True, exist_ok=True)
             self._target(identity)
             stage = target.parent / f".stage-{uuid.uuid4().hex}"
@@ -161,7 +402,7 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
                 except OSError:
                     if not os.path.lexists(target):
                         raise
-                return self._acknowledge(identity, manifest.result.research_result_fingerprint)
+                return self._acknowledge_under_barrier(identity, manifest.result.research_result_fingerprint)
             finally:
                 if stage.is_dir() and not stage.is_symlink():
                     shutil.rmtree(stage)
@@ -170,7 +411,11 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_COMMIT_FAILED", str(exc)) from exc
 
+    @_only_barrier_publication
     def _acknowledge(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
+        return self._acknowledge_under_barrier(identity, result_fingerprint)
+
+    def _acknowledge_under_barrier(self, identity: str, result_fingerprint: str) -> OnlyResearchCalculationArtifactV2:
         target = self._target(identity)
         try:
             result = self.load_verified(identity, research_result_fingerprint=result_fingerprint)
@@ -283,6 +528,13 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
             return only_verify_calculation_artifact_tables_v2(manifest, tables)
         except OnlyResearchArtifactStoreError:
             raise
+        except OSError as exc:
+            code = (
+                "ARTIFACT_CORRUPT"
+                if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+                else "ARTIFACT_STORE_UNAVAILABLE"
+            )
+            raise OnlyResearchArtifactStoreError(code, "retained package read failed") from exc
         except Exception as exc:
             raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", str(exc)) from exc
 
@@ -290,8 +542,16 @@ class OnlyParquetResearchCalculationArtifactStoreV2:
         if type(identity) is not str or len(identity) != 64 or any(char not in "0123456789abcdef" for char in identity):
             raise OnlyResearchArtifactStoreError("ARTIFACT_NOT_FOUND", "invalid content fingerprint")
         path = self._root
+        mode: int | None
         for part in ("research-calculation-v2", "sha256", identity[:2], identity):
-            if os.path.lexists(path) and (path.is_symlink() or not path.is_dir()):
+            try:
+                mode = path.lstat().st_mode
+            except FileNotFoundError:
+                mode = None
+            except OSError as exc:
+                code = "ARTIFACT_CORRUPT" if exc.errno in {errno.ENOTDIR, errno.ELOOP} else "ARTIFACT_STORE_UNAVAILABLE"
+                raise OnlyResearchArtifactStoreError(code, "Artifact namespace unavailable") from exc
+            if mode is not None and not stat.S_ISDIR(mode):
                 raise OnlyResearchArtifactStoreError("ARTIFACT_CORRUPT", "malformed Artifact namespace")
             path = path / part
         return path

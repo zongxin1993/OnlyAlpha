@@ -74,6 +74,25 @@ Generation-bound reuse selects exact Result2, full implementation bindings, full
 provenance when applicable. Finding one numerically equal Result or one otherwise matching Evidence is insufficient. Evidence
 without mandatory generation proof is incomplete for this path, not a proved different producer or permission to overwrite.
 
+`ExecutionEvidenceStoreV2.load_exact_for_result` is the non-mutating exact-producer
+read: full Result2, implementation, Runtime and authoring expectations remain
+mandatory, with no publication or durability acknowledgement. The existing
+`require_exact_for_result` delegates that verification and still acknowledges the
+selected predecessor for publication/re-entry. Neither path accepts a missing
+Runtime expectation for generation-bound selection. Local NOT_FOUND is not a
+scientific-absence witness.
+An unavailable owning semantic anchor or permission/device/read failure reports
+`RESEARCH_EXECUTION_EVIDENCE_STORE_UNAVAILABLE`, not local NOT_FOUND or corruption.
+An available anchor with an unpublished optional namespace can report local
+NOT_FOUND. Existing malformed packages and missing mandatory files remain corrupt.
+Evidence bindings stay open through the owning Calculation Result read and linkage
+check, followed by the final namespace recheck. Exact-miss fallback and dangling
+Evidence inspection enumerate bound directories and read bound regular manifests,
+not unbound pathname text. All visited directory memberships and opened inodes are
+rechecked before returning a local scan snapshot; anchor loss or substitution
+cannot turn relevant incomplete provenance into an empty scan. The snapshot is
+still not a historical/cancellation absence witness and mints no producer authority.
+
 Hosted verification proves execution location, not Chart Work permission. This foundation grants no production Chart dispatch,
 Search-worker durable writes, Claim, Attempt, lease or Run transition. A future Chart caller must independently prove original
 Work eligibility and owning compilation relations through the formal Run boundary.
@@ -88,6 +107,25 @@ the existing Artifact root at `research-calculation-v2/sha256/<first-two-hex>/<a
 extension to the Result-addressed older profiles, whose addresses and readers remain unchanged. There is no Result-SHA fallback,
 latest producer selection or new Artifact Plan/Artifact Result authority. V2 readers require both explicit identities and reject
 a Result/Artifact mismatch; they do not derive a missing Result expectation from the package being queried.
+
+For receipt-less lookup, `ArtifactStoreV2.load_exact_for_publication` derives the
+same existing Manifest2 logical identity from complete verified Result4, Dataset,
+Calculation2, selected Evidence2, retained Generation and sealed Source references.
+It reads the resulting exact Result/Artifact pair using bound no-follow descriptors,
+rechecks the complete package and namespace bindings, and performs no scan, write,
+fsync, acknowledgement or repair. Physical encoding and audit-time differences
+remain excluded by the canonical Manifest identity; no duplicate hash formula or
+new index is introduced. The caller must obtain expectations through owning
+verified readers: parsed copies grant no live Source, producer or Attempt authority.
+Unavailable roots, incomplete context, corruption and substitution fail closed;
+even an exact local NOT_FOUND cannot authorize cancellation or certify scientific
+or historical absence. Stable semantic-absence inspection remains a separate
+reconciliation obligation, not implemented by this lookup.
+`ARTIFACT_STORE_UNAVAILABLE` distinguishes an unavailable owning anchor and
+permission/device/read failures. Local NOT_FOUND is returned only after no-follow
+descriptor traversal and rechecking the opened existing ancestors. Malformed
+namespace links, incomplete retained packages and inode substitutions remain
+`ARTIFACT_CORRUPT`. These failures cannot be interchanged by a reconciliation caller.
 
 Artifact logical identity binds profile/schema, exact Result4 identity, complete copied logical sections and exact selected
 Evidence/provenance. Artifact encoding byte hashes, compression, relative storage paths and audit time are excluded. Executable
@@ -128,6 +166,76 @@ upgrade, overwrite, legacy loader, inferred proof or compatibility shim. Existin
 Runtime provenance and the older Scientific/Calculation Artifact profiles are unchanged. The new required source exporter
 currently covers the admitted one-instrument native 15-minute Chart input; it does not admit arbitrary multi-source inputs.
 That bounded capability does not redefine long-term Research or Source scope.
+
+### Current owning Artifact inventory
+
+`ArtifactStoreV2.inspect_retained_for_calculation(calculation_fingerprint)` is a
+scoped read-only session, separate from exact pair lookup. It holds the existing
+owning exclusive publication lock until successful context exit and returns all
+fully verified V2 packages containing that canonical Calculation. It verifies each
+published candidate before applying membership selection, regardless of Result
+Plan, Generation, Source or selected Evidence. It performs no live predecessor
+read, reconstruction, Source issuance, execution, acknowledgement or fsync. It
+does not add an index, identity, historical cut or negative witness.
+
+The root and regular lock must already exist; missing/permission/device failures
+are `ARTIFACT_STORE_UNAVAILABLE`, not an empty inventory. Malformed V2 namespace,
+packages, applicable proof, addresses, or any binding/membership substitution are
+`ARTIFACT_CORRUPT`. Other Artifact profiles are not inspected. Within the optional
+V2 namespace only `sha256`, canonical two-hex prefixes and exact content-addressed
+directories are published locators. A `.stage-<canonical UUID4 hex>` directory in
+its writer-defined prefix position is an unpublished crash staging area, not a
+retained publication; noncanonical staging names, non-directories and symlinks
+reject. Empty optional namespace links remain a current view, not history.
+
+Inventory membership and all package/ancestor/file inode bindings are retained and
+rechecked before yielding and before successful exit. Consumers retain this same
+Artifact exclusion while acquiring any other necessary owners in the documented
+downstream-to-predecessor order, without reopening the Artifact read session. They
+must not publish/acknowledge under EX or use the snapshot before successful exit.
+The snapshot's linearization is its final owning checks, not its first directory
+read. Consumer exceptions propagate unchanged rather than being reclassified as
+Artifact corruption/unavailability; lock release and descriptor cleanup still run.
+An empty tuple cannot authorize cancellation or certify historical absence;
+readable retained copies do not prove durable ACK, live Source/predecessor closure,
+Run/Attempt occurrence or terminal outcome. Native forward guarding and complete
+multi-owner cancellation/recovery inspection remain separate consumer obligations.
+
+### Native forward re-entry inspection
+
+Both native publication entry points require the approved Artifact root in addition
+to their live predecessor roots. Before native context issuance, Job/backend work
+or semantic publication they inspect all retained V2 packages containing the exact
+Calculation, not just the current Result Plan. Complete different Plan, Generation
+or Source packages remain relevant to protecting their shared live predecessors.
+Every related package must have its original live Result4, all referenced
+Calculation2/Datasets and every exact selected Evidence2; a readable portable copy
+never repairs a missing live owner or grants Source/execution permission.
+
+The inspection prebinds four existing roots and regular locks and acquires EX in
+Artifact → Result → Evidence → Calculation order. Actual lock inodes are deduplicated;
+only contiguous alias classes preserve this order. Non-contiguous aliases form an
+order cycle and reject before lock acquisition. The Artifact inventory continues
+the same retained owner binding instead of re-locking itself. Owning scoped
+Dataset/Calculation/Evidence/Result readers retain full package/file bindings and
+Evidence inventory membership through common relation checks. No ACK, mkdir,
+coordination creation, Source issuance or fsync occurs in this inspection.
+
+An available zero/partial prefix may continue the original authorized producer
+path. Missing anchors/locks and I/O remain unavailable; incomplete/corrupt relations
+reject rather than become non-match. Exact query refs derived from verified reads
+only restrict later work: any observed Calculation, selected current Evidence or
+current Result must still exist for exact reuse/ACK after inspection. Job result-only
+recovery can produce a new attestation but cannot recreate an observed Calculation
+that disappears during numerical execution, and must prove equal values/readiness
+before reusing it. Existing Result ACK does not recreate a lost owning root.
+
+The inspection's final relation checks are its current-view linearization, not a
+cross-filesystem transaction covering later numerical work. Locks are released
+before that work; subsequent owning operations must refuse missing protected refs.
+This is not historical absence, no-ACTIVE cancellation certification, lease/Work
+permission or a durable ACK witness. Those Controller/reconciliation obligations
+remain separate, and no SQL Claim capability follows from this guard.
 
 ### Physical section contract
 
@@ -240,6 +348,61 @@ files, symlinks and corrupt/incomplete targets are not replaceable absence.
 Each predecessor is exactly verified and durably acknowledged before the next publication reports success. Result remains under
 its existing Plan-keyed address and source-owned publication barrier; no second Result inventory or migration is introduced.
 Ordinary readers remain read-only. Explicit owning-store publication/reuse paths perform acknowledgement.
+
+### Read-only publication exclusion
+
+Calculation2, Evidence2 and Artifact2 publication and durability re-entry hold their
+owning shared publication barrier through staging, exclusive rename, verification,
+acknowledgement and staging cleanup. Result4 retains its existing barrier. The
+barriers add no scientific identity, producer attestation, persistent inventory or
+historical cut. Native seals, exact selected Evidence and all existing Source and
+predecessor acknowledgement requirements remain mandatory.
+
+`OnlySourcePublicationBarrier.inspect_readonly()` opens the already provisioned
+owner root and regular `.source-cut.lock` through bound no-follow descriptors and
+takes the exclusive lock. It creates no directories/lock/cut, performs no fsync,
+and rechecks every opened ancestor and the lock inode after acquisition and before
+successful return. Initial missing root/lock or I/O/permission failure is
+`SOURCE_PUBLICATION_UNAVAILABLE`; malformed lock/path or substitution of an opened
+binding is `SOURCE_PUBLICATION_BARRIER_INVALID`. Neither is an empty inventory.
+The existing `capture_closed_cut()` still writes retained cut metadata and is not
+a substitute for this read-only primitive. Owning write paths may initialize
+coordination metadata; V2 acknowledgement never recreates a missing semantic root.
+Calculation commit retains its existing permission to create its root only under
+the preprovisioned parent, after sealed input/Graph validation.
+Its parent descriptor is retained across validation and root creation; creation
+uses that directory descriptor, not a pathname that a Source/audit hook can replace.
+`publication_bound()` continues that same root/ancestor binding when creating and
+locking the regular coordination file. It does not reopen and select another owner
+between root creation and lock acquisition. The locked descriptor is the one
+retained and verified by the tree; successful return rechecks that same relation.
+Artifact similarly retains its original root across the initial full table
+verification and predecessor acknowledgement, before creating a coordination file.
+It repeats predecessor acknowledgement under exclusion and immediately before
+rename. Internal post-publication acknowledgement remains inside that same owner
+lock; it does not open another coordination lock or select another owner. These
+preflight checks grant no reuse, absence or publication permission on their own.
+Legacy publication/capture may still initialize their configured directory chain,
+but bind every existing ancestor before creating each missing child via its bound
+parent descriptor. Initial or later symlink substitution cannot redirect that
+creation into an unrelated directory. Acquisition/unlock I/O failures remain
+unavailable and always close the owned descriptors, including when unlock fails.
+
+All publishers and retained-cut captures also bind/recheck this regular lock and
+their owning ancestors. Locks are advisory, not protection against an administrator
+writing outside the owner. This contract requires local filesystem flock semantics;
+unsupported locking/error outcomes fail closed, with no pathname or network-lock
+fallback. Acquiring a shared publication lock while holding an exclusive inspection
+lock for the same owner is prohibited, not a read-to-write permission upgrade.
+
+A multi-owner read must use the downstream-to-predecessor order
+`Artifact → Result → Evidence → Calculation`, acquire each owning lock once, and
+retain exclusion until its final namespace/relation verification. This matches the
+publication acknowledgement direction. Exclusion alone certifies no semantic
+absence, durable acknowledgement, Run/Attempt occurrence or terminal outcome.
+Complete owning namespace inventory and exact predicate evaluation remain separate
+requirements of cancellation/recovery inspection; a local NOT_FOUND cannot satisfy
+them. No Run mutation, Attempt or Work release is added by this primitive.
 
 Calculation2, Evidence2, Result4 and Artifact2 acknowledgements bind their canonical directory tree and retained files to no-follow
 descriptors before verification and synchronization. They check inode/type relations and exact leaf sets before and after syncing

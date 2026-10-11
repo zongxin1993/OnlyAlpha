@@ -12,6 +12,7 @@ from onlyalpha.quant_assets.retained_generation import OnlyRetainedRuntimeGenera
 from onlyalpha.research.artifact.calculation_v2_materializer import OnlyResearchCalculationArtifactMaterializerV2
 from onlyalpha.research.artifact.calculation_v2_store import OnlyParquetResearchCalculationArtifactStoreV2
 from onlyalpha.research.artifact.calculation_v2_verification import OnlyResearchCalculationArtifactV2
+from onlyalpha.research.artifact.publication_inspection import _only_inspect_calculation_publication_prefix
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendResolver
 from onlyalpha.research.calculation.execution import OnlyResearchCalculationExecutor
 from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
@@ -33,7 +34,6 @@ from onlyalpha.research.dataset.publication_input import (
 )
 from onlyalpha.research.job.executor import _only_execute_generation_bound_calculation_job
 from onlyalpha.research.result.assembler import OnlyResearchResultAssembler
-from onlyalpha.research.result.errors import OnlyResearchResultStoreError
 from onlyalpha.research.result.result import OnlyResearchResult
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.run.calculation_resolution import OnlyResearchCalculationRuntimeResolutionV1
@@ -53,6 +53,9 @@ class _OnlyNativeCalculationContext:
     evidence: OnlyResearchCalculationExecutionEvidenceStoreV2
     results: OnlyJsonResearchResultStore
     executor: OnlyResearchCalculationExecutor
+    required_calculation_result: str | None
+    required_evidence: str | None
+    required_research_result: str | None
 
 
 def only_publish_native_calculation_result(
@@ -64,6 +67,7 @@ def only_publish_native_calculation_result(
     calculation_result_root: Path,
     execution_evidence_root: Path,
     research_result_root: Path,
+    research_artifact_root: Path,
     audit_time: Callable[[], datetime],
     authoring_generation_fingerprint: str | None = None,
 ) -> tuple[OnlyResearchResult, OnlyResearchCalculationExecutionEvidenceV2]:
@@ -75,6 +79,7 @@ def only_publish_native_calculation_result(
         calculation_result_root=calculation_result_root,
         execution_evidence_root=execution_evidence_root,
         research_result_root=research_result_root,
+        research_artifact_root=research_artifact_root,
         audit_time=audit_time,
         authoring_generation_fingerprint=authoring_generation_fingerprint,
     )
@@ -89,6 +94,8 @@ def only_publish_native_calculation_result(
         publication.calculations,
         publication.evidence,
         publication.context,
+        required_result_fingerprint=publication.required_calculation_result,
+        required_evidence_fingerprint=publication.required_evidence,
     )
     result = OnlyResearchResultAssembler(
         None,
@@ -96,7 +103,12 @@ def only_publish_native_calculation_result(
         readiness_result_store=publication.calculations,
         readiness_evidence_store=publication.evidence,
     ).assemble(frozen.result_plan)
-    publication.results.commit(result)
+    if publication.required_research_result is None:
+        publication.results.commit(result)
+    else:
+        if result.manifest.research_result_fingerprint != publication.required_research_result:
+            raise ValueError("protected Research Result differs from assembled result")
+        publication.results.acknowledge_exact(frozen.result_plan.fingerprint, publication.required_research_result)
     producer = publication.evidence.acknowledge_exact(outcome.calculation_execution_evidence_fingerprint)
     return publication.results.load_verified(frozen.result_plan.fingerprint), producer
 
@@ -136,6 +148,7 @@ def only_publish_native_calculation_artifact(
         calculation_result_root=calculation_result_root,
         execution_evidence_root=execution_evidence_root,
         research_result_root=research_result_root,
+        research_artifact_root=research_artifact_root,
         audit_time=audit_time,
     )
     # Artifact projection never reconstructs a missing live predecessor, including
@@ -166,6 +179,7 @@ def _prepare_native_calculation(
     calculation_result_root: Path,
     execution_evidence_root: Path,
     research_result_root: Path,
+    research_artifact_root: Path,
     audit_time: Callable[[], datetime],
     authoring_generation_fingerprint: str | None = None,
 ) -> _OnlyNativeCalculationContext:
@@ -222,29 +236,49 @@ def _prepare_native_calculation(
     executor = OnlyResearchCalculationExecutor(datasets, OnlyResearchCalculationBackendResolver(registry))
     if executor.plan(frozen.calculation_graph).implementation_bindings != frozen.research_implementation_bindings:
         raise ValueError("native publication implementation binding differs")
-    context = _only_issue_research_runtime_execution_context(
-        OnlyResearchRuntimeExecutionProvenanceV1(
-            manifest.runtime_generation_fingerprint,
-            validation.validation_evidence_fingerprint,
-            manifest.core_execution.fingerprint,
-            manifest.catalog_generation_fingerprint,
-        ),
-        frozen.graph_fingerprint,
-        tuple(
-            (item.node_fingerprint, item.research_implementation_fingerprint)
-            for item in frozen.research_implementation_bindings
-        ),
+    provenance = OnlyResearchRuntimeExecutionProvenanceV1(
+        manifest.runtime_generation_fingerprint,
+        validation.validation_evidence_fingerprint,
+        manifest.core_execution.fingerprint,
+        manifest.catalog_generation_fingerprint,
     )
     calculations = OnlyParquetResearchCalculationResultStoreV2(calculation_result_root, datasets, audit_time=audit_time)
     evidence = OnlyResearchCalculationExecutionEvidenceStoreV2(execution_evidence_root, calculations)
     results = OnlyJsonResearchResultStore(
         research_result_root, None, readiness_result_store=calculations, readiness_evidence_store=evidence
     )
-    # Retained downstream Authority forbids reconstruction of missing predecessors.
-    # Check the exact Plan leaf and full upstream closure before any Job/backend call.
-    try:
-        results.load_verified(frozen.result_plan.fingerprint)
-    except OnlyResearchResultStoreError as exc:
-        if exc.code != "RESEARCH_RESULT_NOT_FOUND":
-            raise
-    return _OnlyNativeCalculationContext(context, retained, datasets, calculations, evidence, results, executor)
+    with _only_inspect_calculation_publication_prefix(
+        artifacts=OnlyParquetResearchCalculationArtifactStoreV2(research_artifact_root),
+        results=results,
+        evidence=evidence,
+        calculations=calculations,
+        calculation_fingerprint=frozen.job_plan.calculation_fingerprint,
+        result_plan=frozen.result_plan,
+        implementation_bindings=frozen.research_implementation_bindings,
+        runtime_provenance=provenance,
+    ) as inspected:
+        calculation, producer, result = inspected
+        required_calculation = None if calculation is None else calculation.manifest.calculation_result_fingerprint
+        required_evidence = None if producer is None else producer.evidence_fingerprint
+        required_result = None if result is None else result.manifest.research_result_fingerprint
+    # Inspection refs restrict later reuse; they are not Source/Attempt permission.
+    context = _only_issue_research_runtime_execution_context(
+        provenance,
+        frozen.graph_fingerprint,
+        tuple(
+            (item.node_fingerprint, item.research_implementation_fingerprint)
+            for item in frozen.research_implementation_bindings
+        ),
+    )
+    return _OnlyNativeCalculationContext(
+        context,
+        retained,
+        datasets,
+        calculations,
+        evidence,
+        results,
+        executor,
+        required_calculation,
+        required_evidence,
+        required_result,
+    )

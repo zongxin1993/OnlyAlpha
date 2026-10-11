@@ -64,6 +64,16 @@ def _precommit(plan, calculation, results):
     return sealed, results.commit(sealed, plan.calculation_graph)
 
 
+def _fresh_readiness_stores(root, dataset):
+    from onlyalpha.research.calculation.execution_evidence_v2 import OnlyResearchCalculationExecutionEvidenceStoreV2
+    from onlyalpha.research.calculation.result_v2_store import OnlyParquetResearchCalculationResultStoreV2
+
+    semantic = root / "fresh-semantic"
+    semantic.mkdir()
+    results = OnlyParquetResearchCalculationResultStoreV2(root / "fresh-results", dataset)
+    return results, OnlyResearchCalculationExecutionEvidenceStoreV2(semantic, results)
+
+
 class _Never:
     def __getattr__(self, name):
         raise AssertionError(f"unavailable authority must fail before {name}")
@@ -326,7 +336,7 @@ def test_v2_job_invalid_v1_authority_response_is_not_a_parity_miss(tmp_path, mon
     assert not (tmp_path / "semantic" / "calculation-execution-evidence").exists()
 
 
-@pytest.mark.parametrize("boundary", ("reuse", "commit"))
+@pytest.mark.parametrize("boundary", ("reuse", "commit", "acknowledge"))
 @pytest.mark.parametrize("mutation", ("value-list", "readiness-list", "partition-subclass", "wrong-partition-family"))
 def test_v2_original_result_nested_contract_is_validated_before_serialization(
     tmp_path, monkeypatch, boundary, mutation
@@ -353,14 +363,18 @@ def test_v2_original_result_nested_contract_is_validated_before_serialization(
     if boundary == "reuse":
         monkeypatch.setattr(results, "load_verified", lambda _: claim)
     else:
-        monkeypatch.setattr(
-            evidence,
-            "require_for_result",
-            lambda *args: (_ for _ in ()).throw(
-                OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", "incomplete")
-            ),
-        )
-        monkeypatch.setattr(results, "commit", lambda *args: claim)
+        if boundary == "commit":
+            results, evidence = _fresh_readiness_stores(tmp_path, results._dataset_store)
+            monkeypatch.setattr(results, "commit", lambda *args: claim)
+        else:
+            monkeypatch.setattr(
+                evidence,
+                "require_for_result",
+                lambda *args: (_ for _ in ()).throw(
+                    OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", "incomplete")
+                ),
+            )
+            monkeypatch.setattr(results, "acknowledge_exact", lambda *args: claim)
         monkeypatch.setattr(
             evidence,
             "_publish_verified",
@@ -564,7 +578,7 @@ def test_v2_complete_different_result_identity_does_not_trigger_reexecution(tmp_
     assert counted.calls == 0
 
 
-@pytest.mark.parametrize("boundary", ("reuse", "commit"))
+@pytest.mark.parametrize("boundary", ("reuse", "commit", "acknowledge"))
 @pytest.mark.parametrize(
     "field",
     (
@@ -585,6 +599,7 @@ def test_v2_result_proof_mutations_cannot_construct_success_or_trigger_rebuild(t
     plan, calculation, legacy, results, evidence = readiness_job_case(tmp_path)
     sealed, result = _precommit(plan, calculation, results)
     witness = evidence._publish_verified(sealed, result)
+    original_evidence = evidence
     manifest = replace(result.manifest)
     if field == "manifest":
         claim = replace(result, manifest=None)
@@ -604,14 +619,18 @@ def test_v2_result_proof_mutations_cannot_construct_success_or_trigger_rebuild(t
     if boundary == "reuse":
         monkeypatch.setattr(results, "load_verified", lambda _: claim)
     else:
-        monkeypatch.setattr(
-            evidence,
-            "require_for_result",
-            lambda *args: (_ for _ in ()).throw(
-                OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", "incomplete")
-            ),
-        )
-        monkeypatch.setattr(results, "commit", lambda *args: claim)
+        if boundary == "commit":
+            results, evidence = _fresh_readiness_stores(tmp_path, results._dataset_store)
+            monkeypatch.setattr(results, "commit", lambda *args: claim)
+        else:
+            monkeypatch.setattr(
+                evidence,
+                "require_for_result",
+                lambda *args: (_ for _ in ()).throw(
+                    OnlyResearchCalculationError("RESEARCH_EXECUTION_EVIDENCE_NOT_FOUND", "incomplete")
+                ),
+            )
+            monkeypatch.setattr(results, "acknowledge_exact", lambda *args: claim)
         monkeypatch.setattr(
             evidence,
             "_publish_verified",
@@ -624,8 +643,8 @@ def test_v2_result_proof_mutations_cannot_construct_success_or_trigger_rebuild(t
     )
     assert raised.value.code == "RESULT_INVALID"
     assert counted.calls == (0 if boundary == "reuse" else 1)
-    if boundary == "commit":
-        assert evidence.load_verified(witness.evidence_fingerprint) == witness
+    if boundary != "reuse":
+        assert original_evidence.load_verified(witness.evidence_fingerprint) == witness
 
 
 @pytest.mark.parametrize("boundary", ("reuse", "publish"))

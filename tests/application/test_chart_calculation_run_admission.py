@@ -51,8 +51,11 @@ def test_typed_origin_requires_publication_and_never_infers_general(tmp_path: Pa
     assert run.admission_resolution_fingerprint == compilation(system).compilation_fingerprint
     with pytest.raises(OnlyResearchRunIntegrityError):
         replace(run, origin_kind=OnlyResearchOriginKind.GENERAL)
-    with pytest.raises(OnlyResearchRunIntegrityError):
-        run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+    # A Domain value is not a PG Attempt/Claim capability. The database guard and
+    # generic Store/legacy execution allowlists still deny operational mutation.
+    running = run.transition(OnlyResearchRunState.RUNNING, at=NOW)
+    assert running.origin_kind is run.origin_kind
+    assert running.state is OnlyResearchRunState.RUNNING and running.revision == 1
     assert run.transition(OnlyResearchRunState.CANCELLED, at=NOW).origin_kind is run.origin_kind
 
 
