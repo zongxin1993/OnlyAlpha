@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib import metadata
 from threading import RLock
@@ -234,8 +234,22 @@ class OnlyQuantAssetProvider:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyInstalledQuantAssetProviderOrigin:
+    """Retained actual discovery occurrence, not reconstructible descriptor evidence."""
+
+    provider: OnlyQuantAssetProvider
+    manifest_fingerprint: str
+    content_fingerprint: str
+    entrypoint_identity: str
+    factory: object
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyQuantAssetCatalogGeneration:
     providers: tuple[OnlyQuantAssetProvider, ...]
+    _installed_origins: tuple[OnlyInstalledQuantAssetProviderOrigin, ...] = field(
+        default=(), init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         canonical = tuple(
@@ -334,6 +348,7 @@ def only_discover_quant_asset_providers(
     include_installed: bool = True,
 ) -> OnlyQuantAssetCatalogGeneration:
     providers = list(explicit_providers)
+    origins = []
     entries = metadata.entry_points().select(group=ONLYALPHA_QUANT_ASSET_ENTRY_POINT) if include_installed else ()
     for entry in sorted(entries, key=lambda item: (item.name, item.value)):
         loaded = entry.load()
@@ -347,7 +362,18 @@ def only_discover_quant_asset_providers(
         ):
             raise ValueError(f"quant asset distribution identity differs: {entry.name}")
         providers.append(provider)
-    return OnlyQuantAssetCatalogGeneration(tuple(providers))
+        origins.append(
+            OnlyInstalledQuantAssetProviderOrigin(
+                provider,
+                only_canonical_fingerprint(provider.manifest.to_dict()),
+                provider.content_fingerprint,
+                entry.value,
+                loaded,
+            )
+        )
+    catalog = OnlyQuantAssetCatalogGeneration(tuple(providers))
+    object.__setattr__(catalog, "_installed_origins", tuple(origins))
+    return catalog
 
 
 def _normalize_distribution(value: str) -> str:

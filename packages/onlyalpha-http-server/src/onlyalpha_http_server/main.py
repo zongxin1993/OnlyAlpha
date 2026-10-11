@@ -201,7 +201,7 @@ from onlyalpha_http_server.local_read_access import only_load_local_read_configu
 
 from .agent_gateway import OnlyAgentNodeGatewayConfigV1, OnlyAgentNodeHttpGatewayV1
 from .app import create_product_app
-from .composition import only_configure_product_registries
+from .composition import OnlyProductCalculationComposition, only_configure_product_registries
 from .health import OnlyKernelResearchReadinessProjection
 from .research.search_authoring_routes import OnlySearchAuthoringValue
 from .search import OnlySearchProductHttpServiceV1
@@ -740,18 +740,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             registry_check=lambda: _verify_product_registries(calculations, market_products, catalog, resources),
         )
     )
+    calculation_composition: OnlyProductCalculationComposition | None = None
+
+    def compose_calculations() -> None:
+        nonlocal calculation_composition
+        candidate = only_configure_product_registries(calculations, data_sources, brokers, broker_fees, market_products)
+        calculation_composition = candidate
+
     kernel = OnlyAlphaKernelHost(
         authority_guard=OnlyPostgresKernelAuthorityGuard(operational_dsn),
         booters=(
             OnlyKernelLifecycleStep(
                 "calculation_registry_composition",
-                lambda: only_configure_product_registries(
-                    calculations,
-                    data_sources,
-                    brokers,
-                    broker_fees,
-                    market_products,
-                ),
+                compose_calculations,
             ),
             OnlyKernelLifecycleStep(
                 "qualification_policy_admission",
@@ -1136,6 +1137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             local_read_configuration=local_read_configuration,
         )
         if startup_status.state is OnlyKernelState.READY:
+            app.state.product_calculation_composition = calculation_composition
             app.state.experiment_memory_projection_builder = memory_builder
         uvicorn.run(
             app,

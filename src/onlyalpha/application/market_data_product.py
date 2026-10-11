@@ -17,6 +17,7 @@ from time import perf_counter_ns
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
+from onlyalpha.application.chart_study_input import OnlyChartStudyClosedHistoryInput
 from onlyalpha.application.integration_configuration import OnlyIntegration, OnlyIntegrationLifecycleState
 from onlyalpha.application.integration_runtime import (
     OnlyIntegrationRuntimeError,
@@ -562,6 +563,40 @@ class OnlyMarketDataProductService:
                 bar_semantic=bar_semantic,
                 read_session=read_session,
             )
+
+    def read_chart_study_input(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        anchor_kind: OnlyBarWindowAnchorKind,
+        target_bar_count: int,
+        read_session: OnlySourceReadSession,
+        before_ns: int | None = None,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+    ) -> OnlyChartStudyClosedHistoryInput:
+        """Internal complete-history handoff; no endpoint, acquisition or scientific publication."""
+        from onlyalpha.application.chart_study_input import _only_issue_chart_study_closed_history_input
+
+        if (
+            type(read_session) is not OnlySourceReadSession
+            or type(target_bar_count) is not int
+            or not 1 <= target_bar_count <= MAX_TARGET_BAR_COUNT
+            or anchor_kind is not OnlyBarWindowAnchorKind.BEFORE_TIME
+            or type(before_ns) is not int
+            or before_ns <= 0
+        ):
+            raise ValueError("CHART_STUDY_INPUT_UNAVAILABLE")
+        window = self.query_bars(
+            reference,
+            instrument_id=instrument_id,
+            anchor_kind=anchor_kind,
+            target_bar_count=target_bar_count,
+            before_ns=before_ns,
+            bar_semantic=bar_semantic,
+            read_session=read_session,
+        )
+        return _only_issue_chart_study_closed_history_input(window, read_session)
 
     def _query_bars(
         self,

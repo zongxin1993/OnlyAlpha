@@ -144,6 +144,9 @@ def test_runtime_reader_requires_canonical_bytes_and_installed_version(monkeypat
     (package / "_build_provenance.json").write_bytes(canonical)
     monkeypatch.setattr(runtime_provenance.resources, "files", lambda _: package)
     monkeypatch.setattr(runtime_provenance.metadata, "version", lambda _: "0.9.9")
+    with pytest.raises(ValueError, match="ONLYALPHA_BUILD_PROVENANCE_INVALID"):
+        only_packaged_build_provenance()
+    monkeypatch.setattr(runtime_provenance.metadata, "version", lambda _: json.loads(canonical)["distribution_version"])
     value = only_packaged_build_provenance()
     assert value.source_revision == revision
     (package / "_build_provenance.json").write_text(json.dumps(json.loads(canonical), indent=2) + "\n")

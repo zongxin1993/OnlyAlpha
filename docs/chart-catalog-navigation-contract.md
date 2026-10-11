@@ -56,6 +56,26 @@ The Research metadata/revalidation and existing configuration-only behavior desc
 production transient values require a strict generated-DTO adapter plus context/incarnation/configuration/request-generation
 and data/registration fences. Style, hide/show, pane and selection changes remain presentation-only and do not calculate or acquire.
 
+### Internal numeric admission
+
+The disposable SMA adapter retains the actual registrations from one installed Provider discovery and the Catalog built from
+those objects. A copied descriptor or a separately discovered Catalog is not that occurrence. Provider factories, declared
+implementation resources and Core invocation resources must belong to the declared installed distributions; wheel resources
+are checked against RECORD. Editable installations prove only their current project/version/resource bytes, not immutable wheel
+or deployment certification. Loaded Python functions, imported call bindings and the backend's numeric constants must agree
+with that closure. These coherence checks do not sandbox arbitrary code already controlling the interpreter.
+
+The admitted closed-history entry consumes an opaque handoff issued by the owning Market Data service after its authorized,
+complete, fixed-window read. It rechecks the captured session before computation and before releasing values. Ordinary Bars
+DTOs, asserted closed flags, browser arrays and raw Arrow arguments cannot manufacture that handoff. The private numeric kernel
+exists for structural testing and is not a Product input route. The handoff is disposable: it neither creates a new data Authority
+nor certifies earlier history absent. Transport-level cutoff and response fencing remain separate ingress obligations.
+
+`CONTEXT_HALF_EVEN_V1` supplies an invocation-only effective numeric value to the existing Core Decimal context constructor;
+the registered SMA Definition and algorithm are unchanged. The real backend manifest binds the resolution, Core policy and
+invocation closure. Missing proof is unavailable; only a complete different capability identity is changed. Neither the handoff,
+capability identity nor the structural value/readiness carrier is a scientific execution seal or Research publication.
+
 ## Exact read relation
 
 `GET /api/v2/research/runtime-generations/active` observes the Runtime Authority's current

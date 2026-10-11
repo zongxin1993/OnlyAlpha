@@ -31,9 +31,9 @@ from .execution import (
     OnlyResearchCalculationNodeReadiness,
     _only_require_verified_research_calculation_execution_v2,
     _OnlyVerifiedResearchCalculationExecutionV2,
-    _validate_outputs,
 )
 from .identity import only_research_calculation_fingerprint
+from .output_validation import only_validate_research_outputs
 from .publication import OnlyResearchCalculationPublicationContract
 from .readiness import OnlyResearchOutputReadiness, only_validate_research_output_readiness
 from .result import OnlyResearchCalculationResultPartitionManifest
@@ -502,7 +502,7 @@ def _validate_pair(
         selected = readiness.slice(index * len(axis), len(axis))
         carriers[name] = OnlyResearchOutputReadiness(selected["readiness"], selected["reason"])
     output_arrays = {name: values[name] for name in names}
-    _validate_outputs(definition, output_arrays, len(axis))
+    only_validate_research_outputs(definition, output_arrays, len(axis))
     only_validate_research_output_readiness(definition, output_arrays, carriers, row_count=len(axis))
 
 

@@ -1,5 +1,4 @@
 """Canonical definitions and factories for existing trading Indicators."""
-# ruff: noqa: E701
 
 from __future__ import annotations
 
@@ -31,6 +30,8 @@ from onlyalpha.calculation.definition import (
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
     OnlyCalculationStateCapability,
+    only_chart_sma_numeric_dependency,
+    only_chart_study_invocation_dependency,
     only_distribution_semantic_dependency,
     only_python_implementation_manifest,
     only_python_stdlib_semantic_dependency,
@@ -198,7 +199,7 @@ TYPES = (
         ),
         extra=(
             OnlyParameterDefinition(
-                "standard_deviations", OnlyParameterType.DECIMAL, False, Decimal("2"), Decimal("0.000000000001")
+                "standard_deviations", OnlyParameterType.DECIMAL, False, Decimal(2), Decimal("0.000000000001")
             ),
         ),
     ),
@@ -389,6 +390,15 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             resource_paths=resources,
             semantic_dependencies=(
                 *((only_decimal_execution_semantic_dependency(),) if item in FINANCIAL_TYPES else ()),
+                *(
+                    (
+                        only_decimal_execution_semantic_dependency(),
+                        only_chart_sma_numeric_dependency(),
+                        only_chart_study_invocation_dependency(),
+                    )
+                    if item.type_id == "onlyalpha.indicator.sma" and backend is OnlyCalculationBackendKind.RESEARCH
+                    else ()
+                ),
                 only_python_stdlib_semantic_dependency("decimal"),
                 *(
                     (only_distribution_semantic_dependency("pyarrow"),)
@@ -433,7 +443,9 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 item,
                 OnlyCalculationBackendKind.RESEARCH,
                 "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-                ("registration.py", "research.py"),
+                ("registration.py", "research.py", "provider.py")
+                if item.type_id == "onlyalpha.indicator.sma"
+                else ("registration.py", "research.py"),
             ),
             readiness_contract_versions=(1,)
             if item.type_id == "onlyalpha.indicator.sma" and item.semantic_version == "1"
