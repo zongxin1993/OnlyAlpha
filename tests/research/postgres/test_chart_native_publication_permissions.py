@@ -30,6 +30,7 @@ from tests.runtime_support.chart_execution_host import materialize_exact_host_en
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 _PREVIOUS = "0048_chart_calculation_run_admission"
 _MIGRATION = "0049_chart_native_publication_permissions"
+_FORWARD = (_MIGRATION, "0050_chart_native_execution_entry")
 _GROUPS = ("onlyalpha_chart_input_reader", "onlyalpha_chart_execution_controller")
 _UNSAFE_ROLE_MUTATIONS = {
     "login": ("ALTER ROLE {role} LOGIN", "ALTER ROLE {role} NOLOGIN"),
@@ -318,6 +319,10 @@ def test_attempt_writer_cannot_slip_between_history_check_and_guard_installation
         with connect(postgres_dsn) as connection:
             name = conninfo_to_dict(writer_dsn)["user"]
             connection.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(name)))
+            # The forward INVOKER guard reads the original Run. Grant that read
+            # in this raw-writer fixture so the test reaches the guard rather
+            # than merely proving a lower-level missing SELECT rejection.
+            connection.execute(sql.SQL("GRANT SELECT ON research_run TO {}").format(sql.Identifier(name)))
             connection.execute(sql.SQL("GRANT INSERT ON research_run_attempt TO {}").format(sql.Identifier(name)))
             connection.execute(sql.SQL("GRANT INSERT ON research_source_history TO {}").format(sql.Identifier(name)))
             connection.execute(
@@ -356,7 +361,7 @@ def test_attempt_writer_cannot_slip_between_history_check_and_guard_installation
                 return self.connection.__exit__(*args)
 
         monkeypatch.setattr(psycopg, "connect", lambda *a, **kw: InterleavingConnection(connect(*a, **kw)))
-        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
         monkeypatch.setattr(psycopg, "connect", connect)
         assert protected == [True]
         with pytest.raises(psycopg.Error, match="CHART_NATIVE_EXECUTION_NOT_ENABLED"):
@@ -364,7 +369,7 @@ def test_attempt_writer_cannot_slip_between_history_check_and_guard_installation
                 insert_attempt(writer, run.run_id.value)
     after = snapshot(postgres_dsn)
     assert after[:3] == before[:3]
-    assert after[3][:-1] == before[3]
+    assert after[3][: -len(_FORWARD)] == before[3]
     assert after[4] == before[4]
 
 
@@ -389,10 +394,10 @@ def test_forward_migration_preserves_exact_queued_and_direct_cancelled_bytes(
     previous.mkdir()
     copy_migrations_through(previous, _PREVIOUS)
     assert OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=previous).status().compatible
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
     after = snapshot(postgres_dsn)
     assert after[:3] == before[:3]
-    assert after[3][:-1] == before[3]
+    assert after[3][: -len(_FORWARD)] == before[3]
     assert after[4] == before[4]
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
     assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
@@ -491,10 +496,10 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
             assert connection.execute(
                 "SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = ANY(%s)", (list(_GROUPS),)
             ).fetchone() == (0,)
-        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
         assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
         after = snapshot(postgres_dsn)
-        assert after[:3] == before[:3] and after[3][:-1] == before[3] and after[4] == before[4]
+        assert after[:3] == before[:3] and after[3][: -len(_FORWARD)] == before[3] and after[4] == before[4]
         roles_after = role_inventory(postgres_dsn)
         assert len(roles_after[0]) == 2
         if groups == "fresh":
@@ -536,7 +541,7 @@ def test_unsafe_preexisting_role_is_rejected_not_silently_repaired(
     finally:
         with psycopg.connect(postgres_dsn, autocommit=True) as connection:
             connection.execute(sql.SQL(_UNSAFE_ROLE_MUTATIONS[unsafe][1]).format(role=sql.Identifier(role)))
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
 
 
 @pytest.mark.parametrize("group", _GROUPS)
