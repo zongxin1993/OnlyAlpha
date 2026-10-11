@@ -2,6 +2,12 @@
 
 Status: **Proposed design for owner review**, not an Accepted ADR or implementation authorization.
 
+Applicability under Accepted ADR 0138: this proposal describes **W6 formal Chart Research**, explicitly submitted by the user.
+Its durable input preparation, Specification, Engine/Work/Attempt and Result/Evidence/Artifact publication chain is not a
+prerequisite for ordinary W3 Study configuration or display. W3 uses its separately admitted non-publishing Application Query;
+its disposable values cannot supply W6 Evidence or bypass the formal admission/freeze/execution contracts below. This scope
+clarification does not adopt this entire Proposed design or certify the W6 lifecycle.
+
 ## 1. Executive decision
 
 Recommend a dedicated `CreateChartCalculationV1` Product Command in the Research namespace, backed by a small durable

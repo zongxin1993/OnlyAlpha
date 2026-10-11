@@ -29,6 +29,33 @@ Factor is injected to fill an empty list.
 Parameter editing, Calculation admission/execution and overlay/pane rendering are separate product
 capabilities. Neither discovery selection nor exact metadata availability creates a chart series.
 
+## Non-publishing transient support
+
+ADR 0138 defines a separate capability projection from the same immutable process-local Calculation/Provider/Catalog
+composition: `GET /api/v2/chart/studies/capabilities`. This is not a second registry, Runtime activation or an upgrade of
+discovery/exact Research metadata into permission. Capability admission proves the full descriptor, Definition resolver,
+RESEARCH batch implementation manifest, Provider ID/version/content, Catalog generation, numeric policy and supported
+shape/readiness/output/limits. `capability_projection_fingerprint` binds the whole row in the
+`onlyalpha.chart-study.capability-projection` domain. Evaluation compares that entire binding, not only a type name or descriptor.
+
+`POST /api/v2/chart/studies/evaluate` has strictly read-only Query semantics despite POST transport. The supported first slice
+is SMA@1 / CLOSE/value / single instrument / fixed complete closed historical / provider-native 15m. The server verifies the
+same fixed BEFORE_TIME window and owning history fingerprint; uploaded prices, scripts, Preview and implicit Acquisition are
+forbidden. It returns backend-atomic values/readiness as `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`, never
+a scientific publication. Incomplete input returns explicit coverage and an empty series without backend execution; missing
+proof is unavailable, not certified absence or a proved version change.
+
+Both APIs require a proved trusted caller boundary and Source entitlement. The server process must enforce bounded body,
+window/period, concurrency and deadline/resource protection before backend work. No support is enabled based solely on a
+proposed error DTO, ambient Decimal context or assumed proxy protection. The current historical Query bound is 2000 Bars;
+10000 is not a supported window or latency promise. The exact access-control prerequisites are in the
+[design](superpowers/specs/2026-10-11-chart-study-transient-evaluation-design.md#actual-http-access-control-responsibility).
+
+Transient support is an architectural contract, not a claim that these routes or a production adapter are implemented.
+The Research metadata/revalidation and existing configuration-only behavior described below remain independent. Once admitted,
+production transient values require a strict generated-DTO adapter plus context/incarnation/configuration/request-generation
+and data/registration fences. Style, hide/show, pane and selection changes remain presentation-only and do not calculate or acquire.
+
 ## Exact read relation
 
 `GET /api/v2/research/runtime-generations/active` observes the Runtime Authority's current
@@ -122,8 +149,9 @@ instance clears selection. Hidden and removed instances are absent from hover im
 model or Result admission API. No production Result/Series adapter exists here. Its only implemented
 source is explicitly `CONTROLLED_TEST_EVIDENCE`; the isolated Browser harness is not a production entry
 point, and shipping Workspace never supplies this evidence or requests an unavailable Series Query.
-A future verified Result/Artifact/Query adapter must supply scientific authority and extend the source
-family explicitly before production values can be displayed.
+A future verified Result/Artifact/Query adapter must supply scientific authority before `RESEARCH_VERIFIED` values can be
+displayed. Non-scientific production values instead require ADR 0138's separately admitted transient Product Query/DTO
+adapter and explicit `CHART_STUDY_TRANSIENT` source branch. Neither adapter is implemented by the controlled-test input.
 
 The display input binds instance identity, full chart context key, owner incarnation, exact input
 configuration representation and official output name. Those are stale-display fences, not canonical

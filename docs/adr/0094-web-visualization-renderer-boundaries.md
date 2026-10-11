@@ -68,6 +68,12 @@ TradingView Lightweight Charts
 
 Candidate selection changes which exact evidence projection is shown; the browser never recalculates the candidate's Indicator, Factor, Eligibility, or Signal.
 
+Under ADR 0138, Verified Artifact -> Research Query remains mandatory for scientific Research overlays. A separately admitted
+Chart Study Product Query may provide `CHART_STUDY_TRANSIENT` display-only series through strict Web projection and the same
+Lightweight Charts adapter. The UI distinguishes them from `RESEARCH_VERIFIED`. Neither source permits browser semantic
+computation or renderer output to flow backward into scientific or execution Authority. This adds a non-scientific source,
+not a new renderer or an exception to exact-value/display admission.
+
 ### Scientific / Statistical: Apache ECharts
 
 Apache ECharts is the default scientific/statistical renderer for:

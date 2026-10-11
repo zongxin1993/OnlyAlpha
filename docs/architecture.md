@@ -547,6 +547,14 @@ Observation 是只读诊断，不成为交易 authority，不能阻塞核心 Run
 是不同 DTO/语义；P7.12 Research Web 的数据读取只通过 HTTP v2 Query/API 消费 immutable Artifact projection。Exact nanosecond 使用
 `bigint`，Decimal 使用 string；chart seconds/number 是可失败、不可反向传播的 presentation projection。
 
+ADR 0138 adds a separate, non-publishing Application Chart Study Query for ordinary W3 observation. It consumes verified
+bounded owning Market Data reads and the same exact registered Calculation SPI backend, then projects
+`CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`. It owns no Research Command, Run, Attempt, Result, Evidence,
+Artifact or Runtime Work and does not acquire data. Formal W6 overlays retain Verified Artifact -> Research Query admission.
+SMA@1 support requires the explicit legacy-CONTEXT binding, real manifest/Provider/Catalog closure, trusted caller/source
+entitlement and resource proofs; metadata discovery is not execution permission. The renderer never computes semantics and
+transient values cannot be promoted into scientific or trading truth.
+
 目标 Web 同时是 authenticated control client：生命周期和 LIVE Manual/Liquidation 请求经 Application/API → OnlyEngine → target
 Runtime Command boundary，必须具有 authorization、stable request identity、idempotency 和 audit。Web 不访问 Manager、Broker SDK
 或 Persistence，也不成为 Runtime control/economic authority。

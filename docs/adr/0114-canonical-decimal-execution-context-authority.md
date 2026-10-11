@@ -25,6 +25,19 @@ The policy has one canonical payload and fingerprint. Every implementation whose
 the existing `OnlyCalculationImplementationManifest.semantic_dependencies` authority. A policy change therefore changes implementation
 identity and, where admitted, the exact StrategyRevision implementation binding without changing Calculation semantic identity.
 
+### Non-publishing legacy-CONTEXT invocation
+
+ADR 0138 permits only a separately admitted non-publishing W3 invocation of SMA@1 whose exact legacy Definition declares
+`CONTEXT`: versioned binding `CONTEXT_HALF_EVEN_V1` explicitly resolves it to `ROUND_HALF_EVEN` before constructing the existing
+Core context. Precision and quantum still come from the exact Definition. Both declared and effective rounding and the resolution
+policy are recorded without rewriting Definition fingerprints or copying caller context. The effective invocation's actual
+implementation-manifest closure must bind the Core policy and resolution/invocation code; missing closure blocks support.
+
+This does not create a second Decimal envelope, a Research publication exception or general permission to resolve unspecified
+numerics. Provider-content changes require a new Provider version; actual Definition/algorithm semantic changes additionally
+require a new Calculation version. Reuse of SMA@1 requires proof of unchanged declared semantics under the explicit contextual
+input. No arbitrary historical ambient-context Research result is claimed equivalent or rewritten.
+
 ## Consequences
 
 Identical Definitions and ordered inputs produce identical outputs or deterministic failures regardless of caller, thread, or process
