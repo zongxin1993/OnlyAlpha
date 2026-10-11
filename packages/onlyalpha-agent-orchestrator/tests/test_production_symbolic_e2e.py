@@ -751,15 +751,45 @@ def _start_agent(
         stderr=subprocess.PIPE,
         text=True,
     )
-    selector = selectors.DefaultSelector()
     assert process.stderr is not None
-    selector.register(process.stderr, selectors.EVENT_READ)
-    lines: list[str] = []
-    while "Application startup complete." not in "".join(lines):
-        assert selector.select(timeout=20), "Agent startup barrier timed out"
-        lines.append(process.stderr.readline())
-        assert process.poll() is None, "Agent exited during startup: " + "".join(lines)
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stderr, selectors.EVENT_READ)
+        startup = bytearray()
+        while b"Application startup complete." not in startup:
+            assert selector.select(timeout=20), "Agent startup barrier timed out"
+            chunk = os.read(process.stderr.fileno(), 64 * 1024)
+            startup.extend(chunk)
+            assert chunk and process.poll() is None, "Agent exited during startup: " + startup.decode(
+                "utf-8", errors="replace"
+            )
     return process
+
+
+def test_startup_barrier_consumes_a_single_ready_pipe_burst(tmp_path, monkeypatch):
+    """Read-ahead must not hide the marker behind another selector wait."""
+    from unittest.mock import Mock
+
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, "r") as stderr:
+        process = Mock(stderr=stderr)
+        process.poll.return_value = None
+        monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+        original_selector = selectors.DefaultSelector
+
+        def ready_selector():
+            selector = original_selector()
+            select = selector.select
+            # The fixture has already written its entire burst. Never advance
+            # real time to prove that a second wait lost buffered bytes.
+            selector.select = lambda timeout: select(timeout=0)
+            return selector
+
+        monkeypatch.setattr(selectors, "DefaultSelector", ready_selector)
+        try:
+            os.write(write_fd, b"INFO: Started server process\nINFO: Application startup complete.\n")
+            assert _start_agent(tmp_path, "http://product", "http://runtime", 1, tmp_path / "agent", {}) is process
+        finally:
+            os.close(write_fd)
 
 
 def _stop_agent(process: subprocess.Popen[str]) -> tuple[str, str]:
