@@ -367,6 +367,7 @@ print(json.dumps(sorted(
         "onlyalpha.canonical",
         "onlyalpha.distribution",
         "onlyalpha.research",
+        "onlyalpha.research._durability",
         "onlyalpha.research.agent",
         "onlyalpha.research.agent.application",
         "onlyalpha.research.agent.authority_state",
@@ -509,6 +510,10 @@ assert 'onlyalpha.research.calculation.execution_evidence_v2' not in sys.modules
     from onlyalpha.application.product_command_receipt import OnlyProductCommandId
     from onlyalpha.core.clock import OnlyClock
     from onlyalpha.research.agent.errors import OnlyAgentContextError as CanonicalAgentContextError
+    from onlyalpha.research.artifact import calculation_v2_materializer as canonical_artifact_v2_materializer
+    from onlyalpha.research.artifact import calculation_v2_model as canonical_artifact_v2_model
+    from onlyalpha.research.artifact import calculation_v2_store as canonical_artifact_v2_store
+    from onlyalpha.research.artifact import calculation_v2_verification as canonical_artifact_v2_verification
     from onlyalpha.research.artifact.scientific_store import (
         OnlyParquetResearchCalculationArtifactStore as CanonicalResearchCalculationArtifactStore,
     )
@@ -526,11 +531,28 @@ assert 'onlyalpha.research.calculation.execution_evidence_v2' not in sys.modules
     from onlyalpha.research.workload import OnlyResearchWorkloadPlan
 
     assert len(onlyalpha.__all__) == 17
-    # Readiness contracts, Result V2 and exactly two Evidence V2 exports are canonical.
-    assert len(research.__all__) == 551
+    # Readiness/Result/Evidence V2 plus the five public Artifact V2 types are canonical.
+    assert len(research.__all__) == 556
     assert research.__all__.count("OnlyParquetResearchCalculationArtifactStore") == 1
     assert research.OnlyParquetResearchCalculationArtifactStore is CanonicalResearchCalculationArtifactStore
     for name, canonical in (
+        (
+            "OnlyResearchCalculationArtifactMaterializerV2",
+            canonical_artifact_v2_materializer.OnlyResearchCalculationArtifactMaterializerV2,
+        ),
+        ("OnlyResearchCalculationArtifactFileV2", canonical_artifact_v2_model.OnlyResearchCalculationArtifactFileV2),
+        (
+            "OnlyResearchCalculationArtifactManifestV2",
+            canonical_artifact_v2_model.OnlyResearchCalculationArtifactManifestV2,
+        ),
+        (
+            "OnlyParquetResearchCalculationArtifactStoreV2",
+            canonical_artifact_v2_store.OnlyParquetResearchCalculationArtifactStoreV2,
+        ),
+        (
+            "OnlyResearchCalculationArtifactV2",
+            canonical_artifact_v2_verification.OnlyResearchCalculationArtifactV2,
+        ),
         (
             "OnlyResearchCalculationExecutionEvidenceV2",
             canonical_evidence_v2.OnlyResearchCalculationExecutionEvidenceV2,
