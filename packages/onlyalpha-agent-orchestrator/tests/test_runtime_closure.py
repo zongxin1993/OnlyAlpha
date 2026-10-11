@@ -183,6 +183,7 @@ def test_resource_loading_and_manifest_identity_are_absolute_path_independent(mo
         "onlyalpha.agent.orchestrator.runtime.py",
         "onlyalpha.research.agent.application.py",
         "onlyalpha.build_provenance.py",
+        "onlyalpha.research._durability.py",
         "onlyalpha.research.agent.semantic_translation.py",
         "onlyalpha.research.agent.occurrence_service.py",
         "onlyalpha.research.agent.session_state.py",
