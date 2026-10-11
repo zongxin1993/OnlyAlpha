@@ -12,7 +12,7 @@ it("clears the password input and keeps credentials out of persistent storage", 
     );
     const input = screen.getByLabelText<HTMLInputElement>("本地行情凭据");
     expect(input.type).toBe("password");
-    fireEvent.change(input, { target: { value: "a1".repeat(32) } });
+    fireEvent.change(input, { target: { value: "ee".repeat(32) } });
     fireEvent.submit(screen.getByRole("form", { name: "本地行情只读访问" }));
     expect(input.value).toBe("");
     expect(screen.getByRole("status")).toHaveTextContent("已提供只读凭据");

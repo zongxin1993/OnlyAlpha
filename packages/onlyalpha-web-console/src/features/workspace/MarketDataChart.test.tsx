@@ -1266,7 +1266,7 @@ it("shows missing coverage without issuing an Acquisition when read credentials 
     renderWorkspace(client);
     const user = userEvent.setup();
     await user.click(screen.getByText("本地只读访问", { exact: true }));
-    await user.type(screen.getByLabelText("本地行情凭据"), "a1".repeat(32));
+    await user.type(screen.getByLabelText("本地行情凭据"), "ee".repeat(32));
     await user.click(screen.getByRole("button", { name: "连接只读行情" }));
     await selectSource(user);
     await selectBtcInstrument(user);

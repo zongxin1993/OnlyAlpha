@@ -4,7 +4,7 @@ test("shipping workspace uses authenticated Source history and AUTH-first native
     page,
     request
 }) => {
-    const token = "a1".repeat(32); // Synthetic fixture only, never bundled or a production credential.
+    const token = "ee".repeat(32); // Synthetic fixture only, never bundled or a production credential.
     const methods: string[] = [];
     const websocketEvents: string[] = [];
     const leaks: string[] = [];

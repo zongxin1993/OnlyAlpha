@@ -29,7 +29,7 @@ from onlyalpha.application.source_read_access import (
 )
 from onlyalpha.domain.market import OnlyBarSemantic
 
-TOKEN = "a1" * 32
+TOKEN = "ee" * 32
 ORIGIN = "http://localhost"
 REFERENCE = OnlyMarketDataSourceReferenceV1("integration", "a" * 64, "test.market_data")
 

@@ -29,7 +29,7 @@ it("sends AUTH before Subscribe and fences all old socket messages on token A→
     }
     vi.stubGlobal("WebSocket", Socket);
     const credentials = new LocalReadCredentials();
-    const token = "a1".repeat(32);
+    const token = "ee".repeat(32);
     credentials.replace(token);
     const event = vi.fn();
     const disconnect = vi.fn();
@@ -57,7 +57,7 @@ it("sends AUTH before Subscribe and fences all old socket messages on token A→
     expect(operations()).toEqual(["AUTH", "SUBSCRIBE_BAR"]);
     socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
     expect(event).toHaveBeenCalledTimes(1);
-    credentials.replace("b2".repeat(32));
+    credentials.replace("ff".repeat(32));
     credentials.replace(token);
     socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
     expect(event).toHaveBeenCalledTimes(1);

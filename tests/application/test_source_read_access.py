@@ -17,7 +17,7 @@ from onlyalpha.application.source_read_access import (
 from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 from tests.application.test_market_data_product import INSTRUMENT, TYPE_ID, _range, _reference, _service
 
-TOKEN = "a1" * 32
+TOKEN = "ee" * 32
 
 
 def _authority(reference: OnlyMarketDataSourceReferenceV1, **changes: object) -> OnlySourceReadAuthority:

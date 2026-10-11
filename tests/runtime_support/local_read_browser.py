@@ -145,7 +145,7 @@ def main() -> None:
                 {
                     "schema_version": 1,
                     "subject_id": "local-operator",
-                    "bearer_sha256": hashlib.sha256(("a1" * 32).encode()).hexdigest(),
+                    "bearer_sha256": hashlib.sha256(("ee" * 32).encode()).hexdigest(),
                     "origin": "http://127.0.0.1:4173",
                     "grants": [
                         {

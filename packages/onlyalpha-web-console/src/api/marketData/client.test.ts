@@ -47,7 +47,7 @@ afterEach(() => {
 
 it("uses memory-only bearer headers for every read, never as Acquisition authority", async () => {
     const credentials = new LocalReadCredentials();
-    const token = "a1".repeat(32);
+    const token = "ee".repeat(32);
     credentials.replace(token);
     const fetchMock = vi
         .fn<typeof fetch>()
@@ -76,7 +76,7 @@ it.each(["logout", "replacement", "restored-token"])(
     "fences delayed Source reads after %s without relying on abort",
     async (operation) => {
         const credentials = new LocalReadCredentials();
-        const token = "a1".repeat(32);
+        const token = "ee".repeat(32);
         credentials.replace(token);
         let release!: (response: Response) => void;
         vi.stubGlobal(
@@ -89,7 +89,7 @@ it.each(["logout", "replacement", "restored-token"])(
             )
         );
         const pending = new FetchMarketDataApiClient(credentials).listSources();
-        credentials.replace(operation === "replacement" ? "b2".repeat(32) : null);
+        credentials.replace(operation === "replacement" ? "ff".repeat(32) : null);
         if (operation === "restored-token") credentials.replace(token);
         release(json(sources));
         await expect(pending).rejects.toMatchObject({ code: "LOCAL_READ_GENERATION_CHANGED" });
