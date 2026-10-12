@@ -135,7 +135,7 @@ def test_builder_installs_exact_distribution_fixture_in_clean_environment_and_is
         source_repository="OnlyAlpha",
         source_revision="1" * 40,
         distribution_name="onlyalpha",
-        distribution_version="0.9.9",
+        distribution_version=metadata.version("onlyalpha"),
         artifact_logical_name=core_wheel.name,
         artifact_sha256=hashlib.sha256(core_bytes).hexdigest(),
         artifact_size=len(core_bytes),
@@ -162,7 +162,7 @@ def test_builder_installs_exact_distribution_fixture_in_clean_environment_and_is
         source_repository="OnlyAlpha",
         source_revision="3" * 40,
         distribution_name="onlyalpha-runtime-generation-manager",
-        distribution_version="0.9.9",
+        distribution_version=metadata.version("onlyalpha-runtime-generation-manager"),
         artifact_logical_name=manager_wheel.name,
         artifact_sha256=hashlib.sha256(manager_bytes).hexdigest(),
         artifact_size=len(manager_bytes),
@@ -446,7 +446,7 @@ def test_catalog_mismatch_never_produces_a_generation(tmp_path: Path) -> None:
         source_repository="OnlyAlpha",
         source_revision="1" * 40,
         distribution_name="onlyalpha",
-        distribution_version="0.9.9",
+        distribution_version=metadata.version("onlyalpha"),
         artifact_logical_name=core_wheel.name,
         artifact_sha256=hashlib.sha256(core_bytes).hexdigest(),
         artifact_size=len(core_bytes),
@@ -459,7 +459,7 @@ def test_catalog_mismatch_never_produces_a_generation(tmp_path: Path) -> None:
         artifact_logical_name=operator_wheel.name,
         artifact_bytes=operator_bytes,
         tested_core_execution_fingerprint=OnlyCoreExecutionIdentity(
-            "onlyalpha", "0.9.9", core_artifact.artifact_sha256
+            "onlyalpha", core_artifact.distribution_version, core_artifact.artifact_sha256
         ).fingerprint,
         provider=provider,
     )
@@ -533,12 +533,14 @@ def test_builder_clean_installs_factor_distribution_fixture_with_exact_support_a
         source_repository="OnlyAlpha",
         source_revision="1" * 40,
         distribution_name="onlyalpha",
-        distribution_version="0.9.9",
+        distribution_version=metadata.version("onlyalpha"),
         artifact_logical_name=core_wheel.name,
         artifact_sha256=hashlib.sha256(core_bytes).hexdigest(),
         artifact_size=len(core_bytes),
     )
-    core_identity = OnlyCoreExecutionIdentity("onlyalpha", "0.9.9", core_artifact.artifact_sha256)
+    core_identity = OnlyCoreExecutionIdentity(
+        "onlyalpha", core_artifact.distribution_version, core_artifact.artifact_sha256
+    )
     provider = factor_provider()
     factor_bytes = factor_wheel.read_bytes()
     factor_artifact = only_quant_asset_distribution_artifact_manifest(
