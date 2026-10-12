@@ -254,7 +254,7 @@ class ChartStudyLimitsDto(_ChartDto):
 
 
 class ChartStudyCapabilityProjectionDto(_ChartDto):
-    """Exact P2 complete hash payload, not a second capability identity."""
+    """Exact installed admission hash payload, not a second capability identity."""
 
     domain: Literal["onlyalpha.chart-study.capability-projection"]
     schema_version: Literal[1]

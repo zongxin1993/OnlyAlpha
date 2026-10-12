@@ -346,7 +346,7 @@ class OnlyLocalReadIngress:
         await self._retain_work(work(), detached, stream=False)
 
     async def _chart_query(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Exact bounded POST Query exception; all other P1 paths retain their rules.
+        """Exact bounded POST Query exception; other protected paths retain their rules.
 
         A single receiver collects the framed body before watching disconnect. The
         retained ASGI owner is not cancelled on deadline, so its synchronous read/

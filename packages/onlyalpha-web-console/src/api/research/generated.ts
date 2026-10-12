@@ -1750,7 +1750,7 @@ export interface components {
         };
         /**
          * ChartStudyCapabilityProjectionDto
-         * @description Exact P2 complete hash payload, not a second capability identity.
+         * @description Exact installed admission hash payload, not a second capability identity.
          */
         ChartStudyCapabilityProjectionDto: {
             /**
