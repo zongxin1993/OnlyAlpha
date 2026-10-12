@@ -621,6 +621,9 @@ actor = "A04"
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/market_data/*.py"
 actor = "A04"
 [[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/chart_studies/*.py"
+actor = "A04"
+[[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"
 actor = "A05"
 [[actor_paths]]

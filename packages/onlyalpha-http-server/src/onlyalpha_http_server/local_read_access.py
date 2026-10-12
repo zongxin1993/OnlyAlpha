@@ -32,6 +32,10 @@ MAX_STREAMS = 4
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 _READ_PATHS = frozenset({"/api/v2/market-data/sources", "/api/v2/market/instruments", "/api/v2/market-data/bars"})
 _HEALTH_PATHS = frozenset({"/health/live", "/health/ready"})
+MAX_CHART_QUERY_BYTES = 64 * 1024
+CHART_QUERY_SECONDS = 10
+CHART_CAPABILITIES_PATH = "/api/v2/chart/studies/capabilities"
+CHART_EVALUATE_PATH = "/api/v2/chart/studies/evaluate"
 
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -166,7 +170,9 @@ def _require_trusted_directory(metadata: os.stat_result) -> None:
 class OnlyLocalReadIngress:
     """Per-process admission and send fence; external ingress withdrawal is still required."""
 
-    def __init__(self, app: ASGIApp, configuration: OnlyLocalReadConfiguration) -> None:
+    def __init__(
+        self, app: ASGIApp, configuration: OnlyLocalReadConfiguration, *, chart_study_enabled: bool = False
+    ) -> None:
         self.app = app
         self.configuration = configuration
         self.withdrawn = asyncio.Event()
@@ -174,6 +180,7 @@ class OnlyLocalReadIngress:
         self._reads = 0
         self._streams = 0
         self._work: set[asyncio.Future[None]] = set()
+        self._chart_study_enabled = chart_study_enabled
 
     async def _retain_work(self, work: Awaitable[None], detached: asyncio.Event, *, stream: bool) -> None:
         """The work owner, not the cancellable ASGI caller, owns the capacity slot."""
@@ -220,6 +227,16 @@ class OnlyLocalReadIngress:
         path = scope["path"]
         if scope["type"] == "http" and scope["method"] == "GET" and path in _HEALTH_PATHS:
             await self.app(scope, receive, send)
+            return
+        if (
+            self._chart_study_enabled
+            and scope["type"] == "http"
+            and (
+                (scope["method"] == "GET" and path == CHART_CAPABILITIES_PATH)
+                or (scope["method"] == "POST" and path == CHART_EVALUATE_PATH)
+            )
+        ):
+            await self._chart_query(scope, receive, send)
             return
         is_stream = scope["type"] == "websocket" and path == "/api/v2/market-data/stream"
         is_read = (
@@ -328,6 +345,163 @@ class OnlyLocalReadIngress:
 
         await self._retain_work(work(), detached, stream=False)
 
+    async def _chart_query(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Exact bounded POST Query exception; all other P1 paths retain their rules.
+
+        A single receiver collects the framed body before watching disconnect. The
+        retained ASGI owner is not cancelled on deadline, so its synchronous read/
+        computation and capacity accounting survive caller disappearance.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + CHART_QUERY_SECONDS
+        headers: dict[bytes, list[bytes]] = {}
+        for key, value in scope["headers"]:
+            headers.setdefault(key.lower(), []).append(value)
+        post = scope["method"] == "POST"
+        lengths = headers.get(b"content-length", [b"0"] if not post else [])
+        origins = headers.get(b"origin", [])
+        if (
+            headers.get(b"host") != [urlsplit(self.configuration.origin).netloc.encode("ascii")]
+            or len(origins) > 1
+            or (origins and origins != [self.configuration.origin.encode("ascii")])
+            or any(key in headers for key in (b"x-user", b"forwarded", b"x-forwarded-for", b"x-forwarded-proto"))
+            or scope.get("query_string")
+            or b"transfer-encoding" in headers
+            or len(lengths) != 1
+            or re.fullmatch(rb"(?:0|[1-9][0-9]{0,5})", lengths[0]) is None
+            or (post and headers.get(b"content-type") != [b"application/json"])
+            or (not post and lengths != [b"0"])
+        ):
+            await self._deny(scope, receive, send, "LOCAL_READ_FORBIDDEN")
+            return
+        size = int(lengths[0])
+        if size > MAX_CHART_QUERY_BYTES or (post and size == 0):
+            await self._chart_error(scope, receive, send, "CHART_STUDY_REQUEST_INVALID", 400)
+            return
+        try:
+            authorization = headers.get(b"authorization", [])
+            if self.withdrawn.is_set() or len(authorization) != 1:
+                raise OnlySourceReadAccessError("LOCAL_READ_UNAUTHORIZED")
+            session = self.configuration.authority.authenticate(authorization[0].decode("ascii"))
+        except (OnlySourceReadAccessError, UnicodeError):
+            await self._deny(scope, receive, send, "LOCAL_READ_UNAUTHORIZED")
+            return
+        if self._reads >= MAX_READS:
+            await self._chart_error(scope, receive, send, "CHART_STUDY_CAPACITY_UNAVAILABLE", 503)
+            return
+        self._reads += 1
+        scope["onlyalpha.local_read_session"] = session
+        detached = asyncio.Event()
+        scope["onlyalpha.local_read_detached"] = detached
+
+        async def work() -> None:
+            payload = bytearray()
+            started = False
+            application: asyncio.Future[None] | None = None
+            watcher: asyncio.Task[None] | None = None
+            try:
+                while True:
+                    message = await asyncio.wait_for(receive(), max(0, deadline - loop.time()))
+                    if message["type"] == "http.disconnect":
+                        detached.set()
+                        return
+                    if message["type"] != "http.request":
+                        raise ValueError
+                    payload.extend(message.get("body", b""))
+                    if len(payload) > size or len(payload) > MAX_CHART_QUERY_BYTES:
+                        raise ValueError
+                    if not message.get("more_body", False):
+                        break
+                if len(payload) != size:
+                    raise ValueError
+                if post:
+
+                    def invalid_constant(_: str) -> None:
+                        raise ValueError
+
+                    json.loads(
+                        payload.decode("utf-8"), object_pairs_hook=_strict_object, parse_constant=invalid_constant
+                    )
+                session.check_active()
+                first = True
+                response_start: Message | None = None
+                response_body = bytearray()
+
+                async def replay() -> Message:
+                    nonlocal first
+                    if first:
+                        first = False
+                        return {"type": "http.request", "body": bytes(payload), "more_body": False}
+                    await detached.wait()
+                    return {"type": "http.disconnect"}
+
+                async def capture(message: Message) -> None:
+                    nonlocal response_start
+                    if message["type"] == "http.response.start":
+                        response_start = message
+                    elif message["type"] == "http.response.body":
+                        response_body.extend(message.get("body", b""))
+                        if len(response_body) > _MAX_RESPONSE_BYTES:
+                            raise OnlySourceReadAccessError("LOCAL_READ_RESPONSE_UNAVAILABLE")
+
+                async def disconnect() -> None:
+                    while not detached.is_set():
+                        message = await receive()
+                        if message["type"] == "http.disconnect":
+                            detached.set()
+                        else:
+                            # Extra body frames after the declared end are invalid.
+                            detached.set()
+
+                watcher = asyncio.create_task(disconnect())
+                application = asyncio.ensure_future(self.app(scope, replay, capture))
+                await asyncio.wait_for(asyncio.shield(application), max(0, deadline - loop.time()))
+                async with self._send_lock:
+                    if detached.is_set():
+                        return
+                    session.check_active()
+                    if response_start is None:
+                        raise OnlySourceReadAccessError("LOCAL_READ_RESPONSE_UNAVAILABLE")
+
+                    async def release() -> None:
+                        nonlocal started
+                        if loop.time() >= deadline:
+                            raise TimeoutError
+                        started = True
+                        await send(response_start)
+                        session.check_active()
+                        if not detached.is_set() and loop.time() < deadline:
+                            await send({"type": "http.response.body", "body": bytes(response_body)})
+
+                    await asyncio.wait_for(release(), max(0, deadline - loop.time()))
+            except (ValueError, UnicodeError, RecursionError):
+                if not detached.is_set() and not started:
+                    await self._chart_error(scope, receive, send, "CHART_STUDY_REQUEST_INVALID", 400)
+            except OnlySourceReadAccessError as error:
+                if not detached.is_set() and not started:
+                    await self._deny(scope, receive, send, error.code)
+            except TimeoutError:
+                if not detached.is_set() and not started:
+                    await self._chart_error(scope, receive, send, "CHART_STUDY_QUERY_UNAVAILABLE", 503)
+                detached.set()
+            finally:
+                if watcher is not None:
+                    watcher.cancel()
+                    await asyncio.gather(watcher, return_exceptions=True)
+                if application is not None and not application.done():
+                    # No cancelled ASGI/worker escape and no prematurely free slot.
+                    await asyncio.shield(application)
+
+        await self._retain_work(work(), detached, stream=False)
+
+    @staticmethod
+    async def _chart_error(scope: Scope, receive: Receive, send: Send, code: str, status: int) -> None:
+        await JSONResponse(
+            {"schema_version": 1, "error": {"phase": "QUERY", "code": code, "detail": code}},
+            status_code=status,
+            headers={"Cache-Control": "no-store"},
+        )(scope, receive, send)
+
     @staticmethod
     async def _deny(scope: Scope, receive: Receive, send: Send, code: str) -> None:
         if scope["type"] == "websocket":
@@ -343,5 +517,7 @@ class OnlyLocalReadIngress:
                 else 403
             )
             await JSONResponse(
-                {"schema_version": 1, "error": {"phase": "QUERY", "code": code, "detail": code}}, status_code=status
+                {"schema_version": 1, "error": {"phase": "QUERY", "code": code, "detail": code}},
+                status_code=status,
+                headers={"Cache-Control": "no-store"},
             )(scope, receive, send)

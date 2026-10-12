@@ -15,10 +15,12 @@ from typing import Any, cast
 
 from onlyalpha_http_server import create_product_app
 from onlyalpha_http_server.agent_gateway import OnlyAgentNodeGateway
+from onlyalpha_http_server.chart_studies.routes import create_chart_study_router
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.chart_study_product_query import OnlyChartStudyProductQueryService
 from onlyalpha.application.integration_application import (
     OnlyIntegrationCommandService,
     OnlyIntegrationQueryService,
@@ -366,6 +368,9 @@ def render_document() -> JsonObject:
             integration_operational_queries=cast(Any, object()),
             market_data=cast(OnlyMarketDataProductService, object()),
         )
+        # Document the conditional protected family without admitting a runtime
+        # installation or exposing these routes in anonymous Product composition.
+        app.include_router(create_chart_study_router(cast(OnlyChartStudyProductQueryService, object())))
         return app.openapi()
     finally:
         kernel.stop()

@@ -108,6 +108,7 @@ from onlyalpha.plugin.data_source import (
     OnlyDataSourceCreateRequest,
     OnlyDataSourceInstrumentCatalog,
     OnlyDataSourceInstrumentCatalogRequestV1,
+    OnlyDataSourceInstrumentV1,
     OnlyDataSourceTimeBarCalendar,
 )
 from onlyalpha.plugin.integration import OnlyIntegrationTypeDescriptorV1
@@ -617,6 +618,100 @@ class OnlyMarketDataProductService:
         if target_bar_count < 1 or target_bar_count > MAX_TARGET_BAR_COUNT:
             raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID")
         plan = self._plan(resolved, instrument_id, semantic)
+        return self._read_bar_window(
+            resolved,
+            instrument_id=instrument_id,
+            anchor_kind=anchor_kind,
+            target_bar_count=target_bar_count,
+            before_ns=before_ns,
+            semantic=semantic,
+            plan=plan,
+            query_started=query_started,
+        )
+
+    def read_chart_study_history(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        target_bar_count: int,
+        before_ns: int,
+        bar_semantic: OnlyBarSemantic,
+        read_session: OnlySourceReadSession,
+    ) -> tuple[OnlyMarketDataBarWindowProjectionV1, OnlyChartStudyClosedHistoryInput | None]:
+        """One authorized native-history observation, including original incomplete coverage.
+
+        The caller cannot manufacture the optional handoff. UNPROVABLE is not a
+        shortage, and neither branch opens a Provider session or acquires facts.
+        """
+        from onlyalpha.application.chart_study_input import _only_issue_chart_study_closed_history_input
+
+        if (
+            type(read_session) is not OnlySourceReadSession
+            or type(target_bar_count) is not int
+            or not 1 <= target_bar_count <= MAX_TARGET_BAR_COUNT
+            or type(before_ns) is not int
+            or not 0 < before_ns <= 9_223_372_036_854_775_807
+            or before_ns % 900_000_000_000 != 0
+            or before_ns < target_bar_count * 900_000_000_000
+            or bar_semantic != OnlyBarSemantic.fixed_duration(15)
+        ):
+            raise OnlyMarketDataProductError("CHART_STUDY_INPUT_UNSUPPORTED")
+        started = perf_counter_ns()
+        resolved = self.resolve_read_runtime(reference, read_session=read_session)
+        plan = self._plan(resolved, instrument_id, bar_semantic)
+        if plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE:
+            raise OnlyMarketDataProductError("CHART_STUDY_INPUT_UNSUPPORTED")
+        try:
+            instruments = resolved.catalog.list_instruments(
+                OnlyDataSourceInstrumentCatalogRequestV1(resolved.plugin_config, instrument_ids=(instrument_id,))
+            )
+        except Exception as exc:
+            raise OnlyMarketDataProductError("MARKET_DATA_REFERENCE_UNAVAILABLE") from exc
+        if not isinstance(instruments, tuple):
+            raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE")
+        if not instruments:
+            raise OnlyMarketDataProductError("MARKET_DATA_INSTRUMENT_NOT_FOUND")
+        if (
+            len(instruments) != 1
+            or not isinstance(instruments[0], OnlyDataSourceInstrumentV1)
+            or str(instruments[0].instrument.instrument_id) != instrument_id
+        ):
+            raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE")
+        read_session.require_selection(resolved.selection, OnlySourceReadPermission.CLOSED_HISTORY)
+        with only_market_data_performance("QUERY"):
+            window = self._read_bar_window(
+                resolved,
+                instrument_id=instrument_id,
+                anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
+                target_bar_count=target_bar_count,
+                before_ns=before_ns,
+                semantic=bar_semantic,
+                plan=plan,
+                query_started=started,
+            )
+        read_session.require_selection(window.source_selection, OnlySourceReadPermission.CLOSED_HISTORY)
+        if window.coverage.status == OnlyCoverageStatus.UNPROVABLE.value:
+            raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE")
+        if window.coverage.status == OnlyCoverageStatus.INCOMPLETE.value:
+            return window, None
+        if not window.coverage.complete:
+            raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE")
+        return window, _only_issue_chart_study_closed_history_input(window, read_session)
+
+    def _read_bar_window(
+        self,
+        resolved: OnlyResolvedMarketDataRuntime,
+        *,
+        instrument_id: str,
+        anchor_kind: OnlyBarWindowAnchorKind,
+        target_bar_count: int,
+        before_ns: int | None,
+        semantic: OnlyBarSemantic,
+        plan: OnlyBarResolutionPlan,
+        query_started: int,
+    ) -> OnlyMarketDataBarWindowProjectionV1:
+        """Project one owning range read using the already resolved Source and plan."""
         acquisition_plan = (
             plan
             if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE

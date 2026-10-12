@@ -1135,6 +1135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             market_data=market_data,
             market_data_stream=market_data_stream,
             local_read_configuration=local_read_configuration,
+            calculation_composition=calculation_composition,
         )
         if startup_status.state is OnlyKernelState.READY:
             app.state.product_calculation_composition = calculation_composition

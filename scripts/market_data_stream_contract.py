@@ -54,7 +54,12 @@ def _expression(schema: dict[str, Any]) -> str:
     if kind == "boolean":
         return "z.boolean()"
     if kind == "array":
-        return f"z.array({_expression(schema['items'])})"
+        result = f"z.array({_expression(schema['items'])})"
+        if "minItems" in schema:
+            result += f".min({schema['minItems']})"
+        if "maxItems" in schema:
+            result += f".max({schema['maxItems']})"
+        return result
     if kind == "null":
         return "z.null()"
     if kind == "object":
