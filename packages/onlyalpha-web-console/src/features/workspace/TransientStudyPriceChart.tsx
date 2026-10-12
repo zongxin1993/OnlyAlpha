@@ -264,16 +264,23 @@ export function TransientStudyPriceChart({
         // Intent deliberately excludes visibility/color/pane/selection/viewport.
     }, [key]);
     const active = state.key === key ? state : { key, evidence: [], status: "STALE" };
+    // Metadata-only configuration has no Chart Query status or numeric admission.
+    // Preserve plot space without remounting the native chart on Study addition.
+    const hasTransient = (chart.studies ?? []).some(
+        (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
+    );
     return (
         <div className="transient-study-chart">
-            <p
-                role="status"
-                data-testid="chart-study-query-status"
-                data-query-status={active.status}
-            >
-                {active.status === "INPUT_INCOMPLETE" ? "缺少已完成历史 K 线" : active.status} ·
-                DISPLAY_ONLY · 不是 Research Result
-            </p>
+            {hasTransient ? (
+                <p
+                    role="status"
+                    data-testid="chart-study-query-status"
+                    data-query-status={active.status}
+                >
+                    {active.status === "INPUT_INCOMPLETE" ? "缺少已完成历史 K 线" : active.status} ·
+                    DISPLAY_ONLY · 不是 Research Result
+                </p>
+            ) : null}
             <div className="transient-study-chart__plot">
                 <PriceChart {...chart} studyEvidence={active.evidence} />
             </div>

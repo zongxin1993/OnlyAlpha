@@ -342,7 +342,7 @@ export function WorkspacePage() {
                 <ChartStudies
                     key={studyContext?.key ?? "no-chart-context"}
                     context={studyContext}
-                    credentials={credentials}
+                    {...(credentials.capture().bearer === null ? {} : { credentials })}
                 >
                     {({ instances, selectedId, incarnationKey }) => (
                         <>
@@ -352,7 +352,13 @@ export function WorkspacePage() {
                             >
                                 {instances.length === 0
                                     ? CATALOG_NOTE
-                                    : "SMA 只读查询 · DISPLAY_ONLY · 不是 Research Result"}
+                                    : instances.some(
+                                            (instance) =>
+                                                instance.selection.source ===
+                                                "CHART_STUDY_TRANSIENT"
+                                        )
+                                      ? "SMA 只读查询 · DISPLAY_ONLY · 不是 Research Result"
+                                      : "配置实例仅保存输入与显示偏好；尚未执行计算。"}
                             </p>
                             <p
                                 className="chart-region__status"

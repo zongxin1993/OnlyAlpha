@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
@@ -28,6 +28,7 @@ import {
     marketDataInstrument
 } from "../../test/marketDataClient";
 import { researchClient } from "../../test/researchClient";
+import { chartCatalogFixture } from "../../test/chartCatalog";
 import {
     projectMarketDataBar,
     toCandlestick,
@@ -204,7 +205,27 @@ async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
     await user.click(await screen.findByRole("button", { name: /BTCUSDT\.TEST/ }));
 }
 
+const dialogDescriptors = {
+    showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),
+    close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
+};
+
 beforeEach(() => {
+    // jsdom has no modal API; native focus/modal behavior is Browser-owned.
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
+    });
     streams.callbacks.length = 0;
     streams.requests.length = 0;
     chartMocks.candles.setData.mockClear();
@@ -222,6 +243,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    cleanup();
+    for (const name of ["showModal", "close"] as const) {
+        const descriptor = dialogDescriptors[name];
+        if (descriptor === undefined) Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+        else Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+    }
     vi.restoreAllMocks();
 });
 
@@ -241,6 +268,53 @@ const sourceSelection = (source: MarketDataSource) => ({
     type_id: source.type_id,
     source_id: source.source_id,
     environment: source.environment
+});
+
+it("preserves configuration-only discovery in Shipping Workspace without a local bearer", async () => {
+    const fixture = chartCatalogFixture();
+    const reads: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+        const path =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        reads.push(path);
+        expect(path.startsWith("/api/v2/research/")).toBe(true);
+        return Promise.resolve(
+            new Response(
+                JSON.stringify(
+                    path.endsWith("/active")
+                        ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                        : fixture.discovery
+                ),
+                { status: path.endsWith("/active") ? 503 : 200 }
+            )
+        );
+    });
+    const user = userEvent.setup();
+    const workspace = renderWorkspace(
+        marketDataClient({ listInstruments: () => Promise.resolve([marketDataInstrument()]) })
+    );
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
+    // jsdom does not load the Shipping accent CSS custom property.
+    await user.clear(screen.getByRole("textbox", { name: "颜色" }));
+    await user.type(screen.getByRole("textbox", { name: "颜色" }), "#c8332a");
+    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    const instance = await screen.findByTestId("chart-study-instance");
+    expect(instance).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
+    expect(instance).toHaveTextContent("已配置，尚未接入后端计算");
+    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未执行计算");
+    expect(screen.queryByTestId("chart-study-query-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
+    expect(reads).toEqual([
+        "/api/v2/research/runtime-generations/active",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations"
+    ]);
+    workspace.unmount();
 });
 
 it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first history and stream at 15m", async () => {

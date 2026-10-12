@@ -8,6 +8,7 @@ writes precede the browser interval; queries use actual owning readers.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -28,6 +29,7 @@ from onlyalpha_http_server.composition import only_configure_product_registries
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.local_read_access import only_load_local_read_configuration
 from onlyalpha_plugin_binance.spot.data_source.resource import OnlyBinanceSpotDataSource
+from starlette.types import Receive, Scope, Send
 
 from onlyalpha.application.integration_application import (
     OnlyCreateIntegration,
@@ -434,13 +436,25 @@ def main() -> None:
                 indent=2,
             )
         )
+
+        async def observe_quiescent_health(scope: Scope, receive: Receive, send: Send) -> None:
+            # Read-only acceptance scheduling barrier, not a changed health/API
+            # contract: logout can render before retained IO/stream teardown ends.
+            # Observe actual owner Futures; never cancel them, poll or fake READY.
+            if scope["type"] == "http" and scope["method"] == "GET" and scope["path"] in {"/health", "/health/ready"}:
+                ingress = getattr(app.state, "local_read_ingress", None)
+                pending = tuple(ingress._work) if ingress is not None else ()
+                if pending:
+                    await asyncio.wait(pending, timeout=10)
+            await app(scope, receive, send)
+
         try:
             with (
                 patch.object(OnlyBinanceSpotDataSource, "subscribe", preview),
                 patch.object(OnlyBinanceSpotDataSource, "unsubscribe", lambda *args: None),
             ):
                 uvicorn.run(
-                    app,
+                    observe_quiescent_health,
                     host="127.0.0.1",
                     port=8000,
                     ws_max_size=4096,

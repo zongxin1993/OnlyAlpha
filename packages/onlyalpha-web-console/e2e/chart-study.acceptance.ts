@@ -1,15 +1,43 @@
 import { expect, test, type Page, type Response } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+// Each capability/evaluate exchange has the server's 10s cutoff. A workflow has
+// several sequential exchanges, not a single-query 30s budget. HTTP status/body
+// and 5s post-response render assertions remain unchanged. Setup/Market reads
+// and presentation have a separate finite budget; this is not an SLO assertion.
+const chartExchangeBudgetMs = 10_000;
+const setupAndPresentationBudgetMs = 30_000;
+
+function nativeBarsReply(page: Page): Promise<Response> {
+    return page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        if (
+            !url.pathname.endsWith("/api/v2/market-data/bars") ||
+            url.searchParams.get("anchor_kind") !== "LATEST_CLOSED"
+        )
+            return false;
+        const semantic = JSON.parse(url.searchParams.get("bar_semantic") ?? "null") as {
+            formation?: { kind?: string; window_minutes?: number };
+        } | null;
+        return (
+            url.searchParams.get("instrument_id") === "BTCUSDT.BINANCE" &&
+            semantic?.formation?.kind === "FIXED_DURATION" &&
+            semantic.formation.window_minutes === 15
+        );
+    });
+}
+
 async function connectNativeChart(page: Page): Promise<void> {
     await page.goto("/");
     await page.getByText("本地只读访问", { exact: true }).click();
     await page.getByLabel("本地行情凭据").fill("ee".repeat(32));
+    const bars = nativeBarsReply(page);
     await page.getByRole("button", { name: "连接只读行情" }).click();
     await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
     await page.getByLabel("数据源").selectOption({ index: 1 });
     await expect(page.getByLabel("时间周期")).toBeEnabled();
     await page.getByLabel("时间周期").selectOption("15");
+    expect((await bars).status()).toBe(200);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
 }
 
@@ -43,6 +71,8 @@ test("distinct SMA display instances admit both sequential owning HTTP replies w
     page,
     request
 }) => {
+    // Two adds: picker/editor/consumer capabilities each plus three evaluations.
+    test.setTimeout(9 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
     let evaluations = 0;
     page.on("request", (req) => {
         if (req.url().endsWith("/api/v2/chart/studies/evaluate")) ++evaluations;
@@ -81,6 +111,8 @@ for (const change of ["timeframe", "source"] as const)
         page,
         request
     }) => {
+        // Two adds: each has three capability exchanges and one evaluation.
+        test.setTimeout(8 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
         let evaluations = 0;
         page.on("request", (req) => {
             if (req.url().endsWith("/api/v2/chart/studies/evaluate")) ++evaluations;
@@ -100,8 +132,10 @@ for (const change of ["timeframe", "source"] as const)
             "data-study-series-count",
             "0"
         );
+        const restoredBars = nativeBarsReply(page);
         if (change === "timeframe") await page.getByLabel("时间周期").selectOption("15");
         else await page.getByLabel("数据源").selectOption({ index: 1 });
+        expect((await restoredBars).status()).toBe(200);
         await expect(page.getByTestId("market-data-status")).toHaveAttribute(
             "data-status",
             "ready"
@@ -124,6 +158,7 @@ test("late genuine HTTP reply cannot revive an abandoned Study after logout and 
     page,
     request
 }) => {
+    test.setTimeout(4 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
     const token = "ee".repeat(32);
     let arrived!: () => void;
     let release!: () => void;
@@ -152,15 +187,7 @@ test("late genuine HTTP reply cannot revive an abandoned Study after logout and 
         },
         { times: 1 }
     );
-    await page.goto("/");
-    await page.getByText("本地只读访问", { exact: true }).click();
-    await page.getByLabel("本地行情凭据").fill(token);
-    await page.getByRole("button", { name: "连接只读行情" }).click();
-    await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
-    await page.getByLabel("数据源").selectOption({ index: 1 });
-    await expect(page.getByLabel("时间周期")).toBeEnabled();
-    await page.getByLabel("时间周期").selectOption("15");
-    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
+    await connectNativeChart(page);
     await page.getByRole("button", { name: "指标", exact: true }).click();
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
     await page.getByRole("button", { name: "添加", exact: true }).click();
@@ -177,18 +204,22 @@ test("late genuine HTTP reply cannot revive an abandoned Study after logout and 
     await cancelled;
     await page.getByText("本地只读访问", { exact: true }).click();
     await page.getByLabel("本地行情凭据").fill(token);
+    const restoredBars = nativeBarsReply(page);
     await page.getByRole("button", { name: "连接只读行情" }).click();
     await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
     await page.getByLabel("数据源").selectOption({ index: 1 });
+    expect((await restoredBars).status()).toBe(200);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     release();
     await replyCompleted;
     await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
     await expect(page.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
-    await expect(page.getByTestId("chart-study-query-status")).not.toHaveAttribute(
-        "data-query-status",
-        "DISPLAYABLE"
-    );
+    // No Study has no Query status row. Whether absent or present, no late reply
+    // may publish DISPLAYABLE; the independent zero-instance/series checks above
+    // remain mandatory after actual delayed-reply delivery.
+    await expect(
+        page.locator('[data-testid="chart-study-query-status"][data-query-status="DISPLAYABLE"]')
+    ).toHaveCount(0);
     await page.getByText("本地只读访问", { exact: true }).click();
     await page.getByRole("button", { name: "清除凭据" }).click();
     expect((await request.get("/health")).status()).toBe(200);
@@ -198,6 +229,8 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
     page,
     request
 }) => {
+    // Initial add (4), style confirm (1), parameter confirm/consumer/evaluate (3).
+    test.setTimeout(8 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
     const token = "ee".repeat(32);
     const writes: string[] = [];
     const leaks: string[] = [];
@@ -227,14 +260,7 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
             });
     });
     expect((await request.get("/api/v2/chart/studies/capabilities")).status()).toBe(401);
-    await page.goto("/");
-    await page.getByText("本地只读访问", { exact: true }).click();
-    await page.getByLabel("本地行情凭据").fill(token);
-    await page.getByRole("button", { name: "连接只读行情" }).click();
-    await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
-    await page.getByLabel("数据源").selectOption({ index: 1 });
-    await expect(page.getByLabel("时间周期")).toBeEnabled();
-    await page.getByLabel("时间周期").selectOption("15");
+    await connectNativeChart(page);
     await page.getByLabel("搜索标的").fill("BTCUSDT");
     await page.getByLabel("搜索标的").press("Enter");
     await page.getByRole("button", { name: /BTCUSDT.*BINANCE/ }).click();
