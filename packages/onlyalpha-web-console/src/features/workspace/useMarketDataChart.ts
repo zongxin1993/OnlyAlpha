@@ -175,6 +175,8 @@ export function useMarketDataChart(): MarketDataChartState {
         historyGeneration.current += 1;
         streamGeneration.current += 1;
         olderHistoryLoader.current = null;
+        // A retained equal fingerprint is not proof after contradictory facts.
+        setHistoryProjectionFingerprint(null);
         setLedgerSnapshot((current) =>
             current === null ? null : { ...current, preview: null, version: current.version + 1 }
         );

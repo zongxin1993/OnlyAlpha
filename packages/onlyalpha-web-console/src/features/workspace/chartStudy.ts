@@ -109,7 +109,10 @@ export function studyDescriptor(selection: ChartCalculationDraft): StudyDescript
             outputs: item.outputs
         };
     } else {
-        const item = selection.entry.capability.type_descriptor;
+        const item =
+            selection.source === "CHART_STUDY_TRANSIENT"
+                ? selection.capability.descriptor
+                : selection.entry.capability.type_descriptor;
         result = {
             kind: item.kind,
             typeId: item.type_id,

@@ -5,13 +5,16 @@ import { CalculationPicker } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
 import { studyDescriptor, type ChartStudyContext, type ChartStudyInstance } from "./chartStudy";
 import "./chartStudy.css";
+import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 
 /** One context-keyed, disposable workspace state source; never scientific persistence. */
 export function ChartStudies({
     context,
-    children
+    children,
+    credentials
 }: {
     readonly context: ChartStudyContext | null;
+    readonly credentials?: LocalReadCredentials;
     readonly children?: (state: {
         readonly instances: readonly ChartStudyInstance[];
         readonly selectedId: string | null;
@@ -52,8 +55,18 @@ export function ChartStudies({
         <>
             <section className="chart-studies" aria-label="图表配置实例">
                 <div className="chart-studies__toolbar">
-                    <CalculationPicker draft={draft} onDraftChange={changeDraft} />
-                    <span>会话内配置 · 尚未接入计算结果</span>
+                    <CalculationPicker
+                        draft={draft}
+                        onDraftChange={changeDraft}
+                        {...(credentials === undefined ? {} : { credentials })}
+                    />
+                    <span>
+                        {instances.some(
+                            (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
+                        )
+                            ? "会话内配置 · 临时只读查询"
+                            : "会话内配置 · 尚未接入计算结果"}
+                    </span>
                 </div>
                 {instances.length === 0 ? (
                     <p className="chart-studies__empty">尚未添加配置实例</p>
@@ -127,7 +140,9 @@ export function ChartStudies({
                                     <span>
                                         {instance.connectionState === "STALE_CONFIG"
                                             ? "配置已过期；需重新验证"
-                                            : "已配置，尚未接入后端计算"}
+                                            : instance.selection.source === "CHART_STUDY_TRANSIENT"
+                                              ? "已配置 · 查询状态见图表"
+                                              : "已配置，尚未接入后端计算"}
                                     </span>
                                     <span>
                                         {instance.presentation.placement === "PRICE_OVERLAY"
@@ -170,6 +185,7 @@ export function ChartStudies({
                 {draft === null ? null : (
                     <ChartStudyEditor
                         selection={draft}
+                        {...(credentials === undefined ? {} : { credentials })}
                         instance={editing}
                         hasContext={context !== null}
                         returnFocus={returnFocus}

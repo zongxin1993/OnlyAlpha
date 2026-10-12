@@ -15,6 +15,7 @@
         "playwright.real.config.ts",
         "playwright.compose.config.ts",
         "playwright.local-read.config.ts",
+        "playwright.chart-study.config.ts",
         "e2e/**/*.ts",
         "e2e-real/**/*.ts",
         "e2e-compose/**/*.ts"

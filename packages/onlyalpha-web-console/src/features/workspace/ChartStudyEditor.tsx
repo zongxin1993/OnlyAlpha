@@ -19,6 +19,8 @@ import {
     type StudyPresentation
 } from "./chartStudy";
 import "./chartStudy.css";
+import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
+import { readChartStudyCapability } from "../../api/chartStudies/client";
 
 function metadata(
     selection: ChartCalculationDraft
@@ -46,9 +48,11 @@ export function ChartStudyEditor({
     returnFocus,
     onCancel,
     onConfirm,
-    onStale
+    onStale,
+    credentials
 }: {
     readonly selection: ChartCalculationDraft;
+    readonly credentials?: LocalReadCredentials;
     readonly instance: ChartStudyInstance | null;
     readonly hasContext: boolean;
     readonly returnFocus: HTMLElement | null;
@@ -106,7 +110,15 @@ export function ChartStudyEditor({
         request.current = controller;
         setStatus("checking");
         try {
-            await verifyChartCalculationDraft(selection, controller.signal);
+            if (selection.source === "CHART_STUDY_TRANSIENT") {
+                if (credentials === undefined) throw new ChartCatalogError("INVALID");
+                const current = await readChartStudyCapability(credentials, controller.signal);
+                if (
+                    current.capability_projection_fingerprint !==
+                    selection.capability.capability_projection_fingerprint
+                )
+                    throw new ChartCatalogError("STALE");
+            } else await verifyChartCalculationDraft(selection, controller.signal);
             if (!controller.signal.aborted && request.current === controller)
                 onConfirm(configuration, presentation);
         } catch (failure) {
@@ -256,6 +268,8 @@ export function ChartStudyEditor({
                     <p>Implementation：{selection.entry.capability.implementation_fingerprint}</p>
                     <p>Readiness capability：{selection.entry.readiness?.capability_fingerprint}</p>
                 </details>
+            ) : selection.source === "CHART_STUDY_TRANSIENT" ? (
+                <p>CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result</p>
             ) : (
                 <p>REGISTERED_DISCOVERY · 已登记 / 执行未连接</p>
             )}

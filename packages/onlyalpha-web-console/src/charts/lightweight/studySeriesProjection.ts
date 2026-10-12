@@ -1,14 +1,17 @@
 import type { LineData, UTCTimestamp, WhitespaceData } from "lightweight-charts";
 import type { ChartStudyInstance } from "../../features/workspace/chartStudy";
 import { z } from "zod";
+import { isAdmittedChartStudyEvidence } from "../../api/chartStudies/client";
 
-/** Read-only presentation input, NOT a Product DTO or proof of Result admission.
- * There is no production adapter yet. Test evidence is explicit and cannot be
- * obtained by the shipping Workspace. A future verified Query adapter must own
- * scientific admission before extending this source family.
- */
+/** Read-only display input; transient admission never creates scientific evidence. */
 export interface StudySeriesEvidence {
-    readonly source: { readonly kind: "CONTROLLED_TEST_EVIDENCE"; readonly fixtureId: string };
+    readonly source:
+        | { readonly kind: "CONTROLLED_TEST_EVIDENCE"; readonly fixtureId: string }
+        | {
+              readonly kind: "CHART_STUDY_TRANSIENT";
+              readonly historyProjectionFingerprint: string;
+              readonly capabilityProjectionFingerprint: string;
+          };
     readonly instanceId: string;
     readonly chartContextKey: string;
     readonly incarnationKey: string;
@@ -50,7 +53,10 @@ const evidenceShape = z.strictObject({
     )
 });
 export function isStudySeriesEvidence(value: unknown): value is StudySeriesEvidence {
-    return evidenceShape.safeParse(value).success;
+    return (
+        (typeof value === "object" && value !== null && isAdmittedChartStudyEvidence(value)) ||
+        evidenceShape.safeParse(value).success
+    );
 }
 
 export function projectStudySeries(
@@ -73,8 +79,12 @@ export function projectStudySeries(
     )
         return { status: "INVALID", detail: "展示证据与实例 / 上下文 / 输入不匹配" };
     try {
-        const sourceKind: unknown = evidence.source.kind;
-        if (sourceKind !== "CONTROLLED_TEST_EVIDENCE" || evidence.source.fixtureId.trim() === "")
+        if (
+            (evidence.source.kind === "CONTROLLED_TEST_EVIDENCE" &&
+                evidence.source.fixtureId.trim() === "") ||
+            (evidence.source.kind === "CHART_STUDY_TRANSIENT" &&
+                !isAdmittedChartStudyEvidence(evidence))
+        )
             throw new Error("缺少来源证明");
         const pointsByTime = new Map<number, StudySeriesEvidence["points"][number]>();
         const numeric = new Map<number, number>();
@@ -140,5 +150,5 @@ export function studyHover(view: StudySeriesView, time: number | null): string {
     if (time === null) return "请移动十字线查看精确点";
     const point = view.projection.pointsByTime.get(time);
     if (point === undefined) return "此时间无对应结果";
-    return `${new Date(time * 1000).toISOString()} · ${point.value ?? "无数值"}${point.readiness === null ? "" : ` · ${point.readiness}`}${point.reason === null ? "" : ` · ${point.reason}`}`;
+    return `${new Date(time * 1000).toISOString()} · ${point.value ?? "无数值"}${point.readiness === null ? "" : ` · ${point.readiness}`}${point.reason === null ? "" : ` · ${point.reason}`} · UTC ns ${point.timeNs}`;
 }

@@ -835,6 +835,53 @@ it("derives selected preview updates from identity and falls back on mouse leave
     expect(unavailableObservation).toHaveAttribute("data-bar-start-ns", "");
 });
 
+it("conflicting closed history withdraws its fingerprint without starting acquisition", async () => {
+    const user = userEvent.setup();
+    let current: MarketDataBars | null = null;
+    const acquire = vi.fn();
+    renderWorkspace(
+        marketDataClient({
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_reference, query) => {
+                current = marketDataBarsForQuery(query);
+                return Promise.resolve(current);
+            },
+            createAcquisition: acquire
+        })
+    );
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(streams.callbacks).toHaveLength(1);
+    });
+    const history = current as MarketDataBars | null;
+    const bar = history?.bars[0];
+    if (history === null || bar === undefined) throw new Error("Expected owning closed history");
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-history-projection-fingerprint",
+        history.history_projection_fingerprint
+    );
+    act(() => {
+        streams.callbacks[0]?.({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: history.source_selection.source_id,
+            instrument_id: history.instrument_id,
+            bar_semantic: history.bar_semantic,
+            sequence: "29453762",
+            bar: { ...bar, close: "101.500000000000" }
+        });
+    });
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "failed");
+    // The Shipping consumer receives null rather than retaining a stale witness.
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-history-projection-fingerprint",
+        ""
+    );
+    expect(acquire).not.toHaveBeenCalled();
+});
+
 it("renders canonical Product bars without browser range planning", () => {
     expect(projectBars(marketDataBars().bars).map(toCandlestick)).toEqual([
         { time: 1_767_225_600, open: 100, high: 102, low: 99, close: 101 },

@@ -33,15 +33,19 @@ from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.enums import OnlyMarketDataRequestStatus
 from onlyalpha.data.models import OnlyMarketDataSubscriptionResult, OnlyRealtimeBarPreviewV1
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
-from onlyalpha.persistence.clickhouse import OnlyClickHouseMarketFactStore, OnlyClickHouseMigrationAuthority
+from onlyalpha.persistence.clickhouse import (
+    OnlyClickHouseClient,
+    OnlyClickHouseMarketFactStore,
+    OnlyClickHouseMigrationAuthority,
+)
 from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog, only_assert_postgres_test_database
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from tests.application.test_market_data_product import BASE, INSTRUMENT, MINUTE_NS, _FakeSource, _reference, _service
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
 
 
-def _inventory(dsn, clickhouse):
-    inventory = {}
+def _inventory(dsn: str, clickhouse: OnlyClickHouseClient) -> dict[str, dict[str, int | str]]:
+    inventory: dict[str, dict[str, int | str]] = {}
     with psycopg.connect(dsn) as connection:
         names = connection.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
@@ -57,10 +61,10 @@ def _inventory(dsn, clickhouse):
         name = row["name"]
         if not isinstance(name, str) or not name.replace("_", "").isalnum():
             raise ValueError("UNSAFE_TEST_TABLE")
-        rows = clickhouse.query_json(f"SELECT * FROM `{name}`")
-        serialized = sorted(json.dumps(row, sort_keys=True, default=str) for row in rows)
+        ch_rows = clickhouse.query_json(f"SELECT * FROM `{name}`")
+        serialized = sorted(json.dumps(row, sort_keys=True, default=str) for row in ch_rows)
         inventory["clickhouse:" + name] = {
-            "count": len(rows),
+            "count": len(ch_rows),
             "sha256": hashlib.sha256(json.dumps(serialized).encode()).hexdigest(),
         }
     return inventory

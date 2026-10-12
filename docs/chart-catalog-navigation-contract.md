@@ -135,8 +135,9 @@ marks an edited instance `STALE_CONFIG`. These reads are observations, not execu
 Configuration contains only typed parameter inputs and a real output name. Presentation independently
 contains placement (`PRICE_OVERLAY` / `SEPARATE_PANE`), `#RRGGBB` color (initially the accent design
 token), line width 1–5, opacity 0–1 and boolean visibility. Presentation changes do not alter
-calculation inputs or issue commands. The compact legend reports `CONFIGURED_NOT_EXECUTED` / “已配置，
-尚未接入后端计算”, not numeric readiness. Selection and show/hide operate immediately without Catalog
+calculation inputs or issue commands. The configuration state `CONFIGURED_NOT_EXECUTED` is not numeric
+readiness. Research metadata-only instances report “已配置，尚未接入后端计算”; transient instances report
+configuration separately from the chart's current Query status. Selection and show/hide operate immediately without Catalog
 or Market Data requests. An independent empty native Pane may represent the separate-pane preference;
 no numeric Study series is created without a validated value projection.
 
@@ -166,12 +167,22 @@ show restores the same validated projection rather than generating new values. R
 instance clears selection. Hidden and removed instances are absent from hover immediately.
 
 `StudySeriesEvidence` is a readonly **Web presentation input**, not an HTTP schema, canonical scientific
-model or Result admission API. No production Result/Series adapter exists here. Its only implemented
-source is explicitly `CONTROLLED_TEST_EVIDENCE`; the isolated Browser harness is not a production entry
-point, and shipping Workspace never supplies this evidence or requests an unavailable Series Query.
-A future verified Result/Artifact/Query adapter must supply scientific authority before `RESEARCH_VERIFIED` values can be
-displayed. Non-scientific production values instead require ADR 0138's separately admitted transient Product Query/DTO
-adapter and explicit `CHART_STUDY_TRANSIENT` source branch. Neither adapter is implemented by the controlled-test input.
+model or Result admission API. `CONTROLLED_TEST_EVIDENCE` remains isolated-test-only; shipping Workspace
+never supplies it. The distinct production `CHART_STUDY_TRANSIENT` branch requires the authenticated
+Chart Query and strict generated-DTO adapter. A WeakMap admission binds that exact disposable evidence
+occurrence to the current request/context/configuration/authentication generation; copying a response,
+fixture or presentation object does not confer admission. The adapter checks the supplied owning
+normalized Definition payload/fingerprint, Source/window/provenance relations and backend point metadata,
+without resolving Definitions or computing values/readiness in the browser.
+
+Initial incomplete history must pass exact owning Source/environment/Instrument/window/count and native
+coverage validation before the chart reports shortage. A complete-to-incomplete evaluation has no history
+fingerprint, resume cursor or numeric series; its absent cursor is not required to match the earlier complete
+history. A conflicting closed Bar withdraws the history witness and fences pending/previous Study evidence.
+
+No production scientific Result/Artifact series adapter exists here. A future verified adapter must supply
+scientific authority before `RESEARCH_VERIFIED` values can be displayed. Transient values remain explicitly
+`DISPLAY_ONLY / NOT_A_RESEARCH_RESULT` and cannot substitute for scientific publication or execution evidence.
 
 The display input binds instance identity, full chart context key, owner incarnation, exact input
 configuration representation and official output name. Those are stale-display fences, not canonical
