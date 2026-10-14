@@ -1,11 +1,26 @@
 # ADR 0138: Chart Study Transient Evaluation and Formal Research Separation
 
-- Status: Proposed / Owner Approval Required
+- Status: Accepted
 - Date: 2026-10-11
-- Decision maker: repository owner (approval not recorded)
+- Decision maker: repository owner
 - Constitution Impact: NO
 - Related: ADR 0069, 0092, 0094, 0110, 0112, 0114, 0135, 0136, 0137
-- Proposed limited supersession: ADR 0136 Chart boundary and Rejected alternatives **only for non-Research W3 display evaluation**; clarification of ADR 0094's source direction and ADR 0137's scope; explicit ADR 0114 legacy-CONTEXT admission clause below. Nothing is superseded while this ADR remains Proposed.
+- Limited supersession: ADR 0136 Chart boundary and Rejected alternatives **only for non-Research W3 display evaluation**; clarification of ADR 0094's source direction and ADR 0137's scope; explicit ADR 0114 legacy-CONTEXT admission clause below. Formal Research publication and execution contracts are unchanged.
+
+## Owner decision
+
+On 2026-10-11 the repository owner explicitly approved D1–D9 of the decision packet and these limited amendments in the task conversation:
+
+> 我批准裁决包 D1–D9 及 ADR0138 的限定修订，并授权按附件启动独立 W3-A1 Draft PR；不授权自动合并或部署。
+
+This decision, not PR119's merge, authorizes adoption and an independent W3-A1 Draft PR. It does not certify implementation,
+numeric provenance, authentication, resource bounds, browser usability or W6 completion. Deployment, automatic merge, production
+Claim grants and changes to L0 remain outside that authorization. D8 requires a proved trusted caller/source-entitlement boundary;
+absence of that proof blocks enabling the Query, rather than implying public access is acceptable.
+
+The owner subsequently selected **minimal local authentication**, with design review before implementation. This authorizes
+designing a real local human credential/subject and explicit Source grants; it does not establish a configured identity boundary
+or permit reuse of Agent secrets. The concrete design and remaining proof obligations are specified in the accompanying design.
 
 ## Context
 
@@ -13,14 +28,14 @@ Adding SMA20, changing its period or displaying a momentum curve is an observati
 Explicit Research has a different purpose: frozen inputs, exact execution provenance, recoverable Run/Attempt and scientific publication.
 ADR 0135 and Web Product Development Mode distinguish W3 Indicator/Factor from W6 Research on chart, but ADR 0136's first Chart
 integration expressly requires sealed inputs and Engine-hosted Research and rejects Preview/HTTP evaluation. A production transient
-route therefore needs an explicit owner decision, not an implementation interpretation of a conversation or an unaccepted design.
+route therefore needs an explicit owner decision, recorded above, not an inference from a merge or a generic instruction to continue.
 
 Current source relations and the normative constraint matrix are in the accompanying
 [design](../superpowers/specs/2026-10-11-chart-study-transient-evaluation-design.md).
 The [slice and acceptance plan](../plans/chart-study-transient-evaluation.md) specifies future proofs, not completion status.
-This is DOC-ONLY / DESIGN-ONLY / NOT_APPROVED / NOT_IMPLEMENTED.
+Architecture adoption is distinct from implementation admission. Source observations below describe prerequisites, not availability.
 
-## Proposed decision
+## Decision
 
 ### 1. Two workflows, one set of canonical semantics
 
@@ -55,7 +70,7 @@ values nor a matching DTO/cache hash authorize any of them. A1 grants no Agent S
 |---|---|---|
 | Integration Revision, Market Source, facts, data corrections, range/quality | Existing Integration / Market Data authorities | Uploaded Bars, browser context key, provider clock or a stream close as a Seal |
 | Definition, normalized typed parameters, output semantics, Decimal rules | Existing Calculation contracts and exact `onlyalpha.calculations` SPI registrations | HTTP/JS formulas, type-name heuristics, frontend defaults |
-| Bounded transient execution and provenance/quality projection | Proposed Application Chart Query, using those authorities | Scientific store writes or fabricated execution seals |
+| Bounded transient execution and provenance/quality projection | Application Chart Query, using those authorities | Scientific store writes or fabricated execution seals |
 | Study instance, visibility, style, pane, selection | Browser Workspace presentation owner | Calculation/Research identity or permission |
 | Formal Research operational and scientific facts | Existing Research/Runtime/Scientific authorities | Transient series, caches or test fixtures |
 
@@ -65,16 +80,16 @@ backend, Provider content/version, implementation manifest and Decimal execution
 not itself create a Research Run. A narrow non-publishing Application adapter may validate and project its output; it must not
 call the Research executor's issuance/private seals or materialize a Dataset/Result as a workaround.
 
-This is an explicitly proposed new use of an existing SPI, not a claim that the current Product Query already permits it.
-No new backend/runtime enum, duplicate SMA formula, generic evaluator or arbitrary code-loading endpoint is proposed.
+This is an explicitly authorized non-publishing use of an existing SPI, not a claim that a production Product Query exists.
+No new backend/runtime enum, duplicate SMA formula, generic evaluator or arbitrary code-loading endpoint is authorized.
 The adapter is Core/Application orchestration, not a concrete plugin import. Installed manifests and Provider/Catalog relations
 must agree before invocation. Changed content requires a new Provider version; changed semantics additionally require a new
 Calculation semantic version. No `latest`, in-place reload, missing-version fallback or active-generation rebinding is allowed.
 Process replacement admits new requests only; a request cannot mix old/new registrations.
 
-Existing SMA@1 is **not yet eligible under this proposed deterministic binding**: its Definition declares `rounding=CONTEXT`,
+Existing SMA@1 is **not yet eligible under this deterministic binding**: its Definition declares `rounding=CONTEXT`,
 the batch kernel uses ambient Decimal state, and its implementation manifest lacks the canonical policy dependency. Reuse alone
-does not solve this. The accompanying design §4 fixes a proposed versioned resolution of CONTEXT to explicit ROUND_HALF_EVEN,
+does not solve this. The accompanying design §4 fixes a versioned resolution of CONTEXT to explicit ROUND_HALF_EVEN,
 precision from the unchanged Definition and the existing Core envelope `onlyalpha.decimal.execution@1`. It is an explicit
 execution input/binding, not a mutated Definition or a second Decimal policy. Admission requires actual implementation-manifest
 closure over this context policy and invocation code; the old manifest must never be reported as if it already carries that proof.
@@ -91,9 +106,10 @@ HTTP startup must retain the verified process-local Provider/Catalog composition
 today's retained registry alone is insufficient. Capabilities issue a projection fingerprint of the whole binding/support/numeric
 policy tuple. Evaluation echoes it and compares full owning proof, even when descriptor/implementation fingerprints alone match.
 
-### 3. Exact owner-approval amendments
+### 3. Exact adopted amendments
 
-The following wording is proposed for formal adoption. It is **not** an amendment to the existing files in this PR.
+The owner approved the following limited wording. The corresponding Accepted ADRs and directly dependent L1 contracts carry
+the same scope restriction; this decision does not amend their W6 publication, identity, Engine or recovery rules.
 
 **ADR 0094, Financial Time-Series / Recommended data direction:**
 
@@ -135,14 +151,14 @@ The following wording is proposed for formal adoption. It is **not** an amendmen
 > numerics. Any actual semantic change requires a new Calculation version; Provider-content changes require a new Provider version.
 
 **Related L1/other documents:** ADR 0092 and `web-product-architecture.md` scientific Result read rules remain unchanged;
-their scientific chart language must not be generalized to say transient values are scientific facts. Upon approval, add the
-explicit parallel non-scientific source to `chart-catalog-navigation-contract.md` without changing test-fixture ownership or
+their scientific chart language must not be generalized to say transient values are scientific facts. The adopted amendment adds
+the explicit parallel non-scientific source to `chart-catalog-navigation-contract.md` without changing test-fixture ownership or
 claiming discovery is execution admission. Scope the 2026-10-01 W3-B Proposed design to W6 formal Chart Research; its Research
 admission/preparation/Compilation contracts stay intact. ADR 0135 already supplies the product sequencing, not this exception.
 
-Owner approval must explicitly cover these limited scope changes, the non-publishing SPI invocation/composition policy and the
-candidate API/quality semantics below, including this legacy Decimal resolution and its real provenance prerequisite.
-Acceptance of W3 does not approve PR118 or amend W6. If implementation discovers a
+The recorded owner approval covers these limited scope changes, the non-publishing SPI invocation/composition policy and the
+API/quality semantics below, including legacy Decimal resolution and its real provenance prerequisite. API implementation and
+support still require their respective admission proofs. Acceptance of W3 does not certify PR118 or amend W6. If implementation discovers a
 Constitution or higher-level contract conflict that cannot be resolved within these boundaries, stop with `PLAN_CONFLICT`.
 
 ### 4. Product contract and display semantics
@@ -151,6 +167,14 @@ Recommend `POST /api/v2/chart/studies/evaluate` for bounded typed JSON **Query**
 request/response, strict error matrix and alternative GET assessment are specified in the accompanying design, not added to
 OpenAPI here. No Research admission, idempotency receipt, queue, acquisition or persistent query-result store is created.
 Authentication, subject/source authorization, input/CPU/memory bounds and failure diagnostics still apply to a POST Query.
+
+Both capabilities and evaluation require a trusted caller identity. The HTTP adapter authenticates that identity; Source access
+is checked against an explicit subject-to-Source entitlement before source lookup or computation. Integration IDs, browser
+context keys, loopback addresses and the existing internal Agent bearer credential are not substitutes. An external proxy is
+trusted only with proved authentication, header stripping, an inaccessible bypass path and exact subject propagation. A local
+application boundary likewise needs explicit credential/session and Source authorization proof; same-origin routing alone is
+not authentication. Without that boundary, no transient support or production compute endpoint may be enabled. Detailed source
+observations and test ownership are in the accompanying design's access-control section.
 
 Input selects exact Integration Revision, Instrument, BarSemantic, fixed closed historical window, registration type/version,
 typed parameters and real output member. It cannot provide raw Bars, scripts, package paths, credentials, evidence or Run IDs.
@@ -185,9 +209,11 @@ Explicit Create Research transfers only revalidated **intent** (source selection
 The Research boundary re-resolves its own admission, freezes its own inputs and executes through its own original Work/Attempt.
 No transient value/hash, success status or readiness carrier is accepted as scientific evidence, even with identical numbers.
 
-## Consequences, alternatives and approval gate
+## Consequences, alternatives and implementation admission
 
-- W3 can close a real SMA user flow independently of the unmerged W6 Draft; correctness and source validation remain essential.
+- W3 can close a real SMA user flow independently of W6. PR118's closed Claim/Heartbeat foundation was merged before PR119;
+  it does not complete W6's installed execution, terminal acknowledgement, recovery or Work-release lifecycle. Historical source
+  comparison SHAs remain in the design; correctness and source validation remain essential.
 - Preserve existing scientific identities, renderer family and Trading/GENERAL/PRIVATE_STRATEGY behavior; no compatibility shim,
   new database/Compose topology, trading capability or Chart production Claim grant is needed.
 - Reject automatic Research per edit, browser formulas, untrusted input arrays, fixture leakage, HTTP store access, a second
@@ -195,7 +221,9 @@ No transient value/hash, success status or readiness carrier is accepted as scie
 - Reject GET with serialized parameter JSON as the primary endpoint: complex structured semantics and bounded typed validation
   are clearer in JSON; URL length/logging and ambiguous encoding add avoidable risk. GET remains a viable read transport only
   with the same exact contract, not a separate evaluator. POST must not be wired into Command admission by verb alone.
-- This proposal grants no implementation, acceptance, merge or deployment authority. Owner must approve it explicitly; any resulting
-  Accepted ADR edits and API implementation require a separately authorized atomic consumer change.
+- The recorded owner decision authorizes an independent W3-A1 Draft PR and atomic contract/consumer implementation. Architecture
+  acceptance is not numeric, security or product acceptance, and grants no automatic merge or deployment authority.
 
-**Approval boundary: AWAITING_OWNER_ADR_APPROVAL.** Neither real W3 numeric lines nor full W6/B2 completion are claimed here.
+**Admission boundary:** numeric/manifest/composition, trusted caller/source entitlement, resource bounds, zero durable writes and
+real Browser proofs must all hold before W3 is declared usable. Neither real W3 numeric lines nor full W6/B2 completion are
+certified by this ADR.

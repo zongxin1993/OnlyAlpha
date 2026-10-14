@@ -29,6 +29,53 @@ Factor is injected to fill an empty list.
 Parameter editing, Calculation admission/execution and overlay/pane rendering are separate product
 capabilities. Neither discovery selection nor exact metadata availability creates a chart series.
 
+## Non-publishing transient support
+
+ADR 0138 defines a separate capability projection from the same immutable process-local Calculation/Provider/Catalog
+composition: `GET /api/v2/chart/studies/capabilities`. This is not a second registry, Runtime activation or an upgrade of
+discovery/exact Research metadata into permission. Capability admission proves the full descriptor, Definition resolver,
+RESEARCH batch implementation manifest, Provider ID/version/content, Catalog generation, numeric policy and supported
+shape/readiness/output/limits. `capability_projection_fingerprint` binds the whole row in the
+`onlyalpha.chart-study.capability-projection` domain. Evaluation compares that entire binding, not only a type name or descriptor.
+
+`POST /api/v2/chart/studies/evaluate` has strictly read-only Query semantics despite POST transport. The supported first slice
+is SMA@1 / CLOSE/value / single instrument / fixed complete closed historical / provider-native 15m. The server verifies the
+same fixed BEFORE_TIME window and owning history fingerprint; uploaded prices, scripts, Preview and implicit Acquisition are
+forbidden. It returns backend-atomic values/readiness as `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`, never
+a scientific publication. Incomplete input returns explicit coverage and an empty series without backend execution; missing
+proof is unavailable, not certified absence or a proved version change.
+
+Both APIs require a proved trusted caller boundary and Source entitlement. The server process must enforce bounded body,
+window/period, concurrency and deadline/resource protection before backend work. No support is enabled based solely on a
+proposed error DTO, ambient Decimal context or assumed proxy protection. The current historical Query bound is 2000 Bars;
+10000 is not a supported window or latency promise. The exact access-control prerequisites are in the
+[design](superpowers/specs/2026-10-11-chart-study-transient-evaluation-design.md#actual-http-access-control-responsibility).
+
+Transient support is an architectural contract, not a claim that these routes or a production adapter are implemented.
+The Research metadata/revalidation and existing configuration-only behavior described below remain independent. Once admitted,
+production transient values require a strict generated-DTO adapter plus context/incarnation/configuration/request-generation
+and data/registration fences. Style, hide/show, pane and selection changes remain presentation-only and do not calculate or acquire.
+
+### Internal numeric admission
+
+The disposable SMA adapter retains the actual registrations from one installed Provider discovery and the Catalog built from
+those objects. A copied descriptor or a separately discovered Catalog is not that occurrence. Provider factories, declared
+implementation resources and Core invocation resources must belong to the declared installed distributions; wheel resources
+are checked against RECORD. Editable installations prove only their current project/version/resource bytes, not immutable wheel
+or deployment certification. Loaded Python functions, imported call bindings and the backend's numeric constants must agree
+with that closure. These coherence checks do not sandbox arbitrary code already controlling the interpreter.
+
+The admitted closed-history entry consumes an opaque handoff issued by the owning Market Data service after its authorized,
+complete, fixed-window read. It rechecks the captured session before computation and before releasing values. Ordinary Bars
+DTOs, asserted closed flags, browser arrays and raw Arrow arguments cannot manufacture that handoff. The private numeric kernel
+exists for structural testing and is not a Product input route. The handoff is disposable: it neither creates a new data Authority
+nor certifies earlier history absent. Transport-level cutoff and response fencing remain separate ingress obligations.
+
+`CONTEXT_HALF_EVEN_V1` supplies an invocation-only effective numeric value to the existing Core Decimal context constructor;
+the registered SMA Definition and algorithm are unchanged. The real backend manifest binds the resolution, Core policy and
+invocation closure. Missing proof is unavailable; only a complete different capability identity is changed. Neither the handoff,
+capability identity nor the structural value/readiness carrier is a scientific execution seal or Research publication.
+
 ## Exact read relation
 
 `GET /api/v2/research/runtime-generations/active` observes the Runtime Authority's current
@@ -88,8 +135,9 @@ marks an edited instance `STALE_CONFIG`. These reads are observations, not execu
 Configuration contains only typed parameter inputs and a real output name. Presentation independently
 contains placement (`PRICE_OVERLAY` / `SEPARATE_PANE`), `#RRGGBB` color (initially the accent design
 token), line width 1–5, opacity 0–1 and boolean visibility. Presentation changes do not alter
-calculation inputs or issue commands. The compact legend reports `CONFIGURED_NOT_EXECUTED` / “已配置，
-尚未接入后端计算”, not numeric readiness. Selection and show/hide operate immediately without Catalog
+calculation inputs or issue commands. The configuration state `CONFIGURED_NOT_EXECUTED` is not numeric
+readiness. Research metadata-only instances report “已配置，尚未接入后端计算”; transient instances report
+configuration separately from the chart's current Query status. Selection and show/hide operate immediately without Catalog
 or Market Data requests. An independent empty native Pane may represent the separate-pane preference;
 no numeric Study series is created without a validated value projection.
 
@@ -119,11 +167,22 @@ show restores the same validated projection rather than generating new values. R
 instance clears selection. Hidden and removed instances are absent from hover immediately.
 
 `StudySeriesEvidence` is a readonly **Web presentation input**, not an HTTP schema, canonical scientific
-model or Result admission API. No production Result/Series adapter exists here. Its only implemented
-source is explicitly `CONTROLLED_TEST_EVIDENCE`; the isolated Browser harness is not a production entry
-point, and shipping Workspace never supplies this evidence or requests an unavailable Series Query.
-A future verified Result/Artifact/Query adapter must supply scientific authority and extend the source
-family explicitly before production values can be displayed.
+model or Result admission API. `CONTROLLED_TEST_EVIDENCE` remains isolated-test-only; shipping Workspace
+never supplies it. The distinct production `CHART_STUDY_TRANSIENT` branch requires the authenticated
+Chart Query and strict generated-DTO adapter. A WeakMap admission binds that exact disposable evidence
+occurrence to the current request/context/configuration/authentication generation; copying a response,
+fixture or presentation object does not confer admission. The adapter checks the supplied owning
+normalized Definition payload/fingerprint, Source/window/provenance relations and backend point metadata,
+without resolving Definitions or computing values/readiness in the browser.
+
+Initial incomplete history must pass exact owning Source/environment/Instrument/window/count and native
+coverage validation before the chart reports shortage. A complete-to-incomplete evaluation has no history
+fingerprint, resume cursor or numeric series; its absent cursor is not required to match the earlier complete
+history. A conflicting closed Bar withdraws the history witness and fences pending/previous Study evidence.
+
+No production scientific Result/Artifact series adapter exists here. A future verified adapter must supply
+scientific authority before `RESEARCH_VERIFIED` values can be displayed. Transient values remain explicitly
+`DISPLAY_ONLY / NOT_A_RESEARCH_RESULT` and cannot substitute for scientific publication or execution evidence.
 
 The display input binds instance identity, full chart context key, owner incarnation, exact input
 configuration representation and official output name. Those are stale-display fences, not canonical

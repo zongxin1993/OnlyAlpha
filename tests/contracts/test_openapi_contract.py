@@ -497,7 +497,10 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "enum",
         "format",
         "items",
+        "maxItems",
+        "maxLength",
         "maximum",
+        "minItems",
         "minLength",
         "minimum",
         "oneOf",
@@ -514,6 +517,22 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "x-onlyalpha-reference-value-field",
     }
     governance.validate_schema_vocabulary(document)
+
+
+@pytest.mark.parametrize("keyword", ("minItems", "maxItems", "maxLength"))
+@pytest.mark.parametrize("direction", ("request", "response"))
+@pytest.mark.parametrize("narrowing", (True, False))
+def test_chart_query_collection_and_text_bounds_remain_directionally_governed(
+    keyword: str, direction: str, narrowing: bool
+) -> None:
+    schema: dict[str, object] = (
+        {"type": "string"} if keyword == "maxLength" else {"type": "array", "items": {"type": "string"}}
+    )
+    old_schema = {**schema, keyword: 5}
+    new_bound = 6 if (keyword == "minItems") == narrowing else 4
+    new_schema = {**schema, keyword: new_bound}
+    expected = "BREAKING" if narrowing == (direction == "request") else "COMPATIBLE"
+    assert _comparison_with_schema(old_schema, new_schema, direction=direction).change.value == expected
 
 
 def test_unknown_schema_semantics_fail_closed() -> None:

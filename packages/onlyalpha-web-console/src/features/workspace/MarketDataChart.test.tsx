@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
@@ -28,6 +28,7 @@ import {
     marketDataInstrument
 } from "../../test/marketDataClient";
 import { researchClient } from "../../test/researchClient";
+import { chartCatalogFixture } from "../../test/chartCatalog";
 import {
     projectMarketDataBar,
     toCandlestick,
@@ -204,7 +205,27 @@ async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
     await user.click(await screen.findByRole("button", { name: /BTCUSDT\.TEST/ }));
 }
 
+const dialogDescriptors = {
+    showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),
+    close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
+};
+
 beforeEach(() => {
+    // jsdom has no modal API; native focus/modal behavior is Browser-owned.
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
+    });
     streams.callbacks.length = 0;
     streams.requests.length = 0;
     chartMocks.candles.setData.mockClear();
@@ -222,6 +243,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    cleanup();
+    for (const name of ["showModal", "close"] as const) {
+        const descriptor = dialogDescriptors[name];
+        if (descriptor === undefined) Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+        else Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+    }
     vi.restoreAllMocks();
 });
 
@@ -241,6 +268,271 @@ const sourceSelection = (source: MarketDataSource) => ({
     type_id: source.type_id,
     source_id: source.source_id,
     environment: source.environment
+});
+
+it("refreshes chart sources after returning from management without restarting the workspace", async () => {
+    const source = binanceSource();
+    let available: readonly MarketDataSource[] = [];
+    const listSources = vi.fn<MarketDataApiClient["listSources"]>(() => Promise.resolve(available));
+    renderWorkspace(
+        marketDataClient({
+            listSources,
+            listInstruments: () => Promise.resolve([binanceInstrument()]),
+            queryBars: (_reference, query) =>
+                Promise.resolve(
+                    marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+                )
+        })
+    );
+    await screen.findByText("未配置可用的 Binance Spot 公共行情数据源（GLOBAL）", {
+        selector: "p[role=status]"
+    });
+    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeDisabled();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "管理数据源" }));
+    available = [source];
+    await user.click(
+        within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+            name: "关闭"
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+    });
+    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+    expect(listSources).toHaveBeenCalledTimes(2);
+});
+
+it("offers visible symbol search and preserves a manual choice after unchanged source refresh", async () => {
+    const source = binanceSource();
+    const btc = binanceInstrument();
+    const eth = marketDataInstrument({
+        instrument_id: "ETHUSDT.BINANCE",
+        display_symbol: "ETH/USDT",
+        venue: "BINANCE"
+    });
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
+        Promise.resolve(query === "ETH" ? [eth] : [btc])
+    );
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve([{ ...source }]),
+            listInstruments,
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await waitFor(() => {
+        expect(queryBars).toHaveBeenCalledTimes(2);
+    });
+    await user.click(screen.getByRole("button", { name: "数据源" }));
+    await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+    await user.click(
+        within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+            name: "关闭"
+        })
+    );
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+    expect(queryBars).toHaveBeenCalledTimes(2);
+    expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
+    expect(listInstruments).toHaveBeenCalledTimes(2);
+});
+
+it.each(["name", "revision"])(
+    "preserves selected symbol and period when source %s changes",
+    async (change) => {
+        let source = binanceSource();
+        const btc = binanceInstrument();
+        const eth = marketDataInstrument({
+            instrument_id: "ETHUSDT.BINANCE",
+            display_symbol: "ETH/USDT",
+            venue: "BINANCE"
+        });
+        const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
+            Promise.resolve(query === "ETH" ? [eth] : [btc])
+        );
+        const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+            Promise.resolve(
+                marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+            )
+        );
+        renderWorkspace(
+            marketDataClient({
+                listSources: () => Promise.resolve([{ ...source }]),
+                listInstruments,
+                queryBars
+            })
+        );
+        await waitFor(() => {
+            expect(streams.requests).toHaveLength(1);
+        });
+        const user = userEvent.setup();
+        await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+        await user.click(screen.getByRole("button", { name: "搜索标的" }));
+        await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(2);
+        });
+        await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(3);
+        });
+        source = {
+            ...source,
+            display_name: "Updated source",
+            ...(change === "revision" ? { integration_revision_fingerprint: "c".repeat(64) } : {})
+        };
+        await user.click(screen.getByRole("button", { name: "数据源" }));
+        await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+        await user.click(
+            within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+                name: "关闭"
+            })
+        );
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(change === "revision" ? 4 : 3);
+        });
+        expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("5");
+        const last = queryBars.mock.calls.at(-1);
+        if (last === undefined) throw new Error("No revised Source query");
+        expect(fixedDurationMinutes(last[1].bar_semantic)).toBe(5);
+        expect(queryBars.mock.calls.at(-1)?.[0].integration_revision_fingerprint).toBe(
+            source.integration_revision_fingerprint
+        );
+        expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
+        expect(listInstruments).toHaveBeenCalledTimes(2);
+    }
+);
+
+it("does not replace newer symbol search results with an older response", async () => {
+    let completeOlder: ((value: ReturnType<typeof marketDataInstrument>[]) => void) | undefined;
+    const eth = marketDataInstrument({ instrument_id: "ETHUSDT.TEST", display_symbol: "ETH/USDT" });
+    renderWorkspace(
+        marketDataClient({
+            listInstruments: (_ref, query) =>
+                query === "BTC"
+                    ? new Promise((resolve) => {
+                          completeOlder = resolve;
+                      })
+                    : Promise.resolve([eth])
+        })
+    );
+    const user = userEvent.setup();
+    await selectSource(user);
+    const search = screen.getByRole("searchbox", { name: "搜索标的" });
+    await user.type(search, "BTC{Enter}");
+    await user.clear(search);
+    await user.type(search, "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await screen.findByRole("button", { name: /ETHUSDT\.TEST/ });
+    await act(() => {
+        completeOlder?.([marketDataInstrument()]);
+        return Promise.resolve();
+    });
+    expect(screen.queryByRole("button", { name: /BTCUSDT\.TEST/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ETHUSDT\.TEST/ })).toBeInTheDocument();
+});
+
+it("does not let a delayed default instrument replace a user's completed manual search", async () => {
+    const source = binanceSource();
+    const eth = marketDataInstrument({
+        instrument_id: "ETHUSDT.BINANCE",
+        display_symbol: "ETH/USDT",
+        venue: "BINANCE"
+    });
+    let completeDefault: ((value: ReturnType<typeof binanceInstrument>[]) => void) | undefined;
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve([source]),
+            listInstruments: (_ref, query) =>
+                query === "BTCUSDT"
+                    ? new Promise((resolve) => {
+                          completeDefault = resolve;
+                      })
+                    : Promise.resolve([eth]),
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+    });
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await waitFor(() => {
+        expect(queryBars).toHaveBeenCalledTimes(1);
+    });
+    await act(() => {
+        completeDefault?.([binanceInstrument()]);
+        return Promise.resolve();
+    });
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(queryBars.mock.calls[0]?.[1].instrument_id).toBe(eth.instrument_id);
+});
+
+it("preserves configuration-only discovery in Shipping Workspace without a local bearer", async () => {
+    const fixture = chartCatalogFixture();
+    const reads: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+        const path =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        reads.push(path);
+        expect(path.startsWith("/api/v2/research/")).toBe(true);
+        return Promise.resolve(
+            new Response(
+                JSON.stringify(
+                    path.endsWith("/active")
+                        ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
+                        : fixture.discovery
+                ),
+                { status: path.endsWith("/active") ? 503 : 200 }
+            )
+        );
+    });
+    const user = userEvent.setup();
+    const workspace = renderWorkspace(
+        marketDataClient({ listInstruments: () => Promise.resolve([marketDataInstrument()]) })
+    );
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
+    // jsdom does not load the Shipping accent CSS custom property.
+    await user.clear(screen.getByRole("textbox", { name: "颜色" }));
+    await user.type(screen.getByRole("textbox", { name: "颜色" }), "#c8332a");
+    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    const instance = await screen.findByTestId("chart-study-instance");
+    expect(instance).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
+    expect(instance).toHaveTextContent("已配置，尚未接入后端计算");
+    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未执行计算");
+    expect(screen.queryByTestId("chart-study-query-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
+    expect(reads).toEqual([
+        "/api/v2/research/runtime-generations/active",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations",
+        "/api/v2/research/catalog/calculations"
+    ]);
+    workspace.unmount();
 });
 
 it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first history and stream at 15m", async () => {
@@ -835,6 +1127,53 @@ it("derives selected preview updates from identity and falls back on mouse leave
     expect(unavailableObservation).toHaveAttribute("data-bar-start-ns", "");
 });
 
+it("conflicting closed history withdraws its fingerprint without starting acquisition", async () => {
+    const user = userEvent.setup();
+    let current: MarketDataBars | null = null;
+    const acquire = vi.fn();
+    renderWorkspace(
+        marketDataClient({
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_reference, query) => {
+                current = marketDataBarsForQuery(query);
+                return Promise.resolve(current);
+            },
+            createAcquisition: acquire
+        })
+    );
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(streams.callbacks).toHaveLength(1);
+    });
+    const history = current as MarketDataBars | null;
+    const bar = history?.bars[0];
+    if (history === null || bar === undefined) throw new Error("Expected owning closed history");
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-history-projection-fingerprint",
+        history.history_projection_fingerprint
+    );
+    act(() => {
+        streams.callbacks[0]?.({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: history.source_selection.source_id,
+            instrument_id: history.instrument_id,
+            bar_semantic: history.bar_semantic,
+            sequence: "29453762",
+            bar: { ...bar, close: "101.500000000000" }
+        });
+    });
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "failed");
+    // The Shipping consumer receives null rather than retaining a stale witness.
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-history-projection-fingerprint",
+        ""
+    );
+    expect(acquire).not.toHaveBeenCalled();
+});
+
 it("renders canonical Product bars without browser range planning", () => {
     expect(projectBars(marketDataBars().bars).map(toCandlestick)).toEqual([
         { time: 1_767_225_600, open: 100, high: 102, low: 99, close: 101 },
@@ -1254,6 +1593,73 @@ it("accepts a custom seven-minute specification through the real Product query",
         expect(steps).toContain(7);
     });
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("custom");
+});
+
+it("shows missing coverage without issuing an Acquisition when read credentials are supplied", async () => {
+    const client = marketDataClient({
+        listInstruments: () => Promise.resolve([marketDataInstrument()]),
+        queryBars: (_reference, query) =>
+            Promise.resolve(marketDataBarsForQuery(query, incompleteBars()))
+    });
+    const acquisition = vi.spyOn(client, "createAcquisition");
+    renderWorkspace(client);
+    const user = userEvent.setup();
+    await user.click(screen.getByText("本地只读访问", { exact: true }));
+    await user.type(screen.getByLabelText("本地行情凭据"), "ee".repeat(32));
+    await user.click(screen.getByRole("button", { name: "连接只读行情" }));
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集"
+        );
+    });
+    expect(acquisition).not.toHaveBeenCalled();
+    expect(streams.requests).toEqual([]);
+    expect(renderedPrices()).toEqual([]);
+});
+
+it("ordinary dev prepares missing history before rendering the selected instrument", async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    try {
+        const calls: string[] = [];
+        const client = marketDataClient({
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_reference, query) => {
+                calls.push("bars");
+                expect(query.target_bar_count).toBe(2000);
+                return Promise.resolve(
+                    marketDataBarsForQuery(
+                        query,
+                        calls.filter((item) => item === "bars").length === 1
+                            ? incompleteBars({ requested_bar_count: query.target_bar_count })
+                            : {}
+                    )
+                );
+            },
+            createAcquisition: () => {
+                calls.push("acquisition");
+                return Promise.resolve(marketDataAcquisition());
+            }
+        });
+        renderWorkspace(client);
+        const user = userEvent.setup();
+        expect(screen.queryByText("本地只读访问", { exact: true })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("本地行情凭据")).not.toBeInTheDocument();
+        await selectSource(user);
+        await selectBtcInstrument(user);
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+                "data-status",
+                "ready"
+            );
+        });
+        expect(calls).toEqual(["bars", "acquisition", "bars"]);
+        expect(renderedPrices()).toEqual([101, 102.5]);
+    } finally {
+        cleanup();
+        vi.unstubAllEnvs();
+    }
 });
 
 it("requests an explicit acquisition for incomplete coverage and then renders database bars", async () => {

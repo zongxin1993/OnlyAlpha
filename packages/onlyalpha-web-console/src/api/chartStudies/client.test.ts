@@ -1,0 +1,380 @@
+import { describe, expect, it, vi, afterEach } from "vitest";
+import { ChartStudyEvaluateRequestSchema, ChartStudyEvaluateSchema } from "./http.generated";
+import { marketDataBarSemantic } from "../marketData/model";
+import { LocalReadCredentials } from "../marketData/localReadCredentials";
+import { isAdmittedChartStudyEvidence, readChartStudyCapability } from "./client";
+import { isStudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
+import sample from "../../../../../test-data/web/chart-studies/query.json";
+import { marketDataBarsSchema } from "../marketData/model";
+import { ChartStudyCapabilitiesSchema } from "./http.generated";
+import { readChartStudyEvaluation, readChartStudyEvidence } from "./client";
+
+function vector() {
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 1,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Expected installed capability vector");
+    const history = marketDataBarsSchema.parse(structuredClone(sample.history));
+    const evaluated = ChartStudyEvaluateSchema.parse(structuredClone(sample.evaluation));
+    const input = ChartStudyEvaluateRequestSchema.parse({
+        schema_version: 1,
+        source_reference: {
+            integration_id: history.source_selection.integration_id,
+            integration_revision_fingerprint:
+                history.source_selection.integration_revision_fingerprint,
+            expected_type_id: history.source_selection.type_id
+        },
+        instrument_id: history.instrument_id,
+        bar_semantic: history.bar_semantic,
+        window: {
+            anchor_kind: "BEFORE_TIME",
+            before_ns: evaluated.input.before_ns,
+            target_bar_count: evaluated.input.target_bar_count
+        },
+        expected_history_projection_fingerprint: history.history_projection_fingerprint,
+        calculation: {
+            kind: capability.kind,
+            type_id: capability.type_id,
+            semantic_version: capability.semantic_version,
+            typed_parameters: evaluated.calculation.normalized_typed_parameters,
+            output_members: ["value"],
+            expected_descriptor_fingerprint: capability.descriptor_fingerprint,
+            expected_implementation_fingerprint: capability.implementation_fingerprint,
+            expected_capability_projection_fingerprint: capability.capability_projection_fingerprint
+        },
+        include_unclosed_preview: false
+    });
+    const credentials = new LocalReadCredentials();
+    credentials.replace("ee".repeat(32));
+    const respond = () =>
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() =>
+                Promise.resolve(
+                    new Response(JSON.stringify(evaluated), {
+                        headers: { "cache-control": "no-store" }
+                    })
+                )
+            )
+        );
+    return { capability, history, evaluated, input, credentials, respond };
+}
+
+const request = () => ({
+    schema_version: 1,
+    source_reference: {
+        integration_id: "local-source",
+        integration_revision_fingerprint: "a".repeat(64),
+        expected_type_id: "binance.spot.market_data"
+    },
+    instrument_id: "BTCUSDT.BINANCE",
+    bar_semantic: marketDataBarSemantic(15),
+    window: {
+        anchor_kind: "BEFORE_TIME",
+        before_ns: "1769299200000000000",
+        target_bar_count: 2000
+    },
+    expected_history_projection_fingerprint: "b".repeat(64),
+    calculation: {
+        kind: "INDICATOR",
+        type_id: "onlyalpha.indicator.sma",
+        semantic_version: "1",
+        typed_parameters: {
+            period: { type: "INTEGER", value: 20 },
+            price_field: { type: "STRING", value: "CLOSE" }
+        },
+        output_members: ["value"],
+        expected_descriptor_fingerprint: "c".repeat(64),
+        expected_implementation_fingerprint: "d".repeat(64),
+        expected_capability_projection_fingerprint: "e".repeat(64)
+    },
+    include_unclosed_preview: false
+});
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
+beforeEach(async () => {
+    vi.stubGlobal(
+        "crypto",
+        (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
+    );
+});
+
+describe("one server-derived strict Chart schema", () => {
+    it("local-session transport uses same-origin cookies without inventing a bearer or permission", async () => {
+        const credentials = new LocalReadCredentials(true);
+        const fetcher = vi.fn<typeof fetch>(() =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        schema_version: 1,
+                        capabilities: [sample.capability]
+                    }),
+                    { headers: { "cache-control": "no-store" } }
+                )
+            )
+        );
+        vi.stubGlobal("fetch", fetcher);
+        expect((await readChartStudyCapability(credentials)).type_id).toBe(
+            "onlyalpha.indicator.sma"
+        );
+        const init = fetcher.mock.calls[0]?.[1];
+        expect(init?.credentials).toBe("same-origin");
+        expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() =>
+                Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            schema_version: 1,
+                            error: {
+                                phase: "QUERY",
+                                code: "LOCAL_READ_UNAUTHORIZED",
+                                detail: "LOCAL_READ_UNAUTHORIZED"
+                            }
+                        }),
+                        { status: 401 }
+                    )
+                )
+            )
+        );
+        await expect(readChartStudyCapability(credentials)).rejects.toMatchObject({
+            code: "LOCAL_READ_UNAUTHORIZED",
+            status: 401
+        });
+        expect(credentials.capture().bearer).toBeNull();
+    });
+
+    it("admits owning complete-to-incomplete without requiring its absent cursor to match the old history", async () => {
+        const v = vector();
+        expect(v.history.resume_after_sequence).not.toBeNull();
+        v.evaluated.query_status = "INPUT_INCOMPLETE";
+        v.evaluated.series = [];
+        v.evaluated.coverage.status = "INCOMPLETE";
+        v.evaluated.coverage.actual_bar_count = 0;
+        v.evaluated.coverage.gaps = [
+            {
+                start_ns: v.evaluated.input.resolved_start_ns,
+                end_ns: v.evaluated.input.resolved_end_ns
+            }
+        ];
+        v.evaluated.input.history_projection_fingerprint = null;
+        v.evaluated.input.resume_after_sequence = null;
+        v.evaluated.input.resume_plan_fingerprint = null;
+        v.evaluated.input.revision_evidence = [];
+        v.respond();
+        const result = await readChartStudyEvaluation(
+            v.credentials,
+            v.input,
+            v.capability,
+            v.history
+        );
+        expect(result.query_status).toBe("INPUT_INCOMPLETE");
+        expect(result.series).toEqual([]);
+        const evidence = await readChartStudyEvidence(
+            v.credentials,
+            v.input,
+            v.capability,
+            v.history,
+            {
+                instanceId: "one",
+                chartContextKey: "context",
+                incarnationKey: "incarnation",
+                configurationKey: JSON.stringify({
+                    parameters: v.input.calculation.typed_parameters,
+                    outputName: "value"
+                })
+            },
+            () => true,
+            new AbortController().signal
+        );
+        expect(evidence).toBeNull();
+    });
+    it("admits the exact producer vector and copies backend values/readiness without recalculation", async () => {
+        const v = vector();
+        v.respond();
+        const controller = new AbortController();
+        const configurationKey = JSON.stringify({
+            parameters: v.input.calculation.typed_parameters,
+            outputName: "value"
+        });
+        const evidence = await readChartStudyEvidence(
+            v.credentials,
+            v.input,
+            v.capability,
+            v.history,
+            {
+                instanceId: "one",
+                chartContextKey: "context",
+                incarnationKey: "incarnation",
+                configurationKey
+            },
+            () => true,
+            controller.signal
+        );
+        expect(evidence?.points[19]).toEqual({
+            timeNs: v.evaluated.series[0]?.points[19]?.time_ns,
+            value: "101.000000000000",
+            readiness: "READY",
+            reason: "NONE"
+        });
+        if (evidence === null) throw new Error("Expected admitted evidence");
+        expect(isAdmittedChartStudyEvidence(evidence)).toBe(true);
+        expect(isAdmittedChartStudyEvidence(structuredClone(evidence))).toBe(false);
+        controller.abort();
+        expect(isAdmittedChartStudyEvidence(evidence)).toBe(false);
+    });
+    it.each([
+        "definition",
+        "history-instrument",
+        "history-count",
+        "history-window",
+        "resume",
+        "aggregation",
+        "duplicate-owner",
+        "missing-proof",
+        "incomplete-wrong-owner"
+    ])("rejects structural mutation: %s", async (kind) => {
+        const v = vector();
+        if (kind === "definition") v.evaluated.calculation.definition_fingerprint = "b".repeat(64);
+        if (kind === "history-instrument" || kind === "incomplete-wrong-owner")
+            v.history.instrument_id = "OTHER.TEST";
+        if (kind === "history-count") v.history.requested_bar_count = 24;
+        if (kind === "history-window")
+            v.history.resolved_start_ns = (
+                BigInt(v.history.resolved_start_ns) - 900_000_000_000n
+            ).toString();
+        if (kind === "resume") v.evaluated.input.resume_plan_fingerprint = "b".repeat(64);
+        if (kind === "aggregation") v.evaluated.input.aggregation_semantics_version = "different";
+        if (kind === "duplicate-owner") {
+            const first = v.evaluated.input.revision_evidence[0];
+            if (first === undefined) throw new Error("Expected revision owner");
+            v.evaluated.input.revision_evidence.push({
+                ...first
+            });
+        }
+        if (kind === "missing-proof") v.evaluated.input.revision_evidence = [];
+        if (kind === "incomplete-wrong-owner") {
+            v.evaluated.query_status = "INPUT_INCOMPLETE";
+            v.evaluated.series = [];
+            v.evaluated.coverage.status = "INCOMPLETE";
+            v.evaluated.input.history_projection_fingerprint = null;
+        }
+        v.respond();
+        await expect(
+            readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+        ).rejects.toThrow();
+    });
+    it("period20 cannot be labelled with a period30 display configuration", async () => {
+        const v = vector();
+        v.respond();
+        await expect(
+            readChartStudyEvidence(
+                v.credentials,
+                v.input,
+                v.capability,
+                v.history,
+                {
+                    instanceId: "one",
+                    chartContextKey: "context",
+                    incarnationKey: "incarnation",
+                    configurationKey: JSON.stringify({
+                        parameters: {
+                            ...v.input.calculation.typed_parameters,
+                            period: { type: "INTEGER", value: 30 }
+                        },
+                        outputName: "value"
+                    })
+                },
+                () => true,
+                new AbortController().signal
+            )
+        ).rejects.toThrow("INVALID");
+        expect(fetch).not.toHaveBeenCalled();
+    });
+    it("accepts the declared bounded request and refuses substitutions, extras and oversize arrays", () => {
+        expect(ChartStudyEvaluateRequestSchema.safeParse(request()).success).toBe(true);
+        const variants: unknown[] = [
+            { ...request(), schema_version: true },
+            { ...request(), include_unclosed_preview: 0 },
+            { ...request(), bars: [] },
+            { ...request(), window: { ...request().window, target_bar_count: true } },
+            { ...request(), window: { ...request().window, target_bar_count: 2001 } },
+            {
+                ...request(),
+                calculation: { ...request().calculation, output_members: ["value", "value"] }
+            },
+            {
+                ...request(),
+                calculation: {
+                    ...request().calculation,
+                    typed_parameters: {
+                        ...request().calculation.typed_parameters,
+                        period: { type: "INTEGER", value: "20" }
+                    }
+                }
+            },
+            {
+                ...request(),
+                source_reference: { ...request().source_reference, credentials: "secret" }
+            }
+        ];
+        for (const variant of variants)
+            expect(ChartStudyEvaluateRequestSchema.safeParse(variant).success).toBe(false);
+        expect(
+            ChartStudyEvaluateSchema.safeParse({
+                schema_version: 1,
+                source_kind: "CONTROLLED_TEST_EVIDENCE"
+            }).success
+        ).toBe(false);
+    });
+    it("copied fixture/provenance-shaped objects never gain production admission", () => {
+        const forged = {
+            source: {
+                kind: "CHART_STUDY_TRANSIENT",
+                historyProjectionFingerprint: "a".repeat(64),
+                capabilityProjectionFingerprint: "b".repeat(64)
+            },
+            instanceId: "one",
+            chartContextKey: "context",
+            incarnationKey: "incarnation",
+            configurationKey: "configuration",
+            outputName: "value",
+            points: []
+        };
+        expect(isAdmittedChartStudyEvidence(forged)).toBe(false);
+        expect(isStudySeriesEvidence(forged)).toBe(false);
+        expect(isAdmittedChartStudyEvidence(structuredClone(forged))).toBe(false);
+    });
+    it("absent authentication never calls the transport", async () => {
+        const transport = vi.fn();
+        vi.stubGlobal("fetch", transport);
+        await expect(readChartStudyCapability(new LocalReadCredentials())).rejects.toThrow(
+            "UNAUTHORIZED"
+        );
+        expect(transport).not.toHaveBeenCalled();
+    });
+    it("logout and same-token restoration fence an already-started capability response", async () => {
+        const credentials = new LocalReadCredentials();
+        credentials.replace("ee".repeat(32));
+        let resolve!: (response: Response) => void;
+        const response = new Promise<Response>((done) => {
+            resolve = done;
+        });
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => response)
+        );
+        const pending = readChartStudyCapability(credentials);
+        credentials.replace(null);
+        credentials.replace("ee".repeat(32));
+        resolve(
+            new Response(JSON.stringify({ schema_version: 1, capabilities: [] }), {
+                headers: { "cache-control": "no-store" }
+            })
+        );
+        await expect(pending).rejects.toThrow("STALE");
+    });
+});

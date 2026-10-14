@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 
 from onlyalpha.application.market_data_product import (
     MAX_TARGET_BAR_COUNT,
@@ -13,9 +14,11 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError, OnlySourceReadPermission
 from onlyalpha.market_data.durable.performance import only_market_data_performance, only_market_data_phase
 from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 
+from ..local_read_access import only_request_read_session
 from .schema import (
     MarketDataAcquisitionDto,
     MarketDataAcquisitionRequestDto,
@@ -35,6 +38,9 @@ _Nanoseconds = Annotated[str, Query(pattern=_NANOSECONDS)]
 
 _ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"model": MarketDataErrorEnvelopeDto},
+    401: {"model": MarketDataErrorEnvelopeDto},
+    403: {"model": MarketDataErrorEnvelopeDto},
+    429: {"model": MarketDataErrorEnvelopeDto},
     404: {"model": MarketDataErrorEnvelopeDto},
     409: {"model": MarketDataErrorEnvelopeDto},
     500: {"model": MarketDataErrorEnvelopeDto},
@@ -44,16 +50,31 @@ _ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
 
 def create_market_data_router(service: OnlyMarketDataProductService) -> APIRouter:
     router = APIRouter(tags=[MARKET_DATA_ROUTE_TAG])
+    read_credentials = [Depends(HTTPBearer(auto_error=False, scheme_name="LocalSourceReadBearer"))]
 
-    @router.get("/api/v2/market-data/sources", response_model=MarketDataSourceListDto, responses=_ERROR_RESPONSES)
-    def list_sources() -> MarketDataSourceListDto:
+    @router.get(
+        "/api/v2/market-data/sources",
+        response_model=MarketDataSourceListDto,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
+    def list_sources(request: Request) -> MarketDataSourceListDto:
         return MarketDataSourceListDto(
             schema_version=1,
-            sources=tuple(MarketDataSourceProjectionDto.from_model(item) for item in service.list_sources()),
+            sources=tuple(
+                MarketDataSourceProjectionDto.from_model(item)
+                for item in service.list_sources(read_session=only_request_read_session(request.scope))
+            ),
         )
 
-    @router.get("/api/v2/market/instruments", response_model=MarketDataInstrumentListDto, responses=_ERROR_RESPONSES)
+    @router.get(
+        "/api/v2/market/instruments",
+        response_model=MarketDataInstrumentListDto,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
     def list_instruments(
+        request: Request,
         integration_id: str,
         integration_revision_fingerprint: str,
         expected_type_id: str | None = None,
@@ -65,11 +86,18 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 _reference(integration_id, integration_revision_fingerprint, expected_type_id),
                 query=query,
                 limit=limit,
+                read_session=only_request_read_session(request.scope),
             )
         )
 
-    @router.get("/api/v2/market-data/bars", response_model=MarketDataBarWindowDto, responses=_ERROR_RESPONSES)
+    @router.get(
+        "/api/v2/market-data/bars",
+        response_model=MarketDataBarWindowDto,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
     def query_bars(
+        request: Request,
         integration_id: str,
         integration_revision_fingerprint: str,
         instrument_id: str,
@@ -87,6 +115,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 target_bar_count=target_bar_count,
                 before_ns=None if before_ns is None else int(before_ns),
                 bar_semantic=MarketDataBarSemanticDto.model_validate_json(bar_semantic).to_model(),
+                read_session=only_request_read_session(request.scope),
             )
             with only_market_data_phase("serialization_projection"):
                 return MarketDataBarWindowDto.from_model(projection)
@@ -97,7 +126,14 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         response_model=MarketDataAcquisitionDto,
         responses=_ERROR_RESPONSES,
     )
-    def create_acquisition(request: MarketDataAcquisitionRequestDto) -> MarketDataAcquisitionDto:
+    def create_acquisition(request: MarketDataAcquisitionRequestDto, http_request: Request) -> MarketDataAcquisitionDto:
+        source_session = only_request_read_session(http_request.scope)
+        if source_session is not None:
+            source_session.require_reference(
+                request.source_reference.to_model(), OnlySourceReadPermission.CLOSED_HISTORY
+            )
+            if http_request.scope.get("onlyalpha.dev_acquisition_session") is not source_session:
+                raise OnlySourceReadAccessError("LOCAL_READ_FORBIDDEN")
         with only_market_data_performance("COMMAND"):
             projection = service.acquire_bars(
                 request.source_reference.to_model(),
@@ -105,6 +141,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 start_ns=int(request.start_ns),
                 end_ns=int(request.end_ns),
                 bar_semantic=request.bar_semantic.to_model(),
+                source_session=source_session,
             )
             with only_market_data_phase("serialization_projection"):
                 return MarketDataAcquisitionDto.from_model(projection)
@@ -113,8 +150,10 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         "/api/v2/market-data/acquisitions/{acquisition_id}",
         response_model=MarketDataAcquisitionDto,
         responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
     )
     def get_acquisition(
+        request: Request,
         acquisition_id: str,
         integration_id: str,
         integration_revision_fingerprint: str,
@@ -122,7 +161,9 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
     ) -> MarketDataAcquisitionDto:
         return MarketDataAcquisitionDto.from_model(
             service.acquisition_status(
-                _reference(integration_id, integration_revision_fingerprint, expected_type_id), acquisition_id
+                _reference(integration_id, integration_revision_fingerprint, expected_type_id),
+                acquisition_id,
+                read_session=only_request_read_session(request.scope),
             )
         )
 

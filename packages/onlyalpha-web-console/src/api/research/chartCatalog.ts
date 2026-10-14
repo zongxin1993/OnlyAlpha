@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { components } from "./generated";
+import type { ChartStudyCapability } from "../chartStudies/client";
 import {
     researchCalculationCatalogSchema,
     type ResearchCalculationCatalogItemTransport
@@ -145,6 +146,7 @@ export interface ChartCatalog {
 export type RegisteredCalculation = ResearchCalculationCatalogItemTransport;
 /** Discovery drafts intentionally carry no Runtime, implementation or readiness proof. */
 export type ChartCalculationDraft =
+    | { readonly source: "CHART_STUDY_TRANSIENT"; readonly capability: ChartStudyCapability }
     | {
           readonly source: "EXACT_CATALOG";
           readonly catalog: ChartCatalog;
@@ -353,6 +355,7 @@ export async function verifyChartCalculationDraft(
     draft: ChartCalculationDraft,
     signal?: AbortSignal
 ): Promise<void> {
+    if (draft.source === "CHART_STUDY_TRANSIENT") throw new ChartCatalogError("INVALID");
     if (draft.source === "REGISTERED_DISCOVERY") {
         const entries = await readRegisteredCalculations(signal);
         if (!entries.some((entry) => JSON.stringify(entry) === JSON.stringify(draft.registration)))

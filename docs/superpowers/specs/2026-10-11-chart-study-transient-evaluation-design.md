@@ -1,33 +1,39 @@
-# Chart Study Transient Evaluation — Proposed Product and Boundary Design
+# Chart Study Transient Evaluation — Product and Boundary Design
 
-Status: **Proposed / Owner Approval Required; DESIGN-ONLY / NOT_IMPLEMENTED.**
+Status: **Design constrained by Accepted ADR 0138; not implementation or availability evidence.**
 This supports [ADR 0138](../../adr/0138-chart-study-transient-evaluation-and-formal-research-separation.md), not an independent
-Authority or task completion/quality report. Accepted rules remain in force until explicit owner adoption.
+Authority or task completion/quality report. The owner explicitly adopted ADR 0138's limited amendments on 2026-10-11;
+formal W6 publication, numeric/provenance admission and L0 rules remain in force.
 The [slice plan](../../plans/chart-study-transient-evaluation.md) contains future test obligations.
 
 ## 1. Normative constraint matrix
 
-| Layer / reference | Existing obligation | Proposed relationship / owner action |
+| Layer / reference | Existing obligation | Relationship under ADR 0138 |
 |---|---|---|
 | L0 Constitution §§4.1–4.5, 4.7–4.9, 8–10 | Unique identity/Authority, deterministic canonical semantics, immutable formal Research, explicit APIs, recoverability, Web presentation, no Agent LIVE | Unchanged. Transient output is disposable observation, never important formal Evidence or trading truth. Source/versions remain explicit; no L0 exception requested. |
 | L1 `architecture.md` §§16–17 | Research Artifact read plane; Core does not import concrete plugins; only Calculation SPI, immutable Provider/Catalog content | Preserve formal read plane and SPI. Non-publishing Application orchestration selects the same registered backend; no Provider-specific Core branch. |
-| L1 `web-product-architecture.md` §§6.4, 7; ADR 0092 §§Browser authority / Immutable Result read boundary | Scientific visualizations follow verified Result/Artifact Query; JS cannot reconstruct scientific truth | W6 unchanged. Propose explicitly parallel non-scientific series; never call a transient curve scientific evidence. |
-| L1 `chart-catalog-navigation-contract.md` §§Exact read / Financial display | Metadata/discovery is not permission; AVAILABLE currently means exact TIME_SERIES RESEARCH readiness1; only controlled-test series implemented | No current permission inferred. Approval-follow-up must add transient capability projection and source family, preserve Research witness and fixture restriction. |
+| L1 `web-product-architecture.md` §§6.4, 7; ADR 0092 §§Browser authority / Immutable Result read boundary | Scientific visualizations follow verified Result/Artifact Query; JS cannot reconstruct scientific truth | W6 unchanged. Explicitly parallel non-scientific series; never call a transient curve scientific evidence. |
+| L1 `chart-catalog-navigation-contract.md` §§Exact read / Financial display | Metadata/discovery is not permission; AVAILABLE currently means exact TIME_SERIES RESEARCH readiness1; only controlled-test series implemented | Transient capability/source is a separate admitted projection; preserve Research witness and fixture restriction. No current execution permission inferred. |
 | L1 `indicator.md` §RESEARCH batch readiness | Only SMA@1 readiness1, immutable closed Research inputs; Trading ready/Snapshot are distinct | Unchanged formal readiness scope; reuse backend output structurally for W3, not a Research seal. No EMA/MACD readiness claim. |
 | L2 ADR 0135 §§3–6 / Web Product Mode §5 | Concrete user flow, formal API, minimal vertical slice, W3 separate from W6, renderer unchanged | Reinforce product separation; ADR 0135 alone does not authorize exception to later ADR 0136. |
-| L2 ADR 0094 §§Financial Time-Series / Exact values | Verified Artifact -> Query recommended source, Lightweight Charts, exact-value admission, browser no recomputation | Propose explicit transient source alongside verified source; retain all renderer and non-recomputation rules. |
-| L2 ADR 0136 §§Context / Lifecycle / Chart boundary / Rejected alternatives | Chart first SMA native15m/sealed/Engine-hosted Research; no Preview or HTTP evaluator bypass | Actual constraint, not already satisfied. Request limited W3 exception for Application/SPI batch display reads; W6 remains fully subject to original clauses. |
-| L2 ADR 0137 §§Decision / Rejected alternatives | Exact RESEARCH backend produces values/readiness atomically; Evidence2 and Result2 provenance; no HTTP/browser evaluation | Keep publication/provenance/production support limits. Propose only non-publishing projection of same backend output, never Evidence2 or row-index annotation in Query. |
-| L2 ADR 0114 §Decision | Core owns complete Decimal envelope; precision/rounding/quantum come from Definition; actual manifests bind policy dependency | SMA@1 CONTEXT is unresolved and current manifest lacks this dependency. Request explicit W3-only placeholder resolution clause; preserve Core envelope and require real manifest/version repair before A1. No current deterministic support inferred. |
-| Proposed 2026-10-01 W3-B §§1, 5, 13 | Recommends CreateChartCalculationV1/preparation/Spec3/Research Run, Result4/Artifact2; excludes preview/incremental | Advisory, not Accepted. Propose W6-only positioning; its non-goals are not evidence W3 was cancelled. |
+| L2 ADR 0094 §§Financial Time-Series / Exact values | Verified Artifact -> Query for scientific sources, Lightweight Charts, exact-value admission, browser no recomputation | Explicit transient source alongside verified source; retain all renderer and non-recomputation rules. |
+| L2 ADR 0136 §§Context / Lifecycle / Chart boundary / Rejected alternatives | Formal Chart Research uses native15m/sealed/Engine-hosted Research; no Preview or HTTP evaluator bypass | Limited W3 Application/SPI batch display-read exception only; W6 remains fully subject to original clauses. |
+| L2 ADR 0137 §§Decision / Rejected alternatives | Exact RESEARCH backend produces values/readiness atomically; Evidence2 and Result2 provenance; no HTTP/browser formula evaluation | Non-publishing projection of same backend output only, never Evidence2 or row-index annotation in Query. Publication/provenance/support limits unchanged. |
+| L2 ADR 0114 §Decision | Core owns complete Decimal envelope; exact Definition and actual manifests bind policy dependency | W3-only explicit legacy-CONTEXT resolution is permitted, but SMA@1's actual context/manifest/version closure must be repaired and proved before support. No current deterministic support inferred. |
+| Proposed 2026-10-01 W3-B §§1, 5, 13 | Recommends CreateChartCalculationV1/preparation/Spec3/Research Run, Result4/Artifact2; excludes preview/incremental | Advisory, not Accepted; W6-only positioning. Its non-goals are not evidence W3 was cancelled. |
 
-Concrete amendment wording is centralized in ADR 0138 §3. These relationships are proposed, not a silent reinterpretation.
+Concrete adopted amendment wording is centralized in ADR 0138 §3 and reflected in the corresponding Accepted/L1 documents.
 
 ## 2. Source-based product gap analysis
 
 Source baseline: merged master `b3b99d99f76df41a19a36d48ef7c52988322204c`.
 W6 comparison only: PR118 `a8144aa4467fa3a850b81d8d34b2241ca0ae950e`, OPEN/Draft at inspection; not merged capability.
 The references below are source observations at those commits, not test executions or a persistent progress ledger.
+
+Historical comparison note: PR118 was subsequently merged as `9f5cbb637da5b235702392f1598305d2fd06424a` before PR119's
+`3793eeb8c7a9f1ddfc905c972500a4cfe2b86e77`. That master contains 0050's default-closed Claim/Heartbeat foundation, not a
+complete W6 installed-execution/terminal/recovery/Work-release lifecycle. The original SHAs/line references remain historical
+source evidence; “OPEN/Draft at inspection” is not the current PR status or an assertion that master lacks migration 0050.
 
 ### Market Data already has a real Product path
 
@@ -99,10 +105,10 @@ exact provenance, immutable re-entry and auditable scientific publication. Apply
 imposes durable intent, sealed input preparation, worker/lease and publication/recovery cost on a display interaction.
 
 This is a product/architecture P0, **not** an allegation that the incomplete UI is a security vulnerability. ADR 0136's explicit
-Engine/no-preview rule is a separate governance P0: implementation cannot simply ignore it. ADR 0138 proposes a narrow owner-approved
-scope separation; all current Accepted files stay unchanged.
+Engine/no-preview rule remains mandatory for W6: implementation cannot simply ignore it. ADR 0138 adopts only a narrow W3
+scope separation; the corresponding Accepted/L1 amendments preserve formal Research publication/execution rules.
 
-### P1 W6 Draft Still Incomplete — read-only comparison with PR118
+### P1 W6 lifecycle gap — historical read-only comparison with PR118
 
 At the separate PR118 SHA, `database/postgres/migrations/0050_chart_native_execution_entry.sql:1–5,85–99,165–205,208–315`
 provides narrow operational Claim/Heartbeat and owner relation checks. It ends with no Controller/reader/PUBLIC EXECUTE grant;
@@ -116,7 +122,7 @@ issuance, exact installed implementation/scientific owning reads and guarded nat
 Their tests and files do **not** by themselves connect an authorized same Run/ACTIVE Attempt to durable COMPLETED.
 Installed Host capability/bootstrap/dispatch, whole operational owner validation, fenced terminal/expiry/retry, UNKNOWN terminal ACK,
 no-ACTIVE cancellation/recovery and original Work release still require independent W6 closure. Source/file absence is not historical
-absence. No PR118 code, tests, SQL, metadata or body is modified by this proposal; none is an A1 prerequisite.
+absence. No W6 code, tests, SQL or production grants are changed by this architecture adoption; none is an A1 prerequisite.
 
 ## 3. User flows and visible states
 
@@ -218,9 +224,12 @@ server re-read using identical selection, BEFORE_TIME anchor/end/count/semantic.
 assumed interchangeable (current fingerprint includes anchor and requested fields). This extra exact read is read-only, not new data truth.
 Historical/stream watermarks also are not interchangeable. Request does not supply trusted data revisions or Source identity.
 
-Candidate finite bounds: `1 <= target_bar_count <= min(10000, MAX_TARGET_BAR_COUNT)`, `1 <= period <= 10000`, body <=64KiB,
+Finite A1 bounds: `1 <= target_bar_count <= MAX_TARGET_BAR_COUNT` (currently **2000**), `1 <= period <= 10000`, body <=64KiB,
 one output, no DAG/universe/code; constant policies must be frozen in A1 admission tests, not configurable bypass switches.
-These are proposed limits, not measured SLOs. Inherited source/semantic/time and Decimal validity rules still apply.
+The original 10000 window candidate is not an implemented limit or service SLO; A1 does not introduce 10k scanning or general
+range planning. These are resource ceilings, not measured latency promises. Inherited source/semantic/time and Decimal validity
+rules still apply. The first real source must prove provider-native closed 15m coverage: neither an A-share label nor a 24x7
+crypto fixture proves equity calendar/session support. Stock/calendar, derived7m and preview remain separate slices.
 
 ### Response V1
 
@@ -294,13 +303,13 @@ certified absence. No byte-equality or synthetic hash substitutes for owning rel
 - Data quality is independent of numeric readiness. Closed Market Data does not imply all points READY or a scientific Seal.
   A1 rejects `include_unclosed_preview=true`; independent price stream remains. Later preview is explicit PREVIEW_UNCLOSED, not
   CLOSED_COMPLETE. Missing/unavailable source and no-data UI states never manufacture point metadata.
-- Decimal execution must satisfy the explicit proposed binding below, not the current ambient CONTEXT assumption. Financial unit is explicit PRICE for A1 CLOSE;
+- Decimal execution must satisfy the explicit approved binding below, not the current ambient CONTEXT assumption. Financial unit is explicit PRICE for A1 CLOSE;
   output member/nullability are validated against the Definition. Original numeric text is preserved for hover; lossy plotting only
   rejects unsafe/overflow/underflow/non-finite or timestamp-alias conversion. Scientific values are never rounded by the browser.
 
 ### Legacy Decimal context admission prerequisite
 
-The proposed `CONTEXT_HALF_EVEN_V1` resolves only declared SMA@1 CONTEXT to ROUND_HALF_EVEN; it does not mutate the
+The approved `CONTEXT_HALF_EVEN_V1` resolves only declared SMA@1 CONTEXT to ROUND_HALF_EVEN; it does not mutate the
 Definition or invent an implementation dependency on the old manifest. Precision=28 and quantum=0.000000000001 are asserted
 against that exact registered Definition. All remaining context fields and the complete trap map use the existing Core policy
 `onlyalpha.decimal.execution@1`: trapped signals above; FloatOperation, Underflow, Subnormal, Inexact, Rounded and Clamped untrapped.
@@ -308,10 +317,10 @@ Construct a fresh complete context using Core/native Decimal capabilities, never
 precision-only overrides. Clear all entry flags, isolate with localcontext, discard internal flags on exit and preserve caller flags.
 Run values and backend readiness atomically within that context; deterministic Decimal/input/output failure is not converted to null.
 
-This **proposed explicit execution input** is carried in capability, response and future cache keys. It supplies the legacy
+This **explicit execution input** is carried in capability, response and future cache keys. It supplies the legacy
 placeholder's invocation context without claiming all historical @1 CONTEXT executions were deterministic or equivalent. It is
-not a second Core Decimal envelope and never substitutes for Definition identity or Research evidence. ADR 0114's current wording
-does not define this placeholder resolution; ADR 0138 supplies the precise owner-approval clause rather than silently relaxing it.
+not a second Core Decimal envelope and never substitutes for Definition identity or Research evidence. ADR 0114's limited
+ADR 0138 amendment admits this resolution with actual provenance proof, rather than silently relaxing numeric requirements.
 This is the explicit numeric input required by the current invocation, not a compatibility loader/shim or a promise to preserve
 arbitrary historical ambient behavior. If preserving @1 is incompatible with its authoritative semantics, version the semantics instead.
 
@@ -329,6 +338,253 @@ caller context remain unchanged, and a missing/mismatched policy/invocation mani
 execution uses the **same explicit fixed context**; it never asserts parity with arbitrary past ambient contexts.
 
 ### Failure envelope and authorization
+
+#### Ordinary local development composition
+
+The owner's subsequent ordinary-dev direction (2026-10-14) removes manual private
+configuration and credential entry from daily development. The manual bearer rules
+below remain applicable to the optional protected read-only composition, not a
+mandatory development setup. No production authentication exception is created.
+
+The explicitly selected dev composition serves the Shipping Web and Product API
+through one host-loopback listener. It authorizes one named `local-developer` subject
+to a bounded, immutable snapshot of eligible Sources in the already initialized dev
+deployment. This is an explicit developer-role policy: owning discovery supplies the
+exact Integration Revision, type, Source and environment, never authorization by itself.
+An unavailable catalog refuses startup; a verified empty catalog grants no Source
+access. The ordinary dev policy also admits a new exact snapshot on an authenticated,
+explicit Product Source-list refresh (including returning from Source management).
+This is not a wildcard or an in-place edit: discovery/identity validation runs within
+the bounded read slot; unavailable, malformed, duplicate or oversized proof refuses
+the refresh. If the exact grants change, the previous authority is irreversibly
+withdrawn behind the response fence and replaced before the list is released.
+Existing HTTP/stream sessions are not rebound; requests to old revisions must pass
+current exact grants and owning Source checks. Unchanged snapshots retain their
+authority. Concurrent refresh or completed discovery cannot revive a withdrawn
+process. The optional private bearer configuration stays startup-fixed and unchanged.
+
+Generation withdrawal wakes even blocked stream readers, closes their owning sessions,
+and retains capacity until cleanup. A replaced dev generation closes with standard
+WebSocket code 1012; a fresh connection must authenticate and prove its exact Source
+again. Permanent withdrawal or a genuinely forbidden selection is not a reconnect
+permission. Source discovery distinguishes unsupported/disabled/unpublished candidates
+from missing or corrupt proof for an admitted published candidate. A directly requested
+nonexistent Revision is `MARKET_DATA_SOURCE_REVISION_NOT_FOUND` (404); the same missing
+relation in an owning published Source catalog is unavailable (503), not an empty list.
+Runtime integrity failures are catalog corruption (500); unavailable proof is 503.
+
+One random 256-bit credential is generated per dev process, never logged or written
+to source/configuration. Guarded top-level Shipping Web navigation issues that same
+credential as a host-only HttpOnly, SameSite=Strict session cookie. Reloads/tabs do
+not rotate it. The cookie authenticates through the existing Source authority;
+browser transport selection is not authentication. Exact Host/Origin checks, rejection
+of cross-site requests, duplicate/conflicting credentials and forwarded identity,
+frame denial, bounded Query work and fenced release remain required. Cookie POST
+and WS requests require the exact configured Origin. Process replacement withdraws
+the authority and invalidates previous cookies/HTTP work/streams. Local OS users and
+the sole dev project's network are trusted; this is not an internet/LAN deployment.
+
+Source grants authorize reads only. A separate explicit dev-human ingress policy
+permits normal Product GETs, Integration configuration commands and the exact Market
+Data Acquisition POST, delegating to their owning Authorities. Symbol selection and
+history paging may prepare only the server-planned missing ranges through that
+separate dev-human Command policy. Source read grants and private bearer credentials
+alone do not authorize it. Agent/internal gateways, Strategy/LIVE commands and all
+other mutations remain denied. Study configuration itself never acquires data.
+Acquisition failures remain visible and recoverable through normal chart controls.
+
+Development startup reuses the admitted fixed image and existing database/user-data
+pair without bootstrap, migrations, key generation, fixtures, workers or acquisition.
+Its frozen application source view is distinct from verification inputs and may be
+refreshed only while the previous application process is stopped. Only built Shipping
+Web assets are served, never the source tree, Git metadata or test artifacts. These
+rules satisfy ADR 0138's caller/Source proof requirement; they do not waive it.
+
+#### Actual HTTP access-control responsibility
+
+Source observations at master `3793eeb8c7a9f1ddfc905c972500a4cfe2b86e77`:
+
+- `packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py` constructs FastAPI and includes the Market Data router
+  without a demonstrated Product-user authentication dependency or unified caller middleware.
+- `.../market_data/routes.py` delegates directly to the Product service. Its Integration reference is a Source locator,
+  not caller identity or a subject entitlement. Candidate 401/403 DTOs do not supply either proof.
+- `.../agent_provider_runtime.py` authenticates a bearer credential only for its internal Agent runtime authority; that secret
+  and its scope are not a human Chart session or a Source permission and must not be reused for W3.
+- `packages/onlyalpha-web-console/vite.config.ts` proxies same-origin `/api` to the configured HTTP target. It authenticates
+  no caller and asserts no Source entitlement. Same-origin/loopback routing does not establish a protected local application.
+- The canonical Compose topology supplies internal Agent tokens, not a proved human Chart subject or subject-to-Source mapping.
+  No reviewed external authenticating proxy configuration is supplied by these files. This is missing protection evidence,
+  not proof that a particular deployment is publicly exposed.
+
+Infrastructure owns the trusted ingress/session/credential boundary and prevention of direct bypass. HTTP owns authentication
+and propagation of the verified subject; the Product boundary owns enforcement of its explicit Source entitlement before any
+lookup/read/compute. Market Data still owns Source/revision/fact truth. Web consumes the credential/session through the formal
+API client, never asserts that an Integration ID, `X-User` header or browser context confers permission.
+
+Before implementation enables either Chart endpoint, the concrete caller mechanism and exact Source grant relation must be
+selected and proved. A proxy integration needs authentication, removal of client-supplied identity headers, authenticated
+subject propagation, and an inaccessible direct-API bypass. A local authenticated application needs an actual credential/session
+boundary, appropriate origin/CSRF protection for its transport, and explicit Source grants. No default-public, hardcoded
+`allow=true`, unbounded allowlist or reuse of internal Agent authority is admitted. If neither mechanism can be proved, keep
+the compute surface disabled and identify the unmet gate in the Draft PR; do not fabricate an authentication architecture.
+
+| Obligation | Owning implementation/test boundary | Required failure evidence |
+|---|---|---|
+| Trusted subject | Infrastructure ingress + HTTP adapter + real Browser credential/session flow | Missing/invalid/forged credential, identity-header injection, expired/revoked session as applicable; authentication failure before Source reads |
+| Subject/Source relation | Explicit authorization policy enforced by Product/HTTP, not Integration discovery | Valid subject denied another Source or exact grant scope; 403 without data leakage or computation; multi-subject isolation |
+| Input/resource budgets | HTTP bounded body before decode; Application window/period/Decimal validation; process/deployment CPU/memory guard | Oversized streamed/chunked body, rows/period, malformed/high-cost Decimal, concurrent saturation, reentry; rejection before work and a bounded queue |
+| Deadline/cancellation | HTTP/Application disposable Query execution | Deadline/disconnect discards values, releases budget safely, does not admit replacement work while abandoned work consumes the slot, and changes no Research state |
+| Browser integration | Generated Product client + Shipping Workspace E2E using the same admitted caller boundary | Successful authorized SMA20 path plus unauthenticated/forbidden path; no fixture family substitution, credentials in bundles/logs, or browser-auth bypass |
+
+Concrete concurrency/deadline and deployment resource protection require executable evidence, not an unmeasured latency SLA.
+The access-control mechanism is not established by ADR approval itself. The owner selected minimal local authentication with
+design review first; the implementation design below does not claim it already exists. Absent executable identity/Source-grant
+and containment evidence still blocks enabling production Query support.
+
+#### Minimal local operator authentication — implementation design
+
+This is the selected A1 implementation direction, not an installed authentication service or a general multi-tenant identity
+platform. Infrastructure supplies one explicitly configured local human subject and its bounded exact Source grants. HTTP
+authenticates the credential; Product enforces the grants. No login database, public registration, Agent token reuse, new LIVE
+role or implicit authorization through Integration discovery is introduced.
+
+The process reads an owner-provisioned private configuration once at startup; missing, malformed, duplicate or unsafe
+configuration disables transient support. The configuration contains schema version 1, a nonempty subject ID, the SHA256
+digest of an independently provisioned cryptographically random 256-bit bearer credential, and explicit Source grants. Each
+grant binds Integration ID, exact Integration Revision fingerprint, expected type, canonical Source ID and environment; no
+wildcard, newest-revision fallback or grant inferred from an observed Source is allowed. It grants only closed-history read and
+display-only evaluation. Any material configuration/credential change replaces the process composition; never mutate an active
+request's grants. Permission checks precede source lookup, and returned canonical Source ownership must match the exact grant
+before numerical work or response release. A complete denied binding is forbidden, not Source absence.
+
+Credential provisioning uses a cryptographically secure generator, not a human password whose entropy is merely asserted.
+Configuration is bounded, owner-controlled, non-symlink and privately permissioned; startup rejects an unsafe file rather than
+loading partial grants. Bearer syntax/size is checked before hashing, and digest comparison is constant-time. Failures and
+diagnostics reveal neither the credential/digest nor private configuration paths. No credential is generated implicitly at
+HTTP startup or embedded into a frontend build.
+
+Revocation has an explicit Infrastructure cutoff: first remove the old composition from every admitted ingress and disable
+its request admission and response release, then admit the replacement. Do not report revocation effective while an old
+process remains reachable. In-flight old queries may finish internally but cannot release a protected response after the
+cutoff; already released bytes cannot be recalled. Immutable grants are not edited to achieve this: the old process/request
+composition is withdrawn. Abandoned work retains its concurrency/resource slot until it actually stops, even when HTTP has
+disconnected or its deadline has expired. Deterministic barriers must test replacement before admission, during owning read,
+during compute and immediately before response release.
+
+The browser operator explicitly enters the provisioned credential through a password-type local access control. The generated
+Product client sends it only in the standard Authorization bearer header to same-origin admitted Product endpoints. There is
+no token in URLs, bundles, LocalStorage, SessionStorage, cookies, diagnostics or capability/numeric fingerprints. The browser
+keeps it only in session-memory presentation state, discards it on reload/logout, aborts and invalidates pending Study values
+on credential replacement, and never sends a caller-authored subject/grant in the evaluation DTO. No cookie/session-login API
+is needed for this bounded bearer design; authority comes from the server's configured credential-to-subject relation.
+
+The browser owns a disposable authentication generation in addition to chart incarnation/configuration/request generation.
+Logout, replacement and reload invalidate the old authentication generation immediately. Every protected response, including
+original Source/instrument/history reads, checks the captured generation before attaching; abort alone is insufficient.
+An old credential restored after A→B→A receives a fresh generation, so an earlier delayed response cannot become current.
+
+This local design requires an actually contained local transport: production access is loopback-only on the operator machine,
+or separately proved encrypted/authenticated ingress with no direct bypass. Accepting an arbitrary Origin or forwarded header,
+binding publicly over cleartext, or treating a Docker service name as local-trust evidence is not permitted. Browser Origin is
+validated against the exact admitted origin, not reflected as a wildcard; bearer credentials are not ambient cookies, and
+cross-origin credential-bearing requests must be denied. Isolated canonical test services may use synthetic credentials over
+their controlled local test network; that proves behavior, not safe production transport or deployment authorization.
+
+An absent Origin on a legitimate same-origin GET or a non-browser API request does not authenticate the caller: the exact
+bearer and grant are still mandatory. A supplied `null`, malformed or different Origin is rejected. Origin/header checks are
+transport defense, never substitutes for the credential. Tests cover ordinary Browser GETs that omit Origin as well as forged
+or cross-origin requests, without silently accepting arbitrary forwarded identity/transport assertions.
+
+Containment and Source access must be tested across the real Shipping Workspace's owning Source-list/instrument/history read
+paths as well as both new Chart Queries. If an unprotected alternate read route can bypass the intended Source grants, the
+identity boundary is not closed: implement the necessary same-source HTTP/client protection atomically within that impact
+scope, or keep support disabled. Do not claim that protecting two new endpoints secures the entire existing Product API.
+The new read/evaluation credential does not authorize Acquisition, W6 commands, Agent operations or any Trading mutation;
+preserve their separate authorities rather than treating authentication as their execution permission.
+
+Before implementation admission, independent design review must confirm the exact startup/credential/grant relation, local
+transport assumptions, affected owning read routes, and resource enforcement. Executable tests then cover missing/wrong/revoked
+credential, forged subject/header/origin, wrong Source/revision/environment, duplicate grants, config replacement and browser
+logout/A→B→A. They must show no backend/source read on an unauthorized request, no credential leakage, no bypass through the
+same-source read plane, no Research/Work writes, and no usable capabilities before numeric/composition admission. Configuration
+file paths and credential digests are not API fields or market/numeric identities.
+
+#### Local Source read ingress and WebSocket authentication
+
+The native Browser WebSocket cannot attach an Authorization header. Its independently versioned first control message is
+`{schema_version:1,operation:"AUTH",bearer:<64 lowercase hexadecimal characters>}`; it contains no subject, grant, URL token or
+client-authored generation. HTTP uses `Authorization: Bearer <same credential>`. The server's existing WS schema generator owns
+this control DTO and `{schema_version:1,event:"AUTHENTICATED"}` acknowledgement separately from Market Data protocol V2. After
+that acknowledgement the client sends exactly one existing V2 `SUBSCRIBE_BAR`. AUTH is accepted only as the first message;
+subscribe-before-auth, repeated AUTH/Subscribe, unknown fields, binary/oversized frames or malformed JSON close without Source
+lookup/open or data. A failed authentication never echoes its input. The credential proves the configured subject, not a
+one-time ticket: reuse by that subject is allowed only within bounded capacity while the admission generation is active.
+
+Before accepting the upgrade, require the exact configured Browser Origin (absent/`null`/cross-origin are rejected for WS),
+no query parameters/subprotocol/forwarded identity, and a free connection slot. AUTH and Subscribe each have a 5-second deadline
+and a 4096-byte text-frame limit before JSON decoding; transport frame size is bounded too. There are at most 4 active/pending
+WS connections and 4 in-flight HTTP reads, acquired without a waiting queue. A body is not accepted on the GET read plane.
+The 5-second handshake deadline is a resource policy, not a correctness timeout or latency promise. Slots remain charged until
+the actual owning work/session closes, including abandoned blocked thread work; cancellation does not free capacity early.
+
+State machine: `ORIGIN_CHECK -> SLOT -> AUTH_PENDING -> AUTHENTICATED -> SUBSCRIBE_PENDING -> GRANT_VERIFIED -> OPEN -> CLOSED`.
+Any invalid/unavailable/revoked state goes to CLOSED without a replacement identity or blind retry. The server checks the
+immutable credential generation and exact grant before resolving owning Source metadata, proves canonical Source/environment
+before opening the session, and rechecks generation plus bound Source on every outbound event. Preview is a distinct explicit
+grant (`realtime_preview`), not permission to evaluate an unclosed Study or a scientific fact. A `closed_history`-only grant
+cannot open the realtime session. Grant relation is Integration ID + exact Revision + type + canonical Source + environment;
+missing owning proof is unavailable, a complete different proof is denied. No Subject/Source match is inferred from resume
+cursor, event timestamp, source name or numeric equality.
+
+The connection has a concurrent receive/disconnect watcher and a generation-withdrawal signal. Withdrawal prevents admission
+and outbound send before closing the session; late open/read results are disposed and never released. Session close must wake
+a blocked event consumer. An uninterruptible Provider open/close cannot prove bounded cleanup: retain its resource slot and
+require process withdrawal/termination before declaring global revocation effective. Tests use barriers at pre-open, blocked
+event, pre-send and close, not sleep or polling. Browser logout/replacement closes old sockets and invalidates both fetch and
+message callbacks using a fresh authentication generation, also for the same token restored after A->B->A.
+
+| Route in the local read ingress | Responsibility |
+|---|---|
+| GET `/api/v2/market-data/sources` | Authenticate before Integration listing; enumerate only configured exact grants, never resolve unauthorized candidates then filter |
+| GET `/api/v2/market/instruments` | Authenticate + exact reference grant before provider catalog; reprove Source/environment before provider IO |
+| GET `/api/v2/market-data/bars` | Same grant/reproof before history facts; existing owning window/projection semantics retained |
+| GET `/api/v2/market-data/acquisitions/{id}` | Grant/reproof before status lookup; read-only status never creates Acquisition |
+| WS `/api/v2/market-data/stream` | AUTH first frame + explicit realtime grant, one exact subscription, continuous withdrawal/send fence |
+| Future Chart capabilities/evaluate | Not implemented by this auth slice and not admitted by a successful read or AUTH |
+| POST Acquisition, Integration/probe/secret routes, Research/Backtest/Agent/Trading and Artifact aliases | No permission from the read credential; unavailable at a configured local read ingress |
+
+The repository owner explicitly approved this opt-in local read-only ingress in the task conversation on 2026-10-11, including
+its intentional path/method restriction and independent management protection prerequisite; legacy business services are not
+removed or redefined. The owner also authorized an optional Browser-capable build target for the same canonical Compose test
+service to prove loopback HTTP/WS/Browser behavior, without changing the default test target, topology or quality thresholds.
+
+The configured local ingress is deliberately read-only: only the explicit owning GET/WS routes and non-sensitive health routes
+are mounted/reachable; every other Product path/method is denied before dispatch. This prevents anonymous alternate read or
+Command paths from bypassing grants merely by omitting the bearer header. It does not introduce management credentials or
+change those services' business lifecycle. The unconfigured legacy Product composition remains separate and does not qualify
+for W3 admission. In a deployment, that legacy/management composition must be independently protected and unreachable from the
+read ingress; leaving it anonymously reachable means feature admission is disabled. Existing acquisition is tested in the
+legacy management composition, while a configured read ingress intentionally returns forbidden instead of auto-acquiring.
+An enabled local read frontend therefore presents missing coverage as unavailable, not as automatic backfill permission.
+
+Infrastructure must prove actual loopback/TLS ingress and no direct API/management bypass. The current canonical Compose's
+default API/Web port publications are not that proof. No Unraid/LAN safety is inferred from isolated test networking. Configured
+production CLI startup must reject non-loopback cleartext binding; alternative ingress needs an explicit reviewed deployment
+contract, not a flag that claims trust. No existing protected service is redeployed by this slice. Live stream's pre-existing
+Market Data recording is still owned by its existing recorder; authentication does not promote it into Research Evidence or
+authorize Acquisition. AUTH-12's zero protected business-fact writes remains mandatory: seed immutable closed history before the
+inventory, then use a deterministic preview-only Provider for the protected Browser/HTTP/WS flow and compare every business
+table's count/content hash. This does not waive or hide recording writes: separately identify normal live recording and never
+claim such a closed-fact-producing stream is zero-write. Scientific/Run/Work/Strategy facts also remain zero-write.
+
+Relevant external engineering evidence is advisory: the
+[websockets authentication discussion](https://websockets.readthedocs.io/en/stable/topics/authentication.html) explains native
+Browser header limitations and the URL-token leakage pattern; the
+[OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html) supplies
+Origin, continuous authorization and resource-abuse failure patterns; and
+[Gitpod CVE-2023-0957](https://github.com/advisories/GHSA-f53g-frr2-jhpf) demonstrates cross-site takeover from missing WebSocket
+Origin validation. OnlyAlpha derives AUTH-first control DTOs, strict Origin, frame/deadline/capacity tests and generation
+withdrawal barriers; it rejects cookie/URL credentials, library-specific retry behavior and cancellation-as-cleanup assumptions.
 
 Proposed error shape: `{schema_version:1,error:{phase:QUERY,code,detail}}`. Details are sanitized, no credentials/files/source code.
 No values are returned with an error and no fallback type/source is selected.
@@ -390,3 +646,16 @@ These upstream reports describe historical versions, not an assertion the instal
 Reject upstream tolerance/sort-deduplicate, inverse transforms/cache-clearing as correctness fixes, sleeps/retry-until-green and
 mutable evaluator truth. No dependency/patch/renderer replacement is imported. Executable regressions belong to the authorized
 implementation slice; links here are proposed test derivation, not a claim those future tests ran.
+
+### Ordinary workspace historical preparation
+
+Selecting a symbol in the explicitly admitted local development UI prepares missing
+closed history through the existing versioned Market Data Acquisition Command, then
+reads verified K lines. Its dev-human Command policy is separate from Source read
+grants and does not authorize private bearer callers, Agents or trading mutations.
+The Command proves exact Integration Revision/Source/environment before durable admission.
+The normal workspace prepares 2000 Bars so adding an admitted SMA does not require
+a hidden acquisition or a different preparation tool. Study add/edit/style remains
+read-only and never admits Acquisition or Research; missing, failed and withdrawn
+proof continues to fail closed. This is a user workflow requirement, not completion
+or a production authentication claim.

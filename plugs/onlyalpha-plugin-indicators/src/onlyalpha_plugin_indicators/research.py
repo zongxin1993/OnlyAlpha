@@ -9,6 +9,7 @@ from decimal import Decimal, localcontext
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from onlyalpha.calculation import OnlyCalculationDefinition, OnlyCalculationKind, OnlyMissingValuePolicy
+from onlyalpha.calculation.definition import OnlyNumericDefinition
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2
 from onlyalpha.research.calculation.readiness import (
     OnlyResearchOutputReadiness,
@@ -23,6 +24,16 @@ _DECIMAL = pa.decimal128(38, 12)
 
 class OnlyOfficialResearchIndicatorBackend:
     """Columnar batch adapter around independent deterministic Decimal kernels."""
+
+    def require_chart_numeric_binding(self, numeric: OnlyNumericDefinition) -> None:
+        """Prove the actual loaded SMA quantizer/carrier, not just its function bytecode."""
+        if (
+            numeric.output_quantum is None
+            or type(_Q) is not Decimal
+            or _Q.as_tuple() != numeric.output_quantum.as_tuple()
+            or _DECIMAL != pa.decimal128(38, 12)
+        ):
+            raise ValueError("CHART_STUDY_IMPLEMENTATION_UNAVAILABLE")
 
     def execute_with_readiness(
         self,

@@ -2,9 +2,31 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from .schema import MarketDataBarDto, MarketDataBarSemanticDto
+
+
+class MarketDataStreamAuthDto(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1]
+    operation: Literal["AUTH"]
+    bearer: str = Field(pattern=r"^[0-9a-f]{64}$", min_length=64, max_length=64, repr=False)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def strict_version(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("LOCAL_READ_CONTROL_INVALID")
+        return value
+
+
+class MarketDataStreamAuthenticatedDto(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1]
+    event: Literal["AUTHENTICATED"]
 
 
 class MarketDataStreamSourceReferenceDto(BaseModel):

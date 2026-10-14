@@ -13,6 +13,8 @@ import {
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { keepDialogFocus } from "./dialogFocus";
 import "./calculationPicker.css";
+import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
+import { readChartStudyCapability, type ChartStudyCapability } from "../../api/chartStudies/client";
 
 type Category = "INDICATOR" | "FACTOR";
 type CatalogState =
@@ -20,6 +22,7 @@ type CatalogState =
     | { readonly status: "loading" }
     | { readonly status: "ready"; readonly catalog: ChartCatalog }
     | { readonly status: "registered"; readonly entries: readonly RegisteredCalculation[] }
+    | { readonly status: "transient"; readonly capability: ChartStudyCapability }
     | { readonly status: "error"; readonly error: ChartCatalogError["code"] };
 const messages: Record<ChartCatalogError["code"], string> = {
     NO_RUNTIME: "没有可用于新工作的 Runtime Generation；执行未接入。",
@@ -28,18 +31,24 @@ const messages: Record<ChartCatalogError["code"], string> = {
     INVALID: "目录身份或契约验证失败；不可选择。",
     TRANSPORT: "目录请求失败或正式服务不可用；不可选择。"
 };
-type PickerEntry = ChartCatalogEntry | RegisteredCalculation;
+type PickerEntry = ChartCatalogEntry | RegisteredCalculation | ChartStudyCapability;
 const reference = (entry: PickerEntry) =>
-    "capability" in entry ? entry.capability : entry.type_reference;
+    "capability_projection" in entry
+        ? entry
+        : "capability" in entry
+          ? entry.capability
+          : entry.type_reference;
 const label = (entry: PickerEntry) =>
     reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id;
 
 /** Catalog navigation only. No Study, numeric execution or market-data side effects. */
 export function CalculationPicker({
     draft,
-    onDraftChange
+    onDraftChange,
+    credentials
 }: {
     readonly draft: ChartCalculationDraft | null;
+    readonly credentials?: LocalReadCredentials;
     readonly onDraftChange: (
         draft: ChartCalculationDraft | null,
         trigger: HTMLElement | null
@@ -60,19 +69,25 @@ export function CalculationPicker({
         setState({ status: "loading" });
         try {
             let next: CatalogState;
-            try {
-                const catalog = await readChartCatalog(controller.signal);
-                next = { status: "ready", catalog };
-            } catch (error) {
-                // Only formally observed absence opens the independent discovery path.
-                // Never hide invalid/stale exact proofs behind current-process metadata.
-                if (!(error instanceof ChartCatalogError) || error.code !== "NO_RUNTIME")
-                    throw error;
+            if (credentials !== undefined) {
                 next = {
-                    status: "registered",
-                    entries: await readRegisteredCalculations(controller.signal)
+                    status: "transient",
+                    capability: await readChartStudyCapability(credentials, controller.signal)
                 };
-            }
+            } else
+                try {
+                    const catalog = await readChartCatalog(controller.signal);
+                    next = { status: "ready", catalog };
+                } catch (error) {
+                    // Only formally observed absence opens the independent discovery path.
+                    // Never hide invalid/stale exact proofs behind current-process metadata.
+                    if (!(error instanceof ChartCatalogError) || error.code !== "NO_RUNTIME")
+                        throw error;
+                    next = {
+                        status: "registered",
+                        entries: await readRegisteredCalculations(controller.signal)
+                    };
+                }
             if (request.current === controller && !controller.signal.aborted) setState(next);
         } catch (error) {
             if (request.current === controller && !controller.signal.aborted)
@@ -81,7 +96,7 @@ export function CalculationPicker({
                     error: error instanceof ChartCatalogError ? error.code : "INVALID"
                 });
         }
-    }, [onDraftChange]);
+    }, [onDraftChange, credentials]);
 
     useEffect(
         () => () => {
@@ -107,7 +122,9 @@ export function CalculationPicker({
         setSelecting(false);
     }
     async function select(entry: PickerEntry) {
-        if ("capability" in entry) {
+        if ("capability_projection" in entry) {
+            if (state.status !== "transient" || credentials === undefined) return;
+        } else if ("capability" in entry) {
             if (state.status !== "ready" || entry.availability !== "AVAILABLE") return;
         } else if (state.status !== "registered") return;
         request.current?.abort();
@@ -116,12 +133,20 @@ export function CalculationPicker({
         setSelecting(true);
         try {
             let next: ChartCalculationDraft;
-            if ("capability" in entry && state.status === "ready") {
+            if ("capability_projection" in entry && credentials !== undefined) {
+                const current = await readChartStudyCapability(credentials, controller.signal);
+                if (
+                    current.capability_projection_fingerprint !==
+                    entry.capability_projection_fingerprint
+                )
+                    throw new ChartCatalogError("STALE");
+                next = { source: "CHART_STUDY_TRANSIENT", capability: current };
+            } else if ("capability" in entry && state.status === "ready") {
                 const active = await readActiveRuntime(controller.signal);
                 if (active !== state.catalog.runtimeGenerationFingerprint)
                     throw new ChartCatalogError("STALE");
                 next = { source: "EXACT_CATALOG", catalog: state.catalog, entry };
-            } else if (!("capability" in entry)) {
+            } else if (!("capability" in entry) && !("capability_projection" in entry)) {
                 const registrations = await readRegisteredCalculations(controller.signal);
                 // Discovery is mutable. Re-observe the complete selected descriptor;
                 // a type/version match alone must not silently retain changed defaults.
@@ -183,7 +208,12 @@ export function CalculationPicker({
 /** Presentation of the workspace-owned selection, not another draft state. */
 export function CalculationSelectionSummary({ draft }: { readonly draft: ChartCalculationDraft }) {
     const exact = draft.source === "EXACT_CATALOG" ? draft : null;
-    const entry = draft.source === "EXACT_CATALOG" ? draft.entry : draft.registration;
+    const entry =
+        draft.source === "CHART_STUDY_TRANSIENT"
+            ? draft.capability
+            : draft.source === "EXACT_CATALOG"
+              ? draft.entry
+              : draft.registration;
     const selected = reference(entry);
     return (
         <span
@@ -296,6 +326,32 @@ function CatalogDialog({
                 <p role="status">正在读取目录…</p>
             ) : state.status === "error" ? (
                 <p role="alert">{messages[state.error]}</p>
+            ) : state.status === "transient" ? (
+                <>
+                    <p>CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result</p>
+                    {category === "FACTOR" ? (
+                        <p role="status">此只读切片不支持 Factor</p>
+                    ) : (
+                        <ul className="calculation-picker__entries">
+                            <li>
+                                <h3>SMA</h3>
+                                <p>closed native 15m · CLOSE/value · 最多 2000 Bars</p>
+                                <p>
+                                    选择仅配置；确认后查询已完成历史，不启动 Research 或数据获取。
+                                </p>
+                                <button
+                                    type="button"
+                                    disabled={selecting}
+                                    onClick={() => {
+                                        onSelect(state.capability);
+                                    }}
+                                >
+                                    选择 SMA · 配置草稿
+                                </button>
+                            </li>
+                        </ul>
+                    )}
+                </>
             ) : state.status === "registered" ? (
                 <>
                     <p role="status">已登记目录 · Runtime 未激活，执行未接入；仍可选择配置草稿。</p>

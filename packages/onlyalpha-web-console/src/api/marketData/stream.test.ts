@@ -4,6 +4,113 @@ import {
     openMarketDataStream
 } from "./stream";
 import { marketDataBarSemantic } from "./model";
+import { LocalReadCredentials } from "./localReadCredentials";
+
+it.each([1012, 1008])(
+    "distinguishes Source generation replacement from authentication refusal: %s",
+    (code) => {
+        class Socket extends EventTarget {
+            static current: Socket;
+            constructor() {
+                super();
+                Socket.current = this;
+            }
+            send() {
+                return undefined;
+            }
+            close() {
+                return undefined;
+            }
+        }
+        vi.stubGlobal("WebSocket", Socket);
+        try {
+            const disconnect = vi.fn();
+            openMarketDataStream(
+                {
+                    schema_version: 2,
+                    operation: "SUBSCRIBE_BAR",
+                    source_reference: {
+                        integration_id: "i",
+                        integration_revision_fingerprint: "a".repeat(64),
+                        expected_type_id: "test.source"
+                    },
+                    instrument_id: "BTCUSDT.TEST",
+                    bar_semantic: marketDataBarSemantic(15),
+                    resume_after_sequence: "0"
+                },
+                vi.fn(),
+                disconnect,
+                new LocalReadCredentials(true)
+            );
+            Socket.current.dispatchEvent(new CloseEvent("close", { code }));
+            expect(disconnect).toHaveBeenCalledExactlyOnceWith(
+                code === 1008 ? "AUTHENTICATION_ERROR" : undefined
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    }
+);
+
+it("sends AUTH before Subscribe and fences all old socket messages on token A→B→A", () => {
+    class Socket extends EventTarget {
+        static current: Socket;
+        frames: string[] = [];
+        constructor(
+            readonly url: string,
+            readonly protocols?: string[]
+        ) {
+            super();
+            Socket.current = this;
+        }
+        send(value: string) {
+            this.frames.push(value);
+        }
+        close() {
+            this.dispatchEvent(new CloseEvent("close", { code: 1000 }));
+        }
+        emit(value: unknown) {
+            this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) }));
+        }
+    }
+    vi.stubGlobal("WebSocket", Socket);
+    const credentials = new LocalReadCredentials();
+    const token = "ee".repeat(32);
+    credentials.replace(token);
+    const event = vi.fn();
+    const disconnect = vi.fn();
+    const request = marketDataStreamSubscribeSchema.parse({
+        schema_version: 2,
+        operation: "SUBSCRIBE_BAR",
+        source_reference: {
+            integration_id: "i",
+            integration_revision_fingerprint: "a".repeat(64),
+            expected_type_id: "test.source"
+        },
+        instrument_id: "BTCUSDT.TEST",
+        bar_semantic: marketDataBarSemantic(15),
+        resume_after_sequence: "0"
+    });
+    const dispose = openMarketDataStream(request, event, disconnect, credentials);
+    const socket = Socket.current;
+    socket.dispatchEvent(new Event("open"));
+    expect(socket.url).not.toContain(token);
+    expect(socket.protocols).toBeUndefined();
+    const operations = () =>
+        socket.frames.map((frame) => (JSON.parse(frame) as { operation: string }).operation);
+    expect(operations()).toEqual(["AUTH"]);
+    socket.emit({ schema_version: 1, event: "AUTHENTICATED" });
+    expect(operations()).toEqual(["AUTH", "SUBSCRIBE_BAR"]);
+    socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
+    expect(event).toHaveBeenCalledTimes(1);
+    credentials.replace("ff".repeat(32));
+    credentials.replace(token);
+    socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
+    expect(event).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
+    dispose();
+    vi.unstubAllGlobals();
+});
 
 it("admits the exact-source cursor contract and rejects browser OHLCV truth", () => {
     const request = {

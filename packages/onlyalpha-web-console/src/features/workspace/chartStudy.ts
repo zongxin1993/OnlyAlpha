@@ -1,3 +1,4 @@
+import type { ChartStudyCapabilities } from "../../api/chartStudies/http.generated";
 import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
 import type { MarketDataBarSemantic, MarketDataSourceReference } from "../../api/marketData/model";
 
@@ -109,7 +110,10 @@ export function studyDescriptor(selection: ChartCalculationDraft): StudyDescript
             outputs: item.outputs
         };
     } else {
-        const item = selection.entry.capability.type_descriptor;
+        const item =
+            selection.source === "CHART_STUDY_TRANSIENT"
+                ? selection.capability.descriptor
+                : selection.entry.capability.type_descriptor;
         result = {
             kind: item.kind,
             typeId: item.type_id,
@@ -281,6 +285,33 @@ export function configurationErrors(
         errors.push("未知参数");
     if (!descriptor.outputs.some((output) => output.name === configuration.outputName))
         errors.push("请选择官方 output");
+    return errors;
+}
+/** Transient support is narrower than the canonical Calculation descriptor. */
+export function transientConfigurationErrors(
+    capability: ChartStudyCapabilities["capabilities"][number],
+    configuration: StudyConfiguration
+): readonly string[] {
+    const errors: string[] = [];
+    const period = configuration.parameters.period;
+    const maximum = capability.capability_projection.limits.max_period;
+    if (
+        period?.type !== "INTEGER" ||
+        !Number.isSafeInteger(period.value) ||
+        period.value < 1 ||
+        period.value > maximum
+    )
+        errors.push(`period: 当前图表查询仅支持 1–${String(maximum)}`);
+    const priceField = configuration.parameters.price_field;
+    // The admitted supported_shape explicitly restricts this query to CLOSE/value.
+    if (priceField?.type !== "STRING" || priceField.value !== "CLOSE")
+        errors.push("price_field: 当前图表查询仅支持 CLOSE");
+    if (
+        !capability.capability_projection.output_members.some(
+            (name) => name === configuration.outputName
+        )
+    )
+        errors.push("当前图表查询不支持此 output");
     return errors;
 }
 export function validPresentation(value: StudyPresentation): boolean {

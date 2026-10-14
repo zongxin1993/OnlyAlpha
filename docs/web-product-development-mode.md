@@ -305,6 +305,62 @@ operator intent
 
 Risk-specific backend tests remain required when the slice changes correctness-sensitive behavior.
 
+### 8.1 One business acceptance surface: Shipping Web UI
+
+`AGENTS.md` §3.3.1 owns the mandatory acceptance rule. All business product testing,
+verification and acceptance use the normal Shipping Web UI workflow, exactly as an
+ordinary operator uses it. The browser is the **only user-action entry point for
+business acceptance**, not the only engineering test layer and not a new Authority.
+
+Start at the normal product entry, use discoverable navigation and controls, enter
+the same user inputs, and observe the same visible results, errors and recovery.
+Do not replace a user step with a direct API call, database seed, SDK/Python action,
+injected React/browser state, hidden test button, fixture-only page or test shortcut.
+If a supported normal deep link is the user's intended entry, exercise that same
+entry; a test-only route is not equivalent. Accessibility/test locators may identify
+real controls without creating special product behavior.
+
+Normal UI → formal Product API → canonical Authority → UI projection must be real.
+Mocked API responses, a controlled renderer/backend fixture, precomputed results,
+component tests and endpoint PASS remain technical evidence only. They do not certify
+that an operator can complete the business workflow. Controlled external payloads
+and hermetic data remain valid inputs when they reach the real owning application;
+they never certify current market freshness, a real account or deployment transport.
+
+Preparation may establish the task's explicit existing conditions, such as an
+admitted dataset or initialized isolated environment. It must not silently perform
+an operation within the user's goal. For example, a source-management slice must
+create/configure/publish through its real UI; pre-seeding that Source and testing only
+the final screen cannot close that slice. Infrastructure provisioning, deterministic
+Kernel tests and safety diagnostics keep their own entry points and evidence scope.
+
+When the UI cannot express a required action, record the concrete presentation,
+Query, Command, Domain, Authority or Infrastructure gap and leave product acceptance
+open. Do not certify the workflow from endpoint availability or weaken backend checks.
+This rule does not retroactively promote earlier fixture PASS into product evidence.
+
+### 8.2 User convenience and workflow parity
+
+Define acceptance from the user's goal, not from an implementation checklist:
+
+- The entry and next action are discoverable without developer knowledge.
+- Defaults reduce unnecessary input but do not grant implicit permission.
+- Labels explain user concepts; normal operation does not require internal IDs,
+  database queries, console scripts or switching to engineering tools.
+- Each meaningful operation has visible loading, success and actionable failure;
+  empty, stale/degraded and permission-denied states are not disguised as ready.
+- Corrections, cancellation and supported recovery stay in the normal UI; UNKNOWN
+  remains explicit and never becomes an automatic/blind resubmission.
+- Keyboard/focus behavior and the slice's declared viewports remain usable.
+- The active Task Contract states the ordinary steps, necessary inputs, visible
+  feedback and evidence-based interaction/latency budgets. Dogfooding uses this
+  exact path; minimum clicks or a green automation run alone do not prove usability.
+
+Kernel validation remains centered on deterministic transitions, unique identity
+and Authority, integrity, traceability, recovery and fail-closed behavior. Frontend
+unit/contract/renderer/security regressions also remain required where impacted;
+neither layer substitutes for the business UI acceptance above.
+
 ## 9. Design and finish quality
 
 OnlyAlpha keeps its existing product direction:

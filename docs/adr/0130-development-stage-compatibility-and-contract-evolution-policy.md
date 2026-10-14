@@ -27,7 +27,19 @@ Unless the repository owner explicitly marks a contract compatibility-frozen or 
 2. Product API contracts may change incompatibly in their current major;
 3. the current canonical contract is updated directly and all in-repository consumers migrate atomically;
 4. obsolete internal fixtures, tests and loaders may be deleted or rewritten; and
-5. compatibility layers and duplicate version families are not added by default.
+5. compatibility layers and duplicate version families are neither added nor retained solely to support obsolete development versions.
+
+The owner's active-development clarification is: **“开发阶段不保留任何旧版本兼容处理”**. Evolve the current canonical contract
+directly and migrate in-repository consumers atomically; remove obsolete-version shims, loaders and schema/DTO fallbacks within the
+authorized change's real impact scope, rather than keep parallel historical behavior. This is not authorization for repository-wide
+cleanup or silent revocation of an explicitly frozen/supported contract. Exact historical identity, current migration/replay/recovery
+and immutable-fact requirements below remain correctness obligations, not compatibility shims.
+
+Active-development data remains durable across ordinary startup, shutdown/restart, source or image upgrades and container replacement.
+Not retaining obsolete-version compatibility code does not authorize discarding history. Verify existing history through current owning
+readers after explicit required migrations and restart, including exact references, namespace coherence and credential usability.
+An explicitly selected dev-data reset is a separate destructive lifecycle, never an upgrade mechanism or substitute for these tests.
+Production data deletion additionally requires exact human authorization, protected coherent backups and a verified recovery path.
 
 The contract verifier continues deterministic rendering, canonical hashing, immutable-baseline comparison, structural and OnlyAlpha
 policy lint, complete sorted breaking-diff classification and generated-client freshness checks. For a `DEVELOPMENT_UNFROZEN` family,

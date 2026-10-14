@@ -6,12 +6,64 @@ import hashlib
 import platform
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePosixPath
 
-from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationTypeReference
+from onlyalpha.calculation.definition import (
+    OnlyCalculationBackendKind,
+    OnlyCalculationKind,
+    OnlyCalculationTypeReference,
+)
 from onlyalpha.canonical import only_canonical_fingerprint
+
+
+def only_chart_study_invocation_manifest() -> OnlyCalculationImplementationManifest:
+    """Explicit resource closure of the authorized non-publishing SMA adapter."""
+    from onlyalpha.calculation.decimal_execution import only_decimal_execution_semantic_dependency
+
+    return only_python_implementation_manifest(
+        calculation_type_reference=OnlyCalculationTypeReference(
+            OnlyCalculationKind.INDICATOR, "onlyalpha.indicator.sma", "1"
+        ),
+        backend_kind=OnlyCalculationBackendKind.RESEARCH,
+        entrypoint_identity="onlyalpha.application.chart_study_numeric:OnlyChartStudySmaInvocation",
+        package_root=Path(__file__).resolve().parents[1],
+        resource_paths=(
+            "application/chart_study_numeric.py",
+            "application/chart_study_input.py",
+            "application/source_read_access.py",
+            "calculation/chart_decimal.py",
+            "calculation/decimal_execution.py",
+            "calculation/definition.py",
+            "calculation/implementation.py",
+            "calculation/registry.py",
+            "canonical.py",
+            "quant_assets/installed_implementation.py",
+            "quant_assets/catalog.py",
+            "research/calculation/backend.py",
+            "research/calculation/output_validation.py",
+            "research/calculation/readiness.py",
+        ),
+        semantic_dependencies=(only_decimal_execution_semantic_dependency(), only_chart_sma_numeric_dependency()),
+    )
+
+
+def only_chart_sma_numeric_dependency() -> OnlyCalculationSemanticDependency:
+    from onlyalpha.calculation.chart_decimal import only_chart_sma_numeric_binding
+    from onlyalpha.calculation.definition import OnlyNumericDefinition
+
+    binding = only_chart_sma_numeric_binding(OnlyNumericDefinition(output_quantum=Decimal("0.000000000001")))
+    return OnlyCalculationSemanticDependency(
+        "onlyalpha.chart-study.decimal-binding", "1", only_canonical_fingerprint(binding)
+    )
+
+
+def only_chart_study_invocation_dependency() -> OnlyCalculationSemanticDependency:
+    return OnlyCalculationSemanticDependency(
+        "onlyalpha.chart-study.invocation", "1", only_chart_study_invocation_manifest().implementation_fingerprint
+    )
 
 
 class OnlyCalculationStateCapability(StrEnum):

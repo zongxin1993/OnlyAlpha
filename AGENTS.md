@@ -288,6 +288,33 @@ Store、internal Core 或浏览器重算 Research/Trading truth 规避缺口。
 Web Slice 的默认 closure 不是“endpoint 已存在”或“component 能 render”，而是主用户路径通过 formal Product API 端到端可用，
 并有与风险相匹配的 Browser E2E / targeted evidence。
 
+#### 3.3.1 业务产品验收：唯一 Web UI 路径
+
+所有业务产品能力的测试、验证与验收，MUST 以正式 Shipping Web UI 为唯一用户操作入口，走与普通用户完全一致的流程：
+真实产品入口 → 正常导航/输入/操作 → versioned Product API → owning Authority → 正常 UI 结果与反馈。
+不能通过 curl、SDK、Python、直接 API Command、数据库/Store 修改、浏览器脚本注入 state 或内部对象调用替代用户步骤。
+业务目标包含的创建、配置、选择、提交、查看、修改、取消或恢复操作，必须由用户可发现的正常 UI 完成。
+
+禁止为了验收制造普通用户不可用的特供页面、隐藏按钮、测试模式、捷径、特供响应或不同业务流程。公开的正式深链接、
+产品配置模式与辅助功能定位符可以使用，但不得改变正常用户行为、认证授权、Authority 或执行语义。
+若正常 UI 无法完成业务目标，必须报告具体 Product/API/Authority Gap，产品验收保持未完成；禁止绕过 UI 记为 PASS。
+
+Browser 测试必须使用正常用户行为和 UI 可见状态组织断言，而不是以内部实现步骤定义产品流程。
+正式业务验收必须连接真实 canonical application/Authority；mock API、预计算结果、测试专用 backend/renderer fixture、
+组件测试和接口测试只能证明各自的技术性质，不能单独或合并替代真实产品验收。
+hermetic 测试可以使用受控外部输入与正式、隔离的测试数据；前提准备只能建立任务明确的既有条件，不得预先代做当前
+User Goal 包含的业务步骤，也不得把 fixture 说成真实市场、真实账户或真实部署证据。
+Infrastructure 初始化/兼容性/隔离检查不是正常业务用户流程，也不能替代业务验收。
+
+Kernel 的开发和验证标准保持不变：确定性、唯一 identity/Authority、数据完整性、traceability、recovery/reconciliation、
+fail-closed 及所需 unit/contract/property/fault tests 继续执行。前端 unit、API contract、renderer 与 security 等技术回归也
+继续保留；“业务验收唯一 Web UI”不授权删除、弱化或绕过这些工程检查，更不把 Web 升级为 Trading Authority。
+
+前端以用户使用便捷性为核心验收点：入口和下一步可发现；默认值合理且无隐式越权；术语能被用户理解；不要求复制内部
+ID、查询数据库或切换调试工具；loading/empty/invalid/denied/unavailable/degraded/success 清楚可见；正常错误后的恢复仍
+可从 UI 完成，UNKNOWN 不被包装成失败或盲重试；保留相关 keyboard/focus/responsive 行为。每个 Slice 必须明确用户
+步骤、必要输入、预期可见反馈与有依据的交互/耗时预算，并进行同路径 dogfooding，不用单一点击数或测试变绿代替可用性。
+
 ### 3.4 Simplicity / Accidental Complexity Control
 
 OnlyAlpha 使用 bounded Simplicity Review 消除 accidental complexity；它不删除 Constitution、Architecture / Contract、Accepted ADR、冻结 Required Behavior、correctness、security、reproducibility、data integrity、recovery、traceability、observability 或 required tests 所要求的 essential complexity。
@@ -495,9 +522,10 @@ bounded Independent Review 完成
 
 Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得为了固定百分比制造低价值测试。
 
-本地正式验证必须通过 `deploy/run-tests.sh` 进入唯一 canonical Compose `test` profile；宿主 `.venv` 只允许用于快速 inner-loop
-定位，其结果不得替代正式验收。Runner 必须构建当前工作树、使用隔离 namespace、保留 `test-results/`，并在退出时清理容器、
-网络和测试卷。明确依赖公网、Windows、硬件或真实账户的 external lane 在对应受控目标环境执行，不得伪装成容器 PASS。
+本地正式验证必须在唯一 `onlyalpha-dev` project 中通过 `deploy/docker-compose.dev.yml` 的正式验证入口执行，复用 dev
+服务和固定 dev 镜像集合，并遵守下述 §6.1；宿主 `.venv` 只允许用于快速 inner-loop 定位，其结果不得替代正式验收。
+验证必须绑定当前工作树并保留 `test-results/`。CI 可以使用独立 job namespace 和测试资源；这种 CI 生命周期不得默认搬到
+本地开发。明确依赖公网、Windows、硬件或真实账户的 external lane 在对应受控目标环境执行，不得伪装成容器 PASS。
 
 本地 PostgreSQL 测试必须通过唯一 canonical `deploy/docker-compose.dev.yml` 的 `test` profile 执行；
 不得在宿主机手工启动 PostgreSQL 或为测试引入第二套 PostgreSQL DSN 变量。Compose
@@ -505,6 +533,62 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
 
 当前开发阶段，`deploy/docker-compose.dev.yml` 是 OnlyAlpha 唯一授权的 Docker Compose 拓扑。
 新增第二个 OnlyAlpha-owned Compose topology 必须先取得明确的 owner approval，并同步更新本治理规则与架构测试。
+
+### 6.1 本地开发、验证与调试：单一 dev 环境
+
+本地开发只使用一套 dev 环境，而不是每个 commit、worktree、任务、验证轮次或 PID 创建一套 Docker 环境：
+
+- 唯一 Compose project 为 `onlyalpha-dev`，唯一拓扑为 `deploy/docker-compose.dev.yml`。禁止为普通本地验证创建
+  `onlyalpha-test-*`、`onlyalpha-web-e2e-*`、`onlyalpha-operator-*` 或其他平行 project/network/store；独立部署边界测试
+  若确实需要例外，必须先取得针对本次资源、风险、数据保留和清理范围的明确 owner approval。
+- OnlyAlpha 自建镜像按必要服务角色复用固定 `:dev` 标签；相同 build target 的服务共享镜像，不按 service、commit SHA、
+  日期、任务或验证轮次新增标签。必要的 Python、Web、验证工具及 pinned PostgreSQL/ClickHouse 镜像构成**同一套镜像集合**，
+  不要求把数据库、Web 和 Python 强行合成一个镜像。CI/release 的不可变发布镜像不受本地标签规则替代。
+- 开发阶段优先将当前工作树 source 挂载到固定 dev 工具镜像中执行验证；普通 source 修改不触发环境镜像重建。
+  正式验证使用每轮冻结的只读 source view；该 view 仍通过同一固定 dev 服务挂载，不把普通源码变更烘焙进镜像。
+  只比较实时挂载 source 的前后 hash 不能证明期间未变更；执行相关隐藏配置必须纳入 input，credential 不得纳入。
+  容器依赖必须与宿主依赖隔离；不得把宿主 macOS 的 `.venv` / `node_modules` 当作 Linux 验证依赖。
+  只有 Dockerfile、dependency、工具链或环境不兼容时才更新对应固定 dev 标签。必须证明当前工作树被实际验证，不能把旧
+  镜像的结果归给新源码。固定标签不替代 image content identity、build provenance、Provider version 或 Runtime Generation。
+- 优先复用 dev 中已有容器，通过正式入口执行必要命令。需要验证工具容器时复用同一 project 下的固定服务；不得以
+  `compose run`、随机容器名或 build-only project 每次再生一批容器。不得在 dev 旁边启动平行的 PostgreSQL/ClickHouse/
+  产品 API Compose stack。固定验证服务内部、无对外端口、隔离测试数据的短生命周期 HTTP fixture 不等于第二套业务部署；
+  它只能提供 hermetic 测试事实，不能控制 dev 业务状态或替代真实产品/部署验收。
+- 测试隔离必须保留：复用数据库**服务**不等于共享业务**数据库/semantic store**。PostgreSQL 继续使用正式
+  `ONLYALPHA_POSTGRES_DSN` 及 `_test` 后缀校验；ClickHouse 和 immutable test roots 必须使用明确的测试 namespace。
+  测试不得清空、迁移、重绑定或导入 fixture 到 dev 业务数据库、user-data、生产 Private Assets 或实际采集事实。
+- 同一 dev/test namespace 的破坏性 fixture 和验证过程必须串行或由确定性锁/barrier 隔离；不得同时运行会共享可变测试
+  状态的多个 suite。普通本地 Python、Vitest 和 Playwright 验证默认单 worker。提高并发需要当前机器资源与状态隔离证据，
+  不能把框架按 CPU 自动推算的默认并发当作安全证明。
+- 资源压力、连续异常超时、Docker 控制失去响应或 owner 要求停止时，终止当前验证，不自动重试，不加大 timeout，不弱化
+  断言，不标记 PASS。保留已有日志；对未能取得的状态/trace/产物明确记录证据不可用。
+- 开发阶段，Owner 已授权在必要时完整停止、删除并重建确认为 `onlyalpha-dev` 所属的 dev 容器，无需为这些容器的
+  清理重复申请授权。执行前仍须盘点精确 container/image/network/volume 身份及引用关系，确认当前工作可停止、持有
+  对应生命周期锁并保留已有日志；不得删除未知归属或其他项目的容器。这不是每个任务、commit 或验证轮次自动重建
+  的许可，正常开发仍优先复用唯一 dev 环境。
+- 普通启动、停机重启、工程升级、重建镜像和替换容器均保留历史数据；容器清理许可不包含数据卷删除或重新初始化。
+  开发阶段允许独立、显式选择“清空 dev 数据并重新初始化”，但执行前必须明确本次精确资源与数据范围，协调数据库、
+  文件型数据、密钥和 namespace，保留日志并解决未决工作；不得只删除 user-data 后自动重绑已有数据库。
+  普通开发仍禁止 `down -v`、全局 `system/image/volume/builder prune` 或强制删除未知归属资源；默认保留数据卷、
+  固定 dev 镜像集合和其他项目。Docker Desktop 全局停启及其对其他服务的影响必须单独明确授权。
+- 不满足上述约束的旧 runner/命令不能作为本地开发入口。特别是会创建临时 project 并 `down -v` 的
+  `deploy/run-tests.sh`、`deploy/run-web-e2e.sh` 调用模式只能用于其受控 CI 场景，不能因脚本已存在就继续在本地执行。
+  未完成安全的共享 dev 入口时应报告入口缺口，不得偷偷退回平行部署或把文档约束宣称为已实现的机械保护。
+
+单一 dev 约束不授权降低 authentication、Source grant、authority、determinism、immutable history、hermetic tests、
+recovery 或 accepted deployment/semantic-store boundary。不能安全复用时停止并提交最小边界方案，不以方便为由清库或取消安全约束。
+
+### 6.2 运行数据位置、历史保留与升级验证
+
+- 源码运行通过正式配置指定本机 `user_data` 目录；Docker 运行使用独立于容器生命周期的数据卷。路径与挂载是部署配置，
+  不是 canonical identity，也不得创建第二份事实 Authority。复用现有 `--user-data-root` 和 `OnlyUserDataLayout`。
+- 运行数据、密钥与凭据不得进入源码、Git、镜像或冻结的源码验证副本；验证数据与业务数据继续隔离。
+- 开发阶段也必须证明工程升级及停机重启后，已有历史可通过当前正式 owning reader 正常读取和使用；涉及持久格式时，
+  验证明确的 migration、exact identity、引用完整性、密钥可用性及恢复语义。不得用清库、重建空数据或旧版本 fallback
+  替代历史验证。不保留旧版本兼容处理不等于允许丢弃历史数据。
+- 正式部署默认保护历史数据。删除/重置必须有精确范围、明确人工授权、受保护的配对备份、已验证的恢复路径和保留策略；
+  开发期的清空许可不能扩展到正式部署。缺失或不匹配的历史、密钥、namespace 必须 fail closed，不能静默采用新存储。
+- 测试必须区分 fresh reader/process restart、真实服务停机重启、格式迁移和真实部署升级；前者不能冒充后者的证据。
 
 ---
 
@@ -526,15 +610,37 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
 
 Breaking change 可以存在，但必须是 Constitution 允许范围内的明确设计决定，不能因为实现方便静默发生。
 
-活跃开发阶段不默认承诺 backward compatibility。只有 repository owner 明确要求，或 Contract 明确标记为
-compatibility-frozen / externally supported 时才必须保留；默认不得增加 compatibility shim、version-family duplication 或
-legacy loader。Breaking-change detection、分类及仓内 consumer 原子迁移仍然必须执行。
+开发阶段不保留旧版本兼容处理：直接演进当前 canonical contract，并原子更新仓内 consumers、测试与文档；不得仅为
+兼容已淘汰开发版本而新增或保留 compatibility shim、version-family duplication、legacy loader、旧 schema/DTO fallback
+或平行旧版本分支。Breaking-change detection、分类及仓内 consumer 原子迁移仍然必须执行。
+当前规范要求的 exact identity、immutable history、migration、replay、recovery 与完整性不是旧版本兼容处理，不得删除或
+放宽。若已有 Contract 明确标记 compatibility-frozen / externally supported，不得静默解除承诺；须先取得 Owner 对该
+Contract 的明确变更决策。仅记录本规则不授权范围外全仓删除或 cleanup。
 
 数据库 migration 必须明确 precondition、deterministic transformation、failure semantics、transaction/atomicity、compatibility window、restart/retry semantics 和 data integrity。能安全回滚时提供 rollback；不能安全回滚时使用 fail-closed + backup/snapshot/forward-fix。
 
 修改 package metadata、dependencies、entry points、public exports、plugin discovery、frontend build inputs、Docker image contents 或 release/build scripts 时，执行对应 build/package 验证。
 
 认证授权、secret handling、外部输入、网络协议、SQL/persistence、命令执行、文件系统、Web security、Broker/LIVE 外部接口等修改按真实风险增加专项 security 验证。
+
+### 7.1 开发期发行版本与组件兼容性
+
+开发期每个合并到主分支 `master` 的 PR（含文档、依赖和 revert）必须在该 PR 内，基于最新主分支版本完成一次升版：
+默认 `X.Y.Z → X.Y.(Z+1)`；Owner 明确认可阶段性产品目标并选择 `release:minor` 时，改为
+`X.Y.Z → X.(Y+1).0`，不再叠加 patch；`release:major` 必须单独取得 Owner 决策，变为 `(X+1).0.0`。
+PR 创建、追加 commit、验证、关闭但未合并均不升版；并行 PR 必须在前一 PR 合并后重新对齐，不得重复使用版本。
+合并前检查 release transition，合并后提示旧版本 → 新版本；不得通过自动 post-merge commit、自动合并或回写状态文件实现。
+
+根 `pyproject.toml` 是唯一发行号 Authority，复用 `scripts/version_sync.py` 同步现有 workspace、内部 exact dependencies、
+Web metadata/lock、Provider distribution provenance 与 `uv.lock`。不要创建第二份版本台账。发行号只描述集成版本，
+不代表阶段验收 PASS、兼容性认证、部署许可或 LIVE Authority。
+
+`0.y.z` 期间发行号不承诺 patch 内无 breaking change；仍按 ADR 0130 执行 contract 分类、breaking detection 和仓内
+consumer 原子迁移。进入稳定发行须有明确 Owner support/compatibility 决策，此后兼容性变化按 SemVer 决定级别。
+Product API major/fingerprint、Plugin SPI、Provider/content、Calculation semantic version、Private Asset Revision、
+schema/checkpoint、Catalog/Runtime Generation 和 image content identity 均保持各自 owning Authority；不得随发行号
+自动升版、放宽 admission、重绑定已有工作或猜测混合版本可兼容。升级/回滚保留既有 migration、replay、integrity、
+authentication 与 fail-closed 要求。操作说明见 `docs/release-versioning.md`。
 
 ---
 

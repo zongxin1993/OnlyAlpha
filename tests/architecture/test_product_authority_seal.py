@@ -161,6 +161,10 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
             and name
             not in {
                 "onlyalpha.application.catalog_context",
+                # ADR 0138: thin authenticated transport for a non-publishing
+                # Query. The dedicated boundary test forbids store/Command imports.
+                "onlyalpha.application.chart_study_product_query",
+                "onlyalpha.application.source_read_access",
                 "onlyalpha.application.integration_application",
                 "onlyalpha.application.integration_configuration",
                 "onlyalpha.application.integration_probe",

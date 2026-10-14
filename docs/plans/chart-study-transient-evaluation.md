@@ -1,6 +1,6 @@
 # Chart Study Transient Evaluation — Slice Dependencies and Acceptance Design
 
-Status: **Proposed design; Owner Approval Required.** This is a future construction map, not a progress/quality Authority.
+Status: **Construction map under Accepted ADR 0138.** This is a future construction map, not a progress/quality Authority.
 It supports [ADR 0138](../adr/0138-chart-study-transient-evaluation-and-formal-research-separation.md) and its
 [Product design](../superpowers/specs/2026-10-11-chart-study-transient-evaluation-design.md).
 Scenario IDs organize this design; they are not proposed permanent test names or new CI gates.
@@ -10,15 +10,25 @@ Scenario IDs organize this design; they are not proposed permanent test names or
 | Slice | Dependency / user goal | Minimal complete change | Explicit exclusions |
 |---|---|---|---|
 | W3-A0 | Need an owner-reviewed separation before production work | Proposed ADR, source/constraint analysis, API alternatives and test design; independent review | No Accepted edit or API/SQL/Worker implementation; stop for owner approval |
-| W3-A1 | Owner explicitly adopts limited ADR/L1 scope updates including Decimal resolution; exact context/manifest and process composition admitted, then separately authorizes implementation | Real closed historical SMA@1 Query + OpenAPI/generated client + strict transient adapter + shipping Web + deterministic backend and Browser E2E; no support published before numeric/manifest prerequisites | No PR118 dependency, unclosed preview, private Factors, cache service, new database/topology or Research writes |
+| W3-A1 | Explicit owner authorization for limited ADR/L1 adoption and an independent Draft PR; exact context/manifest, process composition, local caller/Source grants and resources must be proved before support | Real closed historical SMA@1 Query + OpenAPI/generated client + strict transient adapter + shipping Web + deterministic backend and Browser E2E; no support published before numeric/manifest prerequisites | No PR118 dependency, unclosed preview, private Factors, cache service, new database/topology or Research writes |
 | W3-A2 | A1 real user path verified | Add EMA/RSI/MACD/ATR/Bollinger only per exact registration, init/readiness/output contract; multiple numeric members and typed nonnumeric exclusions | No support inferred from library name; no version upgrades/fabricated warmup |
 | W3-A3 | Exact supported time-series Factor capability admitted | Single-instrument Factor projection with source/Revision/Provider/runtime proof; optional independently verified Research overlay | CROSS_SECTION rank/universe needs its own scope/time/data proof; statistics/IC/search remain W6; no direct private code invocation |
 | W3-A4 | Closed batch semantics proved, separate preview approval | Closed realtime and explicit unclosed preview, longer history/init semantics, exact non-authoritative cache, bounded performance/error UX | No TTL freshness, stream-as-Seal, incremental promotion, new numeric Authority or speculative microservice |
-| W6 formal Chart Research | Independently authorized continuation of the separate Draft | Installed Host -> original Work/Attempt -> exact scientific publication -> terminal/expiry/recovery/unknown ACK -> Work release; formal browser submission | W3 success does not authorize Claim/merge/deployment; no implicit command per edit |
+| W6 formal Chart Research | Independently authorized continuation of formal Research foundations | Installed Host -> original Work/Attempt -> exact scientific publication -> terminal/expiry/recovery/unknown ACK -> Work release; formal browser submission | W3 success does not authorize Claim/merge/deployment; no implicit command per edit |
 
 Existing main-chart acquisition/stream behavior remains unchanged. Study evaluation reads already stored data only; any required
 source/acquisition action is separately explicit, never a hidden consequence of configuring SMA. Real stock data/session availability
 must be checked, not promised by 24x7 sample fixtures. Parameter/source changes are user intent; style is only presentation.
+
+PR118's default-closed 0050 foundation was merged before PR119; historical Draft/SHA comparisons in the design are not current
+merge-status claims. Integration does not substitute for W6 lifecycle acceptance. A1 starts from a freshly read master and
+does not call its Claim/Heartbeat/Work/publication entries.
+
+Admission order is explicit numeric/actual manifest + retained Provider/Catalog composition, then concrete trusted caller and
+Source entitlement/resource proofs, then Product API/generated client/production adapter/real Browser integration. A1 window
+size is capped at the owning current `MAX_TARGET_BAR_COUNT=2000`; the earlier 10000 candidate is neither supported scope nor
+an SLO. No assumed proxy, same-origin route or internal Agent token can supply the human Chart caller proof. Missing protection
+evidence blocks enabling the surface; see the design's access-control responsibility and test ownership.
 
 ## 2. W3 source-level acceptance matrix for future implementation
 
@@ -44,7 +54,7 @@ use controlled request barriers, not sleeps or retry-until-green. “New” belo
 | W3-15 Immutable inputs/cache | Repeated read/evaluation, consumer order and future hit/miss produce same exact numerics; reload owning Source unchanged | Plugin/Query differential test; A4 cache fault tests |
 | W3-16 Exact rendering | Valid canonical zero timestamp admitted/preserved; wrong family, duplicate owner/member/time, disorder (including zero-containing datasets), subsecond alias, Decimal overflow/underflow, whole-context/nested proof deletion fail before renderer; exact hover and disconnected NULL/missing segments | Extend studySeriesProjection/PriceChart unit tests and controlled renderer browser tests; production source adapter tested separately |
 | W3-17 Registration replacement | Pin one verified startup composition; reject complete different Provider/Catalog/numeric-support policy even with unchanged descriptor/implementation via expected full capability fingerprint; unavailable proof not stale; no reload/fallback/private code | New Application capability/admission tests + installed composition and wrong nested provider relation checks |
-| W3-18 Security/bounds | Missing authorization, wrong subject/source, extra fields, raw prices, scripts/paths/secrets, bool-as-int, unsupported output/preview, excessive rows/period/body fail before computation | New HTTP/OpenAPI strict consumer tests + architecture guard; sanitize errors |
+| W3-18 Security/bounds | Missing authorization, wrong subject/source, extra fields, raw prices, scripts/paths/secrets, bool-as-int, unsupported output/preview, excessive rows/period/body fail before computation; native WS independently versioned AUTH precedes one exact Subscribe, Origin/deadline/frame/capacity bounds and continuous withdrawal; no same-Source HTTP/WS/Command bypass | New HTTP/OpenAPI/WS strict consumer tests + architecture guard; exact route inventory and state machine in the design; unauthorized zero-open, blocked-open/event/response barriers, memory-only Browser generation/secret redaction and real isolated HTTP/WS/Browser proof |
 | W3-19 Empty/error/unavailable UI | Scoped input shortage distinct from source corrupt/unavailable; PARTIAL not global READY; main live Bar never appears as closed Study preview | Unit and browser states, no fixture or retry masking |
 | W3-20 Warmup/history/viewport/layout | Input scope unchanged by pan; enough declared prefix before cropping; older scope yields new projection; UTC viewport preserved across overlay/pane/removal; responsive chart usable | Existing timeAxis/history tests extended + Browser E2E; long-history expansion separately A4 |
 | W3-21 Decimal context/provenance | Exact same binding gives identical output/readiness or failure despite hostile ambient precision, rounding, exponents, clamp, traps/flags; caller context/source unchanged; old SMA manifest cannot claim missing policy; no silent Definition/Provider identity rewrite | New sequential/threaded differential Query tests + plugin/manifest admission tests; compare legacy only under same explicit context |
@@ -98,9 +108,10 @@ may be used to turn an implementation failure green. Hosted pending/cancelled ev
 
 ## 5. Approval and implementation boundaries
 
-Owner review must approve the exact ADR 0094/0114/0136/0137 scope changes, parallel source family, registration/composition policy,
-Query DTO/limits/init/quality semantics and prohibition on evidence promotion. After approval, apply directly dependent accepted
-contract amendments with a separately authorized implementation/consumer migration; do not self-promote this Proposed ADR.
+The owner decision recorded in ADR 0138 approves the exact ADR 0094/0114/0136/0137 scope changes, parallel source family,
+registration/composition policy, Query DTO/limits/init/quality semantics and prohibition on evidence promotion, and authorizes
+an independent W3-A1 Draft PR. Directly dependent Accepted/L1 amendments must remain atomic; API/consumer implementation must
+still prove numeric, authentication/Source entitlement, resource and zero-write admission. Approval is not implementation evidence.
 Then A1 closes only when a real user sees correct source-bound values through the formal API and production adapter, required
 deterministic/browser/zero-write proofs pass, and bounded independent review finds no Critical/High issue in actual scope.
 Any inability to express the design within L0 requires `PLAN_CONFLICT`, not weaker correctness or a Constitution amendment.

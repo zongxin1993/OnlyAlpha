@@ -30,7 +30,8 @@ from onlyalpha.application.chart_calculation_run_admission import (
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.research.calculation.execution import _immutable_arrow_array, _validate_outputs
+from onlyalpha.research.calculation.execution import _immutable_arrow_array
+from onlyalpha.research.calculation.output_validation import only_validate_research_outputs
 from onlyalpha.research.calculation.publication import OnlyResearchCalculationPublicationContract
 from onlyalpha.research.calculation.readiness import (
     OnlyResearchOutputReadiness,
@@ -203,7 +204,7 @@ class OnlyChartCalculationExecutionProjectionV1:
         _require(self.values.column("ts_event_ns").type == pa.int64())
         _require(tuple(self.values.column("ts_event_ns").to_pylist()) == self.request.timestamps)
         outputs = {output.name: self.values.column(output.name) for output in node.definition.outputs}
-        _validate_outputs(node.definition, outputs, len(self.request.timestamps))
+        only_validate_research_outputs(node.definition, outputs, len(self.request.timestamps))
         schema = pa.schema(
             [
                 pa.field("ts_event_ns", pa.int64(), nullable=False),

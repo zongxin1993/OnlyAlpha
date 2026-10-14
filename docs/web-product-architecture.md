@@ -408,6 +408,14 @@ ENTRY / EXIT markers when formally produced
 
 The browser may convert exact values to chart-compatible values only as an explicit presentation projection. It must not recalculate signals or factor/statistics truth.
 
+Ordinary W3 Study observation and explicit W6 Research have separate lifecycles under ADR 0138. W3 uses a bounded, authenticated
+Chart Study Product Query over complete closed owning history and the exact registered canonical backend; it creates no
+Research facts. Its admitted source is `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`, visibly distinct from
+`RESEARCH_VERIFIED` overlays obtained through verified Result/Artifact Query. Both use the existing Lightweight Charts adapter
+with exact numeric/time hover and explicit lossy plotting. Configuration/style/instance identities never become scientific
+identity, and W6 accepts only revalidated user intent, not W3 values/cache/fingerprints as Evidence. The Query is not enabled
+without numeric provenance, trusted caller/source authorization, resource and zero-write proofs.
+
 ### 6.5 Statistics Workspace
 
 The conceptual model is:

@@ -23,7 +23,7 @@ from onlyalpha.application.integration_configuration import (
     OnlyIntegrationRevision,
     OnlyIntegrationSecretBinding,
 )
-from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
+from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeError, OnlyIntegrationRuntimeResolver
 from onlyalpha.application.market_data_product import (
     BASE_BAR_SEMANTIC,
     MAX_ACQUISITION_SECONDS,
@@ -720,7 +720,7 @@ def test_source_selection_requires_the_exact_integration_revision(tmp_path: Path
     harness = _service(tmp_path)
     with pytest.raises(OnlyMarketDataProductError) as error:
         harness.service.list_instruments(_reference("a" * 64), query="BTC")
-    assert error.value.code == "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED"
+    assert error.value.code == "MARKET_DATA_SOURCE_REVISION_NOT_FOUND"
 
     with pytest.raises(OnlyMarketDataProductError) as error:
         harness.service.list_instruments(_reference(harness.revision_fingerprint, "other.market_data"), query="BTC")
@@ -823,6 +823,34 @@ def test_eligible_sources_come_from_product_resolution_not_web_filtering(tmp_pat
     with pytest.raises(OnlyMarketDataProductError) as error:
         harness.service.list_sources()
     assert error.value.code == "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "INTEGRATION_RUNTIME_CONFIGURATION_CORRUPT",
+        "INTEGRATION_RUNTIME_BINDING_INVALID",
+        "INTEGRATION_RUNTIME_IMPLEMENTATION_MISMATCH",
+        "INTEGRATION_RUNTIME_REVISION_NOT_FOUND",
+        "INTEGRATION_RUNTIME_SECRET_UNAVAILABLE",
+        "INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE",
+        "INTEGRATION_RUNTIME_PERSISTENCE_UNAVAILABLE",
+        "UNRECOGNIZED_RUNTIME_FAILURE",
+    ],
+)
+def test_source_discovery_never_certifies_absence_from_incomplete_runtime_proof(
+    tmp_path: Path, monkeypatch, code: str
+) -> None:
+    harness = _service(tmp_path)
+
+    def reject(*args, **kwargs):
+        raise OnlyIntegrationRuntimeError(code)
+
+    monkeypatch.setattr(harness.service._resolver, "resolve", reject)
+    with pytest.raises(OnlyMarketDataProductError) as error:
+        harness.service.list_sources()
+    assert error.value.code in {"MARKET_DATA_SOURCE_CATALOG_CORRUPT", "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE"}
+    assert harness.provider.sessions == 0
 
 
 def test_bars_query_is_db_first_and_never_acquires(tmp_path: Path) -> None:

@@ -597,6 +597,12 @@ actor = "A04"
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/private_assets.py"
 actor = "A04"
 [[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/local_read_access.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/dev_web.py"
+actor = "A04"
+[[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/*.py"
 actor = "A04"
 [[actor_paths]]
@@ -616,6 +622,9 @@ pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/integrations
 actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/market_data/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/chart_studies/*.py"
 actor = "A04"
 [[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"

@@ -57,6 +57,7 @@ from onlyalpha.application.search_product import (
     OnlySearchProductCommandServiceV1,
     OnlySearchProductQueryServiceV1,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.application.strategy_authority import (
     OnlyStrategyFreezeApplicationService,
     OnlyStrategyFreezeProjectionReconciliationApplicationService,
@@ -196,10 +197,12 @@ from onlyalpha.strategy.qualification_store import (
     _only_compose_qualification_decision_authority,
 )
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
+from onlyalpha_http_server.local_read_access import only_load_local_read_configuration
 
 from .agent_gateway import OnlyAgentNodeGatewayConfigV1, OnlyAgentNodeHttpGatewayV1
 from .app import create_product_app
-from .composition import only_configure_product_registries
+from .composition import OnlyProductCalculationComposition, only_configure_product_registries
+from .dev_web import only_dev_web_configuration, only_mount_dev_web
 from .health import OnlyKernelResearchReadinessProjection
 from .research.search_authoring_routes import OnlySearchAuthoringValue
 from .search import OnlySearchProductHttpServiceV1
@@ -606,11 +609,13 @@ def _compose_backtest_product(
     )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, _contained_dev: bool = False) -> int:
     parser = argparse.ArgumentParser(prog="onlyalpha-http-server")
     parser.add_argument("--user-data-root", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--local-read-auth-config", type=Path)
+    parser.add_argument("--dev-web-root", type=Path)
     parser.add_argument(
         "--backtest-product-config",
         action="append",
@@ -638,6 +643,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="verified plugin-owned Market Product resource document; repeat as required",
     )
     args = parser.parse_args(argv)
+    if args.dev_web_root is not None and (
+        args.local_read_auth_config is not None
+        or args.agent_node_url is not None
+        or args.agent_control_token_file is not None
+        or args.agent_runtime_token_file is not None
+        or (args.host != "127.0.0.1" and not (_contained_dev and args.host == "0.0.0.0"))
+        or args.port != 5173
+    ):
+        raise ValueError("DEV_WEB_ACCESS_MODES_CONFLICT")
+    local_read_configuration = None
+    if args.local_read_auth_config is not None:
+        if args.host not in {"127.0.0.1", "::1"}:
+            raise OnlySourceReadAccessError("LOCAL_READ_TRANSPORT_NOT_ADMITTED")
+        try:
+            excluded = tuple(
+                path.read_text(encoding="utf-8").strip()
+                for path in (args.agent_control_token_file, args.agent_runtime_token_file)
+                if path is not None
+            )
+            local_read_configuration = only_load_local_read_configuration(
+                args.local_read_auth_config, excluded_credentials=excluded
+            )
+        except (OSError, OnlySourceReadAccessError):
+            raise OnlySourceReadAccessError("LOCAL_READ_CONFIG_INVALID") from None
     if (args.agent_node_url is None) != (args.agent_control_token_file is None):
         raise ValueError("AGENT_GATEWAY_CONFIG_INCOMPLETE")
     postgres = OnlyPostgresConfig.from_environment()
@@ -722,18 +751,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             registry_check=lambda: _verify_product_registries(calculations, market_products, catalog, resources),
         )
     )
+    calculation_composition: OnlyProductCalculationComposition | None = None
+
+    def compose_calculations() -> None:
+        nonlocal calculation_composition
+        candidate = only_configure_product_registries(calculations, data_sources, brokers, broker_fees, market_products)
+        calculation_composition = candidate
+
     kernel = OnlyAlphaKernelHost(
         authority_guard=OnlyPostgresKernelAuthorityGuard(operational_dsn),
         booters=(
             OnlyKernelLifecycleStep(
                 "calculation_registry_composition",
-                lambda: only_configure_product_registries(
-                    calculations,
-                    data_sources,
-                    brokers,
-                    broker_fees,
-                    market_products,
-                ),
+                compose_calculations,
             ),
             OnlyKernelLifecycleStep(
                 "qualification_policy_admission",
@@ -1047,6 +1077,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             brokers=brokers,
             integrations=integration_queries,
         )
+        dev_web_configuration = None
+        dev_credential = None
+        if args.dev_web_root is not None:
+            if startup_status.state is not OnlyKernelState.READY:
+                raise ValueError("DEV_PRODUCT_KERNEL_NOT_READY")
+            dev_web_configuration, dev_credential = only_dev_web_configuration(
+                "http://127.0.0.1:5173", market_data.list_sources()
+            )
         app = create_product_app(
             artifact_reader,
             product_boundary,
@@ -1115,10 +1153,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             market_data=market_data,
             market_data_stream=market_data_stream,
+            local_read_configuration=local_read_configuration,
+            calculation_composition=calculation_composition,
+            dev_web_configuration=dev_web_configuration,
         )
+        if args.dev_web_root is not None:
+            assert dev_credential is not None
+            only_mount_dev_web(app, args.dev_web_root, dev_credential)
         if startup_status.state is OnlyKernelState.READY:
+            app.state.product_calculation_composition = calculation_composition
             app.state.experiment_memory_projection_builder = memory_builder
-        uvicorn.run(app, host=args.host, port=args.port, access_log=False)
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            access_log=False,
+            ws_max_size=4096
+            if local_read_configuration is not None or dev_web_configuration is not None
+            else 16 * 1024 * 1024,
+            ws_per_message_deflate=local_read_configuration is None and dev_web_configuration is None,
+            proxy_headers=local_read_configuration is None and dev_web_configuration is None,
+        )
     finally:
         generation_host.close()
         if kernel.state is OnlyKernelState.READY:

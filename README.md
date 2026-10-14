@@ -179,13 +179,30 @@ Existing Spot foundation
 
 Python 要求以根目录 [`pyproject.toml`](pyproject.toml) 为准。推荐使用 `uv` 管理 workspace 与环境。
 
-常用入口。正式验证统一进入现有 Compose `test` profile；宿主 `uv` 只用于可选开发 inner loop：
+本地 Python 调试只使用根目录的一个 uv `.venv`，IDE 指向 `.venv/bin/python`，不为包、任务或验证轮次新增环境：
 
 ```bash
-uv sync
-deploy/run-tests.sh python scripts/verify.py plan
-deploy/run-tests.sh python scripts/verify.py run
-deploy/run-tests.sh python scripts/test_suite.py --help
+uv sync --all-packages
+uv run --no-sync python --version
+```
+
+真实本机 Web/API（复用现有 dev 数据，不初始化或自动采集）：
+
+```bash
+python3 -m scripts.dev start
+# 打开 http://127.0.0.1:5173，无需手填凭据
+python3 -m scripts.dev stop
+```
+
+这一个应用服务复用已安装的 uv dev 镜像。SMA 权限由服务端本机会话验证；历史不足会明确显示，
+不会用测试 fixture 补齐。数据初始化和完整集成拓扑不随普通启动执行。
+
+正式验收复用 `onlyalpha-dev` 下现有验证服务，与日常 uv 调试区分，不要求额外只读凭据配置：
+
+```bash
+python3 scripts/dev_verification.py run -- python scripts/verify.py plan
+python3 scripts/dev_verification.py run -- python scripts/verify.py run
+python3 scripts/dev_verification.py run -- python scripts/test_suite.py --help
 ```
 
 `verify.py` 只选择和执行当前工作区的影响验证，不是任务完成 Authority；实际验收范围仍必须遵守 `AGENTS.md` 的 Task Contract、Impact Scope、风险分级与 Stop Condition。

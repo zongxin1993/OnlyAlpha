@@ -15,6 +15,20 @@ a versioned calculation-only composition contract preserving existing V1/V2 sema
 
 ## Decision
 
+### Formal Research scope and non-publishing Chart Query
+
+Under ADR 0138, this ADR's Research lifecycle, immutable Dataset/Seal, Engine execution and Result/Artifact publication
+requirements apply to formal Chart Research (W6), including calculation-only publication. They are not a mandatory lifecycle
+for ordinary W3 Study configuration/display. Only the separately admitted W3 transient Application Query may execute an exact
+registered canonical backend over owning Market Data reads without creating Research facts. Its output is `DISPLAY_ONLY`, is
+not a Result and cannot satisfy publication or promotion. Its first slice is closed historical batch SMA@1 / CLOSE/value /
+single instrument / provider-native 15m; unclosed Preview and incremental execution remain unsupported.
+
+HTTP handlers remain forbidden evaluators: the W3 handler is only a thin schema/authentication/authorization adapter delegating
+to the bounded Application Query and server-side Calculation SPI. It must not execute formulas, read stores directly, bypass
+Engine for W6 or counterfeit sealed Research inputs/publication. Browser SMA and stream/page-as-Seal remain rejected. All W6
+identities, fingerprints, Result profiles, final-publication and recovery requirements below are unchanged.
+
 ### Result composition
 
 `onlyalpha.research.result` remains the sole composition authority. Result Plan/Result V3 are explicitly calculation-only:
@@ -77,7 +91,7 @@ admission requires atomic consumer changes and relevant contract tests before We
 
 ## Rejected alternatives and consequences
 
-Relaxing V1/V2 changes old contracts. Dummy Statistics/Targets manufacture scientific claims. HTTP evaluation bypasses Engine;
+Relaxing V1/V2 changes old contracts. Dummy Statistics/Targets manufacture scientific claims. HTTP evaluation of formal Research bypasses Engine;
 browser SMA creates a second numeric implementation; stream/page-as-sealed-input erases proof. Calculation Result owns values,
 Result owns publication membership and Artifact/Query/API/Web project them. This adds no Statistics, Candidate, Freeze, Strategy or
 LIVE authority, workspace persistence, factor mining, incremental/preview execution or performance-gate change.

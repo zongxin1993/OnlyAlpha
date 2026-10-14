@@ -12,6 +12,7 @@ from fastapi.routing import APIRoute
 from onlyalpha_agent_orchestrator.provider_integration import OnlyAgentProviderRuntimeResolverV1
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
+from onlyalpha.application.chart_study_product_query import OnlyChartStudyProductQueryService
 from onlyalpha.application.integration_application import (
     OnlyIntegrationCommandService,
     OnlyIntegrationQueryService,
@@ -64,6 +65,7 @@ from onlyalpha.application.search_product import (
     OnlySearchRuntimeGenerationUnavailable,
     OnlySearchRuntimeGenerationUnbound,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.application.strategy_product import (
     OnlyStrategyFreezeProductService,
     OnlyStrategyPromotionProductService,
@@ -96,6 +98,9 @@ from .agent_gateway import AGENT_GATEWAY_ROUTE_TAG, OnlyAgentNodeGateway, create
 from .agent_provider_runtime import create_agent_provider_runtime_router
 from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
+from .chart_studies.routes import CHART_STUDY_ROUTE_TAG, create_chart_study_router
+from .composition import OnlyProductCalculationComposition
+from .dev_web import OnlyDevWebIngress
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
 from .integration_types import (
     INTEGRATION_TYPE_ROUTE_TAG,
@@ -104,6 +109,7 @@ from .integration_types import (
 )
 from .integrations import INTEGRATION_ROUTE_TAG, create_integration_router
 from .integrations.routes import integration_error_response, integration_request_validation_error_response
+from .local_read_access import OnlyLocalReadConfiguration, OnlyLocalReadIngress
 from .market_data import (
     MARKET_DATA_ROUTE_TAG,
     create_market_data_router,
@@ -211,6 +217,7 @@ def _request_route_tag(request: Request) -> str | None:
         if tag
         in {
             RUN_ROUTE_TAG,
+            CHART_STUDY_ROUTE_TAG,
             ARTIFACT_ROUTE_TAG,
             DEFINITION_ROUTE_TAG,
             DISCOVERY_ROUTE_TAG,
@@ -275,7 +282,12 @@ def create_research_app(
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
+    local_read_configuration: OnlyLocalReadConfiguration | None = None,
+    calculation_composition: OnlyProductCalculationComposition | None = None,
+    dev_web_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
+    if local_read_configuration is not None and dev_web_configuration is not None:
+        raise ValueError("DEV_WEB_ACCESS_MODES_CONFLICT")
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
         item is None for item in integration_authorities
@@ -290,7 +302,47 @@ def create_research_app(
     if universe_authority is not None and not isinstance(universe_authority, OnlyResearchUniverseCatalog):
         raise TypeError("Research API registered Universe authority must support both resolution and discovery")
     app = FastAPI(title="OnlyAlpha Research API", version=str(RESEARCH_API_SCHEMA_VERSION))
+    chart_study = None
+    if (
+        (local_read_configuration is not None or dev_web_configuration is not None)
+        and market_data is not None
+        and calculation_composition is not None
+        and calculation_composition.registry is calculation_registry
+        and calculation_composition.chart_study is not None
+        and calculation_composition.chart_study._registry is calculation_registry
+        and calculation_composition.chart_study._catalog is calculation_composition.catalog
+    ):
+        _ = calculation_composition.chart_study.admission
+        chart_study = OnlyChartStudyProductQueryService(
+            market_data,
+            calculation_composition.chart_study,
+            supported_instrument_ids=("BTCUSDT.BINANCE",),
+        )
+    if local_read_configuration is not None:
+        app.add_middleware(
+            OnlyLocalReadIngress, configuration=local_read_configuration, chart_study_enabled=chart_study is not None
+        )
+    if dev_web_configuration is not None:
+        app.add_middleware(
+            OnlyDevWebIngress,
+            configuration=dev_web_configuration,
+            chart_study_enabled=chart_study is not None,
+            source_reader=None if market_data is None else market_data.list_sources,
+        )
+    if chart_study is not None:
+        app.include_router(create_chart_study_router(chart_study))
     artifact_service = OnlyResearchQueryService(reader)
+
+    @app.exception_handler(OnlySourceReadAccessError)
+    async def source_access_error_handler(_request: Request, error: OnlySourceReadAccessError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401
+            if error.code == "LOCAL_READ_UNAUTHORIZED"
+            else 503
+            if error.code.endswith("UNAVAILABLE")
+            else 403,
+            content={"schema_version": 1, "error": {"phase": "QUERY", "code": error.code, "detail": error.code}},
+        )
 
     def require_research_ready() -> None:
         inspected = readiness_probe.inspect()
@@ -459,6 +511,19 @@ def create_research_app(
 
     async def product_value_error_handler(request: Request, _error: Exception) -> JSONResponse:
         family = _request_route_tag(request)
+        if family == CHART_STUDY_ROUTE_TAG:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "schema_version": 1,
+                    "error": {
+                        "phase": "QUERY",
+                        "code": "CHART_STUDY_REQUEST_INVALID",
+                        "detail": "CHART_STUDY_REQUEST_INVALID",
+                    },
+                },
+                headers={"Cache-Control": "no-store"},
+            )
         if family not in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG, SEARCH_ROUTE_TAG, PRIVATE_ASSET_ROUTE_TAG}:
             return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
         if family == PRIVATE_ASSET_ROUTE_TAG:
@@ -488,6 +553,19 @@ def create_research_app(
     async def request_validation_error_handler(request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, RequestValidationError)
         family = _request_route_tag(request)
+        if family == CHART_STUDY_ROUTE_TAG:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "schema_version": 1,
+                    "error": {
+                        "phase": "QUERY",
+                        "code": "CHART_STUDY_REQUEST_INVALID",
+                        "detail": "CHART_STUDY_REQUEST_INVALID",
+                    },
+                },
+                headers={"Cache-Control": "no-store"},
+            )
         if family == RUN_ROUTE_TAG:
             return _run_validation_error_response()
         if family == ARTIFACT_ROUTE_TAG:
@@ -717,6 +795,9 @@ def create_product_app(
     agent_provider_runtime: tuple[OnlyAgentProviderRuntimeResolverV1, str] | None = None,
     market_data: OnlyMarketDataProductService | None = None,
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
+    local_read_configuration: OnlyLocalReadConfiguration | None = None,
+    calculation_composition: OnlyProductCalculationComposition | None = None,
+    dev_web_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -761,6 +842,9 @@ def create_product_app(
         agent_provider_runtime,
         market_data,
         market_data_stream,
+        local_read_configuration,
+        calculation_composition,
+        dev_web_configuration,
     )
     app.title = "OnlyAlpha Product API"
     return app

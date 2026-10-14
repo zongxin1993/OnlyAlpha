@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { PriceChart } from "../../charts/lightweight/PriceChart";
+import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
+import { useLocalReadCredentials } from "../../app/providers";
 import type {
     FinancialChartType,
     MarketDataChartSelection
@@ -9,6 +10,7 @@ import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
+import { LocalReadAccess } from "./LocalReadAccess";
 import { ChartStudies } from "./ChartStudies";
 import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
 import {
@@ -18,7 +20,8 @@ import {
 } from "../../api/marketData/model";
 
 const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
-const CATALOG_NOTE = "指标/因子仅选择正式目录；尚未执行计算";
+const CATALOG_NOTE =
+    "指标/因子仅选择正式目录；尚未执行计算。SMA 需受权 closed native 15m 历史；DISPLAY_ONLY，不是 Research Result";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -46,6 +49,7 @@ export function WorkspacePage() {
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
     const marketData = useMarketDataChart();
+    const credentials = useLocalReadCredentials();
     const realInstrument = marketData.instrument;
     const studyContext =
         marketData.reference === null || realInstrument === null
@@ -170,6 +174,12 @@ export function WorkspacePage() {
             </div>
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
+                    {!credentials.localSession ? (
+                        <details>
+                            <summary>本地只读访问</summary>
+                            <LocalReadAccess />
+                        </details>
+                    ) : null}
                     <span className="chart-region__title" title={realInstrument?.instrument_id}>
                         {realInstrument?.display_symbol ?? "行情工作区"} ·{" "}
                         {formatBarSemantic(marketData.barSemantic)}
@@ -207,6 +217,17 @@ export function WorkspacePage() {
                                         void marketData.searchInstruments(symbolQuery);
                                 }}
                             />
+                            <button
+                                type="button"
+                                disabled={
+                                    marketData.reference === null || symbolQuery.trim() === ""
+                                }
+                                onClick={() => {
+                                    void marketData.searchInstruments(symbolQuery);
+                                }}
+                            >
+                                搜索标的
+                            </button>
                             <select
                                 className="chart-region__timeframe"
                                 aria-label="时间周期"
@@ -331,25 +352,55 @@ export function WorkspacePage() {
                         </button>
                     </span>
                 </header>
-                <ChartStudies key={studyContext?.key ?? "no-chart-context"} context={studyContext}>
+                <ChartStudies
+                    key={studyContext?.key ?? "no-chart-context"}
+                    context={studyContext}
+                    {...(credentials.capture().bearer === null && !credentials.localSession
+                        ? {}
+                        : { credentials })}
+                >
                     {({ instances, selectedId, incarnationKey }) => (
                         <>
                             <p
                                 className="chart-region__overlay-note"
                                 data-testid="real-overlay-note"
                             >
-                                {CATALOG_NOTE}
+                                {instances.length === 0
+                                    ? CATALOG_NOTE
+                                    : instances.some(
+                                            (instance) =>
+                                                instance.selection.source ===
+                                                "CHART_STUDY_TRANSIENT"
+                                        )
+                                      ? "SMA 只读查询 · DISPLAY_ONLY · 不是 Research Result"
+                                      : "配置实例仅保存输入与显示偏好；尚未执行计算。"}
                             </p>
                             <p
                                 className="chart-region__status"
                                 role="status"
                                 data-status={marketData.status}
+                                data-history-projection-fingerprint={
+                                    marketData.historyProjectionFingerprint ?? ""
+                                }
                                 data-loaded-bar-count={marketData.loadedClosedBarCount}
                                 data-older-history-status={marketData.olderHistoryStatus}
                                 data-testid="market-data-status"
                             >
                                 {statusCopy}
                                 {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
+                                {credentials.localSession &&
+                                (marketData.status === "incomplete" ||
+                                    marketData.status === "failed") &&
+                                realInstrument !== null ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            void marketData.selectBarDuration(duration);
+                                        }}
+                                    >
+                                        重新读取历史
+                                    </button>
+                                ) : null}
                             </p>
                             <div
                                 className="chart-observation"
@@ -395,7 +446,16 @@ export function WorkspacePage() {
                                 </span>
                             </div>
                             <div className="chart-region__body">
-                                <PriceChart
+                                <TransientStudyPriceChart
+                                    context={studyContext}
+                                    dataGeneration={marketData.historyProjectionFingerprint}
+                                    expectedSourceId={marketData.resolvedSourceId}
+                                    expectedEnvironment={
+                                        marketData.selectableSources.find(
+                                            (source) =>
+                                                source.integration_id === marketData.sourceId
+                                        )?.environment ?? null
+                                    }
                                     studies={instances}
                                     selectedStudyId={selectedId}
                                     incarnationKey={incarnationKey}
@@ -607,6 +667,7 @@ export function WorkspacePage() {
                     variant="modal"
                     onClose={() => {
                         setManagerOpen(false);
+                        marketData.refreshSources();
                     }}
                 />
             ) : null}

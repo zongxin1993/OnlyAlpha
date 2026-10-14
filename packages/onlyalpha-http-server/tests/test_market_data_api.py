@@ -82,9 +82,10 @@ class _Service:
         instrument_ids: tuple[str, ...] = (),
         query: str = "",
         limit: int = 25,
+        read_session: object = None,
     ) -> OnlyMarketDataInstrumentListProjectionV1:
         self._raise()
-        del instrument_ids, query, limit
+        del instrument_ids, query, limit, read_session
         assert reference.integration_id == INTEGRATION_ID
         return OnlyMarketDataInstrumentListProjectionV1(
             _selection(),
@@ -102,7 +103,8 @@ class _Service:
             ),
         )
 
-    def list_sources(self) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
+    def list_sources(self, *, read_session: object = None) -> tuple[OnlyMarketDataSourceProjectionV1, ...]:
+        del read_session
         self._raise()
         return (
             OnlyMarketDataSourceProjectionV1(
@@ -125,6 +127,7 @@ class _Service:
         target_bar_count: int,
         before_ns: int | None = None,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        read_session: object = None,
     ) -> OnlyMarketDataBarWindowProjectionV1:
         self._raise()
         del reference
@@ -194,6 +197,7 @@ class _Service:
         start_ns: int,
         end_ns: int,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        source_session: object = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
         del reference
@@ -201,7 +205,11 @@ class _Service:
         return _acquisition(self.acquisition_state)
 
     def acquisition_status(
-        self, reference: OnlyMarketDataSourceReferenceV1, acquisition_id: str
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        acquisition_id: str,
+        *,
+        read_session: object = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
         del reference
@@ -432,6 +440,9 @@ def test_market_data_errors_map_to_explicit_http_status() -> None:
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 409
 
     expected = {
+        "MARKET_DATA_SOURCE_REVISION_NOT_FOUND": ("QUERY", 404),
+        "MARKET_DATA_SOURCE_CATALOG_CORRUPT": ("QUERY", 500),
+        "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE": ("QUERY", 503),
         "MARKET_DATA_WINDOW_REQUEST_INVALID": ("QUERY", 400),
         "MARKET_DATA_RANGE_COMPOSITION_CONFLICT": ("QUERY", 409),
         "MARKET_DATA_REVISION_EVIDENCE_INVALID": ("QUERY", 500),

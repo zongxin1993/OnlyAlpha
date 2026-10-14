@@ -68,3 +68,24 @@ def test_runner_rejects_artifact_symlink_without_changing_target_permissions(tmp
     assert completed.returncode == 2
     assert "must not be a symlink" in completed.stderr
     assert target.stat().st_mode & 0o777 == 0o700
+
+
+def test_runner_accepts_only_owner_authorized_test_targets_before_any_docker_call(tmp_path: Path) -> None:
+    root = Path(__file__).parents[2]
+    docker = tmp_path / "docker"
+    log = tmp_path / "docker.log"
+    docker.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\nexit 0\n')
+    docker.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "DOCKER_LOG": str(log),
+        "ONLYALPHA_TEST_BUILD_TARGET": "runtime",
+    }
+    denied = subprocess.run([root / "deploy/run-tests.sh", "true"], env=environment, capture_output=True, text=True)
+    assert denied.returncode == 2 and not log.exists()
+    assert "unsupported canonical test build target" in denied.stderr
+    environment["ONLYALPHA_TEST_BUILD_TARGET"] = "browser-test"
+    admitted = subprocess.run([root / "deploy/run-tests.sh", "true"], env=environment, capture_output=True, text=True)
+    assert admitted.returncode == 0
+    assert " --profile test run --build --rm " in log.read_text()

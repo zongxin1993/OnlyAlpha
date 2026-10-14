@@ -6,11 +6,13 @@ import subprocess
 import sys
 from dataclasses import FrozenInstanceError, dataclass, replace
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from onlyalpha.backtest import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
+from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationRegistry
 from onlyalpha.research import (
     OnlyResearchParameterNeighborhoodSummaryExecutor,
     OnlyResearchResultCandidatePlan,
@@ -19,7 +21,12 @@ from onlyalpha.research import (
 )
 from onlyalpha.research.evaluation.errors import OnlyResearchStatisticsResultStoreError
 from onlyalpha.research.evaluation.summary.result import OnlyResearchSummaryStatisticsResult
-from onlyalpha.strategy import OnlyFrozenStrategyRevisionStore, OnlyQualificationError
+from onlyalpha.strategy import (
+    OnlyFrozenStrategyRevisionStore,
+    OnlyQualificationError,
+    OnlyStrategyAdmissionError,
+    OnlyStrategyTradingAdmissionService,
+)
 from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
 from onlyalpha.strategy.qualification import (
     OnlyQualificationCriterion,
@@ -34,9 +41,20 @@ from onlyalpha.strategy.qualification_store import (
     OnlyQualificationPolicyStore,
     _only_compose_qualification_decision_authority,
 )
-from tests.research.evaluation.support import coverage_case, factor_pair_effect_case, stability_case, summary_case
+from tests.research.evaluation.support import (
+    coverage_case,
+    evaluation_registry,
+    factor_pair_effect_case,
+    stability_case,
+    summary_case,
+)
 from tests.research.evaluation.test_parameter_neighborhood_summary import _effect_sources
-from tests.strategy.product_support import publish_frozen_strategy_for_execution_test, strategy_product_case
+from tests.strategy import product_support
+from tests.strategy.product_support import (
+    StrategyProductCase,
+    publish_frozen_strategy_for_execution_test,
+    strategy_product_case,
+)
 
 
 @dataclass(slots=True)
@@ -267,8 +285,8 @@ def _backtest_manifest(strategy_fingerprint: str) -> tuple[OnlyBacktestEvidenceM
     )
 
 
-def _research_case(tmp_path):  # type: ignore[no-untyped-def]
-    revision = strategy_product_case(tmp_path / "case").revision
+def _research_case(tmp_path, *, product_case: StrategyProductCase | None = None):  # type: ignore[no-untyped-def]
+    revision = (product_case or strategy_product_case(tmp_path / "case")).revision
     semantic = tmp_path / "semantic"
     publish_frozen_strategy_for_execution_test(semantic, revision)
     strategies = OnlyFrozenStrategyRevisionStore(semantic)
@@ -331,7 +349,7 @@ def test_policy_and_decision_authority_symlink_roots_fail_closed(tmp_path) -> No
 
 
 def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayable(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    revision, _, policies, decisions, evaluator, evidence, _ = _research_case(tmp_path)
+    revision, relation, policies, decisions, evaluator, evidence, _ = _research_case(tmp_path)
     policies.put(_policy())
     subject = str(revision.strategy_fingerprint)
 
@@ -350,10 +368,134 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
 
     assert first == second == decisions.load_verified(first.decision_fingerprint)
     assert first.outcome is OnlyQualificationOutcome.APPROVED
-    # Exact indicator resource bindings propagate through StrategyRevision and
-    # its Freeze relation; qualification policy, outcome and criterion are unchanged.
-    assert first.decision_fingerprint == "62210343e398aab82295ce49c546e41da93b220113d89eec93456b50e959bd85"
+    # Pinned CPython 3.12 / PyArrow 25 vector, independently reconstructed from
+    # the Indicator distribution 0.9.10 resource manifests. The graph uses RSI
+    # and rolling-return, not SMA: their shared registration/research bytes bind
+    # the new implementations without changing graph, policy or result semantics.
+    assert revision.decision_graph.fingerprint == "2c896ca6d056161dd2ddd63f08b467892d426b31df459c3887964275625f5331"
+    assert subject == "0a028c03c9cd39322171a060006df4f5cb62b16b37f4d2c31a935fc653d86fa9"
+    assert relation.relation_fingerprint == "e2fc37d5867ec1f198b849accb693c58a7c5d6f419e1fa49f8df2a37cf8e3bfa"
+    assert first.policy_fingerprint == "04c6afc8acb43c89591d594e20a655b7cf1c73c5aa8fa362e535ada9a134e9e7"
+    assert first.evidence == evidence
+    assert first.subject_strategy_fingerprint == subject
+    assert first.decision_fingerprint == "c79ad0d7a317c79c43d2dd67d75f11b7f4f2ccf0056a123bd9f91dd5887f20fb"
     assert evaluator.replay(first.decision_fingerprint) == first
+
+
+def test_research_qualification_fixed_vector_is_rebuilt_in_a_fresh_process(tmp_path: Path) -> None:
+    script = """
+from pathlib import Path
+import sys
+from tests.strategy.test_strategy_qualification import _research_case, _policy
+revision, _, policies, decisions, evaluator, evidence, _ = _research_case(Path(sys.argv[1]))
+policies.put(_policy())
+decision = evaluator.evaluate(subject_strategy_fingerprint=str(revision.strategy_fingerprint),
+    policy_id='strategy-gate', policy_version='1', evidence=evidence)
+assert decisions.load_verified(decision.decision_fingerprint) == decision
+assert evaluator.replay(decision.decision_fingerprint) == decision
+print(decision.decision_fingerprint)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONHASHSEED": "947"},
+    )
+    assert completed.stdout.strip() == "c79ad0d7a317c79c43d2dd67d75f11b7f4f2ccf0056a123bd9f91dd5887f20fb"
+
+
+@pytest.mark.parametrize("mutation", ("resource", "semantic_dependency"))
+def test_implementation_dependency_change_cannot_reuse_revision_or_qualification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    original = strategy_product_case(tmp_path / "original-case")
+    registry = OnlyCalculationRegistry()
+    for registration in evaluation_registry().backend_registrations():
+        if (
+            registration.type_definition.type_id == "onlyalpha.indicator.rsi"
+            and registration.backend is OnlyCalculationBackendKind.RESEARCH
+        ):
+            manifest = registration.implementation_manifest
+            assert manifest is not None
+            # Contract mutation only: keep the executable kernel/numerical inputs
+            # identical while changing one exact implementation dependency.
+            if mutation == "resource":
+                manifest = replace(
+                    manifest,
+                    resources=(replace(manifest.resources[0], byte_sha256="f" * 64), *manifest.resources[1:]),
+                )
+            else:
+                manifest = replace(
+                    manifest,
+                    semantic_dependencies=(
+                        replace(manifest.semantic_dependencies[0], artifact_fingerprint="f" * 64),
+                        *manifest.semantic_dependencies[1:],
+                    ),
+                )
+            registration = replace(registration, implementation_manifest=manifest)
+        registry.register(registration)
+    monkeypatch.setattr(product_support, "evaluation_registry", lambda: registry)
+    changed = strategy_product_case(tmp_path / "changed-case")
+    assert original.dataset_fingerprint == changed.dataset_fingerprint
+    assert original.revision.decision_graph == changed.revision.decision_graph
+    assert original.revision.universe == changed.revision.universe
+    assert original.revision.market_input_contract == changed.revision.market_input_contract
+    assert original.revision.signal_semantics == changed.revision.signal_semantics
+    assert original.execution_evidence[0].calculation_result_fingerprint == (
+        changed.execution_evidence[0].calculation_result_fingerprint
+    )
+    assert original.execution_evidence[0].evidence_fingerprint != changed.execution_evidence[0].evidence_fingerprint
+    assert original.revision.strategy_fingerprint != changed.revision.strategy_fingerprint
+    old = _research_case(tmp_path / "qualification", product_case=original)
+    new = _research_case(tmp_path / "qualification", product_case=changed)
+    for case in (old, new):
+        case[2].put(_policy())
+    first = old[4].evaluate(
+        subject_strategy_fingerprint=str(old[0].strategy_fingerprint),
+        policy_id="strategy-gate",
+        policy_version="1",
+        evidence=old[5],
+    )
+    second = new[4].evaluate(
+        subject_strategy_fingerprint=str(new[0].strategy_fingerprint),
+        policy_id="strategy-gate",
+        policy_version="1",
+        evidence=new[5],
+    )
+    assert first.policy_fingerprint == second.policy_fingerprint
+    assert first.criterion_results == second.criterion_results
+    assert first.outcome is second.outcome is OnlyQualificationOutcome.APPROVED
+    assert first.decision_fingerprint != second.decision_fingerprint
+    assert old[1].relation_fingerprint != new[1].relation_fingerprint
+    assert old[3].load_verified(first.decision_fingerprint) == first
+    assert new[4].replay(first.decision_fingerprint) == first
+    assert new[4].replay(second.decision_fingerprint) == second
+    with pytest.raises(OnlyQualificationError) as wrong_subject:
+        new[4].evaluate(
+            subject_strategy_fingerprint=str(new[0].strategy_fingerprint),
+            policy_id="strategy-gate",
+            policy_version="1",
+            evidence=old[5],
+        )
+    assert wrong_subject.value.code == "QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH"
+    with pytest.raises(OnlyStrategyAdmissionError) as stale_revision:
+        OnlyStrategyTradingAdmissionService(registry, changed.equivalence).verify_revision_bindings(
+            original.revision.decision_graph,
+            original.revision.signal_semantics,
+            original.revision.market_input_contract,
+            original.revision.implementation_bindings,
+            changed.execution_evidence[0],
+        )
+    assert stale_revision.value.code == "IMPLEMENTATION_IDENTITY_MISMATCH"
+    with pytest.raises(OnlyStrategyAdmissionError) as stale_equivalence:
+        OnlyStrategyTradingAdmissionService(registry, original.equivalence).admit(
+            changed.revision.decision_graph,
+            changed.revision.signal_semantics,
+            changed.revision.market_input_contract,
+            changed.execution_evidence[0],
+        )
+    assert stale_equivalence.value.code == "STRATEGY_NOT_TRADING_ADMISSIBLE"
 
 
 def test_new_policy_and_new_evidence_produce_new_immutable_decisions(tmp_path) -> None:  # type: ignore[no-untyped-def]

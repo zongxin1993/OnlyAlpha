@@ -8,6 +8,229 @@ Per `AGENTS.md` §6, `deploy/docker-compose.dev.yml` is the **only** authorized 
 Compose topology. New deployment capability extends this file; a second OnlyAlpha-owned
 Compose file requires explicit owner approval plus a governance/architecture update.
 
+## Local Python debugging
+
+Use one uv-managed environment at the workspace root. Point the IDE/debugger at
+`.venv/bin/python`; workspace packages share this environment rather than creating
+per-package, per-task or per-validation virtual environments.
+
+```bash
+uv sync --all-packages
+uv run --no-sync python --version
+```
+
+Normal local Web/API debugging does not require a special read-only deployment,
+`local-read.json`, or a separate operator project. Explicit API configuration still
+determines which databases and user-data are used; debugging does not initialize,
+reset or acquire data automatically. Keep local listeners on loopback.
+
+Configure the source-run application's existing `--user-data-root` with an absolute
+local directory, e.g. the gitignored workspace `user_data/`, or a directory outside
+the source tree. API and Workers must use the same initialized semantic namespace
+paired with their configured database. Custom runtime directories must stay outside
+the source/build inventory. Do not create another uv environment for this storage.
+Docker instead mounts the independent `user-data` volume at `/var/lib/onlyalpha`.
+See [user_data](user_data.md) for contents and `AGENTS.md` §6.2 for the governing rule.
+
+## Ordinary Shipping Web/API startup
+
+```bash
+python3 -m scripts.dev start
+# Normal browser entry: http://127.0.0.1:5173/
+python3 -m scripts.dev stop
+```
+
+The sole `dev` application service reuses `onlyalpha-browser-test:dev` dependencies,
+not another uv environment or per-task image. It builds Shipping Web assets and
+serves them through the real Product API on one host-loopback listener. This is a
+Python-debugging composition, not a Vite preview or test backend. Source-only edits
+do not rebuild images; explicitly stop before refreshing its frozen application
+source. Subsequent verification refreshes a separate source view.
+
+An already initialized, schema-compatible dev database/user-data pair and the
+admitted dependency image are prerequisites. Startup does not initialize, migrate,
+generate a master key, provision Sources, import assets, acquire history or start
+Agent/workers. Existing databases must already be healthy. The same `user-data`
+physical volume is referenced externally during this startup, so Compose cannot
+create/reconcile/recreate it. No volume or data cleanup is performed.
+The runner resolves the captured immutable bytes of the sole canonical Compose
+input, with the original canonical path as the relative-path base, and references the
+two observed dev networks externally, after checking their project, role and
+internal/bridge boundary. It passes that resolved input through stdin without
+creating another topology or file. Existing network label drift must not trigger
+network replacement or disruption of database/validation endpoints.
+Missing stores or changed source inputs refuse submission; they never authorize
+initialization, volume recreation, historical-store adoption or a silent retry.
+
+Guarded navigation automatically establishes a process-local developer session;
+no `local-read.json` or manual credential input is required. Exact Source grants
+are authorized by the explicitly selected developer-role policy and populated
+with owning identities. Returning from Source management refreshes the chart list
+and admits a new immutable exact grant snapshot without a service restart. Changed
+grants withdraw the previous generation and close its streams; new reads/connections
+must authenticate and prove the current exact selection. Unavailable/corrupt catalog
+proof refuses startup or refresh, never becomes an empty catalog. Source reads/SMA
+retain existing limits and exact ownership checks.
+Integration configuration and the exact Market Data Acquisition POST have separate
+explicit dev-human Command policies. Selecting a symbol prepares missing closed
+history through the formal Acquisition boundary before rendering K lines; the ordinary
+workspace requests the full 2000-Bar window also consumed by transient SMA. The Command
+verifies the current exact Source grant before any durable admission, bounds its body
+and concurrent work, and fences withdrawn responses without rolling back admitted facts.
+Private bearer read access cannot acquire data. Adding/editing a Study still performs
+only read-only Queries; Agent/internal, Strategy/LIVE and other mutations remain denied.
+Acquisition failure stays visible and the normal UI can retry the same canonical path.
+
+The trusted boundary is this machine's OS users and sole dev project; the cookie
+is not a production identity system. Exact Host/Origin/Fetch Metadata checks,
+host-only HttpOnly SameSite=Strict cookies, frame denial, no forwarded identity
+and no alternative API publication protect against foreign browser origins and
+DNS rebinding. Do not publish this listener to LAN/internet. See the ordinary-dev
+exception in the Chart Study design; optional private bearer mode is unchanged.
+Standalone `--dev-web-root` startup admits only loopback binding. The internal
+container composition permits all-interface binding only inside the mounted dev
+container, whose canonical Compose publication is host-loopback. General Product
+and Integration responses are also fenced on session withdrawal; already admitted
+Commands are not rolled back or silently retried when their response is suppressed.
+Signalled/unproved startup retains the lifecycle fence and requires explicit
+reconciliation before another source refresh or startup submission.
+
+Bootstrap, acquisition seeds, legacy API/Web, Agent fixtures and workers now require
+explicit `integration`/`web-e2e` profiles. Unqualified default startup cannot trigger
+those preparation chains. Controlled integration/CI retains its explicit topology;
+do not select those profiles for daily development.
+
+## Formal verification resource policy
+
+`AGENTS.md` §6.1 owns the local verification/debugging rules: use the single
+`onlyalpha-dev` project and this topology, with one reusable collection of fixed
+role-based dev image tags. Services using the same build target share an image;
+do not create projects or image tags per commit, worktree, task or validation run.
+Pinned database images remain separate services in that same collection.
+
+Reuse the dev database services without sharing dev business data with tests:
+PostgreSQL test DSNs retain the `_test` guard, and ClickHouse/immutable test roots
+retain explicit test namespaces. This is not permission to seed fixtures into the
+ordinary product database, reset user-data, rebind a semantic store or bypass
+Product authentication. Local verification is serial/single-worker by default.
+
+During development, mount a frozen, read-only view of current source into the fixed dev tool image first;
+source-only edits do not rebuild that image. Rebuild only for changed dependencies,
+Dockerfile/toolchain inputs or an incompatible environment. Linux dependencies stay
+in the image, never in the host's macOS `.venv` or `node_modules`.
+
+The isolated-project invocation patterns in `deploy/run-tests.sh` and
+`deploy/run-web-e2e.sh` are not permitted local development entry points. Their
+existence is not proof that a reusable dev validation entry point is implemented.
+Use the source-mounted entry below instead. Controlled CI job isolation and release
+artifact identity remain separate responsibilities.
+
+### Source-mounted local verification
+
+```bash
+# Once: reuse the tool image if present, otherwise build its fixed :dev tag.
+# Only postgres, clickhouse and the persistent validation service are selected.
+python3 scripts/dev_verification.py prepare
+
+# Ordinary runs: exec in that same service, with current source mounted.
+python3 scripts/dev_verification.py run -- python -m pytest tests/tools/test_dev_verification.py
+python3 scripts/dev_verification.py --web run -- npx playwright test --workers=1
+
+# Only after build/dependency/toolchain inputs change or incompatibility is proved:
+python3 scripts/dev_verification.py --rebuild prepare
+```
+
+This entry requires Docker Engine image mounts and Compose image subpaths
+(Compose 2.35+). The fixed role tag is built/reused normally; preparation resolves
+its immutable image ID and uses that ID for both dependency mounts. Admission
+requires that both mounted dependencies belong to the exact base image, not merely
+the same mutable tag. Read-only image mounts mask both host dependency directories.
+Only explicitly declared artifacts/typecheck files and tool cache directories are writable.
+No dependency cache volume is created or silently retained across tool rebuilds.
+Unsupported mount semantics are an environment blocker, not permission to create
+another project or use host dependencies.
+
+The runner refuses non-dev namespaces and a validation container attached to a
+different worktree. Each run refreshes the same managed `.test-cache/dev-source-cut`
+view, which is mounted read-only; editing and restoring live source cannot change
+the code actually executed. Hidden execution configuration is included. Credentials
+and host dependencies are not copied. Writable artifact mounts do not alias this view.
+Ordinary runs do not create/recreate containers or rebuild images.
+
+The view also carries the actual Git HEAD, commit/tree objects, worktree index and
+the exact local `origin/master` ref/object when present
+for architecture/build provenance checks. It does not create a commit, copy remotes,
+hooks or credential configuration, or treat HEAD alone as the uncommitted source
+identity; the file fingerprint remains the exact verification input. Build output
+uses a separate writable tmpfs, never the read-only source or host business data.
+For `research-postgres`, preparation derives the packaged provenance resource from
+that cut's HEAD and current metadata before mounting it; both carrier hashes enter
+the frozen file inventory. The container checks those resources without writing
+source or borrowing provenance from the dependency image. The next ordinary run
+removes generated carriers when refreshing the view.
+
+A machine-wide host lock plus an outstanding-operation fence serializes preparation
+and execution, including launcher death while Compose or exec remains outstanding.
+The lock also reaches the actual command through `compose_test.py`, not just its
+intermediate wrapper. Missing completion proof leaves the lifecycle UNKNOWN and
+blocks subsequent run/preparation—even from another worktree. No automatic stale
+fence adoption, retry or removal is provided: an owner must establish that outstanding
+host/daemon/container work has stopped before explicitly recovering that tool state.
+This is not permission to reset product data or restart Docker globally.
+
+Dependency/build input mismatches require explicit rebuild, including metadata for
+both installed editable test-data distributions. Source fingerprints and
+the command outcome are retained under ignored `test-results/dev-verification/`;
+changing the live source so it differs from the verified view at completion invalidates
+attribution to that live tree. PostgreSQL commands use the
+canonical `compose_test.py` `_test` guard and a dedicated validation database.
+ClickHouse fixtures must continue using their owning `onlyalpha_test_*` namespaces.
+No business user-data mount, API, bootstrap, acquisition or Agent is selected.
+
+The protected local-read and Chart Study Browser fixtures reset their disposable
+preconditions before seeding in local dev: only the exact `onlyalpha_dev_validation_test`
+PostgreSQL public schema and the selected `onlyalpha_test_local_read_browser` or
+`onlyalpha_test_chart_study_browser` ClickHouse namespace. The helper refuses other
+databases/endpoints and missing/mismatched frozen-operation lineage before connecting;
+it additionally holds a PostgreSQL transaction advisory lock during initialization.
+Before destructive submission it writes an operation-bound UNKNOWN fence to
+`test-results/dev-verification/browser-reset.pending.json`. Only observed synchronous
+ClickHouse completion plus PostgreSQL transaction commit clears that fence. Lost
+transport/commit proof leaves it pending; an ordinary Browser nonzero exit cannot
+settle it or release the runner's machine-wide lifecycle fence. Further run/prepare
+requires explicit Owner reconciliation, never automatic deletion/retry/adoption.
+The canonical runner's lifecycle locks serialize the entire suite. No business
+database, historical operator namespace, volume or real Acquisition is reset.
+Controlled CI retains its existing isolated-database preparation. These fixtures
+establish declared read-only test conditions, not source-management user actions or
+real product/market acceptance evidence.
+
+Local cleanup starts with an exact ownership/reference inventory. During development,
+the owner authorizes complete stop/removal/recreation of containers proved to belong
+to `onlyalpha-dev`, when needed; repeated permission for those containers is not required.
+Use the lifecycle lock, settle current work and preserve logs. Prefer routine reuse;
+this permission does not mean rebuilding the environment for every task or test run.
+Preserve data volumes, the fixed dev image set and unrelated projects. Container cleanup
+does not authorize volume deletion, business-data reset, historical-store adoption or
+initialization. Those data actions still require separate explicit authorization.
+Do not use a global prune command. `AGENTS.md` §6.1 owns this policy.
+
+Ordinary startup, shutdown/restart, engineering upgrades, image rebuilds and container
+replacement preserve history. An explicitly selected **clear dev data and initialize
+again** lifecycle is separate: first identify the exact dev database/file/key/namespace
+set, settle outstanding work and retain logs. Never clear only user-data and rebind an
+existing database; do not use a reset to demonstrate an upgrade or restart works.
+This policy is not an instruction to reset the current deployment or clear UNKNOWN.
+Production deletion needs explicit human authorization, protected coherent backups,
+a verified restore path and a retention policy; dev permission does not apply there.
+Validate retained history with current owning readers after migration/restart, and
+keep process-restart evidence distinct from real service/deployment lifecycle evidence.
+
+Active development maintains the current canonical contract, not old-version compatibility
+shims or parallel historical schema/DTO behavior. Atomically update current consumers;
+retain required exact identity, immutable history, replay/recovery and integrity. See
+ADR 0130 and `AGENTS.md` §7; no unrelated compatibility-code sweep is authorized here.
+
 ## Topology overview
 
 ```text
@@ -174,10 +397,11 @@ The canonical dev Compose topology does **not** use LEGACY. Do not introduce LEG
 ## Bringing the stack up and collecting evidence
 
 ```bash
-docker compose -f deploy/docker-compose.dev.yml up -d --build
-docker compose -f deploy/docker-compose.dev.yml ps          # api healthy, agent healthy
-docker compose -f deploy/docker-compose.dev.yml logs bootstrap   # provisioning summary (no secrets)
-docker compose -f deploy/docker-compose.dev.yml logs agent       # INTEGRATION_REVISION startup
+export ONLYALPHA_COMPOSE_NAMESPACE=onlyalpha-dev
+docker compose -p onlyalpha-dev -f deploy/docker-compose.dev.yml up -d --build
+docker compose -p onlyalpha-dev -f deploy/docker-compose.dev.yml ps
+docker compose -p onlyalpha-dev -f deploy/docker-compose.dev.yml logs bootstrap
+docker compose -p onlyalpha-dev -f deploy/docker-compose.dev.yml logs agent
 ```
 
 Exercise the runtime authority directly (a valid runtime token returns a binding; a wrong
@@ -198,17 +422,18 @@ curl -s -H "Authorization: Bearer ${TOKEN}" \
 
 ```bash
 docker compose -f deploy/docker-compose.dev.yml down       # keep volumes (default)
-docker compose -f deploy/docker-compose.dev.yml down -v    # destroy postgres/clickhouse/user-data/agent state
 ```
 
 The default `down` (without `-v`) is the documented choice for iterative development: it
 preserves the provisioned authority state, databases and agent roots so a subsequent `up`
 replays the stored Product command receipts instead of re-provisioning from scratch. Use
-`down -v` only when you intend to discard all durable dev state. The web-e2e runner
-(`deploy/run-web-e2e.sh`) uses an isolated namespace and always tears down with `-v`.
+`down -v` only after explicit owner authorization to discard the identified durable
+state. It is never ordinary local debug/test cleanup. The isolated web-e2e runner's
+`down -v` lifecycle belongs to its controlled CI namespace, not the shared dev stack.
 
 The Bar semantic/construction schema is an intentional breaking development boundary. A
 checkout containing pre-boundary Bar WAL, scope, revision, Dataset, or Strategy data must
 fail closed; it is not migrated or reinterpreted. Export anything that must be retained,
-run the canonical `down -v` command above, then rebuild the development authorities from
-current imports and provider facts.
+obtain explicit owner authorization for discarding the affected state, then rebuild
+the development authorities from current imports and provider facts. Schema
+incompatibility does not itself authorize a dev reset.

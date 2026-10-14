@@ -87,6 +87,14 @@ def test_forward_actor_capability_proof_has_no_unauthorized_holdings() -> None:
     assert violations == {}
 
 
+@pytest.mark.parametrize("module", ["local_read_access.py", "dev_web.py"])
+def test_local_source_read_ingress_has_exact_transport_ownership_without_business_capabilities(module: str) -> None:
+    path = "packages/onlyalpha-http-server/src/onlyalpha_http_server/" + module
+    assert CONTRACT.is_sensitive_path(path)
+    assert CONTRACT.classify_path(path).name == "HTTP_TRANSPORT_ADAPTER"
+    assert INDEX.capabilities_for_file(ROOT / path, CONTRACT) == set()
+
+
 def test_reverse_privileged_authority_proof_matches_exact_approved_holders() -> None:
     holders = {
         capability: frozenset(

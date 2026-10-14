@@ -12,6 +12,11 @@ export ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-test-$$"
 export ONLYALPHA_POSTGRES_DB=onlyalpha_test_environment
 export ONLYALPHA_CLICKHOUSE_DATABASE=onlyalpha_test_environment
 
+case "${ONLYALPHA_TEST_BUILD_TARGET:-test}" in
+    test|browser-test) ;;
+    *) echo "unsupported canonical test build target" >&2; exit 2 ;;
+esac
+
 if [[ -L "$ROOT/test-results" ]]; then
     echo "test-results must not be a symlink" >&2
     exit 2

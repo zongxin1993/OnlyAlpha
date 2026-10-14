@@ -5,6 +5,10 @@ import type { RegisteredCalculation } from "../../api/research/chartCatalog";
 import { researchCalculationCatalogSchema } from "../../api/research/schemas";
 import { chartCatalogFixture } from "../../test/chartCatalog";
 import { marketDataBarSemantic } from "../../api/marketData/model";
+import { ChartStudyEditor } from "./ChartStudyEditor";
+import { ChartStudyCapabilitiesSchema } from "../../api/chartStudies/http.generated";
+import { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
+import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { ChartStudies } from "./ChartStudies";
 import type { ChartStudyContext } from "./chartStudy";
 import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
@@ -472,4 +476,57 @@ it("select/show-hide/remove affect only display state and issue no metadata read
         secondId
     );
     expect(traffic.reads).toHaveLength(count);
+});
+
+it("blocks unsupported transient editor inputs and submits supported inputs through revalidation", async () => {
+    vi.stubGlobal(
+        "crypto",
+        (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
+    );
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 1,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Expected installed capability");
+    const credentials = new LocalReadCredentials();
+    credentials.replace("ee".repeat(32));
+    const onConfirm = vi.fn();
+    const fetcher = vi.fn(() =>
+        Promise.resolve(
+            new Response(JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }), {
+                headers: { "cache-control": "no-store" }
+            })
+        )
+    );
+    vi.stubGlobal("fetch", fetcher);
+    render(
+        <ChartStudyEditor
+            selection={{ source: "CHART_STUDY_TRANSIENT", capability }}
+            instance={null}
+            credentials={credentials}
+            hasContext={true}
+            returnFocus={null}
+            onCancel={() => undefined}
+            onStale={() => undefined}
+            onConfirm={onConfirm}
+        />
+    );
+    const user = userEvent.setup();
+    const submit = screen.getByRole("button", { name: "添加" });
+    const period = screen.getByRole("textbox", { name: "period" });
+    await user.clear(period);
+    await user.type(period, "10001");
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("1–10000");
+    await user.clear(period);
+    await user.type(period, "20");
+    await user.selectOptions(screen.getByRole("combobox", { name: "price_field" }), "VOLUME");
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("仅支持 CLOSE");
+    expect(fetcher).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "price_field" }), "CLOSE");
+    await user.click(submit);
+    await waitFor(() => {
+        expect(onConfirm).toHaveBeenCalledOnce();
+    });
 });

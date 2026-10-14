@@ -18,6 +18,12 @@ The exact registered RESEARCH Calculation backend produces values and readiness 
 The executor validates complete output membership, row alignment and state/reason/value compatibility before sealing execution.
 The readiness carrier and validator are structural contracts, not execution provenance or permission to publish caller-authored facts.
 
+ADR 0138 additionally admits a non-publishing W3 Application adapter to project values/readiness produced atomically by that
+exact supported backend. The projection is not Execution Evidence V2, Calculation Result V2, Research Result V4 or Artifact V2.
+Numeric-only output must not be annotated by Web/Query with guessed warmup. This does not register readiness for EMA/RSI/MACD
+or admit arbitrary Factor/DAG/cross-section execution; scientific publication and SMA-only readiness scope remain unchanged.
+The W3 legacy-CONTEXT binding is subject to ADR 0114/0138's explicit numeric/provenance admission, not ambient fallback.
+
 Readiness contract V1 has states `PARTIAL`, `READY`, `UNAVAILABLE` and reasons `NONE`, `WARMUP_INCOMPLETE`,
 `VALUE_UNDEFINED`, `INPUT_UNAVAILABLE`, `DEPENDENCY_UNAVAILABLE`:
 
@@ -59,4 +65,4 @@ Canonical execution and versioned publication must subsequently prove atomicity,
 immutable reuse and recovery without modifying V1 behavior.
 
 Rejected alternatives are value truthiness as readiness, guessed row-index warmup outside the backend, V1 readiness shims,
-fallback from V2 to V1, parallel numeric authority, speculative DAG/cross-section support and browser/HTTP evaluation.
+fallback from V2 to V1, parallel numeric authority, speculative DAG/cross-section support and browser/HTTP formula evaluation.

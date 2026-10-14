@@ -69,3 +69,23 @@ EXPOSE 5173
 FROM web AS playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx playwright install --with-deps chromium
+
+# Owner-authorized opt-in loopback Browser/API acceptance, same canonical test service.
+# The default Python test and all production targets remain unchanged.
+FROM test AS browser-test
+USER root
+COPY --from=web /usr/local/bin/node /usr/local/bin/node
+COPY --from=web /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=web --chown=onlyalpha:onlyalpha /workspace/packages/onlyalpha-web-console/node_modules /workspace/packages/onlyalpha-web-console/node_modules
+COPY --from=playwright /ms-playwright /ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && node packages/onlyalpha-web-console/node_modules/playwright/cli.js install-deps chromium
+# Source-only edits reuse this tool image; changed build/dependency inputs require
+# an explicit rebuild, not an implicit uv/npm update in the validation container.
+RUN mkdir -p /workspace/packages/onlyalpha-web-console/node_modules/.vite \
+    /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp
+RUN python -c "import json; from pathlib import Path; from scripts.dev_verification import environment_inputs; Path('/opt/onlyalpha-dev-environment.json').write_text(json.dumps(environment_inputs(Path('/workspace')), sort_keys=True))"
+USER onlyalpha
