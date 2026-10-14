@@ -152,125 +152,164 @@ it.each([
     expect(acquisition).not.toHaveBeenCalled();
 });
 
-it("historical proof loss removes an admitted overlay and fences a late response without acquisition", async () => {
-    vi.stubGlobal(
-        "crypto",
-        (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
-    );
-    const history = marketDataBarsSchema.parse({
-        ...sample.history,
-        instrument_id: "BTCUSDT.BINANCE"
-    });
-    const evaluation = ChartStudyEvaluateSchema.parse({
-        ...sample.evaluation,
-        instrument_id: history.instrument_id
-    });
-    const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
-        capabilities: [sample.capability]
-    }).capabilities[0];
-    if (capability === undefined) throw new Error("Expected installed capability vector");
-    const configuration = {
-        parameters: evaluation.calculation.normalized_typed_parameters,
-        outputName: "value"
-    };
-    const context = {
-        key: "source:revision:native15",
-        source: {
-            integration_id: history.source_selection.integration_id,
-            integration_revision_fingerprint:
-                history.source_selection.integration_revision_fingerprint,
-            expected_type_id: history.source_selection.type_id
-        },
-        instrumentId: history.instrument_id,
-        barSemantic: history.bar_semantic
-    };
-    const instance: ChartStudyInstance = {
-        instanceId: "one",
-        context,
-        selection: { source: "CHART_STUDY_TRANSIENT", capability },
-        configuration,
-        presentation: {
-            placement: "PRICE_OVERLAY",
-            color: "#2962FF",
-            lineWidth: 2,
-            opacity: 1,
-            visible: true
-        },
-        connectionState: "CONFIGURED_NOT_EXECUTED"
-    };
-    const queryBars = vi.fn(() => Promise.resolve(history));
-    const acquire = vi.fn();
-    const market = marketDataClient({ queryBars, createAcquisition: acquire });
-    let pendingResolve!: (response: Response) => void;
-    let delayed: Promise<Response> | undefined;
-    let block = false;
-    vi.stubGlobal(
-        "fetch",
-        vi.fn((url: string) => {
-            if (url.endsWith("capabilities"))
-                return Promise.resolve(
-                    new Response(
-                        JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }),
-                        { headers: { "cache-control": "no-store" } }
-                    )
-                );
-            if (block) {
-                delayed = new Promise<Response>((resolve) => {
-                    pendingResolve = resolve;
-                });
-                return delayed;
+it.each(["none", "period", "price", "stale"])(
+    "isolates %s sibling while historical proof loss fences every overlay without acquisition",
+    async (sibling) => {
+        vi.stubGlobal(
+            "crypto",
+            (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
+        );
+        const history = marketDataBarsSchema.parse({
+            ...sample.history,
+            instrument_id: "BTCUSDT.BINANCE"
+        });
+        const evaluation = ChartStudyEvaluateSchema.parse({
+            ...sample.evaluation,
+            instrument_id: history.instrument_id
+        });
+        const capability = ChartStudyCapabilitiesSchema.parse({
+            schema_version: 1,
+            capabilities: [sample.capability]
+        }).capabilities[0];
+        if (capability === undefined) throw new Error("Expected installed capability vector");
+        const configuration = {
+            parameters: evaluation.calculation.normalized_typed_parameters,
+            outputName: "value"
+        };
+        const context = {
+            key: "source:revision:native15",
+            source: {
+                integration_id: history.source_selection.integration_id,
+                integration_revision_fingerprint:
+                    history.source_selection.integration_revision_fingerprint,
+                expected_type_id: history.source_selection.type_id
+            },
+            instrumentId: history.instrument_id,
+            barSemantic: history.bar_semantic
+        };
+        const instance: ChartStudyInstance = {
+            instanceId: "one",
+            context,
+            selection: { source: "CHART_STUDY_TRANSIENT", capability },
+            configuration,
+            presentation: {
+                placement: "PRICE_OVERLAY",
+                color: "#2962FF",
+                lineWidth: 2,
+                opacity: 1,
+                visible: true
+            },
+            connectionState: "CONFIGURED_NOT_EXECUTED"
+        };
+        const invalid: ChartStudyInstance = {
+            ...instance,
+            instanceId: "invalid",
+            ...(sibling === "stale"
+                ? {
+                      selection: {
+                          source: "CHART_STUDY_TRANSIENT",
+                          capability: {
+                              ...capability,
+                              capability_projection_fingerprint: "a".repeat(64)
+                          }
+                      }
+                  }
+                : {}),
+            configuration: {
+                ...instance.configuration,
+                parameters: {
+                    ...instance.configuration.parameters,
+                    ...(sibling === "period" ? { period: { type: "INTEGER", value: 10001 } } : {}),
+                    ...(sibling === "price"
+                        ? { price_field: { type: "STRING", value: "VOLUME" } }
+                        : {})
+                }
             }
-            return Promise.resolve(
+        };
+        const queryBars = vi.fn(() => Promise.resolve(history));
+        const acquire = vi.fn();
+        const market = marketDataClient({ queryBars, createAcquisition: acquire });
+        let pendingResolve!: (response: Response) => void;
+        let delayed: Promise<Response> | undefined;
+        let block = false;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn((url: string) => {
+                if (url.endsWith("capabilities"))
+                    return Promise.resolve(
+                        new Response(
+                            JSON.stringify({
+                                schema_version: 1,
+                                capabilities: [sample.capability]
+                            }),
+                            { headers: { "cache-control": "no-store" } }
+                        )
+                    );
+                if (block) {
+                    delayed = new Promise<Response>((resolve) => {
+                        pendingResolve = resolve;
+                    });
+                    return delayed;
+                }
+                return Promise.resolve(
+                    new Response(JSON.stringify(evaluation), {
+                        headers: { "cache-control": "no-store" }
+                    })
+                );
+            })
+        );
+        function Query({ dataGeneration }: { dataGeneration: string | null }) {
+            const credentials = useLocalReadCredentials();
+            useLayoutEffect(() => {
+                if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
+            }, [credentials]);
+            return (
+                <TransientStudyPriceChart
+                    context={context}
+                    dataGeneration={dataGeneration}
+                    expectedSourceId={history.source_selection.source_id}
+                    expectedEnvironment={history.source_selection.environment}
+                    contextKey={context.key}
+                    incarnationKey="incarnation"
+                    studies={sibling === "none" ? [instance] : [invalid, instance]}
+                    bars={history.bars.map(projectMarketDataBar)}
+                    barSemantic={history.bar_semantic}
+                />
+            );
+        }
+        const tree = (dataGeneration: string | null) => (
+            <AppProviders marketDataClient={market}>
+                <Query dataGeneration={dataGeneration} />
+            </AppProviders>
+        );
+        const view = render(tree("verified"));
+        await waitFor(() => {
+            expect(screen.getByTestId("study-admission-count")).toHaveTextContent("1");
+        });
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            sibling === "none" ? "DISPLAYABLE" : "PARTIALLY_DISPLAYABLE"
+        );
+        if (sibling !== "none")
+            expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent("invalid:");
+        block = true;
+        view.rerender(tree("new-proof"));
+        await waitFor(() => {
+            expect(pendingResolve).toBeDefined();
+        });
+        view.rerender(tree(null));
+        expect(screen.getByTestId("study-admission-count")).toHaveTextContent("0");
+        const delayedResponse = delayed;
+        if (delayedResponse === undefined) throw new Error("Expected blocked response");
+        await act(async () => {
+            pendingResolve(
                 new Response(JSON.stringify(evaluation), {
                     headers: { "cache-control": "no-store" }
                 })
             );
-        })
-    );
-    function Query({ dataGeneration }: { dataGeneration: string | null }) {
-        const credentials = useLocalReadCredentials();
-        useLayoutEffect(() => {
-            if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
-        }, [credentials]);
-        return (
-            <TransientStudyPriceChart
-                context={context}
-                dataGeneration={dataGeneration}
-                expectedSourceId={history.source_selection.source_id}
-                expectedEnvironment={history.source_selection.environment}
-                contextKey={context.key}
-                incarnationKey="incarnation"
-                studies={[instance]}
-                bars={history.bars.map(projectMarketDataBar)}
-                barSemantic={history.bar_semantic}
-            />
-        );
+            await delayedResponse;
+        });
+        expect(screen.getByTestId("study-admission-count")).toHaveTextContent("0");
+        expect(acquire).not.toHaveBeenCalled();
     }
-    const tree = (dataGeneration: string | null) => (
-        <AppProviders marketDataClient={market}>
-            <Query dataGeneration={dataGeneration} />
-        </AppProviders>
-    );
-    const view = render(tree("verified"));
-    await waitFor(() => {
-        expect(screen.getByTestId("study-admission-count")).toHaveTextContent("1");
-    });
-    block = true;
-    view.rerender(tree("new-proof"));
-    await waitFor(() => {
-        expect(pendingResolve).toBeDefined();
-    });
-    view.rerender(tree(null));
-    expect(screen.getByTestId("study-admission-count")).toHaveTextContent("0");
-    const delayedResponse = delayed;
-    if (delayedResponse === undefined) throw new Error("Expected blocked response");
-    await act(async () => {
-        pendingResolve(
-            new Response(JSON.stringify(evaluation), { headers: { "cache-control": "no-store" } })
-        );
-        await delayedResponse;
-    });
-    expect(screen.getByTestId("study-admission-count")).toHaveTextContent("0");
-    expect(acquire).not.toHaveBeenCalled();
-});
+);

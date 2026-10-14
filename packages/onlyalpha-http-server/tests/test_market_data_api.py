@@ -197,6 +197,7 @@ class _Service:
         start_ns: int,
         end_ns: int,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        source_session: object = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         self._raise()
         del reference

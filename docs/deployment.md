@@ -71,9 +71,15 @@ grants withdraw the previous generation and close its streams; new reads/connect
 must authenticate and prove the current exact selection. Unavailable/corrupt catalog
 proof refuses startup or refresh, never becomes an empty catalog. Source reads/SMA
 retain existing limits and exact ownership checks.
-Integration configuration commands have a separate explicit dev-human policy;
-Acquisition POST, Agent/internal, Strategy/LIVE and other mutations are denied.
-Incomplete history is displayed and may be re-read without acquiring it.
+Integration configuration and the exact Market Data Acquisition POST have separate
+explicit dev-human Command policies. Selecting a symbol prepares missing closed
+history through the formal Acquisition boundary before rendering K lines; the ordinary
+workspace requests the full 2000-Bar window also consumed by transient SMA. The Command
+verifies the current exact Source grant before any durable admission, bounds its body
+and concurrent work, and fences withdrawn responses without rolling back admitted facts.
+Private bearer read access cannot acquire data. Adding/editing a Study still performs
+only read-only Queries; Agent/internal, Strategy/LIVE and other mutations remain denied.
+Acquisition failure stays visible and the normal UI can retry the same canonical path.
 
 The trusted boundary is this machine's OS users and sole dev project; the cookie
 is not a production identity system. Exact Host/Origin/Fetch Metadata checks,
@@ -151,11 +157,17 @@ the code actually executed. Hidden execution configuration is included. Credenti
 and host dependencies are not copied. Writable artifact mounts do not alias this view.
 Ordinary runs do not create/recreate containers or rebuild images.
 
-The view also carries the actual Git HEAD, commit/tree objects and worktree index
+The view also carries the actual Git HEAD, commit/tree objects, worktree index and
+the exact local `origin/master` ref/object when present
 for architecture/build provenance checks. It does not create a commit, copy remotes,
 hooks or credential configuration, or treat HEAD alone as the uncommitted source
 identity; the file fingerprint remains the exact verification input. Build output
 uses a separate writable tmpfs, never the read-only source or host business data.
+For `research-postgres`, preparation derives the packaged provenance resource from
+that cut's HEAD and current metadata before mounting it; both carrier hashes enter
+the frozen file inventory. The container checks those resources without writing
+source or borrowing provenance from the dependency image. The next ordinary run
+removes generated carriers when refreshing the view.
 
 A machine-wide host lock plus an outstanding-operation fence serializes preparation
 and execution, including launcher death while Compose or exec remains outstanding.

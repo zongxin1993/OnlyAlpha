@@ -18,6 +18,7 @@ from onlyalpha_http_server.dev_web import (
 from onlyalpha_http_server.local_read_access import only_request_read_session
 from onlyalpha_http_server.main import main as product_main
 from onlyalpha_http_server.market_data import create_market_data_stream_router
+from starlette.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect
 
 from onlyalpha.application.market_data_product import (
@@ -25,7 +26,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceProjectionV1,
     OnlyMarketDataTimeBarCapabilityV1,
 )
-from onlyalpha.application.source_read_access import OnlySourceReadAccessError
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError, OnlySourceReadPermission
 
 from .test_integration_api import COMMAND_ID, INTEGRATION_ID, _client, _Queries
 from .test_local_read_access import _Session, _StreamService, _subscribe
@@ -200,6 +201,101 @@ def _source():
         "LIVE",
         OnlyMarketDataTimeBarCapabilityV1(),
     )
+
+
+def test_dev_human_acquisition_is_separate_from_read_permission_and_source_bound(tmp_path: Path) -> None:
+    from .test_market_data_api import (
+        BASE_BAR_SEMANTIC,
+        END_NS_TEXT,
+        INSTRUMENT_ID,
+        START_NS_TEXT,
+        _client,
+        _selection,
+        _Service,
+    )
+
+    class Service(_Service):
+        def acquire_bars(self, reference, *, source_session=None, **kwargs):
+            assert source_session is not None
+            source_session.require_selection(_selection(), OnlySourceReadPermission.CLOSED_HISTORY)
+            return super().acquire_bars(reference, **kwargs)
+
+    service = Service()
+    app = _client(service).app
+    app.add_exception_handler(
+        OnlySourceReadAccessError, lambda request, error: JSONResponse({"error": error.code}, status_code=403)
+    )
+    source = service.list_sources()[0]
+    configuration, credential = only_dev_web_configuration(ORIGIN, (source,))
+    directory = tmp_path / "web"
+    directory.mkdir()
+    (directory / "index.html").write_text("Shipping entry fixture")
+    only_mount_dev_web(app, directory, credential)
+    app.add_middleware(OnlyDevWebIngress, configuration=configuration)
+    payload = {
+        "source_reference": {
+            "integration_id": source.integration_id,
+            "integration_revision_fingerprint": source.integration_revision_fingerprint,
+            "expected_type_id": source.type_id,
+        },
+        "instrument_id": INSTRUMENT_ID,
+        "start_ns": START_NS_TEXT,
+        "end_ns": END_NS_TEXT,
+        "bar_semantic": BASE_BAR_SEMANTIC.to_dict(),
+        "provenance": "REST_BACKFILL",
+    }
+    with TestClient(app, base_url=ORIGIN) as client:
+        client.get("/", headers=NAVIGATION)
+        assert client.post("/api/v2/market-data/acquisitions", json=payload).status_code == 403
+        wrong = {
+            **payload,
+            "source_reference": {**payload["source_reference"], "integration_revision_fingerprint": "b" * 64},
+        }
+        assert (
+            client.post("/api/v2/market-data/acquisitions", headers={"Origin": ORIGIN}, json=wrong).status_code == 403
+        )
+        assert service.acquisitions == []
+        response = client.post("/api/v2/market-data/acquisitions", headers={"Origin": ORIGIN}, json=payload)
+        assert response.status_code == 201
+        assert len(service.acquisitions) == 1
+
+
+def test_dev_acquisition_withdrawal_retains_work_capacity_and_suppresses_its_response(tmp_path: Path) -> None:
+    entered, release = Event(), Event()
+    configuration, credential = only_dev_web_configuration(ORIGIN, (_source(),))
+    app = FastAPI()
+    completed: list[str] = []
+
+    @app.post("/api/v2/market-data/acquisitions")
+    def acquire(request: Request):
+        session = only_request_read_session(request.scope)
+        assert session is not None and request.scope["onlyalpha.dev_acquisition_session"] is session
+        session.check_active()
+        entered.set()
+        assert release.wait(timeout=5)
+        completed.append("owning command completed")
+        return {"private_response": "must not be released"}
+
+    directory = tmp_path / "web"
+    directory.mkdir()
+    (directory / "index.html").write_text("Shipping entry fixture")
+    only_mount_dev_web(app, directory, credential)
+    app.add_middleware(OnlyDevWebIngress, configuration=configuration)
+    with TestClient(app, base_url=ORIGIN) as client, ThreadPoolExecutor(max_workers=1) as executor:
+        client.get("/", headers=NAVIGATION)
+        future = executor.submit(client.post, "/api/v2/market-data/acquisitions", headers={"Origin": ORIGIN}, json={})
+        try:
+            assert entered.wait(timeout=5)
+            ingress = app.state.local_read_ingress
+            client.portal.call(ingress.withdraw)
+            assert ingress._reads == 1
+            assert completed == []
+        finally:
+            release.set()
+        response = future.result(timeout=5)
+        assert response.status_code == 401 and "private_response" not in response.text
+        assert completed == ["owning command completed"]
+        assert ingress._reads == 0
 
 
 @pytest.mark.parametrize("change", ["added", "revision", "source", "environment", "type", "removed", "unchanged"])

@@ -25,7 +25,10 @@ def main() -> int:
         raise ValueError("COMPOSE_TEST_COMMAND_REQUIRED")
     command = sys.argv[1:]
     if "research-postgres" in command:
-        subprocess.run((sys.executable, "scripts/embed_build_provenance.py"), check=True)
+        provenance_command = [sys.executable, "scripts/embed_build_provenance.py"]
+        if os.environ.get("ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"):
+            provenance_command.append("--check")
+        subprocess.run(provenance_command, check=True)
     lock_fd = os.environ.get("ONLYALPHA_DEV_VERIFICATION_LOCK_FD")
     inherited = (int(lock_fd),) if lock_fd is not None else ()
     for descriptor in inherited:

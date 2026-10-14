@@ -214,17 +214,28 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         reference: MarketDataSourceReference,
         query: MarketDataAcquisitionQuery
     ) {
-        return request(marketDataAcquisitionSchema, "/api/v2/market-data/acquisitions", {
-            method: "POST",
-            body: JSON.stringify({
-                source_reference: reference,
-                instrument_id: query.instrument_id,
-                start_ns: query.start_ns,
-                end_ns: query.end_ns,
-                bar_semantic: query.bar_semantic,
-                provenance: "REST_BACKFILL"
-            })
-        });
+        const captured = this.credentials.capture();
+        if (captured.bearer !== null)
+            throw new MarketDataWebError("LOCAL_READ_FORBIDDEN", "只读凭据不能获取行情");
+        const result = await request(
+            marketDataAcquisitionSchema,
+            "/api/v2/market-data/acquisitions",
+            {
+                method: "POST",
+                credentials: this.credentials.localSession ? "same-origin" : "omit",
+                body: JSON.stringify({
+                    source_reference: reference,
+                    instrument_id: query.instrument_id,
+                    start_ns: query.start_ns,
+                    end_ns: query.end_ns,
+                    bar_semantic: query.bar_semantic,
+                    provenance: "REST_BACKFILL"
+                })
+            }
+        );
+        if (!this.credentials.isCurrent(captured.generation))
+            throw new MarketDataWebError("LOCAL_READ_GENERATION_CHANGED", "本地访问已改变");
+        return result;
     }
     async getAcquisition(
         reference: MarketDataSourceReference,

@@ -24,7 +24,14 @@ from onlyalpha.application.source_read_access import (
     OnlySourceReadSession,
 )
 
-from .local_read_access import OnlyLocalReadConfiguration, OnlyLocalReadIngress
+from .local_read_access import (
+    HANDSHAKE_SECONDS,
+    MAX_CONTROL_BYTES,
+    MAX_READS,
+    OnlyLocalReadConfiguration,
+    OnlyLocalReadIngress,
+    only_decode_local_control,
+)
 
 DEV_COOKIE = "onlyalpha_dev_session"
 
@@ -188,7 +195,26 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
         if path.startswith(("/internal/", "/api/v2/agent", "/api/v2/trading", "/api/v2/live")):
             await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
             return
-        if path.startswith(("/api/v2/market-data/", "/api/v2/market/", "/api/v2/chart/")):
+        acquisition = is_http and scope["method"] == "POST" and path == "/api/v2/market-data/acquisitions"
+        if acquisition:
+            lengths = headers.get(b"content-length", [])
+            if (
+                len(lengths) != 1
+                or not lengths[0].isdigit()
+                or not 0 < int(lengths[0]) <= MAX_CONTROL_BYTES
+                or headers.get(b"content-type") != [b"application/json"]
+                or b"transfer-encoding" in headers
+                or scope.get("query_string")
+            ):
+                await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
+                return
+            if self._reads >= MAX_READS:
+                await self._deny(scope, receive, guarded_send, "LOCAL_READ_CAPACITY_EXCEEDED")
+                return
+            # This exact dev-human Command policy is independent of read grants.
+            # The owning service still proves the exact Source before any write.
+            scope["onlyalpha.dev_acquisition_session"] = session
+        elif path.startswith(("/api/v2/market-data/", "/api/v2/market/", "/api/v2/chart/")):
             if not is_http:
                 scope["onlyalpha.local_read_generation_withdrawn"] = self._source_withdrawn
             await super().__call__(scope, receive, guarded_send)
@@ -196,16 +222,22 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
         # Explicit dev-human command policy, separate from read-only Source grants.
         integration = path == "/api/v2/integrations" or path.startswith("/api/v2/integrations/")
         if is_http and (
-            scope["method"] == "GET" or (integration and scope["method"] in {"POST", "PUT", "PATCH", "DELETE"})
+            scope["method"] == "GET"
+            or acquisition
+            or (integration and scope["method"] in {"POST", "PUT", "PATCH", "DELETE"})
         ):
             started = False
             suppressed = False
+            detached = asyncio.Event()
 
             async def general_send(message: Message) -> None:
                 nonlocal started, suppressed
                 async with self._send_lock:
                     try:
                         session.check_active()
+                        if detached.is_set():
+                            suppressed = True
+                            return
                     except OnlySourceReadAccessError:
                         suppressed = True
                         return
@@ -215,10 +247,50 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
 
             # Admission is not rollback: already accepted Commands finish through
             # their owning Authority, but withdrawal suppresses subsequent release.
-            session.check_active()
-            await self.app(scope, receive, general_send)
-            if suppressed and not started:
-                await self._deny(scope, receive, guarded_send, "LOCAL_READ_UNAUTHORIZED")
+            async def work() -> None:
+                application_receive = receive
+                if acquisition:
+                    payload = bytearray()
+                    deadline = asyncio.get_running_loop().time() + HANDSHAKE_SECONDS
+                    try:
+                        while True:
+                            message = await asyncio.wait_for(
+                                receive(), max(0, deadline - asyncio.get_running_loop().time())
+                            )
+                            if message["type"] != "http.request":
+                                return
+                            payload.extend(message.get("body", b""))
+                            if len(payload) > int(lengths[0]):
+                                raise ValueError
+                            if not message.get("more_body", False):
+                                break
+                        if len(payload) != int(lengths[0]):
+                            raise ValueError
+                        if not isinstance(only_decode_local_control(payload.decode("utf-8")), dict):
+                            raise ValueError
+                    except (ValueError, UnicodeError, TimeoutError):
+                        await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
+                        return
+                    first = True
+
+                    async def replay() -> Message:
+                        nonlocal first
+                        if first:
+                            first = False
+                            return {"type": "http.request", "body": bytes(payload), "more_body": False}
+                        return await receive()
+
+                    application_receive = replay
+                session.check_active()
+                await self.app(scope, application_receive, general_send)
+                if suppressed and not started and not detached.is_set():
+                    await self._deny(scope, receive, guarded_send, "LOCAL_READ_UNAUTHORIZED")
+
+            if acquisition:
+                self._reads += 1
+                await self._retain_work(work(), detached, stream=False)
+            else:
+                await work()
             return
         await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
 

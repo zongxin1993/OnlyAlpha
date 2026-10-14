@@ -62,13 +62,15 @@ it("uses memory-only bearer headers for every read, never as Acquisition authori
     await client.listInstruments(FIXTURE_REFERENCE, "BTC");
     await client.queryBars(FIXTURE_REFERENCE, query);
     await client.getAcquisition(FIXTURE_REFERENCE, "a");
-    await client.createAcquisition(FIXTURE_REFERENCE, acquisitionQuery);
+    await expect(
+        client.createAcquisition(FIXTURE_REFERENCE, acquisitionQuery)
+    ).rejects.toMatchObject({ code: "LOCAL_READ_FORBIDDEN" });
     for (const [url, init] of fetchMock.mock.calls.slice(0, 4)) {
         expect(url instanceof Request ? url.url : url.toString()).not.toContain(token);
         expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${token}`);
         expect(init?.credentials).toBe("omit");
     }
-    expect(new Headers(fetchMock.mock.calls[4]?.[1]?.headers).has("Authorization")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(credentials)).toBe("{}");
 });
 
@@ -264,4 +266,24 @@ it("maps Product and transport failures to explicit Market Data errors", async (
     await expect(new FetchMarketDataApiClient().listSources()).rejects.toMatchObject({
         code: "TRANSPORT_ERROR"
     });
+});
+
+it("fences a dev acquisition response after the local credential generation changes", async () => {
+    const credentials = new LocalReadCredentials(true);
+    let release!: (response: Response) => void;
+    const fetchMock = vi.fn<typeof fetch>(
+        () =>
+            new Promise<Response>((resolve) => {
+                release = resolve;
+            })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = new FetchMarketDataApiClient(credentials).createAcquisition(
+        FIXTURE_REFERENCE,
+        acquisitionQuery
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe("same-origin");
+    credentials.replace(null);
+    release(json(marketDataAcquisition()));
+    await expect(pending).rejects.toMatchObject({ code: "LOCAL_READ_GENERATION_CHANGED" });
 });

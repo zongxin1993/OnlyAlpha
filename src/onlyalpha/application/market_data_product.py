@@ -877,6 +877,7 @@ class OnlyMarketDataProductService:
         start_ns: int,
         end_ns: int,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        source_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         try:
             with only_market_data_performance("COMMAND"):
@@ -886,6 +887,7 @@ class OnlyMarketDataProductService:
                     start_ns=start_ns,
                     end_ns=end_ns,
                     bar_semantic=bar_semantic,
+                    source_session=source_session,
                 )
         except OnlyMarketDataProductError as exc:
             raise OnlyMarketDataProductError(exc.code, exc.detail, phase="COMMAND") from exc
@@ -898,6 +900,7 @@ class OnlyMarketDataProductService:
         start_ns: int,
         end_ns: int,
         bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        source_session: OnlySourceReadSession | None = None,
     ) -> OnlyMarketDataAcquisitionProjectionV1:
         """Validate, admit the execution intent durably, then execute.
 
@@ -906,7 +909,9 @@ class OnlyMarketDataProductService:
         cannot reproduce after restart.
         """
 
-        resolved = self.resolve_runtime(reference)
+        # Source proof under a separately admitted Command; read grants alone
+        # never authorize the HTTP Command policy.
+        resolved = self.resolve_read_runtime(reference, read_session=source_session)
         semantic = only_product_bar_semantic(bar_semantic)
         plan = self._plan(resolved, instrument_id, semantic)
         acquisition_plan = (
@@ -947,6 +952,8 @@ class OnlyMarketDataProductService:
                 target_semantic=semantic,
                 base_semantic=acquisition_plan.provider_semantic,
             )
+        if source_session is not None:
+            source_session.check_active()
         admitted = self._admit(intent)
         sealed = self._sealed_for_scope(scope)
         if sealed is not None:

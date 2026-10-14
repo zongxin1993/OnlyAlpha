@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
 WEB = Path("packages/onlyalpha-web-console")
 IMAGE = "onlyalpha-browser-test:dev"
 ENVIRONMENT_RECORD = Path("/opt/onlyalpha-dev-environment.json")
@@ -90,13 +92,22 @@ def git_input_hashes(cut: Path) -> dict[str, str]:
 
 
 def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, str]:
-    """Transport real HEAD/tree/index, without remotes, hooks, credentials or new commits."""
+    """Transport HEAD/tree/index and exact local release base, without remote configuration."""
     if git_input_hashes(cut) != previous.get("git_inputs", {}):
         raise ValueError("DEV_VERIFICATION_GIT_CUT_MODIFIED")
     if not (root / ".git").exists():
         return {}
     git = ["git", "-C", str(root)]
     revision = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True, timeout=15).strip()
+    base_result = subprocess.run(
+        [*git, "rev-parse", "--verify", "refs/remotes/origin/master"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    base = base_result.stdout.strip() if base_result.returncode == 0 else ""
+    revisions = list(dict.fromkeys([revision, *([base] if base else [])]))
     index_path = Path(
         subprocess.check_output(
             [*git, "rev-parse", "--path-format=absolute", "--git-path", "index"], text=True, timeout=15
@@ -104,7 +115,7 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
     )
     index = index_path.read_bytes()
     objects = subprocess.check_output(
-        [*git, "rev-list", "--objects", "--no-object-names", "--no-walk", revision], timeout=15
+        [*git, "rev-list", "--objects", "--no-object-names", "--no-walk", *revisions], timeout=15
     )
     stages = subprocess.check_output([*git, "ls-files", "--stage", "-z"], timeout=15)
     staged_objects = [entry.split(b" ", 2)[1] for entry in stages.split(b"\0") if entry]
@@ -122,13 +133,16 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
     pack_name = "objects/pack/pack-" + hashlib.sha256(pack).hexdigest()
     content = {
         "HEAD": (revision + "\n").encode(),
-        "shallow": (revision + "\n").encode(),
+        "shallow": ("\n".join(revisions) + "\n").encode(),
         "index": index,
         "config": b"[core]\n\trepositoryformatversion = 0\n\tbare = false\n",
         pack_name + ".pack": pack,
     }
+    if base:
+        content["refs/remotes/origin/master"] = (base + "\n").encode()
     for name, raw in content.items():
         temporary = directory / (name + ".capture")
+        temporary.parent.mkdir(parents=True, exist_ok=True)
         temporary.write_bytes(raw)
         temporary.replace(directory / name)
     subprocess.run(
@@ -144,13 +158,23 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
     if (
         index_path.read_bytes() != index
         or subprocess.check_output([*git, "rev-parse", "HEAD"], text=True, timeout=15).strip() != revision
+        or subprocess.run(
+            [*git, "rev-parse", "--verify", "refs/remotes/origin/master"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        ).stdout.strip()
+        != base
     ):
         raise ValueError("DEV_VERIFICATION_GIT_CHANGED_DURING_CAPTURE")
     return git_input_hashes(cut)
 
 
-def freeze_source(root: Path, operation_id: str, *, product: bool = False) -> dict[str, str]:
+def freeze_source(root: Path, operation_id: str, *, product: bool = False, research: bool = False) -> dict[str, str]:
     """Refresh one managed source view while the host lifecycle reservation is held."""
+    from scripts.embed_build_provenance import resolve_build_provenance_bytes, write_build_provenance
+
     inputs = source_inputs(root)
     cut = root / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
     marker = cut / CUT_METADATA
@@ -200,9 +224,17 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False) -> di
     if source_inputs(cut) != inputs or source_inputs(root) != inputs:
         raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
     git_inputs = {} if product else capture_git(root, cut, previous)
+    if research:
+        provenance = resolve_build_provenance_bytes(cut)
+        destination = cut / "src/onlyalpha/_build_provenance.json"
+        if not destination.exists():
+            write_build_provenance(cut, destination, provenance)
+            destination.chmod(0o444)
+            destination.with_suffix(".sha256").chmod(0o444)
+    frozen_inputs = source_inputs(cut)
     marker.write_text(
         json.dumps(
-            {"source_root": str(root), "operation_id": operation_id, "inputs": inputs, "git_inputs": git_inputs},
+            {"source_root": str(root), "operation_id": operation_id, "inputs": frozen_inputs, "git_inputs": git_inputs},
             sort_keys=True,
         )
     )
@@ -455,7 +487,7 @@ def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reserva
             )
     elif mode == "run":
         raise ValueError("DEV_VERIFICATION_CONTAINER_REQUIRED")
-    inputs = freeze_source(ROOT, reservation["operation_id"])
+    inputs = freeze_source(ROOT, reservation["operation_id"], research="research-postgres" in command)
     if mode == "prepare":
         # Explicit setup/rebuild only. Ordinary run never invokes build/up/run/down.
         available = (

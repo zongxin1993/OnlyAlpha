@@ -9,6 +9,7 @@ import { CalculationSelectionSummary } from "./CalculationPicker";
 import { keepDialogFocus } from "./dialogFocus";
 import {
     configurationErrors,
+    transientConfigurationErrors,
     parameterTextInput,
     studyDescriptor,
     validPresentation,
@@ -84,8 +85,14 @@ export function ChartStudyEditor({
     const dialog = useRef<HTMLDialogElement>(null);
     const request = useRef<AbortController | null>(null);
     const metadataError = source.error;
-    const errors =
-        source.descriptor === null ? [] : configurationErrors(source.descriptor, configuration);
+    const errors = [
+        ...(source.descriptor === null
+            ? []
+            : configurationErrors(source.descriptor, configuration)),
+        ...(selection.source === "CHART_STUDY_TRANSIENT"
+            ? transientConfigurationErrors(selection.capability, configuration)
+            : [])
+    ];
     const canConfirm =
         metadataError === null &&
         errors.length === 0 &&
@@ -269,7 +276,10 @@ export function ChartStudyEditor({
                     <p>Readiness capability：{selection.entry.readiness?.capability_fingerprint}</p>
                 </details>
             ) : selection.source === "CHART_STUDY_TRANSIENT" ? (
-                <p>CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result</p>
+                <p>
+                    CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result · 当前图表查询仅支持
+                    CLOSE，period 1–{selection.capability.capability_projection.limits.max_period}
+                </p>
             ) : (
                 <p>REGISTERED_DISCOVERY · 已登记 / 执行未连接</p>
             )}

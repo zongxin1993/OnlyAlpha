@@ -4,6 +4,7 @@ import { researchCalculationCatalogSchema } from "../../api/research/schemas";
 import { chartCatalogFixture } from "../../test/chartCatalog";
 import {
     configurationErrors,
+    transientConfigurationErrors,
     parameterInputError,
     parameterTextInput,
     studyDescriptor,
@@ -195,3 +196,35 @@ it.each(["bad-color", "zero-width", "large-width", "opacity", "infinite"])(
         expect(validPresentation(value)).toBe(false);
     }
 );
+
+it("checks transient support separately without narrowing the canonical descriptor", async () => {
+    const { default: sample } =
+        await import("../../../../../test-data/web/chart-studies/query.json");
+    const { ChartStudyCapabilitiesSchema } = await import("../../api/chartStudies/http.generated");
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 1,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Expected installed capability");
+    const selection: ChartCalculationDraft = { source: "CHART_STUDY_TRANSIENT", capability };
+    const original = studyDescriptor(selection);
+    const configuration = {
+        parameters: {
+            period: { type: "INTEGER" as const, value: 10001 },
+            price_field: { type: "STRING" as const, value: "VOLUME" }
+        },
+        outputName: "value"
+    };
+    expect(configurationErrors(original, configuration)).toEqual([]);
+    expect(transientConfigurationErrors(capability, configuration)).toHaveLength(2);
+    expect(
+        transientConfigurationErrors(capability, {
+            ...configuration,
+            parameters: {
+                period: { type: "INTEGER", value: 10000 },
+                price_field: { type: "STRING", value: "CLOSE" }
+            }
+        })
+    ).toEqual([]);
+    expect(studyDescriptor(selection)).toEqual(original);
+});

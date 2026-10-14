@@ -14,6 +14,7 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
 )
+from onlyalpha.application.source_read_access import OnlySourceReadAccessError, OnlySourceReadPermission
 from onlyalpha.market_data.durable.performance import only_market_data_performance, only_market_data_phase
 from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 
@@ -125,7 +126,14 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         response_model=MarketDataAcquisitionDto,
         responses=_ERROR_RESPONSES,
     )
-    def create_acquisition(request: MarketDataAcquisitionRequestDto) -> MarketDataAcquisitionDto:
+    def create_acquisition(request: MarketDataAcquisitionRequestDto, http_request: Request) -> MarketDataAcquisitionDto:
+        source_session = only_request_read_session(http_request.scope)
+        if source_session is not None:
+            source_session.require_reference(
+                request.source_reference.to_model(), OnlySourceReadPermission.CLOSED_HISTORY
+            )
+            if http_request.scope.get("onlyalpha.dev_acquisition_session") is not source_session:
+                raise OnlySourceReadAccessError("LOCAL_READ_FORBIDDEN")
         with only_market_data_performance("COMMAND"):
             projection = service.acquire_bars(
                 request.source_reference.to_model(),
@@ -133,6 +141,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 start_ns=int(request.start_ns),
                 end_ns=int(request.end_ns),
                 bar_semantic=request.bar_semantic.to_model(),
+                source_session=source_session,
             )
             with only_market_data_phase("serialization_projection"):
                 return MarketDataAcquisitionDto.from_model(projection)

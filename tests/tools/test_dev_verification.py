@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from scripts import dev_verification
+from scripts import dev_verification, embed_build_provenance
+from scripts.embed_build_provenance import resolve_build_provenance_bytes
 
 
 def _environment(root: Path) -> None:
@@ -519,6 +520,63 @@ def test_frozen_git_preserves_real_head_and_tracked_files_without_private_config
     (tmp_path / ".git/HEAD").write_text("different provenance")
     with pytest.raises(ValueError, match="GIT_CUT_MODIFIED"):
         dev_verification.capture_git(root, tmp_path, {"git_inputs": hashes})
+
+
+def test_frozen_git_carries_exact_local_release_base_without_following_later_changes(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    expected = subprocess.check_output(["git", "-C", str(root), "rev-parse", "origin/master"])
+    hashes = dev_verification.capture_git(root, tmp_path, {})
+    assert subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "origin/master"]) == expected
+    assert subprocess.check_output(["git", "-C", str(tmp_path), "show", "origin/master:pyproject.toml"])
+    assert "refs/remotes/origin/master" in hashes
+
+
+def test_research_source_cut_carries_current_provenance_and_cleans_it_on_next_run(tmp_path: Path, monkeypatch) -> None:
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    project = tmp_path / "pyproject.toml"
+    project.write_text('version = "0.1.0"\n')
+    subprocess.run(["git", "-C", str(tmp_path), "add", "pyproject.toml"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "Source",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    project.write_text('version = "0.1.1"\n')
+    raw = dev_verification.source_inputs(tmp_path)
+    assert dev_verification.freeze_source(tmp_path, "research", research=True) == raw
+    cut = tmp_path / ".test-cache/dev-source-cut"
+    payload = json.loads(resolve_build_provenance_bytes(cut))
+    assert payload["distribution_version"] == "0.1.1"
+    assert (
+        payload["source_revision"]
+        == subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    )
+    metadata = json.loads((cut / dev_verification.CUT_METADATA).read_text())
+    assert metadata["inputs"] == dev_verification.source_inputs(cut)
+    assert dev_verification.source_inputs(tmp_path) == raw
+    monkeypatch.setattr(embed_build_provenance, "__file__", str(cut / "scripts/embed_build_provenance.py"))
+    monkeypatch.setattr(sys, "argv", ["embed_build_provenance.py", "--check"])
+    monkeypatch.setattr(
+        embed_build_provenance, "write_build_provenance", lambda *args: pytest.fail("check must never write source")
+    )
+    assert embed_build_provenance.main() == 0
+    assert dev_verification.source_inputs(cut) == metadata["inputs"]
+    dev_verification.freeze_source(tmp_path, "ordinary")
+    assert not (cut / "src/onlyalpha/_build_provenance.json").exists()
+    assert dev_verification.source_inputs(cut) == raw
+    with pytest.raises(ValueError, match="BUILD_PROVENANCE_INVALID"):
+        embed_build_provenance.main()
 
 
 @pytest.mark.parametrize(

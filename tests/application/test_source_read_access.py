@@ -163,6 +163,41 @@ def test_authorized_owning_history_reads_preserve_exact_market_inventory(tmp_pat
     assert before == after
 
 
+@pytest.mark.parametrize(
+    "dimension,value",
+    [("source_id", "another.source"), ("environment", "SIM"), ("integration_revision_fingerprint", "b" * 64)],
+)
+def test_admitted_command_source_proof_fails_before_any_durable_write(
+    tmp_path: Path, dimension: str, value: str
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    session = _authority(reference, **{dimension: value}).authenticate("Bearer " + TOKEN)
+    start, end = _range()
+    with pytest.raises(OnlySourceReadAccessError, match="LOCAL_READ_FORBIDDEN"):
+        harness.service.acquire_bars(
+            reference, instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end, source_session=session
+        )
+    assert harness.catalog.mutations == 0
+    assert harness.service._facts.writes == 0
+    assert harness.provider.reference_lookups == 0
+
+
+def test_withdrawn_command_source_proof_cannot_start_acquisition(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    authority = _authority(reference)
+    session = authority.authenticate("Bearer " + TOKEN)
+    authority.withdraw()
+    start, end = _range()
+    with pytest.raises(OnlySourceReadAccessError, match="LOCAL_READ_UNAUTHORIZED"):
+        harness.service.acquire_bars(
+            reference, instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end, source_session=session
+        )
+    assert harness.catalog.mutations == 0
+    assert harness.service._facts.writes == 0
+
+
 def test_missing_or_different_leaf_proof_never_becomes_authorized() -> None:
     reference = OnlyMarketDataSourceReferenceV1("integration", "a" * 64, TYPE_ID)
     session = _authority(reference).authenticate("Bearer " + TOKEN)

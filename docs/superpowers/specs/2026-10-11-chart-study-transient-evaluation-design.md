@@ -385,11 +385,13 @@ the authority and invalidates previous cookies/HTTP work/streams. Local OS users
 the sole dev project's network are trusted; this is not an internet/LAN deployment.
 
 Source grants authorize reads only. A separate explicit dev-human ingress policy
-permits normal Product GETs and Integration configuration commands, delegating to
-their owning Authority. Acquisition POST, Agent/internal gateways, Strategy/LIVE
-commands and all other mutations are denied by this composition. Ordinary navigation
-and history paging never automatically acquire or resubmit PENDING work. Missing
-history remains incomplete and can be re-observed through a visible reload action.
+permits normal Product GETs, Integration configuration commands and the exact Market
+Data Acquisition POST, delegating to their owning Authorities. Symbol selection and
+history paging may prepare only the server-planned missing ranges through that
+separate dev-human Command policy. Source read grants and private bearer credentials
+alone do not authorize it. Agent/internal gateways, Strategy/LIVE commands and all
+other mutations remain denied. Study configuration itself never acquires data.
+Acquisition failures remain visible and recoverable through normal chart controls.
 
 Development startup reuses the admitted fixed image and existing database/user-data
 pair without bootstrap, migrations, key generation, fixtures, workers or acquisition.
@@ -644,3 +646,16 @@ These upstream reports describe historical versions, not an assertion the instal
 Reject upstream tolerance/sort-deduplicate, inverse transforms/cache-clearing as correctness fixes, sleeps/retry-until-green and
 mutable evaluator truth. No dependency/patch/renderer replacement is imported. Executable regressions belong to the authorized
 implementation slice; links here are proposed test derivation, not a claim those future tests ran.
+
+### Ordinary workspace historical preparation
+
+Selecting a symbol in the explicitly admitted local development UI prepares missing
+closed history through the existing versioned Market Data Acquisition Command, then
+reads verified K lines. Its dev-human Command policy is separate from Source read
+grants and does not authorize private bearer callers, Agents or trading mutations.
+The Command proves exact Integration Revision/Source/environment before durable admission.
+The normal workspace prepares 2000 Bars so adding an admitted SMA does not require
+a hidden acquisition or a different preparation tool. Study add/edit/style remains
+read-only and never admits Acquisition or Research; missing, failed and withdrawn
+proof continues to fail closed. This is a user workflow requirement, not completion
+or a production authentication claim.

@@ -222,7 +222,7 @@ export function useMarketDataChart(): MarketDataChartState {
                       }
                     : null;
             olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
-                readOnly: credentials.localSession || credentials.capture().bearer !== null,
+                readOnly: credentials.capture().bearer !== null,
                 client,
                 reference: active,
                 expectedSourceId,
@@ -350,7 +350,9 @@ export function useMarketDataChart(): MarketDataChartState {
             const query = {
                 instrument_id: target.instrument_id,
                 anchor_kind: "LATEST_CLOSED" as const,
-                target_bar_count: DEFAULT_TARGET_BAR_COUNT,
+                // The ordinary workspace prepares the full admitted Study input
+                // before indicators are added; adding a Study never acquires data.
+                target_bar_count: credentials.localSession ? 2000 : DEFAULT_TARGET_BAR_COUNT,
                 bar_semantic: specification
             };
             const contextKey = onlyMarketDataChartContextKey(
@@ -397,13 +399,6 @@ export function useMarketDataChart(): MarketDataChartState {
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
-                if (credentials.localSession) {
-                    setStatus("incomplete");
-                    setMessage(
-                        `历史行情覆盖不足：${String(loaded.coverage.actual_bar_count)}/${String(loaded.coverage.expected_bar_count)}；不会自动采集`
-                    );
-                    return;
-                }
                 if (credentials.capture().bearer !== null) {
                     setStatus("failed");
                     setMessage("只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集");
@@ -723,6 +718,7 @@ export function useMarketDataChart(): MarketDataChartState {
         // Manual selections remain valid; the Binance default resolves an actual instrument,
         // never a locally authored DTO or a first-row substitute.
         if (
+            instrument !== null ||
             selectedSource?.type_id !== DEFAULT_SOURCE_TYPE ||
             selectedSource.environment !== DEFAULT_SOURCE_ENVIRONMENT
         )
@@ -780,7 +776,7 @@ export function useMarketDataChart(): MarketDataChartState {
         return () => {
             controller.abort();
         };
-    }, [apply, client, load, selectedSource]);
+    }, [apply, client, instrument, load, selectedSource]);
 
     const searchInstruments = useCallback(
         async (query: string) => {

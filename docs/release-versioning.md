@@ -59,6 +59,10 @@ uv lock --check
 
 The number in the last command is an example, not authorization to change this tree.
 Retain metadata/build checks and installed-distribution parity after a real bump.
+Local verification captures the existing `origin/master` commit, tree and ref into
+the frozen source inventory. `check-transition` reads that exact captured base;
+it does not fetch or substitute a later target. Refresh the local target explicitly
+before starting validation when a newer base is required.
 
 ## Component and compatibility domains
 

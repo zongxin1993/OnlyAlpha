@@ -17,13 +17,14 @@ import {
     ChartStudyWebError
 } from "../../api/chartStudies/client";
 import type { ChartStudyEvaluateRequest } from "../../api/chartStudies/http.generated";
-import type { ChartStudyContext } from "./chartStudy";
+import { transientConfigurationErrors, type ChartStudyContext } from "./chartStudy";
 import "./TransientStudyPriceChart.css";
 
 interface QueryState {
     readonly key: string;
     readonly evidence: readonly StudySeriesEvidence[];
     readonly status: string;
+    readonly rejected: readonly string[];
 }
 
 /** Shipping read-only consumer. Main-chart Acquisition and stream remain independent. */
@@ -44,7 +45,8 @@ export function TransientStudyPriceChart({
     const [state, setState] = useState<QueryState>({
         key: "",
         evidence: [],
-        status: "NOT_CONNECTED"
+        status: "NOT_CONNECTED",
+        rejected: []
     });
     const [before, setBefore] = useState<string | null>(null);
     const lastClosed = chart.bars.at(-1)?.barEndNs ?? null;
@@ -83,8 +85,12 @@ export function TransientStudyPriceChart({
             live.current.key === key &&
             live.current.generation === generation &&
             !controller.signal.aborted;
-        const update = (status: string, evidence: readonly StudySeriesEvidence[] = []) => {
-            if (current()) setState({ key, status, evidence });
+        const update = (
+            status: string,
+            evidence: readonly StudySeriesEvidence[] = [],
+            rejected: readonly string[] = []
+        ) => {
+            if (current()) setState({ key, status, evidence, rejected });
         };
         const selected = (chart.studies ?? []).filter(
             (instance) =>
@@ -161,23 +167,21 @@ export function TransientStudyPriceChart({
                     return;
                 }
                 const evidence: StudySeriesEvidence[] = [];
+                const rejected: string[] = [];
                 for (const instance of selected) {
                     if (instance.selection.source !== "CHART_STUDY_TRANSIENT") continue;
                     if (
                         instance.selection.capability.capability_projection_fingerprint !==
                         capability.capability_projection_fingerprint
                     ) {
-                        update("STALE");
-                        return;
+                        rejected.push(`${instance.instanceId}: STALE`);
+                        continue;
                     }
+                    const errors = transientConfigurationErrors(capability, instance.configuration);
                     const period = instance.configuration.parameters.period;
-                    if (
-                        period?.type !== "INTEGER" ||
-                        instance.configuration.parameters.price_field?.value !== "CLOSE" ||
-                        instance.configuration.outputName !== "value"
-                    ) {
-                        update("UNSUPPORTED");
-                        return;
+                    if (errors.length > 0 || period?.type !== "INTEGER") {
+                        rejected.push(`${instance.instanceId}: ${errors.join("；")}`);
+                        continue;
                     }
                     const request: ChartStudyEvaluateRequest = {
                         schema_version: 1,
@@ -232,7 +236,15 @@ export function TransientStudyPriceChart({
                     }
                     evidence.push(result);
                 }
-                update("DISPLAYABLE", evidence);
+                update(
+                    rejected.length === 0
+                        ? "DISPLAYABLE"
+                        : evidence.length === 0
+                          ? "REJECTED_CONFIG"
+                          : "PARTIALLY_DISPLAYABLE",
+                    evidence,
+                    rejected
+                );
             } catch (error) {
                 if (!current()) return;
                 update(
@@ -263,7 +275,7 @@ export function TransientStudyPriceChart({
         };
         // Intent deliberately excludes visibility/color/pane/selection/viewport.
     }, [key]);
-    const active = state.key === key ? state : { key, evidence: [], status: "STALE" };
+    const active = state.key === key ? state : { key, evidence: [], status: "STALE", rejected: [] };
     // Metadata-only configuration has no Chart Query status or numeric admission.
     // Preserve plot space without remounting the native chart on Study addition.
     const hasTransient = (chart.studies ?? []).some(
@@ -279,6 +291,7 @@ export function TransientStudyPriceChart({
                 >
                     {active.status === "INPUT_INCOMPLETE" ? "缺少已完成历史 K 线" : active.status} ·
                     DISPLAY_ONLY · 不是 Research Result
+                    {active.rejected.length === 0 ? null : ` · ${active.rejected.join("；")}`}
                 </p>
             ) : null}
             <div className="transient-study-chart__plot">

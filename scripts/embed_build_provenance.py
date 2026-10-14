@@ -128,6 +128,7 @@ def write_transported_build_provenance(repository_root: Path, destination: Path,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--revision")
+    parser.add_argument("--check", action="store_true", help="Verify the carried resource without writing source")
     parser.add_argument(
         "--destination",
         type=Path,
@@ -135,7 +136,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     repository_root = Path(__file__).resolve().parents[1]
-    if args.revision is None:
+    if args.check:
+        if args.revision is not None:
+            raise ValueError("ONLYALPHA_BUILD_PROVENANCE_CHECK_REVISION_REFUSED")
+        load_carried_build_provenance(repository_root)
+        resolve_build_provenance_bytes(repository_root)
+    elif args.revision is None:
         provenance = resolve_build_provenance_bytes(repository_root)
         write_build_provenance(repository_root, args.destination, provenance)
     else:

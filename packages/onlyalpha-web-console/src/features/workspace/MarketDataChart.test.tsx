@@ -349,6 +349,73 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
     expect(listInstruments).toHaveBeenCalledTimes(2);
 });
 
+it.each(["name", "revision"])(
+    "preserves selected symbol and period when source %s changes",
+    async (change) => {
+        let source = binanceSource();
+        const btc = binanceInstrument();
+        const eth = marketDataInstrument({
+            instrument_id: "ETHUSDT.BINANCE",
+            display_symbol: "ETH/USDT",
+            venue: "BINANCE"
+        });
+        const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
+            Promise.resolve(query === "ETH" ? [eth] : [btc])
+        );
+        const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+            Promise.resolve(
+                marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+            )
+        );
+        renderWorkspace(
+            marketDataClient({
+                listSources: () => Promise.resolve([{ ...source }]),
+                listInstruments,
+                queryBars
+            })
+        );
+        await waitFor(() => {
+            expect(streams.requests).toHaveLength(1);
+        });
+        const user = userEvent.setup();
+        await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+        await user.click(screen.getByRole("button", { name: "搜索标的" }));
+        await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(2);
+        });
+        await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(3);
+        });
+        source = {
+            ...source,
+            display_name: "Updated source",
+            ...(change === "revision" ? { integration_revision_fingerprint: "c".repeat(64) } : {})
+        };
+        await user.click(screen.getByRole("button", { name: "数据源" }));
+        await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+        await user.click(
+            within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+                name: "关闭"
+            })
+        );
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+        await waitFor(() => {
+            expect(queryBars).toHaveBeenCalledTimes(change === "revision" ? 4 : 3);
+        });
+        expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("5");
+        const last = queryBars.mock.calls.at(-1);
+        if (last === undefined) throw new Error("No revised Source query");
+        expect(fixedDurationMinutes(last[1].bar_semantic)).toBe(5);
+        expect(queryBars.mock.calls.at(-1)?.[0].integration_revision_fingerprint).toBe(
+            source.integration_revision_fingerprint
+        );
+        expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
+        expect(listInstruments).toHaveBeenCalledTimes(2);
+    }
+);
+
 it("does not replace newer symbol search results with an older response", async () => {
     let completeOlder: ((value: ReturnType<typeof marketDataInstrument>[]) => void) | undefined;
     const eth = marketDataInstrument({ instrument_id: "ETHUSDT.TEST", display_symbol: "ETH/USDT" });
@@ -1552,16 +1619,29 @@ it("shows missing coverage without issuing an Acquisition when read credentials 
     expect(renderedPrices()).toEqual([]);
 });
 
-it("ordinary dev needs no credential entry and only re-observes incomplete history", async () => {
+it("ordinary dev prepares missing history before rendering the selected instrument", async () => {
     vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     try {
+        const calls: string[] = [];
         const client = marketDataClient({
             listInstruments: () => Promise.resolve([marketDataInstrument()]),
-            queryBars: (_reference, query) =>
-                Promise.resolve(marketDataBarsForQuery(query, incompleteBars()))
+            queryBars: (_reference, query) => {
+                calls.push("bars");
+                expect(query.target_bar_count).toBe(2000);
+                return Promise.resolve(
+                    marketDataBarsForQuery(
+                        query,
+                        calls.filter((item) => item === "bars").length === 1
+                            ? incompleteBars({ requested_bar_count: query.target_bar_count })
+                            : {}
+                    )
+                );
+            },
+            createAcquisition: () => {
+                calls.push("acquisition");
+                return Promise.resolve(marketDataAcquisition());
+            }
         });
-        const acquisition = vi.spyOn(client, "createAcquisition");
-        const query = vi.spyOn(client, "queryBars");
         renderWorkspace(client);
         const user = userEvent.setup();
         expect(screen.queryByText("本地只读访问", { exact: true })).not.toBeInTheDocument();
@@ -1571,18 +1651,11 @@ it("ordinary dev needs no credential entry and only re-observes incomplete histo
         await waitFor(() => {
             expect(screen.getByTestId("market-data-status")).toHaveAttribute(
                 "data-status",
-                "incomplete"
+                "ready"
             );
         });
-        expect(screen.getByTestId("market-data-status")).toHaveTextContent("不会自动采集");
-        const before = query.mock.calls.length;
-        await user.click(screen.getByRole("button", { name: "重新读取历史" }));
-        await waitFor(() => {
-            expect(query).toHaveBeenCalledTimes(before + 1);
-        });
-        expect(acquisition).not.toHaveBeenCalled();
-        expect(streams.requests).toEqual([]);
-        expect(renderedPrices()).toEqual([]);
+        expect(calls).toEqual(["bars", "acquisition", "bars"]);
+        expect(renderedPrices()).toEqual([101, 102.5]);
     } finally {
         cleanup();
         vi.unstubAllEnvs();
