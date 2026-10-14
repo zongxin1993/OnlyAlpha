@@ -134,8 +134,11 @@ it("confirms independent instances; cancel/edit has a single state source and st
     await user.click(screen.getByRole("button", { name: "取消配置" }));
     expect(first).toHaveAttribute("data-configuration", original);
     await user.click(within(first).getByRole("button", { name: "编辑 SMA" }));
-    await user.clear(screen.getByRole("textbox", { name: "颜色" }));
-    await user.type(screen.getByRole("textbox", { name: "颜色" }), "#c8332a");
+    expect(screen.queryByRole("textbox", { name: "颜色" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "颜色" })).getAllByRole("button")).toHaveLength(
+        16
+    );
+    await user.click(screen.getByRole("button", { name: /^红色$/ }));
     await user.selectOptions(screen.getByRole("combobox", { name: "位置" }), "SEPARATE_PANE");
     await user.click(screen.getByRole("checkbox", { name: "显示" }));
     await user.click(screen.getByRole("button", { name: "应用" }));
@@ -347,8 +350,8 @@ it("blocks unsafe input, missing chart context and invalid style without any con
     expect(screen.getByRole("button", { name: "添加" })).toBeDisabled();
     await user.clear(screen.getByRole("textbox", { name: "period" }));
     await user.type(screen.getByRole("textbox", { name: "period" }), "9007199254740992");
-    await user.clear(screen.getByRole("textbox", { name: "颜色" }));
-    await user.type(screen.getByRole("textbox", { name: "颜色" }), "not-a-color");
+    await user.clear(screen.getByRole("spinbutton", { name: "线宽" }));
+    await user.type(screen.getByRole("spinbutton", { name: "线宽" }), "9");
     expect(
         screen
             .getAllByRole("alert")

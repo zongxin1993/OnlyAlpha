@@ -33,7 +33,6 @@ import type { MarketDataBarSemantic } from "../../api/marketData/model";
 import { deriveTimeAxisPolicy } from "./timeAxisPolicy";
 import {
     toCandlestick,
-    toCloseLine,
     type FinancialChartType,
     type MarketDataChartBarProjection,
     type MarketDataChartSelection
@@ -88,7 +87,6 @@ export function PriceChart({
     const priceSeries = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
     const volumeSeries = useRef<ISeriesApi<"Histogram"> | null>(null);
     const studyRenderer = useRef<StudySeriesRenderer | null>(null);
-    const extraTimes = useRef<readonly number[]>([]);
     const axisTimes = useRef<readonly number[]>([]);
     const [hover, setHover] = useState<{
         readonly context: string | null;
@@ -141,12 +139,12 @@ export function PriceChart({
     const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
     const previousContextKey = useRef<string | null>(null);
     const initializedNonEmptyContext = useRef(false);
-    const previousBars = useRef<readonly RenderBar[]>([]);
     const rendererBars = useRef<readonly RenderBar[]>([]);
+    const previousBars = useRef<readonly RenderBar[]>([]);
+    const acceptedPreview = useRef<MarketDataChartBarProjection | null>(null);
     const placingHistory = useRef(false);
     const nearLeftEdgeArmed = useRef(false);
     const nearLeftEdgeCallback = useRef(onNearLeftEdge);
-    const lastRenderedTime = useRef<number | null>(null);
     const bars = useMemo(
         () => productBars.map((bar) => ({ ...toCandlestick(bar), barStartNs: bar.barStartNs })),
         [productBars]
@@ -198,6 +196,8 @@ export function PriceChart({
                 borderColor: token("--line", "#e2e2dd"),
                 timeVisible: false,
                 secondsVisible: false,
+                shiftVisibleRangeOnNewBar: false,
+                allowShiftVisibleRangeOnWhitespaceReplacement: false,
                 tickMarkFormatter: (time: Time, kind: TickMarkType) => {
                     if (typeof time !== "number") return null;
                     const value = utcTime(time);
@@ -276,11 +276,10 @@ export function PriceChart({
             studyRenderer.current = null;
             volumeSeries.current = null;
             priceSeries.current = null;
-            lastRenderedTime.current = null;
-            previousBars.current = [];
             rendererBars.current = [];
+            previousBars.current = [];
+            acceptedPreview.current = null;
             initializedNonEmptyContext.current = false;
-            extraTimes.current = [];
             axisTimes.current = [];
             nearLeftEdgeArmed.current = false;
             chart.remove();
@@ -351,106 +350,53 @@ export function PriceChart({
     useEffect(() => {
         const timeScale = chartRef.current?.timeScale();
         const visibleRange = timeScale?.getVisibleLogicalRange() ?? null;
-        const priorBars = previousBars.current;
         const contextChanged = previousContextKey.current !== contextKey;
         if (contextChanged) {
+            acceptedPreview.current = null;
+            previousBars.current = [];
             initializedNonEmptyContext.current = false;
             nearLeftEdgeArmed.current = false;
         }
         const firstNonEmptyHistory = !initializedNonEmptyContext.current && bars.length > 0;
+        placingHistory.current = true;
+        const beforeAxis = axisTimes.current;
+        const lastClosed = bars.at(-1);
+        const previousPreview = acceptedPreview.current;
+        if (liveBar === null) acceptedPreview.current = null;
+        else if (
+            (lastClosed === undefined || liveBar.time >= lastClosed.time) &&
+            (previousPreview === null || liveBar.time >= previousPreview.time)
+        )
+            acceptedPreview.current = liveBar;
+        const currentPreview = acceptedPreview.current;
+        const preview =
+            currentPreview !== null &&
+            (lastClosed === undefined || currentPreview.time >= lastClosed.time)
+                ? currentPreview
+                : null;
+        const displayed =
+            preview === null
+                ? bars
+                : [
+                      ...bars.filter((bar) => bar.time !== preview.time),
+                      { ...toCandlestick(preview), barStartNs: preview.barStartNs }
+                  ];
+        const displayedProduct =
+            preview === null
+                ? productBars
+                : [...productBars.filter((bar) => bar.time !== preview.time), preview];
+        const priorBars = previousBars.current;
         const firstPrior = priorBars[0];
-        const prependCount =
+        const offset =
             firstPrior === undefined
                 ? -1
                 : bars.findIndex((bar) => barIdentity(bar) === barIdentity(firstPrior));
-        const strictPrepend =
-            !contextChanged &&
-            initializedNonEmptyContext.current &&
-            priorBars.length > 0 &&
-            prependCount > 0 &&
+        const orderedPrior =
+            offset >= 0 &&
             priorBars.every((bar, index) => {
-                const current = bars[index + prependCount];
-                return current !== undefined && barIdentity(bar) === barIdentity(current);
+                const next = bars[index + offset];
+                return next !== undefined && barIdentity(next) === barIdentity(bar);
             });
-        placingHistory.current = true;
-        const beforeAxis = axisTimes.current;
-        const nextAxis = [...new Set([...bars.map((bar) => bar.time), ...extraTimes.current])].sort(
-            (a, b) => a - b
-        );
-        axisTimes.current = nextAxis;
-        rendererBars.current = bars;
-        priceSeries.current?.setData(
-            bars.map((bar) =>
-                activeType.current === "LINE" ? { time: bar.time, value: bar.close } : bar
-            )
-        );
-        volumeSeries.current?.setData(
-            productBars.map((bar) => ({ time: bar.time, value: bar.numeric.volume }))
-        );
-        if (container.current !== null) {
-            container.current.dataset.volumePointCount = String(productBars.length);
-            container.current.dataset.volumeLatest = productBars.at(-1)?.volume ?? "";
-        }
-        lastRenderedTime.current = bars.at(-1)?.time ?? null;
-        if (barSemantic !== undefined && firstNonEmptyHistory) {
-            const visible = deriveTimeAxisPolicy(
-                barSemantic,
-                container.current?.clientWidth ?? 600
-            ).visibleBars;
-            nearLeftEdgeArmed.current = false;
-            timeScale?.setVisibleLogicalRange({
-                from: Math.max(0, bars.length - visible),
-                to: bars.length + 4
-            });
-        } else if (strictPrepend && visibleRange !== null) {
-            const shifted = rebaseChartRange(visibleRange, beforeAxis, nextAxis);
-            timeScale?.setVisibleLogicalRange(shifted);
-        }
-        initializedNonEmptyContext.current = bars.length > 0;
-        placingHistory.current = false;
-        publishVisibleAnchor(
-            container.current,
-            rendererBars.current,
-            timeScale?.getVisibleLogicalRange() ?? null,
-            axisTimes.current
-        );
-        previousContextKey.current = contextKey;
-        previousBars.current = bars;
-    }, [barSemantic, bars, contextKey, productBars]);
-
-    useEffect(() => {
-        if (liveBar === null || priceSeries.current === null) return;
-        if (lastRenderedTime.current !== null && liveBar.time < lastRenderedTime.current) return;
-        const rendered = { ...toCandlestick(liveBar), barStartNs: liveBar.barStartNs };
-        priceSeries.current.update(activeType.current === "LINE" ? toCloseLine(liveBar) : rendered);
-        volumeSeries.current?.update({ time: liveBar.time, value: liveBar.numeric.volume });
-        if (container.current !== null) {
-            container.current.dataset.volumeLatest = liveBar.volume;
-            container.current.dataset.volumePointCount = String(
-                bars.filter((bar) => bar.time !== liveBar.time).length + 1
-            );
-        }
-        rendererBars.current = [...bars.filter((bar) => bar.time !== liveBar.time), rendered];
-        axisTimes.current = [
-            ...new Set([...rendererBars.current.map((bar) => bar.time), ...extraTimes.current])
-        ].sort((a, b) => a - b);
-        publishVisibleAnchor(
-            container.current,
-            rendererBars.current,
-            chartRef.current?.timeScale().getVisibleLogicalRange() ?? null,
-            axisTimes.current
-        );
-        lastRenderedTime.current = liveBar.time;
-    }, [barSemantic, bars, contextKey, liveBar]);
-
-    useEffect(() => {
-        const chart = chartRef.current,
-            renderer = studyRenderer.current;
-        if (chart === null || renderer === null) return;
-        const range = chart.timeScale().getVisibleLogicalRange();
-        const beforeAxis = axisTimes.current;
-        const wasEmpty =
-            extraTimes.current.length === 0 && renderer.seriesCount === 0 && studies.length === 0;
         const nextExtra = [
             ...new Set(
                 studies
@@ -468,31 +414,63 @@ export function PriceChart({
                     })
             )
         ];
-        const nextAxis = [
-            ...new Set([...rendererBars.current.map((bar) => bar.time), ...nextExtra])
-        ].sort((a, b) => a - b);
-        placingHistory.current = true;
-        renderer.sync(
+        const nextAxis = [...new Set([...displayed.map((bar) => bar.time), ...nextExtra])].sort(
+            (a, b) => a - b
+        );
+        axisTimes.current = nextAxis;
+        rendererBars.current = displayed;
+        priceSeries.current?.setData(
+            displayed.map((bar) =>
+                activeType.current === "LINE" ? { time: bar.time, value: bar.close } : bar
+            )
+        );
+        volumeSeries.current?.setData(
+            displayedProduct.map((bar) => ({ time: bar.time, value: bar.numeric.volume }))
+        );
+        if (container.current !== null) {
+            container.current.dataset.volumePointCount = String(displayedProduct.length);
+            container.current.dataset.volumeLatest = displayedProduct.at(-1)?.volume ?? "";
+        }
+        // Native logical-range writes are applied on the next paint. Sync every
+        // series first, then issue one viewport write; a sibling effect would
+        // read the old range and overwrite the pending live-bar advance.
+        studyRenderer.current?.sync(
             studies.filter((instance) => instance.context.key === contextKey),
             views,
             selectedStudyId
         );
-        extraTimes.current = nextExtra;
-        axisTimes.current = nextAxis;
-        if (range !== null && !wasEmpty)
-            chart.timeScale().setVisibleLogicalRange(rebaseChartRange(range, beforeAxis, nextAxis));
-        placingHistory.current = false;
         if (container.current !== null) {
-            container.current.dataset.studySeriesCount = String(renderer.seriesCount);
-            container.current.dataset.paneCount = String(chart.panes().length);
+            container.current.dataset.studySeriesCount = String(
+                studyRenderer.current?.seriesCount ?? 0
+            );
+            container.current.dataset.paneCount = String(chartRef.current?.panes().length ?? 0);
         }
+        if (barSemantic !== undefined && firstNonEmptyHistory) {
+            const visible = deriveTimeAxisPolicy(
+                barSemantic,
+                container.current?.clientWidth ?? 600
+            ).visibleBars;
+            nearLeftEdgeArmed.current = false;
+            timeScale?.setVisibleLogicalRange({
+                from: Math.max(0, bars.length - visible),
+                to: bars.length + 4
+            });
+        } else if (visibleRange !== null && !contextChanged && orderedPrior) {
+            const shifted = rebaseChartRange(visibleRange, beforeAxis, nextAxis, offset === 0);
+            if (shifted.from !== visibleRange.from || shifted.to !== visibleRange.to)
+                timeScale?.setVisibleLogicalRange(shifted);
+        }
+        initializedNonEmptyContext.current = bars.length > 0;
+        placingHistory.current = false;
         publishVisibleAnchor(
             container.current,
             rendererBars.current,
-            chart.timeScale().getVisibleLogicalRange(),
+            timeScale?.getVisibleLogicalRange() ?? null,
             axisTimes.current
         );
-    }, [studies, views, selectedStudyId, contextKey]);
+        previousContextKey.current = contextKey;
+        previousBars.current = bars;
+    }, [barSemantic, bars, contextKey, productBars, liveBar, studies, views, selectedStudyId]);
 
     return (
         <div className="price-chart-surface">

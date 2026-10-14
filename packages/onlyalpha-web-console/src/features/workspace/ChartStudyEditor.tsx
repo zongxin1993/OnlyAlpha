@@ -1,3 +1,4 @@
+import { studyColors, studyColorName } from "./studyColors";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -357,21 +358,29 @@ export function ChartStudyEditor({
                             <option value="SEPARATE_PANE">独立 Pane</option>
                         </select>
                     </label>
-                    <label>
-                        <span>颜色</span>
-                        <input
-                            aria-label="颜色"
-                            type="text"
-                            placeholder="#RRGGBB"
-                            value={presentation.color}
-                            onChange={(event) => {
-                                setPresentation((previous) => ({
-                                    ...previous,
-                                    color: event.target.value
-                                }));
-                            }}
-                        />
-                    </label>
+                    <div className="study-color-picker" role="group" aria-label="颜色">
+                        <span>颜色 · {studyColorName(presentation.color)}</span>
+                        <div className="study-color-options">
+                            {studyColors.map((choice) => (
+                                <button
+                                    key={choice.value}
+                                    type="button"
+                                    aria-label={choice.name}
+                                    title={choice.name}
+                                    aria-pressed={presentation.color.toLowerCase() === choice.value}
+                                    style={{ backgroundColor: choice.value }}
+                                    onClick={() => {
+                                        setPresentation((previous) => ({
+                                            ...previous,
+                                            color: choice.value
+                                        }));
+                                    }}
+                                >
+                                    {presentation.color.toLowerCase() === choice.value ? "✓" : ""}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <label>
                         <span>线宽（1–5）</span>
                         <input
@@ -427,7 +436,7 @@ export function ChartStudyEditor({
                 </fieldset>
                 {errors.length === 0 ? null : <p role="alert">{errors.join("；")}</p>}
                 {validPresentation(presentation) ? null : (
-                    <p role="alert">显示偏好无效：颜色 #RRGGBB、线宽 1–5、透明度 0–1。</p>
+                    <p role="alert">显示偏好无效：请选择颜色，线宽 1–5、透明度 0–1。</p>
                 )}
                 {hasContext ? null : (
                     <p role="alert">请先选择正式数据源、标的与 BarSemantic；当前不可添加。</p>

@@ -104,3 +104,29 @@
         max-height: 6rem;
     }
 }
+
+.study-color-picker {
+    margin: 0.6rem 0;
+}
+.study-color-options {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+}
+.study-color-options button {
+    min-width: 0;
+    min-height: 32px;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    color: white;
+    text-shadow: 0 1px 3px black;
+}
+.study-color-options button[aria-pressed="true"] {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+}
+.study-color-options button:focus-visible {
+    outline: 2px solid var(--accent-solid);
+    outline-offset: 2px;
+}

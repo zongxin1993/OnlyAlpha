@@ -118,7 +118,16 @@ it("renders only formal market volume and updates preview, preserving the same v
             chartType="LINE"
         />
     );
-    expect(volume?.update).toHaveBeenLastCalledWith({ time: last.time, value: 4 });
+    expect(volume?.setData.mock.calls.at(-1)?.[0]).toEqual(
+        bars.map((bar) => ({
+            time: bar.time,
+            value: bar.time === last.time ? 4 : bar.numeric.volume
+        }))
+    );
+    expect(screen.getByTestId("price-chart")).toHaveAttribute(
+        "data-volume-latest",
+        "4.000000000000000001"
+    );
     expect(renderer.chart.removeSeries).toHaveBeenCalledWith(price);
     expect(renderer.chart.removeSeries).not.toHaveBeenCalledWith(volume);
     expect(renderer.createChart).toHaveBeenCalledTimes(1);

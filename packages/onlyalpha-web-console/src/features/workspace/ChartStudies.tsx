@@ -1,3 +1,4 @@
+import { studyColorName } from "./studyColors";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createUuidV4 } from "../../api/integrations/submissionIntent";
 import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
@@ -148,7 +149,7 @@ export function ChartStudies({
                                         {instance.presentation.placement === "PRICE_OVERLAY"
                                             ? "主图 Overlay"
                                             : "独立 Pane"}{" "}
-                                        · {instance.presentation.color} ·{" "}
+                                        · {studyColorName(instance.presentation.color)} ·{" "}
                                         {instance.presentation.lineWidth}px ·{" "}
                                         {instance.presentation.opacity} ·{" "}
                                         {instance.presentation.visible ? "显示偏好" : "隐藏偏好"}

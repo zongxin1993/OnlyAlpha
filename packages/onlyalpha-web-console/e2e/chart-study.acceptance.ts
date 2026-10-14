@@ -121,7 +121,9 @@ test("different periods of the same SMA retain independent colors, edits and vis
         await page.getByRole("button", { name: "指标", exact: true }).click();
         await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
         await page.getByLabel("period", { exact: true }).fill(String(period));
-        await page.getByLabel("颜色", { exact: true }).fill(color);
+        await page
+            .getByRole("button", { name: color === "#c8332a" ? "红色" : "蓝色", exact: true })
+            .click();
         await page.getByRole("combobox", { name: "位置" }).selectOption("PRICE_OVERLAY");
         const response = evaluationReply(page, period);
         await page.getByRole("button", { name: "添加", exact: true }).click();
@@ -147,8 +149,8 @@ test("different periods of the same SMA retain independent colors, edits and vis
     const sma30 = instances.filter({ hasText: "period=30" });
     await expect(sma20).toBeVisible();
     await expect(sma30).toBeVisible();
-    await expect(sma20).toContainText("主图 Overlay · #c8332a");
-    await expect(sma30).toContainText("主图 Overlay · #2457c5");
+    await expect(sma20).toContainText("主图 Overlay · 红色");
+    await expect(sma30).toContainText("主图 Overlay · 蓝色");
     const firstId = await sma20.getAttribute("data-instance-id");
     const secondId = await sma30.getAttribute("data-instance-id");
     if (firstId === null || secondId === null) throw new Error("Missing Study instance identity");

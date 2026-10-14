@@ -620,7 +620,7 @@ for (const width of [1440, 1024, 390]) {
             configuration = await first.getAttribute("data-configuration");
         const edit = first.getByRole("button", { name: "编辑 SMA" });
         await edit.click();
-        await editor.getByRole("textbox", { name: "颜色" }).fill("#c8332a");
+        await editor.getByRole("button", { name: "红色", exact: true }).click();
         await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
         await editor.getByRole("spinbutton", { name: "透明度" }).fill("0.5");
         await editor.getByRole("checkbox", { name: "显示" }).uncheck();
@@ -629,7 +629,10 @@ for (const width of [1440, 1024, 390]) {
         await expect(edit).toBeFocused();
         await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
         await expect(first).toHaveAttribute("data-instance-id", id ?? "");
-        await expect(first).toContainText("#c8332a");
+        await expect(first).toContainText("红色");
+        expect(JSON.parse((await first.getAttribute("data-presentation")) ?? "null")).toMatchObject(
+            { color: "#c8332a" }
+        );
         await trigger.click();
         await pickerSelection.click();
         await editor.getByRole("button", { name: "添加", exact: true }).click();

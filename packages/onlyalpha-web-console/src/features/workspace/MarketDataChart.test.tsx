@@ -516,8 +516,11 @@ it("preserves configuration-only discovery in Shipping Workspace without a local
     await user.click(screen.getByRole("button", { name: "指标" }));
     await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
     // jsdom does not load the Shipping accent CSS custom property.
-    await user.clear(screen.getByRole("textbox", { name: "颜色" }));
-    await user.type(screen.getByRole("textbox", { name: "颜色" }), "#c8332a");
+    expect(screen.queryByRole("textbox", { name: "颜色" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "颜色" })).getAllByRole("button")).toHaveLength(
+        16
+    );
+    await user.click(screen.getByRole("button", { name: /^红色$/ }));
     expect(screen.getByRole("button", { name: "添加" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "添加" }));
     const instance = await screen.findByTestId("chart-study-instance");
@@ -934,7 +937,9 @@ it("replaces only the active price series, preserving range, preview and left-ed
         numeric: { ...preview.numeric, close: 109 }
     };
     view.rerender(chart("LINE", updated));
-    expect(chartMocks.overlays.update).toHaveBeenLastCalledWith({ time: updated.time, value: 109 });
+    expect(chartMocks.overlays.setData).toHaveBeenLastCalledWith(
+        [...bars, updated].map((bar) => ({ time: bar.time, value: bar.numeric.close }))
+    );
     view.rerender(chart("CANDLESTICK", updated));
     expect(chartMocks.created.removeSeries).toHaveBeenLastCalledWith(chartMocks.overlays);
     expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
@@ -1205,7 +1210,9 @@ it("updates realtime candles without recreating the chart", () => {
     );
 
     expect(chartMocks.createChart).toHaveBeenCalledTimes(created);
-    expect(chartMocks.candles.update).toHaveBeenLastCalledWith(renderedBar(preview));
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
+        historical.map((bar) => renderedBar(bar.time === preview.time ? preview : bar))
+    );
     view.rerender(
         <PriceChart
             barSemantic={marketDataBarSemantic(37)}
@@ -1323,7 +1330,7 @@ it("replays effects with one current range handler and no mount history request"
 it.each([
     ["mixed prepend and append", [0, 1, 2, 3], 1],
     ["two prepends", [-1, 0, 1, 2], 2],
-    ["right append only", [1, 2, 3], 0],
+    ["right append only", [1, 2, 3], 1],
     ["missing prior identity", [0, 2, 3], 0],
     ["reordered prior sequence", [0, 2, 1, 3], 0]
 ] as const)("preserves the viewport using only proven left offset: %s", (_name, times, offset) => {
@@ -1461,7 +1468,9 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             liveBar={next}
         />
     );
-    expect(chartMocks.candles.update).toHaveBeenCalledExactlyOnceWith(renderedBar(next));
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
+        [...historical, next].map(renderedBar)
+    );
 
     view.rerender(
         <PriceChart
@@ -1471,7 +1480,9 @@ it("ignores realtime bars older than the history or latest realtime candle", () 
             liveBar={{ ...last, close: "999", numeric: { ...last.numeric, close: 999 } }}
         />
     );
-    expect(chartMocks.candles.update).toHaveBeenCalledTimes(1);
+    expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
+        [...historical, next].map(renderedBar)
+    );
 });
 
 it("renders no invented candles in an unconfigured workspace", async () => {

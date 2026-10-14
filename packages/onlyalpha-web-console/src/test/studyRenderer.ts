@@ -25,6 +25,21 @@ function Harness() {
     const [mounted, setMounted] = useState(true);
     const [type, setType] = useState<"LINE" | "CANDLESTICK">("CANDLESTICK");
     const [prepend, setPrepend] = useState(false);
+    const [tick, setTick] = useState(0);
+    const lastBar = bars[bars.length - 1];
+    if (lastBar === undefined) throw new Error("Missing last controlled Bar");
+    const preview =
+        tick === 0
+            ? null
+            : {
+                  ...lastBar,
+                  closed: false,
+                  time: (lastBar.time + 900) as typeof lastBar.time,
+                  barStartNs: (BigInt(lastBar.barStartNs) + 900000000000n).toString(),
+                  barEndNs: (BigInt(lastBar.barEndNs) + 900000000000n).toString(),
+                  close: String(101 + tick / 100),
+                  numeric: { ...lastBar.numeric, close: 101 + tick / 100 }
+              };
     const allBars = prepend
         ? [
               {
@@ -60,6 +75,15 @@ function Harness() {
                 }
             },
             "prepend history"
+        ),
+        h(
+            "button",
+            {
+                onClick: () => {
+                    setTick((previous) => previous + 1);
+                }
+            },
+            "preview tick"
         ),
         h(
             "button",
@@ -157,7 +181,8 @@ function Harness() {
             mounted
                 ? h(PriceChart, {
                       key: context,
-                      bars: allBars,
+                      bars: tick === 0 ? allBars : [...allBars],
+                      liveBar: preview,
                       barSemantic: instance.context.barSemantic,
                       contextKey: context,
                       studies,

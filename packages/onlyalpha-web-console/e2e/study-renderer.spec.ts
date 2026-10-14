@@ -47,8 +47,12 @@ for (const width of [1440, 1024, 390]) {
         await expect(chart).toHaveAttribute("data-visible-range-from", from ?? "");
         await expect(chart).toHaveAttribute("data-visible-range-to", to ?? "");
         // Moving panes must not retire the chart's crosshair callback. The
-        // second native plot canvas is Volume, sharing the same time axis.
-        const volumeBox = await chart.locator("canvas").nth(4).boundingBox();
+        // Volume's interaction canvas overlays its paint canvas and shares the time axis.
+        const volumeCanvas = chart.locator("canvas").nth(5);
+        // Pane metadata can precede native canvas reflow. A normal hover waits
+        // for actionability/stable geometry before selecting the exact point.
+        await volumeCanvas.hover();
+        const volumeBox = await volumeCanvas.boundingBox();
         if (volumeBox === null) throw new Error("Missing native Volume canvas");
         await page.mouse.move(
             volumeBox.x + volumeBox.width * 0.9,
@@ -81,3 +85,28 @@ for (const width of [1440, 1024, 390]) {
         expect(productRequests).toEqual([]);
     });
 }
+
+test("CONTROLLED_TEST_EVIDENCE repeated preview with studies does not drift the viewport", async ({
+    page
+}) => {
+    await page.goto("http://127.0.0.1:4180/e2e/support/study-renderer.html");
+    const chart = page.getByTestId("price-chart");
+    await expect(chart).toHaveAttribute("data-study-series-count", "8");
+    const readRange = async () => ({
+        from: Number(await chart.getAttribute("data-visible-range-from")),
+        to: Number(await chart.getAttribute("data-visible-range-to"))
+    });
+    await chart.locator("canvas").nth(1).hover();
+    const before = await readRange();
+    await page.getByRole("button", { name: "preview tick", exact: true }).click();
+    await expect(chart).toHaveAttribute("data-volume-point-count", "81");
+    await expect.poll(async () => (await readRange()).from).toBeCloseTo(before.from + 1, 8);
+    await expect.poll(async () => (await readRange()).to).toBeCloseTo(before.to + 1, 8);
+    const first = await readRange();
+    for (let tick = 0; tick < 5; tick++) {
+        await page.getByRole("button", { name: "preview tick", exact: true }).click();
+        await expect(chart).toHaveAttribute("data-volume-latest", "2.1234567890123456789");
+        await chart.locator("canvas").nth(1).hover();
+        expect(await readRange()).toEqual(first);
+    }
+});
