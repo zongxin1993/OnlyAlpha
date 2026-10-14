@@ -1,0 +1,82 @@
+name: Development Release Version
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  transition:
+    name: Release transition
+    if: >-
+      github.event.pull_request.base.ref == 'master' &&
+      (github.event.action != 'closed' || github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head or merged commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.5"
+          python-version: "3.12"
+      - name: Publish actual merged numbers before querying mutable PR metadata
+        if: github.event.pull_request.merged == true
+        run: |
+          uv run --frozen python scripts/version_sync.py report-merge \
+            --notice-only --summary-file "$GITHUB_STEP_SUMMARY"
+      - name: Read actual release selection and Owner actions
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const args = {...context.repo, issue_number: context.payload.pull_request.number};
+            const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: args.issue_number});
+            if (pr.head.sha !== context.payload.pull_request.head.sha) {
+              throw new Error('PR head changed; this run cannot authorize a different head');
+            }
+            const events = await github.paginate(github.rest.issues.listEvents, args);
+            fs.writeFileSync('release-context.json', JSON.stringify({
+              repository: context.payload.repository, pull_request: pr,
+              events: events.filter(e => ['labeled', 'unlabeled', 'merged'].includes(e.event))
+            }));
+            if (!context.payload.pull_request.merged) {
+              const {data: branch} = await github.rest.repos.getBranch({...context.repo, branch: 'master'});
+              const {status, data: comparison} = await github.rest.repos.compareCommits({...context.repo,
+                base: branch.commit.sha, head: context.payload.pull_request.head.sha});
+              if (status !== 200 || comparison.status === 'diverged' || comparison.status === 'behind') {
+                throw new Error('PR must be updated to include the current master before merging');
+              }
+              core.exportVariable('BASE_SHA', branch.commit.sha);
+            }
+      - name: Resolve one release level
+        if: github.event.pull_request.merged != true
+        id: selection
+        run: |
+          LEVEL=$(uv run --frozen python scripts/version_sync.py release-level --context-file release-context.json)
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+      - name: Validate complete graph, lock and actual increment
+        if: github.event.pull_request.merged != true
+        env:
+          LEVEL: ${{ steps.selection.outputs.level }}
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv run --frozen python scripts/version_sync.py check-transition \
+            --base-ref "$BASE_SHA" --level "$LEVEL" --summary-file "$GITHUB_STEP_SUMMARY"
+      - name: Report actual merged release and validate merge-bound history
+        if: github.event.pull_request.merged == true
+        run: |
+          uv run --frozen python scripts/version_sync.py report-merge \
+            --context-file release-context.json --summary-file "$GITHUB_STEP_SUMMARY"
+          uv lock --check

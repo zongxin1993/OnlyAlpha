@@ -466,7 +466,16 @@ class OnlyMarketDataProductService:
                 "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "Integration catalog is unavailable"
             ) from exc
         eligible: list[OnlyMarketDataSourceProjectionV1] = []
+        supported_types = {
+            descriptor.type_id.value
+            for record in self._data_sources.records()
+            if isinstance(
+                descriptor := getattr(record.factory, "integration_type", None), OnlyIntegrationTypeDescriptorV1
+            )
+        }
         for candidate in candidates:
+            if candidate.type_id not in supported_types:
+                continue
             fingerprint = candidate.current_revision_fingerprint
             if fingerprint is None:
                 continue
@@ -481,6 +490,10 @@ class OnlyMarketDataProductService:
             except OnlyMarketDataProductError as exc:
                 if exc.code in _INELIGIBLE_SOURCE_CODES:
                     continue
+                if exc.code == "MARKET_DATA_SOURCE_REVISION_NOT_FOUND":
+                    raise OnlyMarketDataProductError(
+                        "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "Published Source revision proof is unavailable"
+                    ) from exc
                 raise
             eligible.append(
                 OnlyMarketDataSourceProjectionV1(
@@ -1061,18 +1074,32 @@ class OnlyMarketDataProductService:
                 admitted, self._data_sources, self._resolver, capabilities
             )
         except OnlyIntegrationRuntimeError as exc:
-            # An unavailable Integration authority is not "this source is ineligible":
-            # it must never be projected as an empty source list or a missing scope.
-            if exc.code == "INTEGRATION_RUNTIME_PERSISTENCE_UNAVAILABLE":
+            # Only a proved eligibility mismatch can be omitted from discovery.
+            # Missing/corrupt owning proof is not a certified empty Source catalog.
+            if exc.code == "INTEGRATION_RUNTIME_REVISION_NOT_FOUND":
+                raise OnlyMarketDataProductError("MARKET_DATA_SOURCE_REVISION_NOT_FOUND") from exc
+            if exc.code not in {
+                "INTEGRATION_RUNTIME_DISABLED",
+                "INTEGRATION_RUNTIME_CATEGORY_MISMATCH",
+                "INTEGRATION_RUNTIME_CAPABILITY_MISMATCH",
+                "INTEGRATION_RUNTIME_PROBE_REQUIRED",
+                "INTEGRATION_RUNTIME_PROBE_NOT_READY",
+            }:
+                corrupt = exc.code in {
+                    "INTEGRATION_RUNTIME_CONFIGURATION_CORRUPT",
+                    "INTEGRATION_RUNTIME_BINDING_INVALID",
+                    "INTEGRATION_RUNTIME_IMPLEMENTATION_MISMATCH",
+                }
                 raise OnlyMarketDataProductError(
-                    "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "Integration authority is unavailable"
+                    "MARKET_DATA_SOURCE_CATALOG_CORRUPT" if corrupt else "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE",
+                    "Integration runtime proof is corrupt" if corrupt else "Integration runtime proof is unavailable",
                 ) from exc
             raise OnlyMarketDataProductError(
                 "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED", "exact Integration runtime binding cannot be resolved"
             ) from exc
         except Exception as exc:
             raise OnlyMarketDataProductError(
-                "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED", "exact Integration runtime binding cannot be resolved"
+                "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE", "exact Integration runtime proof is unavailable"
             ) from exc
         binding = admitted.integration_binding
         if binding is None:  # pragma: no cover - admission always binds an exact revision

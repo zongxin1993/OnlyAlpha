@@ -339,6 +339,65 @@ execution uses the **same explicit fixed context**; it never asserts parity with
 
 ### Failure envelope and authorization
 
+#### Ordinary local development composition
+
+The owner's subsequent ordinary-dev direction (2026-10-14) removes manual private
+configuration and credential entry from daily development. The manual bearer rules
+below remain applicable to the optional protected read-only composition, not a
+mandatory development setup. No production authentication exception is created.
+
+The explicitly selected dev composition serves the Shipping Web and Product API
+through one host-loopback listener. It authorizes one named `local-developer` subject
+to a bounded, immutable snapshot of eligible Sources in the already initialized dev
+deployment. This is an explicit developer-role policy: owning discovery supplies the
+exact Integration Revision, type, Source and environment, never authorization by itself.
+An unavailable catalog refuses startup; a verified empty catalog grants no Source
+access. The ordinary dev policy also admits a new exact snapshot on an authenticated,
+explicit Product Source-list refresh (including returning from Source management).
+This is not a wildcard or an in-place edit: discovery/identity validation runs within
+the bounded read slot; unavailable, malformed, duplicate or oversized proof refuses
+the refresh. If the exact grants change, the previous authority is irreversibly
+withdrawn behind the response fence and replaced before the list is released.
+Existing HTTP/stream sessions are not rebound; requests to old revisions must pass
+current exact grants and owning Source checks. Unchanged snapshots retain their
+authority. Concurrent refresh or completed discovery cannot revive a withdrawn
+process. The optional private bearer configuration stays startup-fixed and unchanged.
+
+Generation withdrawal wakes even blocked stream readers, closes their owning sessions,
+and retains capacity until cleanup. A replaced dev generation closes with standard
+WebSocket code 1012; a fresh connection must authenticate and prove its exact Source
+again. Permanent withdrawal or a genuinely forbidden selection is not a reconnect
+permission. Source discovery distinguishes unsupported/disabled/unpublished candidates
+from missing or corrupt proof for an admitted published candidate. A directly requested
+nonexistent Revision is `MARKET_DATA_SOURCE_REVISION_NOT_FOUND` (404); the same missing
+relation in an owning published Source catalog is unavailable (503), not an empty list.
+Runtime integrity failures are catalog corruption (500); unavailable proof is 503.
+
+One random 256-bit credential is generated per dev process, never logged or written
+to source/configuration. Guarded top-level Shipping Web navigation issues that same
+credential as a host-only HttpOnly, SameSite=Strict session cookie. Reloads/tabs do
+not rotate it. The cookie authenticates through the existing Source authority;
+browser transport selection is not authentication. Exact Host/Origin checks, rejection
+of cross-site requests, duplicate/conflicting credentials and forwarded identity,
+frame denial, bounded Query work and fenced release remain required. Cookie POST
+and WS requests require the exact configured Origin. Process replacement withdraws
+the authority and invalidates previous cookies/HTTP work/streams. Local OS users and
+the sole dev project's network are trusted; this is not an internet/LAN deployment.
+
+Source grants authorize reads only. A separate explicit dev-human ingress policy
+permits normal Product GETs and Integration configuration commands, delegating to
+their owning Authority. Acquisition POST, Agent/internal gateways, Strategy/LIVE
+commands and all other mutations are denied by this composition. Ordinary navigation
+and history paging never automatically acquire or resubmit PENDING work. Missing
+history remains incomplete and can be re-observed through a visible reload action.
+
+Development startup reuses the admitted fixed image and existing database/user-data
+pair without bootstrap, migrations, key generation, fixtures, workers or acquisition.
+Its frozen application source view is distinct from verification inputs and may be
+refreshed only while the previous application process is stopped. Only built Shipping
+Web assets are served, never the source tree, Git metadata or test artifacts. These
+rules satisfy ADR 0138's caller/Source proof requirement; they do not waive it.
+
 #### Actual HTTP access-control responsibility
 
 Source observations at master `3793eeb8c7a9f1ddfc905c972500a4cfe2b86e77`:

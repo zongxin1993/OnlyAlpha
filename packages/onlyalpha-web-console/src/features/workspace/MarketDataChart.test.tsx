@@ -270,6 +270,157 @@ const sourceSelection = (source: MarketDataSource) => ({
     environment: source.environment
 });
 
+it("refreshes chart sources after returning from management without restarting the workspace", async () => {
+    const source = binanceSource();
+    let available: readonly MarketDataSource[] = [];
+    const listSources = vi.fn<MarketDataApiClient["listSources"]>(() => Promise.resolve(available));
+    renderWorkspace(
+        marketDataClient({
+            listSources,
+            listInstruments: () => Promise.resolve([binanceInstrument()]),
+            queryBars: (_reference, query) =>
+                Promise.resolve(
+                    marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+                )
+        })
+    );
+    await screen.findByText("未配置可用的 Binance Spot 公共行情数据源（GLOBAL）", {
+        selector: "p[role=status]"
+    });
+    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeDisabled();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "管理数据源" }));
+    available = [source];
+    await user.click(
+        within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+            name: "关闭"
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+    });
+    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+    expect(listSources).toHaveBeenCalledTimes(2);
+});
+
+it("offers visible symbol search and preserves a manual choice after unchanged source refresh", async () => {
+    const source = binanceSource();
+    const btc = binanceInstrument();
+    const eth = marketDataInstrument({
+        instrument_id: "ETHUSDT.BINANCE",
+        display_symbol: "ETH/USDT",
+        venue: "BINANCE"
+    });
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
+        Promise.resolve(query === "ETH" ? [eth] : [btc])
+    );
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve([{ ...source }]),
+            listInstruments,
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await waitFor(() => {
+        expect(queryBars).toHaveBeenCalledTimes(2);
+    });
+    await user.click(screen.getByRole("button", { name: "数据源" }));
+    await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+    await user.click(
+        within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
+            name: "关闭"
+        })
+    );
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+    expect(queryBars).toHaveBeenCalledTimes(2);
+    expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
+    expect(listInstruments).toHaveBeenCalledTimes(2);
+});
+
+it("does not replace newer symbol search results with an older response", async () => {
+    let completeOlder: ((value: ReturnType<typeof marketDataInstrument>[]) => void) | undefined;
+    const eth = marketDataInstrument({ instrument_id: "ETHUSDT.TEST", display_symbol: "ETH/USDT" });
+    renderWorkspace(
+        marketDataClient({
+            listInstruments: (_ref, query) =>
+                query === "BTC"
+                    ? new Promise((resolve) => {
+                          completeOlder = resolve;
+                      })
+                    : Promise.resolve([eth])
+        })
+    );
+    const user = userEvent.setup();
+    await selectSource(user);
+    const search = screen.getByRole("searchbox", { name: "搜索标的" });
+    await user.type(search, "BTC{Enter}");
+    await user.clear(search);
+    await user.type(search, "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await screen.findByRole("button", { name: /ETHUSDT\.TEST/ });
+    await act(() => {
+        completeOlder?.([marketDataInstrument()]);
+        return Promise.resolve();
+    });
+    expect(screen.queryByRole("button", { name: /BTCUSDT\.TEST/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ETHUSDT\.TEST/ })).toBeInTheDocument();
+});
+
+it("does not let a delayed default instrument replace a user's completed manual search", async () => {
+    const source = binanceSource();
+    const eth = marketDataInstrument({
+        instrument_id: "ETHUSDT.BINANCE",
+        display_symbol: "ETH/USDT",
+        venue: "BINANCE"
+    });
+    let completeDefault: ((value: ReturnType<typeof binanceInstrument>[]) => void) | undefined;
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
+        Promise.resolve(
+            marketDataBarsForQuery(query, { source_selection: sourceSelection(source) })
+        )
+    );
+    renderWorkspace(
+        marketDataClient({
+            listSources: () => Promise.resolve([source]),
+            listInstruments: (_ref, query) =>
+                query === "BTCUSDT"
+                    ? new Promise((resolve) => {
+                          completeDefault = resolve;
+                      })
+                    : Promise.resolve([eth]),
+            queryBars
+        })
+    );
+    await waitFor(() => {
+        expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+    });
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+    await user.click(screen.getByRole("button", { name: "搜索标的" }));
+    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await waitFor(() => {
+        expect(queryBars).toHaveBeenCalledTimes(1);
+    });
+    await act(() => {
+        completeDefault?.([binanceInstrument()]);
+        return Promise.resolve();
+    });
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(queryBars.mock.calls[0]?.[1].instrument_id).toBe(eth.instrument_id);
+});
+
 it("preserves configuration-only discovery in Shipping Workspace without a local bearer", async () => {
     const fixture = chartCatalogFixture();
     const reads: string[] = [];
@@ -1393,12 +1544,49 @@ it("shows missing coverage without issuing an Acquisition when read credentials 
     await selectBtcInstrument(user);
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "只读行情覆盖不足；请从独立管理入口采集"
+            "只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集"
         );
     });
     expect(acquisition).not.toHaveBeenCalled();
     expect(streams.requests).toEqual([]);
     expect(renderedPrices()).toEqual([]);
+});
+
+it("ordinary dev needs no credential entry and only re-observes incomplete history", async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    try {
+        const client = marketDataClient({
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_reference, query) =>
+                Promise.resolve(marketDataBarsForQuery(query, incompleteBars()))
+        });
+        const acquisition = vi.spyOn(client, "createAcquisition");
+        const query = vi.spyOn(client, "queryBars");
+        renderWorkspace(client);
+        const user = userEvent.setup();
+        expect(screen.queryByText("本地只读访问", { exact: true })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("本地行情凭据")).not.toBeInTheDocument();
+        await selectSource(user);
+        await selectBtcInstrument(user);
+        await waitFor(() => {
+            expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+                "data-status",
+                "incomplete"
+            );
+        });
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent("不会自动采集");
+        const before = query.mock.calls.length;
+        await user.click(screen.getByRole("button", { name: "重新读取历史" }));
+        await waitFor(() => {
+            expect(query).toHaveBeenCalledTimes(before + 1);
+        });
+        expect(acquisition).not.toHaveBeenCalled();
+        expect(streams.requests).toEqual([]);
+        expect(renderedPrices()).toEqual([]);
+    } finally {
+        cleanup();
+        vi.unstubAllEnvs();
+    }
 });
 
 it("requests an explicit acquisition for incomplete coverage and then renders database bars", async () => {

@@ -439,6 +439,9 @@ def test_market_data_errors_map_to_explicit_http_status() -> None:
     assert client.get("/api/v2/market-data/bars", params=params).status_code == 409
 
     expected = {
+        "MARKET_DATA_SOURCE_REVISION_NOT_FOUND": ("QUERY", 404),
+        "MARKET_DATA_SOURCE_CATALOG_CORRUPT": ("QUERY", 500),
+        "MARKET_DATA_SOURCE_CATALOG_UNAVAILABLE": ("QUERY", 503),
         "MARKET_DATA_WINDOW_REQUEST_INVALID": ("QUERY", 400),
         "MARKET_DATA_RANGE_COMPOSITION_CONFLICT": ("QUERY", 409),
         "MARKET_DATA_REVISION_EVIDENCE_INVALID": ("QUERY", 500),

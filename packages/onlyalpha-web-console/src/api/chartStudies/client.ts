@@ -52,14 +52,16 @@ async function read<T>(
     body?: ChartStudyEvaluateRequest
 ): Promise<T> {
     const captured = credentials.capture();
-    if (captured.bearer === null) throw new ChartStudyWebError("UNAUTHORIZED", 401);
+    if (captured.bearer === null && !credentials.localSession)
+        throw new ChartStudyWebError("UNAUTHORIZED", 401);
     const current = () => !signal?.aborted && credentials.isCurrent(captured.generation);
     const response = await fetch(`/api/v2/chart/studies/${path}`, {
         method: body === undefined ? "GET" : "POST",
         cache: "no-store",
+        credentials: credentials.localSession ? "same-origin" : "omit",
         headers: {
             Accept: "application/json",
-            Authorization: `Bearer ${captured.bearer}`,
+            ...(captured.bearer === null ? {} : { Authorization: `Bearer ${captured.bearer}` }),
             ...(body === undefined ? {} : { "Content-Type": "application/json" })
         },
         ...(body === undefined

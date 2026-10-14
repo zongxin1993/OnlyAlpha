@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.clickhouse import (
@@ -21,7 +22,7 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 
 
 def main() -> int:
-    if __package__:
+    if TYPE_CHECKING or __package__:
         from scripts.agent_provider_bootstrap import only_provision_dev_agent_authority
         from scripts.database import _initialize_deployment, _validate
     else:

@@ -89,6 +89,25 @@ def test_all_compose_services_use_the_deploy_owned_dockerfile() -> None:
             }
 
 
+def test_local_debugging_has_no_separate_read_only_deployment_or_preflight() -> None:
+    compose = _compose()
+    services = compose["services"]
+    assert isinstance(services, dict)
+    assert not {
+        "operator-bootstrap",
+        "operator-api",
+        "operator-setup",
+        "operator-web",
+        "dev-read-preflight",
+    } & set(services)
+    volumes = compose["volumes"]
+    assert isinstance(volumes, dict)
+    assert "existing-user-data" not in volumes
+    for script in ("local_operator.py", "operator_setup.py", "dev_workspace_preflight.py"):
+        assert not (ROOT / "scripts" / script).exists()
+    assert not (DEPLOY / "run-local-operator.sh").exists()
+
+
 def test_playwright_and_fixture_are_application_boundary_profile_services() -> None:
     services = _compose()["services"]
     playwright = services["playwright"]
@@ -124,14 +143,14 @@ def test_bootstrap_is_the_only_schema_mutation_startup_and_api_waits_for_it() ->
     assert all(item["condition"] == "service_healthy" for item in bootstrap["depends_on"].values())
     assert api["depends_on"]["bootstrap"]["condition"] == "service_completed_successfully"
     assert api["command"][-4:] == ["--host", "0.0.0.0", "--port", "8000"]
-    assert api["ports"] == ["${ONLYALPHA_HTTP_PORT:-8000}:8000"]
+    assert api["ports"] == ["127.0.0.1:${ONLYALPHA_HTTP_PORT:-8000}:8000"]
 
 
 def test_web_and_workers_use_the_same_zero_config_topology() -> None:
     services = _compose()["services"]
     web = services["web"]
     assert web["environment"] == {"ONLYALPHA_WEB_API_TARGET": "http://api:8000"}
-    assert web["ports"] == ["${ONLYALPHA_WEB_PORT:-5173}:5173"]
+    assert web["ports"] == ["127.0.0.1:${ONLYALPHA_WEB_PORT:-5173}:5173"]
     assert web["depends_on"]["api"]["condition"] == "service_healthy"
     for name in ("research-worker", "backtest-worker"):
         assert services[name]["depends_on"]["bootstrap"]["condition"] == "service_completed_successfully"
@@ -139,6 +158,35 @@ def test_web_and_workers_use_the_same_zero_config_topology() -> None:
     assert "--model-api-url" not in agent["command"]
     assert "--model-token-file" not in agent["command"]
     assert agent["depends_on"]["api"]["condition"] == "service_healthy"
+
+
+def test_ordinary_dev_reuses_fixed_dependencies_without_any_preparation_chain() -> None:
+    compose = _compose()
+    services = compose["services"]
+    assert isinstance(services, dict)
+    dev = services["dev"]
+    assert dev["profiles"] == ["dev"]
+    assert dev["image"] == "${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}"
+    assert dev["command"] == ["python", "-m", "scripts.dev", "inside"]
+    assert dev["ports"] == ["127.0.0.1:5173:5173"]
+    assert "depends_on" not in dev and "build" not in dev
+    assert dev["environment"]["ONLYALPHA_POSTGRES_DSN"].endswith("/onlyalpha")
+    assert dev["environment"]["VITE_ONLYALPHA_LOCAL_SESSION"] == "true"
+    assert {m["source"] for m in dev["volumes"] if m["type"] == "volume"} == {"user-data"}
+    assert dev["volumes"][0]["source"] == "../.test-cache/dev-product-source"
+    assert all(m["read_only"] for m in dev["volumes"] if m["type"] != "volume")
+    assert compose["volumes"]["user-data"]["external"] == "${ONLYALPHA_DEV_EXISTING_USER_DATA:-false}"
+    for name in (
+        "api",
+        "web",
+        "bootstrap",
+        "market-data-bootstrap",
+        "agent",
+        "research-worker",
+        "backtest-worker",
+        "agent-provider-fixture",
+    ):
+        assert services[name]["profiles"] == ["integration", "web-e2e"]
 
 
 def test_test_service_is_a_profile_of_the_canonical_topology_and_isolated() -> None:

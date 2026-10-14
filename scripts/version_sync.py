@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -431,12 +432,138 @@ def set_versions(version: str, root: Path = ROOT) -> None:
     check_versions(root)
 
 
+def next_release_version(version: str, level: str = "patch") -> str:
+    """Release counters are not API, Provider or semantic compatibility versions."""
+    if (
+        not isinstance(version, str)
+        or re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version) is None
+    ):
+        raise VersionSyncError(f"release version must be canonical X.Y.Z: {version!r}")
+    major, minor, patch = (int(part) for part in version.split("."))
+    if level == "patch":
+        return f"{major}.{minor}.{patch + 1}"
+    if level == "minor":
+        return f"{major}.{minor + 1}.0"
+    if level == "major":
+        return f"{major + 1}.0.0"
+    raise VersionSyncError(f"unknown release level: {level!r}")
+
+
+def check_release_transition(base: str, candidate: str, level: str = "patch") -> str:
+    expected = next_release_version(base, level)
+    if candidate != expected:
+        raise VersionSyncError(
+            f"{level} release requires {base} -> {expected}; found {candidate!r}; "
+            "refresh against the current main branch and synchronize the complete release graph"
+        )
+    return f"OnlyAlpha release: {base} -> {candidate} ({level})"
+
+
+def release_level_from_context(context: Mapping[str, Any]) -> str:
+    """Interpret read-only GitHub observations, not PR text as Owner authority."""
+    events = context["events"]
+    ids = [event["id"] for event in events]
+    if any(type(value) is not int or value <= 0 for value in ids) or ids != sorted(set(ids)):
+        raise VersionSyncError("release event history is incomplete or not strictly ordered")
+    labels = context["pull_request"]["labels"]
+    if context["pull_request"].get("merged") is True:
+        merge_sha = context["pull_request"]["merge_commit_sha"]
+        cuts = [
+            index
+            for index, event in enumerate(events)
+            if event["event"] == "merged" and event["commit_id"] == merge_sha
+        ]
+        if len(cuts) != 1:
+            raise VersionSyncError(
+                "historical release selection unavailable: exact merge event is missing or ambiguous"
+            )
+        events = events[: cuts[0]]
+        active: set[str] = set()
+        for event in events:
+            if event["event"] in {"labeled", "unlabeled"}:
+                name = event["label"]["name"]
+                if event["event"] == "labeled":
+                    active.add(name)
+                else:
+                    active.discard(name)
+        labels = [{"name": name} for name in active]
+    selected: set[str] = set()
+    for label in labels:
+        name = label["name"]
+        if not isinstance(name, str):
+            raise VersionSyncError("invalid release label")
+        if name.startswith("release:"):
+            selected.add(name)
+    if not selected:
+        return "patch"
+    if len(selected) != 1 or not selected <= {"release:patch", "release:minor", "release:major"}:
+        raise VersionSyncError("conflicting or unknown release labels")
+    level = next(iter(selected)).split(":", 1)[1]
+    if level == "patch":
+        return level
+    owner = context["repository"]["owner"]
+    if owner["type"] != "User":
+        raise VersionSyncError("minor/major requires an explicitly governed human repository Owner")
+    label_events = [event for event in events if event.get("label", {}).get("name") in selected]
+    owner_label = bool(label_events) and (
+        label_events[-1]["event"] == "labeled" and label_events[-1]["actor"]["login"] == owner["login"]
+    )
+    if not owner_label:
+        raise VersionSyncError("minor/major requires an explicit Owner action on the selected release label")
+    return level
+
+
+def read_git_release_transition(base_ref: str, root: Path = ROOT) -> tuple[str, str]:
+    try:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "--verify", "--end-of-options", f"{base_ref}^{{commit}}"],
+            cwd=root,
+            text=True,
+        ).strip()
+        raw = subprocess.check_output(["git", "show", f"{revision}:pyproject.toml"], cwd=root, text=True)
+        base = tomllib.loads(raw)["project"]["version"]
+    except (subprocess.CalledProcessError, KeyError, tomllib.TOMLDecodeError) as exc:
+        raise VersionSyncError("cannot establish the main-branch release version") from exc
+    path = root / "pyproject.toml"
+    candidate = _required_project_text(_project_table(read_document(path), path=path), "version", path=path)
+    next_release_version(base)
+    next_release_version(candidate)
+    return base, candidate
+
+
+def check_transition_from_git(base_ref: str, level: str, root: Path = ROOT) -> str:
+    base, candidate = read_git_release_transition(base_ref, root)
+    check_versions(root)
+    return check_release_transition(base, candidate, level)
+
+
+def write_release_notice(notice: str, summary_file: Path | None) -> None:
+    print(notice)
+    if summary_file is not None:
+        with summary_file.open("a", encoding="utf-8") as stream:
+            stream.write(f"## {notice}\n\nRelease numbering only; not product acceptance or deployment permission.\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("check", help="check workspace release graph integrity")
     set_parser = subparsers.add_parser("set", help="set the version of the complete release graph")
     set_parser.add_argument("version")
+    next_parser = subparsers.add_parser("next", help="suggest a version without modifying files")
+    next_parser.add_argument("--level", choices=("patch", "minor", "major"), default="patch")
+    transition_parser = subparsers.add_parser("check-transition", help="check one PR's main-branch release increment")
+    transition_parser.add_argument("--base-ref", required=True)
+    transition_parser.add_argument("--level", choices=("patch", "minor", "major"), default="patch")
+    transition_parser.add_argument("--summary-file", type=Path)
+    level_parser = subparsers.add_parser("release-level", help="resolve level from read-only GitHub PR observations")
+    level_parser.add_argument("--context-file", type=Path, required=True)
+    report_parser = subparsers.add_parser(
+        "report-merge", help="always report actual Git numbers before historical validation"
+    )
+    report_parser.add_argument("--context-file", type=Path)
+    report_parser.add_argument("--summary-file", type=Path)
+    report_parser.add_argument("--notice-only", action="store_true")
     args = parser.parse_args()
 
     try:
@@ -444,6 +571,35 @@ def main() -> int:
             check_versions()
         elif args.command == "set":
             set_versions(args.version)
+        elif args.command == "next":
+            current = str(load_workspace_distributions(ROOT)[0].version)
+            print(next_release_version(current, args.level))
+        elif args.command == "check-transition":
+            notice = check_transition_from_git(args.base_ref, args.level)
+            write_release_notice(notice, args.summary_file)
+        elif args.command in {"release-level", "report-merge"}:
+            if args.command == "report-merge":
+                base, candidate = read_git_release_transition("HEAD^", ROOT)
+                write_release_notice(f"OnlyAlpha merged release: {base} -> {candidate}", args.summary_file)
+                if args.notice_only:
+                    return 0
+                if args.context_file is None:
+                    raise VersionSyncError("historical merge validation requires GitHub context")
+            try:
+                context = json.loads(args.context_file.read_text(encoding="utf-8"))
+                level = release_level_from_context(context)
+            except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                raise VersionSyncError("incomplete or invalid GitHub release-selection proof") from exc
+            if args.command == "release-level":
+                print(level)
+            else:
+                if context["pull_request"].get("merged") is not True:
+                    raise VersionSyncError("historical reporting requires a merged PR")
+                actual_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+                if actual_sha != context["pull_request"]["merge_commit_sha"]:
+                    raise VersionSyncError("historical release proof belongs to a different merge")
+                check_versions(ROOT)
+                print(check_release_transition(base, candidate, level))
         else:
             parser.error(f"unsupported command: {args.command}")
     except VersionSyncError as exc:

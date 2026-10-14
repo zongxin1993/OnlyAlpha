@@ -5,6 +5,8 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
 export default defineConfig({
     testDir: "./e2e",
+    workers: 1,
+    retries: 0,
     use: {
         baseURL,
         trace: "retain-on-failure",

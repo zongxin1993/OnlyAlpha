@@ -31,6 +31,8 @@ from onlyalpha.domain.market import OnlyBarSemantic
 
 TOKEN = "ee" * 32
 ORIGIN = "http://localhost"
+# Starlette resolves relative WS URLs against ws://testserver, not base_url.
+STREAM_URL = "ws://localhost/api/v2/market-data/stream"
 REFERENCE = OnlyMarketDataSourceReferenceV1("integration", "a" * 64, "test.market_data")
 
 
@@ -92,7 +94,18 @@ def test_private_startup_configuration_is_frozen_and_rejects_agent_credential(tm
 
 @pytest.mark.parametrize(
     "mutation",
-    ["extra", "missing", "bool-version", "digest", "duplicate-grant", "wildcard", "scope", "origin", "oversized"],
+    [
+        "extra",
+        "missing",
+        "bool-version",
+        "digest",
+        "empty-grants",
+        "duplicate-grant",
+        "wildcard",
+        "scope",
+        "origin",
+        "oversized",
+    ],
 )
 def test_invalid_configuration_never_falls_back_to_anonymous(tmp_path: Path, mutation: str) -> None:
     document = _document()
@@ -104,6 +117,8 @@ def test_invalid_configuration_never_falls_back_to_anonymous(tmp_path: Path, mut
         document["schema_version"] = True
     elif mutation == "digest":
         document["bearer_sha256"] = "bad"
+    elif mutation == "empty-grants":
+        document["grants"] = []
     elif mutation == "duplicate-grant":
         document["grants"] *= 2
     elif mutation == "wildcard":
@@ -264,6 +279,55 @@ def test_origin_and_identity_headers_are_not_authority(headers: dict[str, str]) 
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "path,scope_type",
+    [
+        ("/api/v2/market-data/sources", "http"),
+        ("/api/v2/market/instruments", "http"),
+        ("/api/v2/market-data/bars", "http"),
+        ("/api/v2/market-data/acquisitions/owned", "http"),
+        ("/api/v2/market-data/stream", "websocket"),
+    ],
+)
+@pytest.mark.parametrize(
+    "hosts", [[], [b"evil.example"], [b"127.0.0.1"], [b"localhost:8000"], [b"localhost", b"localhost"]]
+)
+def test_every_owning_read_rejects_missing_wrong_or_duplicate_host_before_dispatch(
+    path: str, scope_type: str, hosts: list[bytes]
+) -> None:
+    async def scenario() -> None:
+        calls = []
+        messages = []
+
+        async def owning(scope, receive, send):
+            calls.append(scope)
+
+        async def receive():
+            raise AssertionError("Rejected Host must not consume credentials or body")
+
+        async def send(message):
+            messages.append(message)
+
+        scope = {
+            "type": scope_type,
+            "method": "GET",
+            "path": path,
+            "headers": [(b"host", host) for host in hosts]
+            + [(b"origin", ORIGIN.encode()), (b"authorization", ("Bearer " + TOKEN).encode())],
+            "query_string": b"",
+        }
+        ingress = OnlyLocalReadIngress(owning, _configuration())
+        await ingress(scope, receive, send)
+        assert calls == [] and ingress._reads == 0 and ingress._streams == 0
+        if scope_type == "websocket":
+            assert messages == [{"type": "websocket.close", "code": 1008}]
+        else:
+            assert messages[0]["status"] == 403
+            assert (b"cache-control", b"no-store") in messages[0]["headers"]
+
+    asyncio.run(scenario())
+
+
 def _subscribe() -> dict[str, object]:
     return {
         "schema_version": 2,
@@ -285,9 +349,7 @@ def test_ws_origin_is_checked_before_upgrade_and_source_open(origin: str | None)
     app, _ = _app(_configuration(), service)
     with TestClient(app, base_url=ORIGIN) as client:
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(
-                "/api/v2/market-data/stream", headers={} if origin is None else {"Origin": origin}
-            ):
+            with client.websocket_connect(STREAM_URL, headers={} if origin is None else {"Origin": origin}):
                 pass
     assert service.opened == 0
 
@@ -300,7 +362,7 @@ def test_ws_auth_failure_never_opens_source(first: str) -> None:
     app, _ = _app(_configuration(), service)
     auth = {"schema_version": 1, "operation": "AUTH", "bearer": TOKEN}
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             if first == "subscribe":
                 socket.send_json(_subscribe())
             elif first == "oversized":
@@ -326,7 +388,7 @@ def test_ws_exact_grant_and_withdrawal_close_blocked_event_without_late_data() -
     service = _StreamService()
     app, _ = _app(_configuration(), service)
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             socket.send_json({"schema_version": 1, "operation": "AUTH", "bearer": TOKEN})
             assert socket.receive_json() == {"schema_version": 1, "event": "AUTHENTICATED"}
             assert service.opened == 0
@@ -341,7 +403,7 @@ def test_historical_only_grant_never_opens_realtime_source() -> None:
     service = _StreamService()
     app, _ = _app(_configuration(realtime=False), service)
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             socket.send_json({"schema_version": 1, "operation": "AUTH", "bearer": TOKEN})
             socket.receive_json()
             socket.send_json(_subscribe())
@@ -354,7 +416,7 @@ def test_withdrawal_during_blocked_open_retains_slot_until_actual_cleanup() -> N
     service.release = Event()
     app, _ = _app(_configuration(), service)
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             socket.send_json({"schema_version": 1, "operation": "AUTH", "bearer": TOKEN})
             socket.receive_json()
             socket.send_json(_subscribe())
@@ -396,7 +458,7 @@ def test_http_release_cutoff_and_capacity_use_deterministic_barriers() -> None:
                 "type": "http",
                 "method": "GET",
                 "path": "/api/v2/market-data/sources",
-                "headers": [(b"authorization", ("Bearer " + TOKEN).encode())],
+                "headers": [(b"host", b"localhost"), (b"authorization", ("Bearer " + TOKEN).encode())],
                 "query_string": b"",
             }
 
@@ -444,7 +506,7 @@ def test_cancelled_http_callers_do_not_release_actual_worker_capacity() -> None:
                 "method": "GET",
                 "path": "/api/v2/market-data/sources",
                 "query_string": b"",
-                "headers": [(b"authorization", ("Bearer " + TOKEN).encode())],
+                "headers": [(b"host", b"localhost"), (b"authorization", ("Bearer " + TOKEN).encode())],
             }
 
         callers = [asyncio.create_task(ingress(scope(), receive, send)) for _ in range(4)]
@@ -500,7 +562,7 @@ def test_cancelled_ws_caller_retains_late_open_cleanup_and_close_owner(blocked_p
             "raw_path": b"/api/v2/market-data/stream",
             "query_string": b"",
             "root_path": "",
-            "headers": [(b"origin", ORIGIN.encode())],
+            "headers": [(b"host", b"localhost"), (b"origin", ORIGIN.encode())],
             "client": ("127.0.0.1", 1234),
             "server": ("127.0.0.1", 8000),
             "subprotocols": [],
@@ -552,7 +614,7 @@ def test_get_body_frames_are_denied_even_without_framing_headers() -> None:
             "method": "GET",
             "path": "/api/v2/market-data/sources",
             "query_string": b"",
-            "headers": [(b"authorization", ("Bearer " + TOKEN).encode())],
+            "headers": [(b"host", b"localhost"), (b"authorization", ("Bearer " + TOKEN).encode())],
         }
         await OnlyLocalReadIngress(owning, _configuration())(scope, receive, send)
         assert calls == [] and messages[0]["status"] == 403
@@ -594,7 +656,7 @@ def test_detachment_while_response_headers_block_never_releases_protected_body()
             "method": "GET",
             "path": "/api/v2/market-data/sources",
             "query_string": b"",
-            "headers": [(b"authorization", ("Bearer " + TOKEN).encode())],
+            "headers": [(b"host", b"localhost"), (b"authorization", ("Bearer " + TOKEN).encode())],
         }
         caller = asyncio.create_task(ingress(scope, receive, send))
         await started.wait()
@@ -636,7 +698,7 @@ def test_cancelled_inventory_observer_cannot_cancel_actual_work_owner() -> None:
             "method": "GET",
             "path": "/api/v2/market-data/sources",
             "query_string": b"",
-            "headers": [(b"authorization", ("Bearer " + TOKEN).encode())],
+            "headers": [(b"host", b"localhost"), (b"authorization", ("Bearer " + TOKEN).encode())],
         }
         caller = asyncio.create_task(ingress(scope, receive, send))
         await entered.wait()
@@ -686,10 +748,10 @@ def test_four_unauthenticated_ws_slots_are_bounded_and_disconnect_releases_them(
     with TestClient(app, base_url=ORIGIN) as client:
         with ExitStack() as stack:
             for _ in range(4):
-                stack.enter_context(client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}))
+                stack.enter_context(client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}))
             assert app.state.local_read_ingress._streams == 4
             with pytest.raises(WebSocketDisconnect):
-                with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}):
+                with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}):
                     pass
     assert service.opened == 0
 
@@ -706,7 +768,7 @@ def test_ws_authenticated_subject_does_not_authorize_wrong_nested_reference(dime
     service = _StreamService()
     app, _ = _app(_configuration(), service)
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             socket.send_json({"schema_version": 1, "operation": "AUTH", "bearer": TOKEN})
             assert socket.receive_json()["event"] == "AUTHENTICATED"
             subscribe = _subscribe()
@@ -736,7 +798,7 @@ def test_handshake_deadline_fault_rejects_each_phase_before_source_open(
     service = _StreamService()
     app, _ = _app(_configuration(), service)
     with TestClient(app, base_url=ORIGIN) as client:
-        with client.websocket_connect("/api/v2/market-data/stream", headers={"Origin": ORIGIN}) as socket:
+        with client.websocket_connect(STREAM_URL, headers={"Origin": ORIGIN}) as socket:
             if phase == "subscribe":
                 socket.send_json({"schema_version": 1, "operation": "AUTH", "bearer": TOKEN})
                 assert socket.receive_json()["event"] == "AUTHENTICATED"

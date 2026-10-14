@@ -100,6 +100,7 @@ from .backtest.routes import BACKTEST_ROUTE_TAG, create_backtest_router
 from .backtest.schema import ProductErrorDto, ProductErrorEnvelopeDto
 from .chart_studies.routes import CHART_STUDY_ROUTE_TAG, create_chart_study_router
 from .composition import OnlyProductCalculationComposition
+from .dev_web import OnlyDevWebIngress
 from .health import OnlyKernelResearchReadinessProjection, OnlyProductExecutionCapacityProbe, create_health_router
 from .integration_types import (
     INTEGRATION_TYPE_ROUTE_TAG,
@@ -283,7 +284,10 @@ def create_research_app(
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
     local_read_configuration: OnlyLocalReadConfiguration | None = None,
     calculation_composition: OnlyProductCalculationComposition | None = None,
+    dev_web_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
+    if local_read_configuration is not None and dev_web_configuration is not None:
+        raise ValueError("DEV_WEB_ACCESS_MODES_CONFLICT")
     integration_authorities = (integration_types, integration_commands, integration_queries)
     if any(item is not None for item in integration_authorities) and any(
         item is None for item in integration_authorities
@@ -300,7 +304,7 @@ def create_research_app(
     app = FastAPI(title="OnlyAlpha Research API", version=str(RESEARCH_API_SCHEMA_VERSION))
     chart_study = None
     if (
-        local_read_configuration is not None
+        (local_read_configuration is not None or dev_web_configuration is not None)
         and market_data is not None
         and calculation_composition is not None
         and calculation_composition.registry is calculation_registry
@@ -317,6 +321,13 @@ def create_research_app(
     if local_read_configuration is not None:
         app.add_middleware(
             OnlyLocalReadIngress, configuration=local_read_configuration, chart_study_enabled=chart_study is not None
+        )
+    if dev_web_configuration is not None:
+        app.add_middleware(
+            OnlyDevWebIngress,
+            configuration=dev_web_configuration,
+            chart_study_enabled=chart_study is not None,
+            source_reader=None if market_data is None else market_data.list_sources,
         )
     if chart_study is not None:
         app.include_router(create_chart_study_router(chart_study))
@@ -786,6 +797,7 @@ def create_product_app(
     market_data_stream: OnlyMarketDataStreamProductService | None = None,
     local_read_configuration: OnlyLocalReadConfiguration | None = None,
     calculation_composition: OnlyProductCalculationComposition | None = None,
+    dev_web_configuration: OnlyLocalReadConfiguration | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -832,6 +844,7 @@ def create_product_app(
         market_data_stream,
         local_read_configuration,
         calculation_composition,
+        dev_web_configuration,
     )
     app.title = "OnlyAlpha Product API"
     return app

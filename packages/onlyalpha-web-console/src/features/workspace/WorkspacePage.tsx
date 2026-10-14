@@ -174,10 +174,12 @@ export function WorkspacePage() {
             </div>
             <section className="chart-region" aria-label="主图">
                 <header className="chart-region__header">
-                    <details>
-                        <summary>本地只读访问</summary>
-                        <LocalReadAccess />
-                    </details>
+                    {!credentials.localSession ? (
+                        <details>
+                            <summary>本地只读访问</summary>
+                            <LocalReadAccess />
+                        </details>
+                    ) : null}
                     <span className="chart-region__title" title={realInstrument?.instrument_id}>
                         {realInstrument?.display_symbol ?? "行情工作区"} ·{" "}
                         {formatBarSemantic(marketData.barSemantic)}
@@ -215,6 +217,17 @@ export function WorkspacePage() {
                                         void marketData.searchInstruments(symbolQuery);
                                 }}
                             />
+                            <button
+                                type="button"
+                                disabled={
+                                    marketData.reference === null || symbolQuery.trim() === ""
+                                }
+                                onClick={() => {
+                                    void marketData.searchInstruments(symbolQuery);
+                                }}
+                            >
+                                搜索标的
+                            </button>
                             <select
                                 className="chart-region__timeframe"
                                 aria-label="时间周期"
@@ -342,7 +355,9 @@ export function WorkspacePage() {
                 <ChartStudies
                     key={studyContext?.key ?? "no-chart-context"}
                     context={studyContext}
-                    {...(credentials.capture().bearer === null ? {} : { credentials })}
+                    {...(credentials.capture().bearer === null && !credentials.localSession
+                        ? {}
+                        : { credentials })}
                 >
                     {({ instances, selectedId, incarnationKey }) => (
                         <>
@@ -373,6 +388,19 @@ export function WorkspacePage() {
                             >
                                 {statusCopy}
                                 {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
+                                {credentials.localSession &&
+                                (marketData.status === "incomplete" ||
+                                    marketData.status === "failed") &&
+                                realInstrument !== null ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            void marketData.selectBarDuration(duration);
+                                        }}
+                                    >
+                                        重新读取历史
+                                    </button>
+                                ) : null}
                             </p>
                             <div
                                 className="chart-observation"
@@ -639,6 +667,7 @@ export function WorkspacePage() {
                     variant="modal"
                     onClose={() => {
                         setManagerOpen(false);
+                        marketData.refreshSources();
                     }}
                 />
             ) : null}

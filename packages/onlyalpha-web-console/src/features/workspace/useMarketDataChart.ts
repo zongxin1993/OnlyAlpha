@@ -81,6 +81,7 @@ export interface MarketDataChartState {
     readonly streamError: string | null;
     readonly lastClosedCursor: string | null;
     readonly selectSource: (integrationId: string) => void;
+    readonly refreshSources: () => void;
     readonly searchInstruments: (query: string) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
     readonly selectBarDuration: (durationMinutes: number) => Promise<void>;
@@ -100,6 +101,10 @@ export function useMarketDataChart(): MarketDataChartState {
     const client = useMarketDataApi();
     const credentials = useLocalReadCredentials();
     const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
+    const [sourceRefresh, setSourceRefresh] = useState(0);
+    const refreshSources = useCallback(() => {
+        setSourceRefresh((current) => current + 1);
+    }, []);
     const [sourceId, setSourceId] = useState("");
     const selectedSourceId = useRef("");
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
@@ -125,6 +130,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const olderHistoryLoader = useRef<OnlyMarketDataHistoryLoader | null>(null);
     const streamGeneration = useRef(0);
     const historyGeneration = useRef(0);
+    const searchGeneration = useRef(0);
     const resume = useRef<{ cursor: string; fingerprint: string } | null>(null);
     const previousRevision = useRef<string | null>(null);
 
@@ -216,7 +222,7 @@ export function useMarketDataChart(): MarketDataChartState {
                       }
                     : null;
             olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
-                readOnly: credentials.capture().bearer !== null,
+                readOnly: credentials.localSession || credentials.capture().bearer !== null,
                 client,
                 reference: active,
                 expectedSourceId,
@@ -391,9 +397,16 @@ export function useMarketDataChart(): MarketDataChartState {
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
+                if (credentials.localSession) {
+                    setStatus("incomplete");
+                    setMessage(
+                        `历史行情覆盖不足：${String(loaded.coverage.actual_bar_count)}/${String(loaded.coverage.expected_bar_count)}；不会自动采集`
+                    );
+                    return;
+                }
                 if (credentials.capture().bearer !== null) {
                     setStatus("failed");
-                    setMessage("只读行情覆盖不足；请从独立管理入口采集");
+                    setMessage("只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集");
                     return;
                 }
                 await acquire(
@@ -627,6 +640,7 @@ export function useMarketDataChart(): MarketDataChartState {
     const selectSource = useCallback((integrationId: string) => {
         if (integrationId !== "" && integrationId === selectedSourceId.current) return;
         selectedSourceId.current = integrationId;
+        searchGeneration.current += 1;
         streamGeneration.current += 1;
         historyGeneration.current += 1;
         setSourceId(integrationId);
@@ -662,7 +676,20 @@ export function useMarketDataChart(): MarketDataChartState {
                         "CONTRACT_ERROR",
                         "数据源 Integration identity 重复"
                     );
-                setSources(found);
+                setSources((current) =>
+                    found.map((item) => {
+                        const previous = current.find(
+                            (source) => source.integration_id === item.integration_id
+                        );
+                        return previous !== undefined &&
+                            JSON.stringify(previous) === JSON.stringify(item)
+                            ? previous
+                            : item;
+                    })
+                );
+                // Preserve a user's exact still-available choice, not a new default
+                // or an old response's choice after management changed the catalog.
+                if (found.some((item) => item.integration_id === selectedSourceId.current)) return;
                 const matches = found.filter(
                     (item) =>
                         item.type_id === DEFAULT_SOURCE_TYPE &&
@@ -690,7 +717,7 @@ export function useMarketDataChart(): MarketDataChartState {
         return () => {
             controller.abort();
         };
-    }, [apply, client, selectSource]);
+    }, [apply, client, selectSource, sourceRefresh]);
 
     useEffect(() => {
         // Manual selections remain valid; the Binance default resolves an actual instrument,
@@ -702,11 +729,17 @@ export function useMarketDataChart(): MarketDataChartState {
             return;
         const controller = new AbortController();
         const generation = historyGeneration.current;
+        const search = ++searchGeneration.current;
         const active = onlyMarketDataSourceReference(selectedSource);
         client
             .listInstruments(active, "BTCUSDT", controller.signal)
             .then(async (found) => {
-                if (controller.signal.aborted || generation !== historyGeneration.current) return;
+                if (
+                    controller.signal.aborted ||
+                    generation !== historyGeneration.current ||
+                    search !== searchGeneration.current
+                )
+                    return;
                 const matches = found.filter(
                     (item) => item.instrument_id === DEFAULT_INSTRUMENT_ID
                 );
@@ -737,7 +770,11 @@ export function useMarketDataChart(): MarketDataChartState {
                 );
             })
             .catch((error: unknown) => {
-                if (!controller.signal.aborted && generation === historyGeneration.current)
+                if (
+                    !controller.signal.aborted &&
+                    generation === historyGeneration.current &&
+                    search === searchGeneration.current
+                )
                     apply(error);
             });
         return () => {
@@ -752,16 +789,19 @@ export function useMarketDataChart(): MarketDataChartState {
                 return;
             }
             const generation = historyGeneration.current;
+            const search = ++searchGeneration.current;
             // Searching is an input operation, not a replacement of an active chart incarnation.
             if (instrument === null) setStatus("searching");
             try {
                 const found = await client.listInstruments(reference, query);
-                if (generation !== historyGeneration.current) return;
+                if (generation !== historyGeneration.current || search !== searchGeneration.current)
+                    return;
                 setInstruments(found);
                 if (instrument === null) setStatus("idle");
                 setMessage(found.length === 0 ? "未找到匹配标的" : null);
             } catch (error) {
-                if (generation !== historyGeneration.current) return;
+                if (generation !== historyGeneration.current || search !== searchGeneration.current)
+                    return;
                 if (instrument === null) apply(error);
                 else setMessage("标的搜索失败；当前行情上下文保持不变");
             }
@@ -898,6 +938,7 @@ export function useMarketDataChart(): MarketDataChartState {
         streamError,
         lastClosedCursor,
         selectSource,
+        refreshSources,
         searchInstruments,
         selectInstrument,
         selectBarDuration,

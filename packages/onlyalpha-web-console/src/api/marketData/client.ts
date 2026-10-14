@@ -119,7 +119,11 @@ async function protectedRead<T>(
     const captured = credentials.capture();
     const headers = new Headers();
     if (captured.bearer !== null) headers.set("Authorization", `Bearer ${captured.bearer}`);
-    const value = await request(schema, url, { ...read(signal), headers, credentials: "omit" });
+    const value = await request(schema, url, {
+        ...read(signal),
+        headers,
+        credentials: credentials.localSession ? "same-origin" : "omit"
+    });
     if (!credentials.isCurrent(captured.generation))
         throw new MarketDataWebError("LOCAL_READ_GENERATION_CHANGED", "本地访问已改变");
     return value;

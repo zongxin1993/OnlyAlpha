@@ -41,12 +41,14 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
         opening = None
         stopping = None
         withdrawing = None
+        generation_withdrawing = None
+        generation_withdrawn: asyncio.Event | None = websocket.scope.get("onlyalpha.local_read_generation_withdrawn")
         detaching = None
         event_task = None
-        access: OnlySourceReadSession | None = None
+        access: OnlySourceReadSession | None = only_request_read_session(websocket.scope)
         ingress: OnlyLocalReadIngress | None = websocket.scope.get("onlyalpha.local_read_ingress")
         try:
-            if ingress is not None:
+            if ingress is not None and access is None:
                 text = await _control_text(websocket)
                 authentication = MarketDataStreamAuthDto.model_validate(only_decode_local_control(text))
                 access = ingress.configuration.authority.authenticate("Bearer " + authentication.bearer)
@@ -90,6 +92,8 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
             if ingress is not None:
                 withdrawing = asyncio.create_task(ingress.withdrawn.wait())
                 detaching = asyncio.create_task(websocket.scope["onlyalpha.local_read_detached"].wait())
+                if generation_withdrawn is not None:
+                    generation_withdrawing = asyncio.create_task(generation_withdrawn.wait())
             opening = asyncio.create_task(
                 asyncio.to_thread(
                     service.open,
@@ -101,9 +105,11 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                     read_session=access,
                 )
             )
-            signals = {stopping} if withdrawing is None else {stopping, withdrawing}
+            signals: set[asyncio.Task[object]] = {stopping} if withdrawing is None else {stopping, withdrawing}
             if detaching is not None:
                 signals.add(detaching)
+            if generation_withdrawing is not None:
+                signals.add(generation_withdrawing)
             done, _ = await asyncio.wait({opening, *signals}, return_when=asyncio.FIRST_COMPLETED)
             if any(signal in done for signal in signals):
                 return
@@ -130,7 +136,16 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                         return
         except WebSocketDisconnect:
             pass
-        except (TimeoutError, OnlySourceReadAccessError, ValueError):
+        except OnlySourceReadAccessError:
+            await websocket.close(
+                code=1012
+                if generation_withdrawn is not None
+                and generation_withdrawn.is_set()
+                and ingress is not None
+                and not ingress.withdrawn.is_set()
+                else 1008
+            )
+        except (TimeoutError, ValueError):
             await websocket.close(code=1008)
         except OnlyMarketDataProductError as exc:
             await websocket.send_json(
@@ -144,11 +159,12 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
         except Exception:
             await websocket.send_json({"schema_version": 2, "event": "ERROR", "code": "MARKET_DATA_STREAM_UNAVAILABLE"})
         finally:
-            for watcher in (stopping, withdrawing, detaching):
+            for watcher in (stopping, withdrawing, detaching, generation_withdrawing):
                 if watcher is not None:
                     watcher.cancel()
             await asyncio.gather(
-                *(t for t in (stopping, withdrawing, detaching) if t is not None), return_exceptions=True
+                *(t for t in (stopping, withdrawing, detaching, generation_withdrawing) if t is not None),
+                return_exceptions=True,
             )
             if session is None and opening is not None:
                 try:
@@ -165,7 +181,13 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                 websocket.application_state is WebSocketState.CONNECTED
                 and websocket.client_state is WebSocketState.CONNECTED
             ):
-                await websocket.close(code=1000)
+                await websocket.close(
+                    code=1008
+                    if ingress is not None and ingress.withdrawn.is_set()
+                    else 1012
+                    if generation_withdrawn is not None and generation_withdrawn.is_set()
+                    else 1000
+                )
 
     return router
 

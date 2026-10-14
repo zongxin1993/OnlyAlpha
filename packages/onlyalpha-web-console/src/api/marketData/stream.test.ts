@@ -6,6 +6,52 @@ import {
 import { marketDataBarSemantic } from "./model";
 import { LocalReadCredentials } from "./localReadCredentials";
 
+it.each([1012, 1008])(
+    "distinguishes Source generation replacement from authentication refusal: %s",
+    (code) => {
+        class Socket extends EventTarget {
+            static current: Socket;
+            constructor() {
+                super();
+                Socket.current = this;
+            }
+            send() {
+                return undefined;
+            }
+            close() {
+                return undefined;
+            }
+        }
+        vi.stubGlobal("WebSocket", Socket);
+        try {
+            const disconnect = vi.fn();
+            openMarketDataStream(
+                {
+                    schema_version: 2,
+                    operation: "SUBSCRIBE_BAR",
+                    source_reference: {
+                        integration_id: "i",
+                        integration_revision_fingerprint: "a".repeat(64),
+                        expected_type_id: "test.source"
+                    },
+                    instrument_id: "BTCUSDT.TEST",
+                    bar_semantic: marketDataBarSemantic(15),
+                    resume_after_sequence: "0"
+                },
+                vi.fn(),
+                disconnect,
+                new LocalReadCredentials(true)
+            );
+            Socket.current.dispatchEvent(new CloseEvent("close", { code }));
+            expect(disconnect).toHaveBeenCalledExactlyOnceWith(
+                code === 1008 ? "AUTHENTICATION_ERROR" : undefined
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    }
+);
+
 it("sends AUTH before Subscribe and fences all old socket messages on token A→B→A", () => {
     class Socket extends EventTarget {
         static current: Socket;

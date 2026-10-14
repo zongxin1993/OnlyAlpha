@@ -102,6 +102,51 @@ beforeEach(async () => {
 });
 
 describe("one server-derived strict Chart schema", () => {
+    it("local-session transport uses same-origin cookies without inventing a bearer or permission", async () => {
+        const credentials = new LocalReadCredentials(true);
+        const fetcher = vi.fn<typeof fetch>(() =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        schema_version: 1,
+                        capabilities: [sample.capability]
+                    }),
+                    { headers: { "cache-control": "no-store" } }
+                )
+            )
+        );
+        vi.stubGlobal("fetch", fetcher);
+        expect((await readChartStudyCapability(credentials)).type_id).toBe(
+            "onlyalpha.indicator.sma"
+        );
+        const init = fetcher.mock.calls[0]?.[1];
+        expect(init?.credentials).toBe("same-origin");
+        expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() =>
+                Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            schema_version: 1,
+                            error: {
+                                phase: "QUERY",
+                                code: "LOCAL_READ_UNAUTHORIZED",
+                                detail: "LOCAL_READ_UNAUTHORIZED"
+                            }
+                        }),
+                        { status: 401 }
+                    )
+                )
+            )
+        );
+        await expect(readChartStudyCapability(credentials)).rejects.toMatchObject({
+            code: "LOCAL_READ_UNAUTHORIZED",
+            status: 401
+        });
+        expect(credentials.capture().bearer).toBeNull();
+    });
+
     it("admits owning complete-to-incomplete without requiring its absent cursor to match the old history", async () => {
         const v = vector();
         expect(v.history.resume_after_sequence).not.toBeNull();

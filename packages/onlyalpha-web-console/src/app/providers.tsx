@@ -45,7 +45,9 @@ export function AppProviders({
     readonly integrationClient?: IntegrationApiClient;
     readonly marketDataClient?: MarketDataApiClient;
 }) {
-    const [credentials] = useState(() => new LocalReadCredentials());
+    const [credentials] = useState(
+        () => new LocalReadCredentials(import.meta.env.VITE_ONLYALPHA_LOCAL_SESSION === "true")
+    );
     const authGeneration = useSyncExternalStore(credentials.subscribe, credentials.getGeneration);
     const [apiClient] = useState<ResearchApiClient>(() => client ?? new FetchResearchApiClient());
     const [integrationApiClient] = useState<IntegrationApiClient>(

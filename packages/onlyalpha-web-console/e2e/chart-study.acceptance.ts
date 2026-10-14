@@ -106,6 +106,109 @@ test("distinct SMA display instances admit both sequential owning HTTP replies w
     expect((await request.get("/health")).status()).toBe(200);
 });
 
+test("different periods of the same SMA retain independent colors, edits and visibility", async ({
+    page
+}, testInfo) => {
+    test.setTimeout(70_000);
+    const requests: { path: string; method: string }[] = [];
+    page.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path.startsWith("/api/")) requests.push({ path, method: request.method() });
+    });
+    await connectNativeChart(page);
+
+    const add = async (period: number, color: string) => {
+        await page.getByRole("button", { name: "指标", exact: true }).click();
+        await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+        await page.getByLabel("period", { exact: true }).fill(String(period));
+        await page.getByLabel("颜色", { exact: true }).fill(color);
+        await page.getByRole("combobox", { name: "位置" }).selectOption("PRICE_OVERLAY");
+        const response = evaluationReply(page, period);
+        await page.getByRole("button", { name: "添加", exact: true }).click();
+        const reply = await response;
+        expect(reply.status()).toBe(200);
+        const result = (await reply.json()) as {
+            input: { target_bar_count: number };
+            series: { points: { readiness: string }[] }[];
+        };
+        expect(result.input.target_bar_count).toBe(2000);
+        expect(result.series[0]?.points).toHaveLength(2000);
+        expect(result.series[0]?.points[period - 1]?.readiness).toBe("READY");
+        await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    };
+    await add(20, "#c8332a");
+    await add(30, "#2457c5");
+    const instances = page.getByTestId("chart-study-instance");
+    await expect(instances).toHaveCount(2);
+    const sma20 = instances.filter({ hasText: "period=20" });
+    const sma30 = instances.filter({ hasText: "period=30" });
+    await expect(sma20).toBeVisible();
+    await expect(sma30).toBeVisible();
+    await expect(sma20).toContainText("主图 Overlay · #c8332a");
+    await expect(sma30).toContainText("主图 Overlay · #2457c5");
+    const firstId = await sma20.getAttribute("data-instance-id");
+    const secondId = await sma30.getAttribute("data-instance-id");
+    if (firstId === null || secondId === null) throw new Error("Missing Study instance identity");
+    expect(firstId).not.toBe(secondId);
+    const chart = page.getByTestId("price-chart");
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    await expect(page.getByTestId("study-hover")).toHaveCount(2);
+    await page.getByRole("button", { name: "收起下方面板" }).click();
+    expect((await chart.boundingBox())?.height).toBeGreaterThanOrEqual(220);
+    await chart.screenshot({ path: testInfo.outputPath("sma20-and-sma30.png") });
+    await page.setViewportSize({ width: 720, height: 900 });
+    expect((await chart.boundingBox())?.height).toBeGreaterThanOrEqual(220);
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    await chart.screenshot({ path: testInfo.outputPath("sma20-and-sma30-narrow.png") });
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const evaluations = requests.filter(({ path }) =>
+        path.endsWith("/chart/studies/evaluate")
+    ).length;
+    await sma20.getByRole("button", { name: "隐藏 SMA", exact: true }).click();
+    await expect(chart).toHaveAttribute("data-study-series-count", "1");
+    await expect(sma30.getByRole("button", { name: "隐藏 SMA", exact: true })).toBeVisible();
+    await expect(page.getByTestId("study-hover")).toHaveCount(1);
+    await sma20.getByRole("button", { name: "显示 SMA", exact: true }).click();
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    expect(requests.filter(({ path }) => path.endsWith("/chart/studies/evaluate"))).toHaveLength(
+        evaluations
+    );
+
+    await sma20.getByRole("button", { name: "编辑 SMA", exact: true }).click();
+    await page.getByLabel("period", { exact: true }).fill("25");
+    const changed = evaluationReply(page, 25);
+    await page.getByRole("button", { name: "应用", exact: true }).click();
+    expect((await changed).status()).toBe(200);
+    await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+        "data-query-status",
+        "DISPLAYABLE"
+    );
+    const sma25 = instances.filter({ hasText: "period=25" });
+    await expect(sma25).toHaveAttribute("data-instance-id", firstId);
+    await expect(sma30).toHaveAttribute("data-instance-id", secondId);
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    const remaining = evaluationReply(page, 30);
+    await sma25.getByRole("button", { name: "移除配置", exact: true }).click();
+    await expect(instances).toHaveCount(1);
+    await expect(sma30).toBeVisible();
+    expect((await remaining).status()).toBe(200);
+    await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+        "data-query-status",
+        "DISPLAYABLE"
+    );
+    await expect(chart).toHaveAttribute("data-study-series-count", "1");
+    await expect(page.getByTestId("study-hover")).toHaveCount(1);
+    expect(
+        requests.filter(
+            ({ method, path }) => method !== "GET" && path !== "/api/v2/chart/studies/evaluate"
+        )
+    ).toEqual([]);
+});
+
 for (const change of ["timeframe", "source"] as const)
     test(`native ${change} A→B→A never restores an abandoned Study instance`, async ({
         page,

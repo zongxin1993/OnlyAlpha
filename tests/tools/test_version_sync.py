@@ -4,6 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 from packaging.requirements import Requirement
@@ -310,3 +311,287 @@ def test_set_versions_locks_then_checks_complete_graph(tmp_path: Path, monkeypat
 
     assert calls == [(["uv", "lock", "--python", "3.12"], root, True)]
     check_versions(root)
+
+
+@pytest.mark.parametrize(
+    ("base", "level", "expected"),
+    [
+        ("0.9.9", "patch", "0.9.10"),
+        ("0.9.10", "minor", "0.10.0"),
+        ("0.10.7", "major", "1.0.0"),
+        ("1.2.3", "patch", "1.2.4"),
+        ("1.2.3", "minor", "1.3.0"),
+        ("1.2.3", "major", "2.0.0"),
+    ],
+)
+def test_release_increment_resets_lower_components(base: str, level: str, expected: str) -> None:
+    assert VERSION_SYNC.next_release_version(base, level) == expected
+    assert (
+        VERSION_SYNC.check_release_transition(base, expected, level)
+        == f"OnlyAlpha release: {base} -> {expected} ({level})"
+    )
+
+
+@pytest.mark.parametrize(
+    "base", ["0.9", "v0.9.10", "00.9.10", "0.09.10", "0.9.010", "0.9.10rc1", "0.9.10+build", "0.9.10\n"]
+)
+def test_release_increment_refuses_noncanonical_number(base: str) -> None:
+    with pytest.raises(VersionSyncError, match="canonical X.Y.Z"):
+        VERSION_SYNC.next_release_version(base)
+
+
+@pytest.mark.parametrize("candidate", ["0.9.10", "0.9.9", "0.9.12", "0.10.0", "0.9.11rc1"])
+def test_release_transition_refuses_stale_skipped_or_unselected_numbers(candidate: str) -> None:
+    with pytest.raises(VersionSyncError, match="requires 0.9.10 -> 0.9.11"):
+        VERSION_SYNC.check_release_transition("0.9.10", candidate)
+
+
+def test_unknown_release_level_is_not_an_increment() -> None:
+    with pytest.raises(VersionSyncError, match="unknown release level"):
+        VERSION_SYNC.next_release_version("0.9.10", "force")
+
+
+def _release_context(level: str = "minor") -> dict[str, Any]:
+    return {
+        "repository": {"owner": {"login": "owner", "type": "User"}},
+        "pull_request": {"labels": [{"name": f"release:{level}"}], "head": {"sha": "current"}},
+        "events": [{"id": 1, "event": "labeled", "label": {"name": f"release:{level}"}, "actor": {"login": "owner"}}],
+        "reviews": [],
+    }
+
+
+@pytest.mark.parametrize("level", ["minor", "major", "patch"])
+def test_release_level_accepts_explicit_owner_selection(level: str) -> None:
+    assert VERSION_SYNC.release_level_from_context(_release_context(level)) == level
+
+
+def test_release_level_defaults_to_patch_without_labels() -> None:
+    assert VERSION_SYNC.release_level_from_context({"pull_request": {"labels": []}, "events": []}) == "patch"
+
+
+def test_non_owner_label_does_not_authorize_minor() -> None:
+    context = _release_context()
+    context["events"][0]["actor"]["login"] = "other"
+    with pytest.raises(VersionSyncError, match="explicit Owner action"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+@pytest.mark.parametrize(
+    "state,head", [("DISMISSED", "current"), ("CHANGES_REQUESTED", "current"), ("APPROVED", "old")]
+)
+def test_missing_current_owner_approval_is_not_permission(state: str, head: str) -> None:
+    context = _release_context()
+    context["events"] = []
+    context["reviews"] = [{"user": {"login": "owner"}, "state": state, "commit_id": head}]
+    with pytest.raises(VersionSyncError, match="explicit Owner action"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+@pytest.mark.parametrize("level", ["minor", "major"])
+def test_generic_owner_approval_does_not_authorize_exceptional_release(level: str) -> None:
+    context = _release_context(level)
+    context["events"][0]["actor"]["login"] = "other"
+    context["reviews"] = [{"user": {"login": "owner"}, "state": "APPROVED", "commit_id": "current"}]
+    with pytest.raises(VersionSyncError, match="explicit Owner action"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+def test_removed_and_readded_label_does_not_inherit_owner_action() -> None:
+    context = _release_context()
+    context["events"] += [
+        {"id": 2, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "other"}},
+        {"id": 3, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "other"}},
+    ]
+    with pytest.raises(VersionSyncError, match="explicit Owner action"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+def test_conflicting_labels_and_organization_owner_fail_closed() -> None:
+    context = _release_context()
+    context["pull_request"]["labels"].append({"name": "release:major"})
+    with pytest.raises(VersionSyncError, match="conflicting"):
+        VERSION_SYNC.release_level_from_context(context)
+    context = _release_context()
+    context["repository"]["owner"]["type"] = "Organization"
+    with pytest.raises(VersionSyncError, match="human repository Owner"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+def test_git_transition_reads_exact_base_and_checks_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _workspace(tmp_path)
+    calls: list[list[str]] = []
+
+    def observe(command: list[str], *, cwd: Path, text: bool) -> str:
+        assert cwd == root and text is True
+        calls.append(command)
+        return "a" * 40 + "\n" if command[1] == "rev-parse" else '[project]\nversion = "0.3.6"\n'
+
+    monkeypatch.setattr(VERSION_SYNC.subprocess, "check_output", observe)
+    assert (
+        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
+        == "OnlyAlpha release: 0.3.6 -> 0.3.7 (patch)"
+    )
+    assert calls == [
+        ["git", "rev-parse", "--verify", "--end-of-options", "origin/master^{commit}"],
+        ["git", "show", "a" * 40 + ":pyproject.toml"],
+    ]
+    rewrite_workspace(root, "0.3.8")
+    with pytest.raises(VersionSyncError, match="requires 0.3.6 -> 0.3.7"):
+        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
+
+
+def test_next_cli_is_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _workspace(tmp_path)
+    before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
+    monkeypatch.setattr(VERSION_SYNC.sys, "argv", ["version_sync.py", "next", "--level", "minor"])
+    assert VERSION_SYNC.main() == 0
+    assert capsys.readouterr().out == "0.4.0\n"
+    assert {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
+
+
+def test_release_workflow_is_read_only_and_reports_exact_merge_transition() -> None:
+    path = Path(__file__).resolve().parents[2] / ".github/workflows/release-version.yml"
+    yaml = importlib.import_module("yaml")
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    assert set(workflow["on"]) == {"pull_request"}
+    assert "closed" in workflow["on"]["pull_request"]["types"]
+    assert all(value == "read" for value in workflow["permissions"].values())
+    job = workflow["jobs"]["transition"]
+    assert "merged == true" in job["if"]
+    steps = job["steps"]
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert "merge_commit_sha" in checkout["with"]["ref"]
+    assert "head.sha" in checkout["with"]["ref"]
+    assert checkout["with"]["persist-credentials"] == "false"
+    scripts = "\n".join(step.get("run", "") for step in steps)
+    assert '--base-ref "$BASE_SHA"' in scripts
+    assert "git fetch" not in scripts
+    assert "report-merge" in scripts
+    notice_index = next(i for i, step in enumerate(steps) if "--notice-only" in step.get("run", ""))
+    history_index = next(i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/github-script@"))
+    assert notice_index < history_index
+    assert '--summary-file "$GITHUB_STEP_SUMMARY"' in scripts
+    assert not any(token in scripts for token in ("git push", "git commit", "git tag", "gh pr merge"))
+
+
+def _merged_context() -> dict[str, Any]:
+    context = _release_context()
+    context["pull_request"].update({"merged": True, "merge_commit_sha": "merged"})
+    context["events"].append({"id": 2, "event": "merged", "commit_id": "merged"})
+    return context
+
+
+def test_merge_selection_uses_history_before_exact_occurrence_not_current_labels() -> None:
+    context = _merged_context()
+    context["pull_request"]["labels"] = []
+    context["events"].append(
+        {"id": 3, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}}
+    )
+    context["reviews"] = [{"state": "DISMISSED"}]
+    assert VERSION_SYNC.release_level_from_context(context) == "minor"
+
+
+def test_post_merge_owner_action_cannot_authorize_earlier_minor() -> None:
+    context = _merged_context()
+    context["events"][0]["actor"]["login"] = "other"
+    context["events"] += [
+        {"id": 3, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
+        {"id": 4, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
+    ]
+    with pytest.raises(VersionSyncError, match="explicit Owner action"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+def test_new_post_merge_label_does_not_change_ordinary_patch_selection() -> None:
+    context = _merged_context()
+    context["events"] = [
+        {"id": 1, "event": "merged", "commit_id": "merged"},
+        {"id": 2, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
+    ]
+    assert VERSION_SYNC.release_level_from_context(context) == "patch"
+
+
+@pytest.mark.parametrize("condition", ["missing", "different", "duplicate", "unordered"])
+def test_merge_selection_refuses_incomplete_or_ambiguous_occurrence(condition: str) -> None:
+    context = _merged_context()
+    if condition == "missing":
+        context["events"].pop()
+    elif condition == "different":
+        context["events"][-1]["commit_id"] = "different"
+    elif condition == "duplicate":
+        context["events"].append({"id": 3, "event": "merged", "commit_id": "merged"})
+    else:
+        context["events"].reverse()
+    with pytest.raises(VersionSyncError, match="historical release selection|event history"):
+        VERSION_SYNC.release_level_from_context(context)
+
+
+def test_git_transition_refuses_noncanonical_raw_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _workspace(tmp_path)
+    path = root / "pyproject.toml"
+    path.write_text(path.read_text().replace('version = "0.3.7"', 'version = "0.3.007"'))
+    monkeypatch.setattr(
+        VERSION_SYNC.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
+    )
+    with pytest.raises(VersionSyncError, match="canonical X.Y.Z"):
+        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
+
+
+def test_merge_report_retains_actual_notice_when_historical_proof_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _workspace(tmp_path)
+    summary = tmp_path / "summary.md"
+    context_file = tmp_path / "context.json"
+    context = _merged_context()
+    context["events"].pop()
+    context_file.write_text(VERSION_SYNC.json.dumps(context))
+    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
+    monkeypatch.setattr(
+        VERSION_SYNC.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
+    )
+    monkeypatch.setattr(
+        VERSION_SYNC.sys,
+        "argv",
+        ["version_sync.py", "report-merge", "--context-file", str(context_file), "--summary-file", str(summary)],
+    )
+    assert VERSION_SYNC.main() == 1
+    output = capsys.readouterr()
+    assert "OnlyAlpha merged release: 0.3.6 -> 0.3.7" in output.out
+    assert "historical release selection unavailable" in output.err
+    assert "0.3.6 -> 0.3.7" in summary.read_text()
+
+
+@pytest.mark.parametrize("wrong_merge", [False, True])
+def test_merge_report_requires_exact_git_occurrence_for_historical_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], wrong_merge: bool
+) -> None:
+    root = _workspace(tmp_path)
+    context = _merged_context()
+    context["pull_request"]["merge_commit_sha"] = "other" if wrong_merge else "a" * 40
+    context["events"] = [{"id": 1, "event": "merged", "commit_id": context["pull_request"]["merge_commit_sha"]}]
+    context_file = tmp_path / "context.json"
+    context_file.write_text(VERSION_SYNC.json.dumps(context))
+    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
+    monkeypatch.setattr(
+        VERSION_SYNC.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
+    )
+    monkeypatch.setattr(
+        VERSION_SYNC.sys, "argv", ["version_sync.py", "report-merge", "--context-file", str(context_file)]
+    )
+    assert VERSION_SYNC.main() == (1 if wrong_merge else 0)
+    output = capsys.readouterr()
+    assert "OnlyAlpha merged release: 0.3.6 -> 0.3.7" in output.out
+    if wrong_merge:
+        assert "different merge" in output.err
+    else:
+        assert "0.3.6 -> 0.3.7 (patch)" in output.out

@@ -182,6 +182,15 @@ class OnlyLocalReadIngress:
         self._work: set[asyncio.Future[None]] = set()
         self._chart_study_enabled = chart_study_enabled
 
+    def _authenticate(self, scope: Scope) -> OnlySourceReadSession:
+        values = [value for key, value in scope["headers"] if key.lower() == b"authorization"]
+        if self.withdrawn.is_set() or len(values) != 1:
+            raise OnlySourceReadAccessError("LOCAL_READ_UNAUTHORIZED")
+        return self.configuration.authority.authenticate(values[0].decode("ascii"))
+
+    async def _prepare_read_session(self, scope: Scope, session: OnlySourceReadSession) -> OnlySourceReadSession:
+        return session
+
     async def _retain_work(self, work: Awaitable[None], detached: asyncio.Event, *, stream: bool) -> None:
         """The work owner, not the cancellable ASGI caller, owns the capacity slot."""
         task = asyncio.ensure_future(work)
@@ -252,7 +261,8 @@ class OnlyLocalReadIngress:
             headers.setdefault(key.lower(), []).append(value)
         origins = headers.get(b"origin", [])
         if (
-            len(origins) > 1
+            headers.get(b"host") != [urlsplit(self.configuration.origin).netloc.encode("ascii")]
+            or len(origins) > 1
             or (is_stream and len(origins) != 1)
             or (origins and origins[0] != self.configuration.origin.encode("ascii"))
             or any(key in headers for key in (b"x-user", b"forwarded", b"x-forwarded-for", b"x-forwarded-proto"))
@@ -290,10 +300,7 @@ class OnlyLocalReadIngress:
             await self._retain_work(self.app(scope, receive, fenced_send), detached, stream=True)
             return
         try:
-            values = headers.get(b"authorization", [])
-            if len(values) != 1:
-                raise OnlySourceReadAccessError("LOCAL_READ_UNAUTHORIZED")
-            session = self.configuration.authority.authenticate(values[0].decode("ascii"))
+            session = self._authenticate(scope)
         except (OnlySourceReadAccessError, UnicodeError):
             await self._deny(scope, receive, send, "LOCAL_READ_UNAUTHORIZED")
             return
@@ -316,10 +323,13 @@ class OnlyLocalReadIngress:
                     raise OnlySourceReadAccessError("LOCAL_READ_RESPONSE_UNAVAILABLE")
 
         async def work() -> None:
+            nonlocal session
             try:
                 first = await asyncio.wait_for(receive(), HANDSHAKE_SECONDS)
                 if first["type"] != "http.request" or first.get("body") or first.get("more_body", False):
                     raise OnlySourceReadAccessError("LOCAL_READ_FORBIDDEN")
+                session = await self._prepare_read_session(scope, session)
+                scope["onlyalpha.local_read_session"] = session
                 await self.app(scope, receive, capture)
                 async with self._send_lock:
                     if detached.is_set():
@@ -379,10 +389,7 @@ class OnlyLocalReadIngress:
             await self._chart_error(scope, receive, send, "CHART_STUDY_REQUEST_INVALID", 400)
             return
         try:
-            authorization = headers.get(b"authorization", [])
-            if self.withdrawn.is_set() or len(authorization) != 1:
-                raise OnlySourceReadAccessError("LOCAL_READ_UNAUTHORIZED")
-            session = self.configuration.authority.authenticate(authorization[0].decode("ascii"))
+            session = self._authenticate(scope)
         except (OnlySourceReadAccessError, UnicodeError):
             await self._deny(scope, receive, send, "LOCAL_READ_UNAUTHORIZED")
             return
@@ -474,12 +481,12 @@ class OnlyLocalReadIngress:
                             await send({"type": "http.response.body", "body": bytes(response_body)})
 
                     await asyncio.wait_for(release(), max(0, deadline - loop.time()))
-            except (ValueError, UnicodeError, RecursionError):
-                if not detached.is_set() and not started:
-                    await self._chart_error(scope, receive, send, "CHART_STUDY_REQUEST_INVALID", 400)
             except OnlySourceReadAccessError as error:
                 if not detached.is_set() and not started:
                     await self._deny(scope, receive, send, error.code)
+            except (ValueError, UnicodeError, RecursionError):
+                if not detached.is_set() and not started:
+                    await self._chart_error(scope, receive, send, "CHART_STUDY_REQUEST_INVALID", 400)
             except TimeoutError:
                 if not detached.is_set() and not started:
                     await self._chart_error(scope, receive, send, "CHART_STUDY_QUERY_UNAVAILABLE", 503)

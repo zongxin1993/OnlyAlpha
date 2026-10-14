@@ -37,7 +37,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if mode in ("static", "all"):
         static()
     if mode in ("unit", "all"):
-        _run("npm", "run", "test:coverage")
+        _run("npm", "run", "test:coverage", "--", "--coverage.reportsDirectory=../../test-results/web-coverage")
     if mode in ("build", "all"):
         _run("npm", "run", "build")
     if mode in ("e2e", "all"):

@@ -118,7 +118,7 @@ class OnlySourceReadAuthority:
             or len(subject_id) > 128
             or subject_id.strip() != subject_id
             or not re.fullmatch(r"[0-9a-f]{64}", bearer_sha256)
-            or not 1 <= len(grants) <= 32
+            or not 0 <= len(grants) <= 32
             or not isinstance(grants, tuple)
             or any(not isinstance(item, OnlySourceReadGrant) for item in grants)
         ):

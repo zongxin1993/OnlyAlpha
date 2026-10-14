@@ -1,5 +1,15 @@
 /** Disposable credential memory, never Product identity or a persistence surface. */
 export class LocalReadCredentials {
+    readonly #localSession: boolean;
+
+    constructor(localSession = false) {
+        this.#localSession = localSession;
+    }
+
+    get localSession(): boolean {
+        return this.#localSession;
+    }
+
     #bearer: string | null = null;
     #generation = 0;
     #listeners = new Set<() => void>();

@@ -42,6 +42,7 @@ from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog, only_a
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from tests.application.test_market_data_product import BASE, INSTRUMENT, MINUTE_NS, _FakeSource, _reference, _service
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
+from tests.support.browser_database import reset_dev_browser_test_namespace
 
 
 def _inventory(dsn: str, clickhouse: OnlyClickHouseClient) -> dict[str, dict[str, int | str]]:
@@ -80,8 +81,10 @@ async def wait_for_read_cleanup(ingress: OnlyLocalReadIngress) -> None:
 def main() -> None:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     only_assert_postgres_test_database(dsn)
-    OnlyPostgresMigrationAuthority(dsn).migrate()
     client = _clickhouse("onlyalpha_test_local_read_browser")
+    if os.environ.get("ONLYALPHA_DEV_SOURCE_ROOT"):
+        reset_dev_browser_test_namespace(dsn, client)
+    OnlyPostgresMigrationAuthority(dsn).migrate()
     OnlyClickHouseMigrationAuthority(client).migrate()
     artifacts = Path("test-results/local-read-browser")
     artifacts.mkdir(parents=True, exist_ok=True)

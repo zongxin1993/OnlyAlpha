@@ -101,6 +101,17 @@ def test_duplicate_owner_grants_and_missing_permission_are_rejected() -> None:
         )
 
 
+def test_verified_empty_grant_snapshot_authenticates_but_authorizes_no_source() -> None:
+    authority = OnlySourceReadAuthority("local-developer", hashlib.sha256(TOKEN.encode()).hexdigest(), ())
+    session = authority.authenticate("Bearer " + TOKEN)
+    session.check_active()
+    with pytest.raises(OnlySourceReadAccessError, match="LOCAL_READ_FORBIDDEN"):
+        session.require_reference(
+            OnlyMarketDataSourceReferenceV1("integration", "a" * 64, TYPE_ID),
+            OnlySourceReadPermission.CLOSED_HISTORY,
+        )
+
+
 def test_source_listing_filters_exact_grants_before_resolving_unauthorized_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

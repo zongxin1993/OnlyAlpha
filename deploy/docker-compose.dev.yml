@@ -39,6 +39,8 @@ services:
     networks: [database]
 
   bootstrap:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -70,6 +72,8 @@ services:
     networks: [database]
 
   api:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -108,7 +112,7 @@ services:
       bootstrap:
         condition: service_completed_successfully
     ports:
-      - "${ONLYALPHA_HTTP_PORT:-8000}:8000"
+      - "127.0.0.1:${ONLYALPHA_HTTP_PORT:-8000}:8000"
     volumes:
       - user-data:/var/lib/onlyalpha
     healthcheck:
@@ -120,6 +124,8 @@ services:
     networks: [database, application]
 
   market-data-bootstrap:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -134,6 +140,8 @@ services:
     networks: [application]
 
   web:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-web:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -147,7 +155,7 @@ services:
       market-data-bootstrap:
         condition: service_completed_successfully
     ports:
-      - "${ONLYALPHA_WEB_PORT:-5173}:5173"
+      - "127.0.0.1:${ONLYALPHA_WEB_PORT:-5173}:5173"
     healthcheck:
       test:
         ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
@@ -158,6 +166,8 @@ services:
     networks: [application]
 
   research-worker:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -173,6 +183,8 @@ services:
     networks: [database]
 
   backtest-worker:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -188,6 +200,8 @@ services:
     networks: [database]
 
   agent:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -240,6 +254,7 @@ services:
     networks: [application]
 
   test:
+    image: onlyalpha-${ONLYALPHA_TEST_BUILD_TARGET:-test}:dev
     profiles: [test]
     build:
       context: ..
@@ -266,7 +281,93 @@ services:
         condition: service_healthy
     networks: [database]
 
+  # Persistent, source-mounted local verification. Select this service explicitly;
+  # never start the business/bootstrap services just to run hermetic tests.
+  validation:
+    profiles: [test]
+    image: onlyalpha-browser-test:dev
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+      target: browser-test
+    init: true
+    command: ["python", "-c", "import signal; signal.pause()"]
+    environment:
+      CI: "1"
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha_dev_validation_test
+      ONLYALPHA_TEST_CLICKHOUSE_URL: http://clickhouse:8123
+      ONLYALPHA_TEST_CLICKHOUSE_USER: onlyalpha
+      ONLYALPHA_TEST_CLICKHOUSE_PASSWORD: onlyalpha
+      ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY: default
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,postgres,clickhouse
+      no_proxy: localhost,127.0.0.1,postgres,clickhouse
+    volumes:
+      - type: bind
+        source: ../.test-cache/dev-source-cut
+        target: /workspace
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ..
+        target: /onlyalpha-current-source
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../test-results
+        target: /workspace/test-results
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.test-cache/dev-tool-output/tsconfig.app.tsbuildinfo
+        target: /workspace/packages/onlyalpha-web-console/tsconfig.app.tsbuildinfo
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.test-cache/dev-tool-output/tsconfig.node.tsbuildinfo
+        target: /workspace/packages/onlyalpha-web-console/tsconfig.node.tsbuildinfo
+        bind:
+          create_host_path: false
+      # Native read-only image mounts mask host dependency directories without
+      # creating cache volumes that would retain stale dependencies after rebuild.
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /workspace/.venv
+        read_only: true
+        image:
+          subpath: workspace/.venv
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /workspace/packages/onlyalpha-web-console/node_modules
+        read_only: true
+        image:
+          subpath: workspace/packages/onlyalpha-web-console/node_modules
+    tmpfs:
+      - /workspace/.ruff_cache:uid=10001,gid=10001
+      - /workspace/.mypy_cache:uid=10001,gid=10001
+      - /workspace/.pytest_cache:uid=10001,gid=10001
+      - /workspace/.hypothesis:uid=10001,gid=10001
+      - /workspace/.test-cache:uid=10001,gid=10001
+      - /workspace/build:uid=10001,gid=10001
+      - /workspace/packages/onlyalpha-web-console/dist:uid=10001,gid=10001
+      - /workspace/packages/onlyalpha-web-console/node_modules/.vite:uid=10001,gid=10001
+      - /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp:uid=10001,gid=10001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks: [database]
+
   web-e2e-fixture:
+    image: onlyalpha-test:dev
     profiles: [web-e2e]
     build:
       context: ..
@@ -283,6 +384,7 @@ services:
     networks: [database]
 
   binance-probe-fixture:
+    image: onlyalpha-runtime:dev
     profiles: [web-e2e]
     build:
       context: ..
@@ -313,6 +415,8 @@ services:
         aliases: [api.binance.com, stream.binance.com, data-api.binance.vision, data-stream.binance.vision]
 
   agent-provider-fixture:
+    profiles: [integration, web-e2e]
+    image: onlyalpha-runtime:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile.dev
@@ -327,7 +431,67 @@ services:
       start_period: 5s
     networks: [database, application]
 
+  # The one ordinary dev application: installed uv dependencies, Shipping Web and
+  # canonical API, over the EXISTING dev deployment. No initialization dependency.
+  dev:
+    profiles: [dev]
+    image: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+    init: true
+    command: ["python", "-m", "scripts.dev", "inside"]
+    environment:
+      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha
+      ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
+      ONLYALPHA_CLICKHOUSE_USER: onlyalpha
+      ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha
+      ONLYALPHA_CLICKHOUSE_DATABASE: onlyalpha
+      ONLYALPHA_CLICKHOUSE_STORAGE_POLICY: default
+      VITE_ONLYALPHA_LOCAL_SESSION: "true"
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,postgres,clickhouse
+      no_proxy: localhost,127.0.0.1,postgres,clickhouse
+    ports: ["127.0.0.1:5173:5173"]
+    volumes:
+      - type: bind
+        source: ../.test-cache/dev-product-source
+        target: /workspace
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /workspace/.venv
+        read_only: true
+        image:
+          subpath: workspace/.venv
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /workspace/packages/onlyalpha-web-console/node_modules
+        read_only: true
+        image:
+          subpath: workspace/packages/onlyalpha-web-console/node_modules
+      - type: volume
+        source: user-data
+        target: /var/lib/onlyalpha
+        volume:
+          nocopy: true
+    tmpfs:
+      - /tmp/onlyalpha-web:uid=10001,gid=10001
+      - /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp:uid=10001,gid=10001
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5173/health/ready')"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    networks: [database, application]
+
   playwright:
+    image: onlyalpha-playwright:dev
     profiles: [web-e2e]
     build:
       context: ..
@@ -363,6 +527,9 @@ volumes:
     name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-clickhouse-data
   user-data:
     name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-user-data
+    # Ordinary dev starts only against an existing store. The runner selects the
+    # external reference to prevent Compose volume reconciliation/recreation.
+    external: ${ONLYALPHA_DEV_EXISTING_USER_DATA:-false}
   agent-state:
     name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-agent-state
   agent-locks:

@@ -39,6 +39,10 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
         "data-tools-collapsed",
         "false"
     );
+    expect(container.querySelector(".chart-workspace")).toHaveAttribute(
+        "data-bottom-collapsed",
+        "false"
+    );
 });
 
 it("collapses the tool rail and the bottom panel without losing the chart", async () => {

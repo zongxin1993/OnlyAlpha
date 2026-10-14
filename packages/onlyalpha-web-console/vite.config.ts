@@ -17,6 +17,7 @@ export default defineConfig({
     server: { allowedHosts: ["web"], proxy },
     preview: { proxy },
     test: {
+        maxWorkers: 1,
         environment: "jsdom",
         globals: true,
         exclude: ["e2e/**", "e2e-real/**", "e2e-compose/**", "node_modules/**", "dist/**"],

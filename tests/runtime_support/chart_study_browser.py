@@ -86,6 +86,7 @@ from onlyalpha.research.query import OnlyResearchArtifactReader
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
 from tests.runtime_support.binance_spot_probe_fixture import _kline
 from tests.runtime_support.local_read_browser import _inventory
+from tests.support.browser_database import reset_dev_browser_test_namespace
 
 NOW = datetime(2026, 1, 25, tzinfo=UTC)
 INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
@@ -221,8 +222,10 @@ def _denied_authority(kind: type[object]) -> Any:
 def main() -> None:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     only_assert_postgres_test_database(dsn)
-    OnlyPostgresMigrationAuthority(dsn).migrate()
     clickhouse = _clickhouse("onlyalpha_test_chart_study_browser")
+    if os.environ.get("ONLYALPHA_DEV_SOURCE_ROOT"):
+        reset_dev_browser_test_namespace(dsn, clickhouse)
+    OnlyPostgresMigrationAuthority(dsn).migrate()
     OnlyClickHouseMigrationAuthority(clickhouse).migrate()
     artifacts = Path("test-results/chart-study-browser")
     artifacts.mkdir(parents=True, exist_ok=True)
