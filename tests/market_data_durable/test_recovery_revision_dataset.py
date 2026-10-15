@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import time, timedelta
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -36,6 +38,7 @@ from onlyalpha.market_data.durable import (
     OnlyRevisionCommitService,
     OnlyTradeCoverageGap,
     OnlyVerifiedMarketDataRangeQuery,
+    OnlyWalCorruptionError,
     only_build_coverage,
     only_build_seal,
 )
@@ -1286,3 +1289,37 @@ def test_in_memory_catalog_batch_contract_preserves_order_and_requires_all_ids(t
             method((ids[0], ids[0]))
         with pytest.raises(KeyError):
             method((ids[0], "missing-metadata"))
+
+
+def test_unowned_independent_recoveries_reproduce_missing_metadata_after_committed_gc(
+    tmp_path: Path, fixed_now
+) -> None:
+    """Root-lifetime ownership is required; low-level GC must still reject missing metadata."""
+    wal, segment, _ = _sealed(tmp_path, fixed_now)
+    store = OnlyInMemoryMarketFactStore()
+    catalog = OnlyInMemoryMarketDataCatalog()
+    commit = OnlyRevisionCommitService(store, catalog, now=fixed_now)
+    committed, resume = Event(), Event()
+
+    def pause(stage) -> None:
+        if stage.value == "C7":
+            committed.set()
+            assert resume.wait(5), "C7 barrier was not released"
+
+    first = OnlyMarketDataRecoveryCoordinator(wal, store, catalog, commit, barrier=pause)
+    second = OnlyMarketDataRecoveryCoordinator(
+        OnlyMarketDataWal(tmp_path, capacity_bytes=2_000_000, now=fixed_now), store, catalog, commit
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(first.recover_all)
+        try:
+            assert committed.wait(5), "first recovery never reached C7"
+            assert second.recover_all() == ("ALREADY_COMMITTED",)
+            assert not wal.scan_uncommitted()
+        finally:
+            resume.set()
+        with pytest.raises(OnlyWalCorruptionError, match="WAL_SEGMENT_METADATA_MISSING"):
+            pending.result(5)
+    scope = segment.recovery_scope()
+    revision = catalog.latest_sealed_revision(scope)
+    assert len(OnlyHistoricalMarketDataQueryService(catalog, store).read_exact(revision.revision_id, scope)) == 1

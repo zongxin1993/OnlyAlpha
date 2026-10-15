@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
+import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
-from threading import Event
+from threading import Event, get_ident
 from typing import NamedTuple
 
 import pytest
+from filelock import Timeout, UnixFileLock
 
+import onlyalpha.application.market_data_product as market_data_product
 import onlyalpha.market_data.durable.range_query as range_query
 import onlyalpha.market_data.durable.revision as market_data_revision
 from onlyalpha.application.integration_configuration import (
@@ -32,6 +38,12 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataSourceReferenceV1,
 )
 from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
+from onlyalpha.application.source_read_access import (
+    OnlySourceReadAccessError,
+    OnlySourceReadAuthority,
+    OnlySourceReadGrant,
+    OnlySourceReadPermission,
+)
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.enums import (
@@ -2525,3 +2537,372 @@ def test_future_window_readiness_uses_one_clock_sample_without_reading_facts(
     assert len(reads) == 1
     assert len(samples) == 2
     assert harness.provider.bar_fetches == harness.catalog.mutations == 0
+
+
+@pytest.mark.parametrize("failure_stage", ("initialize", "recorder_close", "recovery", "backfill_and_close", "stop"))
+def test_acquisition_failures_stop_provider_and_persist_original_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failure_stage: str
+) -> None:
+    harness = _service(tmp_path)
+    sources = []
+    create = harness.factory.create
+
+    def tracked_create(request):
+        source = create(request)
+        sources.append(source)
+        return source
+
+    monkeypatch.setattr(harness.factory, "create", tracked_create)
+    if failure_stage == "initialize":
+
+        def initialize(self):
+            raise RuntimeError("initialize failed")
+
+        monkeypatch.setattr(_FakeSource, "initialize", initialize)
+    elif failure_stage == "recorder_close":
+        # No sealed success exists: only the close operation under test fails.
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            market_data_product.OnlyMarketDataBackfillCoordinator,
+            "backfill_bar_gap",
+            lambda *args: SimpleNamespace(verified_completion=None),
+        )
+
+        def close(self):
+            raise RuntimeError("recorder_close failed")
+
+        monkeypatch.setattr("onlyalpha.application.market_data_product.OnlyDurableMarketDataRecorder.close", close)
+    elif failure_stage in ("recovery", "backfill_and_close"):
+        recover = OnlyMarketDataRecoveryCoordinator.recover_all
+        calls = 0
+
+        def failing_recovery(self, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise RuntimeError("recovery failed")
+            return recover(self, **kwargs)
+
+        monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", failing_recovery)
+        if failure_stage == "backfill_and_close":
+            harness.faults.fetch_faults = (RuntimeError("backfill_and_close failed"),)
+    else:
+        # docs/market_data_source.md: sealed success owns COMPLETE; this is a
+        # pre-commit business failure plus a failing cleanup, both preserved.
+        harness.faults.fetch_faults = (RuntimeError("stop failed"),)
+
+        def stop(self):
+            self.state = "STOPPED"
+            raise RuntimeError("cleanup stop failed")
+
+        monkeypatch.setattr(_FakeSource, "stop", stop)
+    start, end = _range()
+    result = harness.service.acquire_bars(
+        _reference(harness.revision_fingerprint), instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end
+    )
+    assert result.status == "FAILED"
+    assert failure_stage + " failed" in result.failure_detail
+    assert sources and all(source.state == "STOPPED" for source in sources)
+    status = harness.service.acquisition_status(_reference(harness.revision_fingerprint), result.acquisition_id)
+    assert status.status == "FAILED"
+    assert status.failure_detail == result.failure_detail
+
+    if failure_stage == "stop":
+        assert "cleanup stop failed" in caplog.text
+    owner = market_data_product._only_historical_root_lock(harness.wal_root / "test.spot.live")
+    with owner.acquire(timeout=0):
+        pass
+
+
+def _observe_hard_lock_contention(monkeypatch: pytest.MonkeyPatch, on_wait: Callable[[], None]) -> None:
+    acquire = UnixFileLock.acquire
+
+    def observed(self, *args, **kwargs):
+        try:
+            return acquire(self, timeout=0)
+        except Timeout:
+            on_wait()
+            return acquire(self, *args, **kwargs)
+
+    monkeypatch.setattr(UnixFileLock, "acquire", observed)
+
+
+def test_overlapping_native_acquisitions_never_recover_another_live_open_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path, native_minutes=(1, 15))
+    reference = _reference(harness.revision_fingerprint)
+    start, end = _range(30)
+    opened, release, waiting = Event(), Event(), Event()
+    live_writer: list[int] = []
+    violations: list[str] = []
+    record = OnlyMarketDataIngress.record
+    recover = OnlyMarketDataRecoveryCoordinator.recover_all
+
+    def paused_record(self, observation, updates):
+        receipt = record(self, observation, updates)
+        if updates[0].payload.bar.bar_type.semantic.stride_minutes == 15:
+            assert tuple((harness.wal_root / "test.spot.live" / "wal").glob("*.open.wal"))
+            live_writer.append(get_ident())
+            opened.set()
+            try:
+                assert release.wait(5), "live writer barrier was not released"
+            finally:
+                live_writer.clear()
+        return receipt
+
+    def checked_recovery(self, **kwargs):
+        if live_writer and live_writer[0] != get_ident():
+            violations.append("another acquisition recovered the live OPEN writer")
+            release.set()
+        return recover(self, **kwargs)
+
+    def queued():
+        waiting.set()
+        release.set()
+
+    monkeypatch.setattr(OnlyMarketDataIngress, "record", paused_record)
+    monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", checked_recovery)
+    _observe_hard_lock_contention(monkeypatch, queued)
+
+    def acquire(step):
+        return harness.service.acquire_bars(
+            reference,
+            instrument_id=str(INSTRUMENT),
+            start_ns=start,
+            end_ns=end,
+            bar_semantic=OnlyBarSemantic.fixed_duration(step),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(acquire, 15)
+        try:
+            assert opened.wait(5), "first provider never opened its writer"
+            second = pool.submit(acquire, 1)
+            results = (first.result(5), second.result(5))
+        finally:
+            release.set()
+    assert violations == []
+    assert waiting.is_set(), "the second exact intent must wait for the root owner"
+    assert [item.status for item in results] == ["COMPLETE", "COMPLETE"]
+    assert [item.coverage.actual_bar_count for item in results] == [2, 30]
+    assert results[0].acquisition_id != results[1].acquisition_id
+    assert results[0].revision_id != results[1].revision_id
+    assert harness.provider.bar_steps == [15, 1]
+    for step, result in zip((15, 1), results, strict=True):
+        revision, seal = harness.catalog.load_sealed_revision(result.revision_id)
+        assert revision.scope.bar_construction.plan.provider_semantic.stride_minutes == step
+        assert seal.revision_id == result.revision_id
+        assert harness.catalog.latest_acquisition_attempt(result.acquisition_id).outcome.value == "COMPLETE"
+
+
+def test_historical_root_hard_lock_is_independent_per_canonical_root_and_preserves_inode(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    owner = market_data_product._only_historical_root_lock(root)
+    alias = market_data_product._only_historical_root_lock(root / ".." / "source")
+    other = market_data_product._only_historical_root_lock(tmp_path / "other")
+    with owner:
+        inode = Path(owner.lock_file).stat().st_ino
+        with pytest.raises(Timeout):
+            alias.acquire(timeout=0)
+        with other.acquire(timeout=0):
+            pass
+    assert Path(owner.lock_file).stat().st_ino == inode
+    with alias.acquire(timeout=0):
+        assert Path(owner.lock_file).stat().st_ino == inode
+
+
+def test_historical_root_owner_excludes_independent_process_and_releases_on_crash(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    owner = market_data_product._only_historical_root_lock(root)
+    process = None
+    try:
+        with owner:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "tests.runtime_support.historical_wal_owner", str(root)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stdout.readline().strip() == "BLOCKED"
+        assert process.stdout.readline().strip() == "ACQUIRED"
+        inode = Path(owner.lock_file).stat().st_ino
+        process.kill()
+        assert process.wait(5) != 0
+        with owner.acquire(timeout=0):
+            assert Path(owner.lock_file).stat().st_ino == inode
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+                process.wait(5)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
+
+
+def test_historical_root_native_lock_failure_never_falls_back_to_soft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import filelock._unix as unix_lock
+
+    owner = market_data_product._only_historical_root_lock(tmp_path)
+
+    def unavailable(*args):
+        raise OSError(errno.ENOSYS, "native locking unavailable")
+
+    monkeypatch.setattr(unix_lock.fcntl, "flock", unavailable)
+    with pytest.raises(OSError) as failure:
+        owner.acquire(timeout=0)
+    assert failure.value.errno == errno.ENOSYS
+    assert Path(owner.lock_file).exists()
+    assert not owner.is_locked
+
+
+def test_unknown_platform_refuses_acquisition_before_wal_constructor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    calls = []
+
+    def forbidden_wal(*args, **kwargs):
+        calls.append("wal")
+        raise AssertionError("unknown platform touched WAL")
+
+    monkeypatch.setattr(market_data_product.sys, "platform", "unknown-platform")
+    monkeypatch.setattr(market_data_product, "OnlyMarketDataWal", forbidden_wal)
+    start, end = _range()
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_WAL_ROOT_LOCK_UNAVAILABLE"):
+        harness.service.acquire_bars(
+            _reference(harness.revision_fingerprint), instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end
+        )
+    assert calls == []
+    assert harness.provider.sessions == 0
+
+
+def test_queued_acquisition_rechecks_withdrawn_grant_before_provider_or_wal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    grant = OnlySourceReadGrant(
+        reference.integration_id,
+        reference.integration_revision_fingerprint,
+        TYPE_ID,
+        "test.spot.live",
+        "LIVE",
+        (OnlySourceReadPermission.CLOSED_HISTORY,),
+    )
+    authority = OnlySourceReadAuthority("test", hashlib.sha256(b"a" * 64).hexdigest(), (grant,))
+    session = authority.authenticate("Bearer " + "a" * 64)
+    waiting = Event()
+    root = harness.wal_root / "test.spot.live"
+    owner = market_data_product._only_historical_root_lock(root)
+    start, end = _range()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with owner:
+            _observe_hard_lock_contention(monkeypatch, waiting.set)
+            pending = pool.submit(
+                harness.service.acquire_bars,
+                reference,
+                instrument_id=str(INSTRUMENT),
+                start_ns=start,
+                end_ns=end,
+                source_session=session,
+            )
+            assert waiting.wait(5), "acquisition never queued at the root owner"
+            authority.withdraw()
+        with pytest.raises(OnlySourceReadAccessError, match="LOCAL_READ_UNAUTHORIZED"):
+            pending.result(5)
+    assert harness.provider.sessions == harness.provider.bar_fetches == 0
+    assert not (root / "wal").exists()
+    with market_data_product._only_historical_root_lock(root).acquire(timeout=0):
+        pass
+
+
+@pytest.mark.parametrize(
+    "failure_stage",
+    ("wal_constructor", "initial_recovery", "provider_constructor", "backfill_constructor", "connect", "authenticate"),
+)
+def test_partial_acquisition_construction_releases_root_and_closes_created_resources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_stage: str
+) -> None:
+    harness = _service(tmp_path)
+    sources, recorder_closes = [], []
+    create = harness.factory.create
+    close = market_data_product.OnlyDurableMarketDataRecorder.close
+    stop = _FakeSource.stop
+    root = harness.wal_root / "test.spot.live"
+
+    def tracked_create(request):
+        source = create(request)
+        sources.append(source)
+        return source
+
+    def tracked_close(self):
+        recorder_closes.append(self)
+        close(self)
+
+    def tracked_stop(self):
+        with pytest.raises(Timeout):
+            market_data_product._only_historical_root_lock(root).acquire(timeout=0)
+        stop(self)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(failure_stage + " failed")
+
+    monkeypatch.setattr(harness.factory, "create", tracked_create)
+    monkeypatch.setattr(market_data_product.OnlyDurableMarketDataRecorder, "close", tracked_close)
+    monkeypatch.setattr(_FakeSource, "stop", tracked_stop)
+    if failure_stage == "wal_constructor":
+        monkeypatch.setattr(market_data_product, "OnlyMarketDataWal", fail)
+    elif failure_stage == "initial_recovery":
+        monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", fail)
+    elif failure_stage == "provider_constructor":
+        monkeypatch.setattr(harness.factory, "create", fail)
+    elif failure_stage == "backfill_constructor":
+        monkeypatch.setattr(market_data_product.OnlyMarketDataBackfillCoordinator, "__init__", fail)
+    else:
+        monkeypatch.setattr(_FakeSource, failure_stage, fail)
+    start, end = _range()
+    result = harness.service.acquire_bars(
+        _reference(harness.revision_fingerprint), instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end
+    )
+    assert result.status == "FAILED"
+    assert result.failure_detail == "RuntimeError:" + failure_stage + " failed"
+    attempt = harness.catalog.latest_acquisition_attempt(result.acquisition_id)
+    assert attempt.outcome.value == "FAILED" and attempt.detail == result.failure_detail
+    if failure_stage in {"backfill_constructor", "connect", "authenticate"}:
+        assert len(sources) == 1 and sources[0].state == "STOPPED"
+    else:
+        assert sources == []
+    if failure_stage not in {"wal_constructor", "initial_recovery"}:
+        assert len(recorder_closes) == 1
+    with market_data_product._only_historical_root_lock(root).acquire(timeout=0):
+        pass
+
+
+def test_different_historical_source_roots_allow_concurrent_product_acquisitions(tmp_path: Path) -> None:
+    first = _service(tmp_path / "first")
+    second = _service(tmp_path / "second")
+    first.provider.entered, first.provider.release = Event(), Event()
+    start, end = _range()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(
+            first.service.acquire_bars,
+            _reference(first.revision_fingerprint),
+            instrument_id=str(INSTRUMENT),
+            start_ns=start,
+            end_ns=end,
+        )
+        try:
+            assert first.provider.entered.wait(5)
+            result = second.service.acquire_bars(
+                _reference(second.revision_fingerprint), instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end
+            )
+            assert result.status == "COMPLETE"
+            assert not pending.done(), "the first root is still held at its provider barrier"
+        finally:
+            first.provider.release.set()
+        assert pending.result(5).status == "COMPLETE"

@@ -8,7 +8,9 @@ plugin, and historical reads are served from the database.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import sys
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from logging import Logger
@@ -17,13 +19,19 @@ from time import perf_counter_ns
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
+from filelock import BaseFileLock, UnixFileLock, WindowsFileLock
+
 from onlyalpha.application.chart_study_input import OnlyChartStudyClosedHistoryInput
 from onlyalpha.application.integration_configuration import OnlyIntegration, OnlyIntegrationLifecycleState
 from onlyalpha.application.integration_runtime import (
     OnlyIntegrationRuntimeError,
     OnlyIntegrationRuntimeResolver,
 )
-from onlyalpha.application.source_read_access import OnlySourceReadPermission, OnlySourceReadSession
+from onlyalpha.application.source_read_access import (
+    OnlySourceReadAccessError,
+    OnlySourceReadPermission,
+    OnlySourceReadSession,
+)
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.config.models import (
@@ -369,6 +377,23 @@ class _OnlyExactSealedHistory:
     verified_actual_count: int | None = None
 
 
+def _only_historical_root_lock(source_root: Path) -> BaseFileLock:
+    """One native owner for a historical source root, including its live WAL writer."""
+    lock_class: type[BaseFileLock]
+    if sys.platform == "win32":
+        lock_class = WindowsFileLock
+    elif sys.platform in {"linux", "darwin", "aix", "sunos5"} or sys.platform.startswith(
+        ("freebsd", "openbsd", "netbsd", "dragonfly")
+    ):
+        lock_class = UnixFileLock
+    else:
+        raise OnlyMarketDataProductError("MARKET_DATA_WAL_ROOT_LOCK_UNAVAILABLE")
+    root = source_root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    # A permanent inode outside the scanned WAL directory coordinates processes.
+    return lock_class(root / ".historical-acquisition.lock", fallback_to_soft=False, preserve_lock_file=True)
+
+
 class _OnlyAcquisitionSession:
     """One bounded product acquisition over the durable market-data authority."""
 
@@ -394,12 +419,14 @@ class _OnlyAcquisitionSession:
         if self._closed:
             return
         self._closed = True
-        self._recorder.close()
-        self._recovery.recover_all()
         try:
-            self.source.stop()
-        except Exception as exc:  # pragma: no cover - stop must not mask the acquisition outcome
-            self._logger.warning("market-data acquisition stop failed: %s", exc)
+            self._recorder.close()
+            self._recovery.recover_all()
+        finally:
+            try:
+                self.source.stop()
+            except Exception as exc:
+                self._logger.warning("market-data acquisition stop failed: %s", exc)
 
 
 class OnlyMarketDataProductService:
@@ -1010,7 +1037,7 @@ class OnlyMarketDataProductService:
                     failure_detail=None,
                 )
             attempt = self._start_attempt(admitted.acquisition_id, started_at=self._now())
-            sealed, failure = self._execute_acquisition(resolved, admitted)
+            sealed, failure = self._execute_acquisition(resolved, admitted, source_session=source_session)
             if failure is None and sealed is not None:
                 # Coverage + Revision + Seal are canonical success even if optional
                 # operational attempt evidence cannot be completed.
@@ -1267,119 +1294,150 @@ class OnlyMarketDataProductService:
         return (self._clock.timestamp_ns() // MINUTE_NS) * MINUTE_NS
 
     def _execute_acquisition(
-        self, resolved: OnlyResolvedMarketDataRuntime, intent: OnlyMarketDataAcquisitionIntent
+        self,
+        resolved: OnlyResolvedMarketDataRuntime,
+        intent: OnlyMarketDataAcquisitionIntent,
+        *,
+        source_session: OnlySourceReadSession | None = None,
     ) -> tuple[_OnlyExactSealedHistory | None, str | None]:
-        session: _OnlyAcquisitionSession | None = None
         completion: _OnlyVerifiedMarketDataCompletion | None = None
         try:
-            session = self._open_session(resolved, intent.requested_scope)
-            with only_market_data_phase("initial_inspect"):
-                manifest = session.coordinator.inspect(intent)
-            if manifest.coverage_status is OnlyCoverageStatus.COMPLETE:
-                segments = self._catalog.list_durable_segments(intent.requested_scope)
-                proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
-                facts = self._facts.read_segment_facts(segments, intent.requested_scope, proofs)
-                OnlyRevisionCommitService(self._facts, self._catalog, now=self._now).commit_durable_facts(
-                    segments, intent.requested_scope, facts, reason="BACKFILL"
-                )
-            for planned in only_plan_contiguous_bar_gaps(
-                tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
-            ):
-                backfill = session.coordinator.backfill_bar_gap(
-                    intent,
-                    _bar_request(intent.requested_scope, planned, resolved.data_version, self._batch_size),
-                    planned,
-                )
-                completion = backfill.verified_completion
-            session.close()
-            sealed = self._sealed_for_scope(intent.requested_scope, completion=completion)
-            if sealed is None:
-                return None, self._coverage(intent.requested_scope).status
-            return sealed, None
-        except OnlyMarketDataProductError:
+            with self._open_session(resolved, intent.requested_scope, source_session=source_session) as session:
+                with only_market_data_phase("initial_inspect"):
+                    manifest = session.coordinator.inspect(intent)
+                if manifest.coverage_status is OnlyCoverageStatus.COMPLETE:
+                    segments = self._catalog.list_durable_segments(intent.requested_scope)
+                    proofs = self._catalog.load_physical_proofs(tuple(item.segment_id for item in segments))
+                    facts = self._facts.read_segment_facts(segments, intent.requested_scope, proofs)
+                    OnlyRevisionCommitService(self._facts, self._catalog, now=self._now).commit_durable_facts(
+                        segments, intent.requested_scope, facts, reason="BACKFILL"
+                    )
+                for planned in only_plan_contiguous_bar_gaps(
+                    tuple(item for item in manifest.gaps if isinstance(item, OnlyBarCoverageGap))
+                ):
+                    backfill = session.coordinator.backfill_bar_gap(
+                        intent,
+                        _bar_request(intent.requested_scope, planned, resolved.data_version, self._batch_size),
+                        planned,
+                    )
+                    completion = backfill.verified_completion
+                session.close()
+                sealed = self._sealed_for_scope(intent.requested_scope, completion=completion)
+                if sealed is None:
+                    return None, self._coverage(intent.requested_scope).status
+                return sealed, None
+        except (OnlyMarketDataProductError, OnlySourceReadAccessError):
             raise
         except Exception as exc:
             self._logger.warning("market-data acquisition failed: %s", exc)
             return None, f"{type(exc).__name__}:{exc}"
-        finally:
-            if session is not None:
-                session.close()
 
-    @only_market_data_timed("session_open")
+    @contextmanager
     def _open_session(
-        self, resolved: OnlyResolvedMarketDataRuntime, scope: OnlyMarketDataScope
-    ) -> _OnlyAcquisitionSession:
+        self,
+        resolved: OnlyResolvedMarketDataRuntime,
+        scope: OnlyMarketDataScope,
+        *,
+        source_session: OnlySourceReadSession | None = None,
+    ) -> Iterator[_OnlyAcquisitionSession]:
         source_root = self._wal_root / str(resolved.source_id)
-        source_root.mkdir(parents=True, exist_ok=True)
-        wal = OnlyMarketDataWal(source_root / "wal", capacity_bytes=_WAL_CAPACITY_BYTES, now=self._now)
-        descriptor = resolved.factory.descriptor  # type: ignore[attr-defined]
-        ingress = OnlyMarketDataIngress(
-            wal,
-            normalizer_id=str(descriptor.plugin_id),
-            normalizer_version=str(descriptor.plugin_version),
-            ingest_clock_ns=self._clock.timestamp_ns,
-            integration_binding_fingerprint=resolved.binding_fingerprint,
-            bar_construction=scope.bar_construction,
-        )
-        recovery = OnlyMarketDataRecoveryCoordinator(
-            wal,
-            self._facts,
-            self._catalog,
-            OnlyRevisionCommitService(self._facts, self._catalog, now=self._now),
-        )
-        recovery.recover_all()
-        # One provider response remains one durable segment. The bounded backfill
-        # drains all sealed pages together after provider loading completes.
-        recorder = OnlyDurableMarketDataRecorder(
-            ingress,
-            max_records_per_segment=1,
-        )
-        instrument_id = OnlyInstrumentId.parse(scope.instrument_id)
-        instruments = resolved.catalog.list_instruments(
-            OnlyDataSourceInstrumentCatalogRequestV1(resolved.plugin_config, instrument_ids=(str(instrument_id),))
-        )
-        if len(instruments) != 1:
-            raise OnlyMarketDataProductError(
-                "MARKET_DATA_INSTRUMENT_NOT_FOUND", "requested instrument is not published by this source"
-            )
-        instrument = instruments[0].instrument
-        request = OnlyDataSourceCreateRequest(
-            resolved.source_id,
-            resolved.plugin_config,
-            "PRODUCT",
-            OnlyDataSourceCapabilities(historical_bars=True),
-            self._clock,
-            OnlyEventBus(),
-            {instrument.instrument_id: instrument},
-            {instrument.instrument_id: _bar_type(instrument.instrument_id, _scope_bar_semantic(scope))},
-            {},
-            (),
-            OnlyDataSourceCoverageConfig(instrument_ids=(instrument.instrument_id,)),
-            OnlyRuntimeId(f"market-data:{resolved.source_id}"),
-            resolved.data_version,
-            self._batch_size,
-            source_root,
-            self._logger,
-            historical_cache_service=OnlyHistoricalCacheService(
-                OnlyParquetHistoricalCacheStore(source_root / "historical-cache")
-            ),
-            runtime_state_root=source_root,
-            provider_evidence_sink=recorder,
-            durable_recording_required=True,
-        )
-        source: OnlyDataSource = resolved.factory.create(request)  # type: ignore[attr-defined]
-        coordinator = OnlyMarketDataBackfillCoordinator(
-            source,
-            self._catalog,
-            self._facts,
-            recovery,
-            OnlyRevisionCommitService(self._facts, self._catalog, now=self._now),
-        )
-        session = _OnlyAcquisitionSession(source, recorder, recovery, coordinator, self._logger)
-        source.initialize()
-        source.connect()
-        source.authenticate()
-        return session
+        with _only_historical_root_lock(source_root):
+            if source_session is not None:
+                source_session.require_selection(resolved.selection, OnlySourceReadPermission.CLOSED_HISTORY)
+            recorder: OnlyDurableMarketDataRecorder | None = None
+            source: OnlyDataSource | None = None
+            session: _OnlyAcquisitionSession | None = None
+            try:
+                with only_market_data_phase("session_open"):
+                    wal = OnlyMarketDataWal(source_root / "wal", capacity_bytes=_WAL_CAPACITY_BYTES, now=self._now)
+                    descriptor = resolved.factory.descriptor  # type: ignore[attr-defined]
+                    ingress = OnlyMarketDataIngress(
+                        wal,
+                        normalizer_id=str(descriptor.plugin_id),
+                        normalizer_version=str(descriptor.plugin_version),
+                        ingest_clock_ns=self._clock.timestamp_ns,
+                        integration_binding_fingerprint=resolved.binding_fingerprint,
+                        bar_construction=scope.bar_construction,
+                    )
+                    recovery = OnlyMarketDataRecoveryCoordinator(
+                        wal,
+                        self._facts,
+                        self._catalog,
+                        OnlyRevisionCommitService(self._facts, self._catalog, now=self._now),
+                    )
+                    recovery.recover_all()
+                    # One provider response remains one durable segment. The bounded backfill
+                    # drains all sealed pages together after provider loading completes.
+                    recorder = OnlyDurableMarketDataRecorder(
+                        ingress,
+                        max_records_per_segment=1,
+                    )
+                    instrument_id = OnlyInstrumentId.parse(scope.instrument_id)
+                    instruments = resolved.catalog.list_instruments(
+                        OnlyDataSourceInstrumentCatalogRequestV1(
+                            resolved.plugin_config, instrument_ids=(str(instrument_id),)
+                        )
+                    )
+                    if len(instruments) != 1:
+                        raise OnlyMarketDataProductError(
+                            "MARKET_DATA_INSTRUMENT_NOT_FOUND", "requested instrument is not published by this source"
+                        )
+                    instrument = instruments[0].instrument
+                    request = OnlyDataSourceCreateRequest(
+                        resolved.source_id,
+                        resolved.plugin_config,
+                        "PRODUCT",
+                        OnlyDataSourceCapabilities(historical_bars=True),
+                        self._clock,
+                        OnlyEventBus(),
+                        {instrument.instrument_id: instrument},
+                        {instrument.instrument_id: _bar_type(instrument.instrument_id, _scope_bar_semantic(scope))},
+                        {},
+                        (),
+                        OnlyDataSourceCoverageConfig(instrument_ids=(instrument.instrument_id,)),
+                        OnlyRuntimeId(f"market-data:{resolved.source_id}"),
+                        resolved.data_version,
+                        self._batch_size,
+                        source_root,
+                        self._logger,
+                        historical_cache_service=OnlyHistoricalCacheService(
+                            OnlyParquetHistoricalCacheStore(source_root / "historical-cache")
+                        ),
+                        runtime_state_root=source_root,
+                        provider_evidence_sink=recorder,
+                        durable_recording_required=True,
+                    )
+                    source = resolved.factory.create(request)  # type: ignore[attr-defined]
+                    coordinator = OnlyMarketDataBackfillCoordinator(
+                        source,
+                        self._catalog,
+                        self._facts,
+                        recovery,
+                        OnlyRevisionCommitService(self._facts, self._catalog, now=self._now),
+                    )
+                    session = _OnlyAcquisitionSession(source, recorder, recovery, coordinator, self._logger)
+                    source.initialize()
+                    source.connect()
+                    source.authenticate()
+                yield session
+            except BaseException:
+                # Cleanup is still inside root ownership. Preserve the original
+                # error while recording any secondary durability/stop failure.
+                try:
+                    if session is not None:
+                        session.close()
+                    else:
+                        try:
+                            if recorder is not None:
+                                recorder.close()
+                        finally:
+                            if source is not None:
+                                source.stop()
+                except Exception as exc:
+                    self._logger.warning("market-data acquisition cleanup failed: %s", exc)
+                raise
+            else:
+                session.close()
 
     @only_market_data_timed("sealed_resolution")
     def _sealed_for_scope(
