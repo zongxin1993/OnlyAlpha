@@ -111,6 +111,7 @@ it.each(["merge", "stale", "mismatch"] as const)(
             stream.callbacks[0]?.({
                 schema_version: 2,
                 event: "BAR_CLOSED",
+                timing: null,
                 source_id: FIXTURE_SELECTION.source_id,
                 instrument_id: "BTCUSDT.TEST",
                 bar_semantic: marketDataBarSemantic(1),
@@ -284,6 +285,7 @@ function Harness() {
             <output data-testid="older-status">{state.olderHistoryStatus}</output>
             <output data-testid="cursor">{state.lastClosedCursor ?? "none"}</output>
             <output data-testid="realtime-status">{state.realtimeStatus}</output>
+            <output data-testid="timing">{JSON.stringify(state.timing ?? null)}</output>
             <output data-testid="stream-error">{state.streamError ?? "none"}</output>
             <output data-testid="exact-bars">{JSON.stringify(state.bars)}</output>
             <output data-testid="exact-preview">{JSON.stringify(state.liveBar)}</output>
@@ -369,6 +371,7 @@ it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
                 stream.callbacks[0]?.({
                     schema_version: 2,
                     event: path,
+                    timing: null,
                     source_id: FIXTURE_SELECTION.source_id,
                     instrument_id: "BTCUSDT.TEST",
                     bar_semantic: marketDataBarSemantic(1),
@@ -436,6 +439,7 @@ it("retains exact history and idempotently projects preview updates and close", 
     const preview = {
         schema_version: 2 as const,
         event: "BAR_PREVIEW" as const,
+        timing: null,
         source_id: FIXTURE_SELECTION.source_id,
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -453,6 +457,7 @@ it("retains exact history and idempotently projects preview updates and close", 
         stream.callbacks[0]?.({
             ...preview,
             event: "BAR_CLOSED",
+            timing: null,
             sequence: "29453762",
             bar: { ...bar, closed: true }
         })
@@ -488,6 +493,7 @@ it("keeps initial history, realtime closed Bars, and preview in one ledger proje
         callback({
             schema_version: 2,
             event: "BAR_PREVIEW",
+            timing: null,
             source_id: "test.market_data.live",
             instrument_id: "BTCUSDT.TEST",
             bar_semantic: marketDataBarSemantic(1),
@@ -510,6 +516,7 @@ it("keeps initial history, realtime closed Bars, and preview in one ledger proje
         callback({
             schema_version: 2,
             event: "BAR_CLOSED",
+            timing: null,
             source_id: "test.market_data.live",
             instrument_id: "BTCUSDT.TEST",
             bar_semantic: marketDataBarSemantic(1),
@@ -591,6 +598,7 @@ it("fails the exact chart context on a conflicting realtime closed Bar", async (
         stream.callbacks[0]?.({
             schema_version: 2,
             event: "BAR_CLOSED",
+            timing: null,
             source_id: "test.market_data.live",
             instrument_id: "BTCUSDT.TEST",
             bar_semantic: marketDataBarSemantic(1),
@@ -644,6 +652,7 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
         stream.callbacks[0]?.({
             schema_version: 2,
             event: "BAR_CLOSED",
+            timing: null,
             source_id: "test.market_data.live",
             instrument_id: "BTCUSDT.TEST",
             bar_semantic: marketDataBarSemantic(1),
@@ -705,6 +714,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     first({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -738,6 +748,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     first({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -758,6 +769,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     first({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -788,6 +800,7 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     first({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -860,6 +873,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
     first?.({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(1),
@@ -878,6 +892,7 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
     stream.callbacks[2]?.({
         schema_version: 2,
         event: "BAR_PREVIEW",
+        timing: null,
         source_id: "test.market_data.live",
         instrument_id: "BTCUSDT.TEST",
         bar_semantic: marketDataBarSemantic(7),
@@ -1201,4 +1216,169 @@ it("fences held out-of-order history across rapid source, instrument and period 
         expect(stream.requests).toHaveLength(2);
         expect(stream.closed.count).toBe(1);
     }
+});
+
+it("admits same-occurrence timing, keeps signed ns, and fences reconnect/context/replay", async () => {
+    resetStream();
+    const user = userEvent.setup();
+    const queryBars = vi.fn((_reference: MarketDataSourceReference, query: MarketDataBarsQuery) =>
+        Promise.resolve(marketDataBarsForQuery(query))
+    );
+    render(
+        <AppProviders
+            client={researchClient()}
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({ queryBars })}
+        >
+            <Harness />
+        </AppProviders>
+    );
+    await selectFixtureSource(user);
+    await user.click(screen.getByRole("button", { name: "btc" }));
+    await waitFor(() => {
+        expect(stream.requests).toHaveLength(1);
+    });
+    const subscribed = {
+        schema_version: 2 as const,
+        event: "SUBSCRIBED" as const,
+        source_id: FIXTURE_SELECTION.source_id,
+        instrument_id: "BTCUSDT.TEST",
+        stream_id: "current",
+        resolution_mode: "PROVIDER_NATIVE" as const,
+        resolution_plan_fingerprint: "f".repeat(64),
+        cursor_bar_stride_minutes: 1
+    };
+    const fixtureBar = marketDataBars().bars[1];
+    if (fixtureBar === undefined) throw new Error("missing fixture bar");
+    const bar = {
+        ...fixtureBar,
+        bar_start_ns: "1767225720000000000",
+        bar_end_ns: "1767225780000000000",
+        closed: false
+    };
+    const preview = {
+        schema_version: 2 as const,
+        event: "BAR_PREVIEW" as const,
+        source_id: FIXTURE_SELECTION.source_id,
+        instrument_id: "BTCUSDT.TEST",
+        bar_semantic: marketDataBarSemantic(1),
+        bar,
+        timing: {
+            stream_id: "current",
+            provider_event_ns: "1767225780000000003",
+            ingress_received_ns: "1767225780000000002"
+        }
+    };
+    act(() => {
+        stream.callbacks[0]?.(subscribed);
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+        stream.callbacks[0]?.(preview);
+    });
+    expect(screen.getByTestId("timing").textContent).toBe(
+        JSON.stringify({
+            streamId: "current",
+            currentConnection: true,
+            receiveDelayNs: "-1",
+            closedArrivalDelayNs: null
+        })
+    );
+    const closedBeforeTiming = screen.getByTestId("exact-bars").textContent;
+    const previewBeforeTiming = screen.getByTestId("exact-preview").textContent;
+    const proofBeforeTiming = screen.getByTestId("history-proof").textContent;
+    // Identical price is still a new real observation, even without a ledger mutation.
+    act(() =>
+        stream.callbacks[0]?.({
+            ...preview,
+            timing: { ...preview.timing, provider_event_ns: preview.timing.ingress_received_ns }
+        })
+    );
+    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"0"');
+    expect(screen.getByTestId("exact-bars").textContent).toBe(closedBeforeTiming);
+    expect(screen.getByTestId("exact-preview").textContent).toBe(previewBeforeTiming);
+    expect(screen.getByTestId("history-proof").textContent).toBe(proofBeforeTiming);
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(stream.requests).toHaveLength(1);
+    act(() =>
+        stream.callbacks[0]?.({
+            ...preview,
+            bar: { ...bar, bar_start_ns: "1767225600000000000", bar_end_ns: "1767225660000000000" }
+        })
+    );
+    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"0"');
+    act(() =>
+        stream.callbacks[0]?.({
+            ...preview,
+            event: "BAR_CLOSED",
+            sequence: "29453762",
+            bar: { ...bar, closed: true }
+        })
+    );
+    expect(screen.getByTestId("timing").textContent).toBe(
+        JSON.stringify({
+            streamId: "current",
+            currentConnection: true,
+            receiveDelayNs: "-1",
+            closedArrivalDelayNs: "2"
+        })
+    );
+    act(() =>
+        stream.callbacks[0]?.({
+            ...preview,
+            event: "BAR_CLOSED",
+            sequence: "29453762",
+            bar: { ...bar, closed: true },
+            timing: { ...preview.timing, ingress_received_ns: "1767225780000000099" }
+        })
+    );
+    expect(screen.getByTestId("timing")).toHaveTextContent('"closedArrivalDelayNs":"2"');
+    act(() => {
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "DEGRADED" });
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+    });
+    expect(screen.getByTestId("timing")).toHaveTextContent('"currentConnection":false');
+    act(() => {
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "RECOVERING" });
+        stream.callbacks[0]?.({
+            ...preview,
+            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" }
+        });
+        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
+    });
+    expect(screen.getByTestId("timing")).toHaveTextContent('"currentConnection":false');
+    const timer = vi.spyOn(window, "setTimeout");
+    act(() => stream.disconnects[0]?.());
+    expect(screen.getByTestId("realtime-status")).toHaveTextContent("degraded");
+    expect(screen.getByTestId("timing")).toHaveTextContent('"closedArrivalDelayNs":"2"');
+    const reconnect = timer.mock.calls.at(-1)?.[0] as (() => void) | undefined;
+    if (typeof reconnect !== "function") throw new Error("missing reconnect");
+    act(() => {
+        reconnect();
+    });
+    act(() => {
+        stream.callbacks[1]?.({ ...subscribed, stream_id: "new" });
+        stream.callbacks[0]?.(preview);
+    });
+    expect(screen.getByTestId("timing").textContent).toBe("null");
+    act(() =>
+        stream.callbacks[1]?.({
+            ...preview,
+            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" }
+        })
+    );
+    expect(screen.getByTestId("timing").textContent).toBe("null");
+    act(() =>
+        stream.callbacks[1]?.({
+            ...preview,
+            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" },
+            timing: {
+                stream_id: "new",
+                provider_event_ns: null,
+                ingress_received_ns: "1767225780000000002"
+            }
+        })
+    );
+    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":null');
+    await user.click(screen.getByRole("button", { name: "eth" }));
+    expect(screen.getByTestId("timing").textContent).toBe("null");
+    timer.mockRestore();
 });

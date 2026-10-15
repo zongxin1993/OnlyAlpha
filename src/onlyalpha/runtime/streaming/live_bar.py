@@ -67,6 +67,7 @@ class OnlyLiveBarFinalizer:
                 payload=OnlyBarUpdate(closed),
                 ts_event=OnlyTimestamp.from_datetime(closed.ts_event),
                 ts_init=update.ts_init,
+                ingress_observation=None,
             ),
         )
 

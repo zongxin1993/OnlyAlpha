@@ -291,6 +291,16 @@
         "bar": {
           "$ref": "#/$defs/MarketDataBarDto"
         },
+        "timing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarketDataIngressTimingDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "event": {
           "const": "BAR_CLOSED",
           "title": "Event",
@@ -308,6 +318,7 @@
         "instrument_id",
         "bar_semantic",
         "bar",
+        "timing",
         "event",
         "sequence"
       ],
@@ -387,6 +398,16 @@
         "bar": {
           "$ref": "#/$defs/MarketDataBarDto"
         },
+        "timing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarketDataIngressTimingDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "event": {
           "const": "BAR_PREVIEW",
           "title": "Event",
@@ -399,6 +420,7 @@
         "instrument_id",
         "bar_semantic",
         "bar",
+        "timing",
         "event"
       ],
       "title": "MarketDataBarPreviewDto",
@@ -429,6 +451,48 @@
         "sequence"
       ],
       "title": "MarketDataBaseCursorDto",
+      "type": "object"
+    },
+    "MarketDataIngressTimingDto": {
+      "additionalProperties": false,
+      "description": "Operational same-occurrence native timing; not canonical Market Data truth.",
+      "properties": {
+        "stream_id": {
+          "minLength": 1,
+          "title": "Stream Id",
+          "type": "string"
+        },
+        "provider_event_ns": {
+          "anyOf": [
+            {
+              "pattern": "^(?:0|[1-9][0-9]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider Event Ns"
+        },
+        "ingress_received_ns": {
+          "anyOf": [
+            {
+              "pattern": "^(?:0|[1-9][0-9]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ingress Received Ns"
+        }
+      },
+      "required": [
+        "stream_id",
+        "provider_event_ns",
+        "ingress_received_ns"
+      ],
+      "title": "MarketDataIngressTimingDto",
       "type": "object"
     },
     "MarketDataStateDto": {

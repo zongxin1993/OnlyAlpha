@@ -1,3 +1,4 @@
+import { formatMarketDataDelay } from "./marketDataTiming";
 import { useState } from "react";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
 import { useLocalReadCredentials } from "../../app/providers";
@@ -442,6 +443,28 @@ export function WorkspacePage() {
                                           : observationMode === "latest-closed"
                                             ? "最新已关闭"
                                             : "不可用"}
+                                </span>
+                            </div>
+                            <div className="chart-observation" aria-label="行情延迟">
+                                <span>
+                                    接收延迟：
+                                    {formatMarketDataDelay(
+                                        marketData.timing?.receiveDelayNs ?? null
+                                    )}
+                                </span>
+                                <span>
+                                    最近收盘到达延迟：
+                                    {formatMarketDataDelay(
+                                        marketData.timing?.closedArrivalDelayNs ?? null
+                                    )}
+                                </span>
+                                <span>
+                                    {marketData.timing === null
+                                        ? "暂无实时样本"
+                                        : marketData.realtimeStatus === "ready" &&
+                                            marketData.timing.currentConnection
+                                          ? "当前连接样本"
+                                          : "最后样本 · 非当前"}
                                 </span>
                             </div>
                             <div className="chart-region__body">

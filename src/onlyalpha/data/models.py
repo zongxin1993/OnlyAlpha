@@ -102,6 +102,21 @@ OnlyMarketDataPayload = (
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyRealtimeIngressObservation:
+    """Ephemeral timing of this inbound occurrence, never canonical/replay input.
+
+    The provider owns event-clock interpretation; the ingress owns receive time.
+    Neither value is inferred from normalized/clamped fact timestamps. The owning
+    envelope supplies the exact native key, and runtime_id identifies its producer.
+    Copying/reconstructing a fact for a new occurrence must not copy this observation.
+    """
+
+    runtime_id: OnlyRuntimeId
+    provider_event_ns: int | None
+    ingress_received_ns: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyMarketDataInboundUpdate:
     update_id: OnlyMarketDataUpdateId
     runtime_id: OnlyRuntimeId
@@ -118,6 +133,8 @@ class OnlyMarketDataInboundUpdate:
     metadata: tuple[tuple[str, str], ...] = ()
     sequence_scope: OnlyDataSequenceScope | None = None
     sequence_semantics: OnlyDataSequenceSemantics = OnlyDataSequenceSemantics.CONTIGUOUS
+    # Deliberately excluded from canonical equality, to_dict/from_dict and WAL.
+    ingress_observation: OnlyRealtimeIngressObservation | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ts_init.unix_nanos < self.ts_event.unix_nanos:
@@ -405,6 +422,7 @@ class OnlyRealtimeBarPreviewV1:
     ts_event_ns: int
     ts_receive_ns: int
     closed: bool = False
+    ingress_observation: OnlyRealtimeIngressObservation | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

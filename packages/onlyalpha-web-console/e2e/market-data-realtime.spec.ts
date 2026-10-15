@@ -66,7 +66,7 @@ async function controlledRealtime(
     const acquisitionSteps: number[] = [];
     let releaseRecovery: (() => void) | null = null;
     let emitStalePreview: (() => void) | null = null;
-    let emitPreview: (() => void) | null = null;
+    let emitPreview: ((missingProviderEvent?: boolean) => void) | null = null;
     const cursors: string[] = [];
     const steps: number[] = [];
     const historyAnchors: string[] = [];
@@ -255,6 +255,7 @@ async function controlledRealtime(
                 cursor_bar_stride_minutes: nativeSteps.has(step) ? step : 1
             });
             send({ event: "STATE", state: "RECOVERING" });
+            if (connection === 1 || !holdRecovery) send({ event: "STATE", state: "READY" });
             const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
             const cursorStride = step === 15 ? BigInt(15) : BigInt(1);
             const derivedBar = {
@@ -272,6 +273,11 @@ async function controlledRealtime(
             };
             send({
                 event: "BAR_PREVIEW",
+                timing: {
+                    stream_id: `stream-${String(connection)}`,
+                    provider_event_ns: (BigInt(derivedBar.bar_end_ns) + 1_000_000n).toString(),
+                    ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2_000_000n).toString()
+                },
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
                 bar_semantic: request.bar_semantic,
@@ -279,6 +285,11 @@ async function controlledRealtime(
             });
             send({
                 event: "BAR_CLOSED",
+                timing: {
+                    stream_id: `stream-${String(connection)}`,
+                    provider_event_ns: (BigInt(derivedBar.bar_end_ns) + 1_000_000n).toString(),
+                    ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2_000_000n).toString()
+                },
                 source_id: sourceId,
                 instrument_id: instrument.instrument_id,
                 bar_semantic: request.bar_semantic,
@@ -288,6 +299,7 @@ async function controlledRealtime(
             emitStalePreview = () => {
                 send({
                     event: "BAR_PREVIEW",
+                    timing: null,
                     source_id: sourceId,
                     instrument_id: instrument.instrument_id,
                     bar_semantic: request.bar_semantic,
@@ -303,9 +315,16 @@ async function controlledRealtime(
                 });
                 send({ event: "STATE", state: "RECOVERING" });
             };
-            emitPreview = () => {
+            emitPreview = (missingProviderEvent = false) => {
                 send({
                     event: "BAR_PREVIEW",
+                    timing: {
+                        stream_id: `stream-${String(connection)}`,
+                        provider_event_ns: missingProviderEvent
+                            ? null
+                            : (BigInt(derivedBar.bar_end_ns) + 3n).toString(),
+                        ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2n).toString()
+                    },
                     source_id: sourceId,
                     instrument_id: instrument.instrument_id,
                     bar_semantic: request.bar_semantic,
@@ -339,7 +358,7 @@ async function controlledRealtime(
         olderRequests,
         releaseRecovery: () => releaseRecovery?.(),
         emitStalePreview: () => emitStalePreview?.(),
-        emitPreview: () => emitPreview?.(),
+        emitPreview: (missingProviderEvent = false) => emitPreview?.(missingProviderEvent),
         disconnect: async () => {
             await socket?.close({ code: 1012, reason: "controlled disconnect" });
         }
@@ -373,6 +392,10 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         },
         bar_semantic: semantic(15)
     });
+    const latency = page.locator('[aria-label="行情延迟"]');
+    await expect(latency).toContainText("接收延迟：1 ms");
+    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    await expect(latency).toContainText("当前连接样本");
     const observation = page.getByTestId("market-data-observation");
     await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
     await expect(page.getByTestId("market-data-status")).toHaveAttribute(
@@ -380,6 +403,12 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         "3"
     );
     fixture.emitPreview();
+    await expect(latency).toContainText("接收延迟：-0.000001 ms（时钟偏差）");
+    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    fixture.emitPreview(true);
+    await expect(latency).toContainText("接收延迟：—");
+    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    await expect(latency).toContainText("当前连接样本");
     await expect(observation).toHaveAttribute("data-observation-mode", "preview");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
         "103.000000000000000001"
@@ -653,20 +682,33 @@ for (const width of [1440, 1024, 390]) {
         await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
         await expect(page.getByTestId("study-hover")).toHaveCount(2);
         await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
-        await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
-        await expect(page.locator(".study-pane-empty")).toContainText("尚未计算");
-        const emptyPaneInsidePlot = await page.locator(".study-pane-empty").evaluate((label) => {
-            const plot = label.parentElement;
-            if (plot?.tagName !== "DIV") return false;
-            const text = label.getBoundingClientRect(),
-                bounds = plot.getBoundingClientRect();
-            return (
-                text.left >= bounds.left &&
-                text.right <= bounds.right &&
-                text.top >= bounds.top &&
-                text.bottom <= bounds.bottom
-            );
-        });
+        // Neither uncomputed Study has admitted PRICE units: each owns an
+        // independent empty pane, in addition to the Price and Volume panes.
+        await expect(renderedChart).toHaveAttribute("data-pane-count", "4");
+        const siblingId = await page
+            .getByTestId("chart-study-instance")
+            .last()
+            .getAttribute("data-instance-id");
+        if (id === null || siblingId === null) throw new Error("missing Study identity");
+        const removedLabel = page.locator(`.study-pane-empty[data-instance-id="${id}"]`);
+        const siblingLabel = page.locator(`.study-pane-empty[data-instance-id="${siblingId}"]`);
+        await expect(removedLabel).toContainText("尚未计算");
+        await expect(siblingLabel).toContainText("尚未计算");
+        await expect(page.locator(".study-pane-empty")).toHaveCount(2);
+        const emptyPaneInsidePlot = await page.locator(".study-pane-empty").evaluateAll((labels) =>
+            labels.every((label) => {
+                const plot = label.parentElement;
+                if (plot?.tagName !== "DIV") return false;
+                const text = label.getBoundingClientRect(),
+                    bounds = plot.getBoundingClientRect();
+                return (
+                    text.left >= bounds.left &&
+                    text.right <= bounds.right &&
+                    text.top >= bounds.top &&
+                    text.bottom <= bounds.bottom
+                );
+            })
+        );
         expect(emptyPaneInsidePlot).toBe(true);
         // DOM point/pane counts are insufficient: controls must leave a usable
         // native K-line/Volume viewport, including on the 390px mobile slice.
@@ -677,7 +719,18 @@ for (const width of [1440, 1024, 390]) {
         await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
         await first.getByRole("button", { name: "移除配置", exact: true }).press("Enter");
         await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
-        await expect(renderedChart).toHaveAttribute("data-pane-count", "2");
+        await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
+            "data-instance-id",
+            siblingId
+        );
+        await expect(removedLabel).toHaveCount(0);
+        await expect(siblingLabel).toContainText("尚未计算");
+        await expect(page.locator(".study-pane-empty")).toHaveCount(1);
+        await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
+        await expect(renderedChart).toHaveAttribute("data-volume-point-count", "3");
+        await expect(renderedChart).toHaveAttribute("data-volume-latest", "3");
+        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
+        await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
         expect(studyReads).toHaveLength(readsBeforeDisplay);
         market.emitPreview();
         await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
@@ -795,11 +848,17 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
         "idle"
     );
 
+    const latency = page.locator('[aria-label="行情延迟"]');
+    await expect(latency).toContainText("当前连接样本");
     await fixture.disconnect();
     await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
+    await expect(latency).toContainText("最后样本 · 非当前");
     await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
     fixture.releaseRecovery();
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect(latency).toContainText("最后样本 · 非当前");
+    fixture.emitPreview();
+    await expect(latency).toContainText("当前连接样本");
     expect(fixture.cursors).toHaveLength(2);
     expect(BigInt(fixture.cursors[1] ?? "0")).toBe(BigInt(fixture.cursors[0] ?? "0") + BigInt(1));
     expect(fixture.olderRequests).toHaveLength(0);
@@ -866,6 +925,9 @@ test("preset and custom periods subscribe to matching derived realtime bars — 
     await page.getByRole("button", { name: "应用" }).click();
     await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(37);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("接收延迟：—");
+    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("最近收盘到达延迟：—");
+    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("暂无实时样本");
     expect(fixture.steps).toEqual([1, 15, 60, 7, 37]);
 });
 

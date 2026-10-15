@@ -225,6 +225,7 @@ it("keeps preview and closed event semantics distinct", () => {
         marketDataStreamEventSchema.parse({
             schema_version: 2,
             event: "BAR_PREVIEW",
+            timing: null,
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
             bar_semantic: marketDataBarSemantic(1),
@@ -235,6 +236,7 @@ it("keeps preview and closed event semantics distinct", () => {
         marketDataStreamEventSchema.parse({
             schema_version: 2,
             event: "BAR_CLOSED",
+            timing: null,
             source_id: "source",
             instrument_id: "BTCUSDT.BINANCE",
             bar_semantic: marketDataBarSemantic(1),
@@ -242,4 +244,46 @@ it("keeps preview and closed event semantics distinct", () => {
             bar: { ...bar, closed: true }
         }).event
     ).toBe("BAR_CLOSED");
+});
+
+it("requires nullable operational timing and strictly validates its leaves", () => {
+    const frame = {
+        schema_version: 2,
+        event: "BAR_PREVIEW",
+        timing: {
+            stream_id: "stream-a",
+            provider_event_ns: "999999999999999999999",
+            ingress_received_ns: "999999999999999999998"
+        },
+        source_id: "source",
+        instrument_id: "BTCUSDT.BINANCE",
+        bar_semantic: marketDataBarSemantic(1),
+        bar: {
+            bar_start_ns: "60000000000",
+            bar_end_ns: "120000000000",
+            open: "1",
+            high: "2",
+            low: "0.5",
+            close: "1.5",
+            volume: "10",
+            closed: false
+        }
+    };
+    expect(marketDataStreamEventSchema.parse(frame)).toEqual(frame);
+    for (const timing of [
+        null,
+        { ...frame.timing, provider_event_ns: null },
+        { ...frame.timing, ingress_received_ns: null }
+    ]) {
+        expect(marketDataStreamEventSchema.safeParse({ ...frame, timing }).success).toBe(true);
+    }
+    for (const timing of [
+        undefined,
+        { ...frame.timing, provider_event_ns: 1 },
+        { ...frame.timing, ingress_received_ns: undefined },
+        { ...frame.timing, stream_id: "" },
+        { ...frame.timing, extra: "unsupported" }
+    ]) {
+        expect(marketDataStreamEventSchema.safeParse({ ...frame, timing }).success).toBe(false);
+    }
 });

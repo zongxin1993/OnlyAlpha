@@ -130,7 +130,7 @@ def create_market_data_stream_router(service: OnlyMarketDataStreamProductService
                         if event.payload.get("source_id", grant.source_id) != grant.source_id:
                             raise OnlySourceReadAccessError("LOCAL_READ_FORBIDDEN")
                     await websocket.send_json(
-                        market_data_stream_event_adapter.validate_python(event.to_dict()).model_dump(exclude_none=True)
+                        market_data_stream_event_adapter.validate_python(event.to_dict()).model_dump(exclude_unset=True)
                     )
                     if event.event == "ERROR":
                         return

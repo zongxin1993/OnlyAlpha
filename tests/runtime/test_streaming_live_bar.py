@@ -13,7 +13,7 @@ from onlyalpha.data.identifiers import (
     OnlyMarketDataSourceId,
     OnlyMarketDataUpdateId,
 )
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
+from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyRealtimeIngressObservation
 from onlyalpha.data.queue import OnlyMarketDataInboundQueue
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
@@ -201,3 +201,16 @@ def test_worker_stop_interrupts_wait_for_future_bar(make_runtime_bar) -> None:
     assert not worker.alive
     assert worker.failure is None
     processor.process.assert_not_called()
+
+
+def test_synthesized_close_does_not_inherit_previous_open_occurrence_timing(make_runtime_bar) -> None:
+    finalizer = OnlyLiveBarFinalizer()
+    first = replace(
+        _update(make_runtime_bar(0), 1),
+        ingress_observation=OnlyRealtimeIngressObservation(OnlyRuntimeId("streaming"), 1, 2),
+    )
+    assert finalizer.accept(first) == ()
+    (closed,) = finalizer.accept(_update(make_runtime_bar(1), 2))
+    assert closed.payload.bar.is_closed
+    assert closed.ingress_observation is None
+    assert first.ingress_observation is not None

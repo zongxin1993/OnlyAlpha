@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
 
 from onlyalpha.cache.historical.models import OnlyCachePolicy
@@ -42,6 +43,7 @@ from onlyalpha.data.models import (
     OnlyMarketDataUnsubscriptionRequest,
     OnlyMarketReferenceUpdate,
     OnlyRealtimeBarPreviewV1,
+    OnlyRealtimeIngressObservation,
     OnlyTradeTickUpdate,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
@@ -357,10 +359,26 @@ class OnlyBinanceSpotDataSource:
                     ts_receive_ns=receive_ns,
                 )
                 if preview is not None:
-                    self._publish_preview(preview)
+                    self._publish_preview(
+                        replace(
+                            preview,
+                            ingress_observation=OnlyRealtimeIngressObservation(
+                                self._request.runtime_id, observation.ts_event_ns, receive_ns
+                            ),
+                        )
+                    )
             return ()
         accepted = self._continuity.accept(update, self._recover)
         for item in accepted:
+            # Continuity can return REST/recovery siblings. Equal fact identities
+            # do not prove they are this inbound occurrence.
+            if item is update:
+                item = replace(
+                    item,
+                    ingress_observation=OnlyRealtimeIngressObservation(
+                        self._request.runtime_id, observation.ts_event_ns, receive_ns
+                    ),
+                )
             self._publish(item)
         self._emit_connection()
         return accepted
@@ -699,7 +717,7 @@ class OnlyBinanceSpotDataSource:
     def _publish_preview(self, preview: OnlyRealtimeBarPreviewV1) -> None:
         if self._continuity.state is not OnlyMarketDataConnectionState.READY:
             key = (str(preview.instrument_id), preview.bar_start_ns)
-            self._pending_previews[key] = preview
+            self._pending_previews[key] = replace(preview, ingress_observation=None)
             return
         sink = self._request.market_data_preview_sink
         if sink is not None:

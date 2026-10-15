@@ -596,6 +596,8 @@ def test_closed_kline_is_wal_durable_before_canonical_delivery(tmp_path: Path) -
     [segment_id] = wal.scan_uncommitted()
     [bundle] = wal.read_sealed(segment_id)
     assert len(bundle.canonical_facts) == 1
+    assert bundle.canonical_facts[0].canonical_payload == delivered[0].to_dict()
+    assert delivered[0].ingress_observation is not None
 
 
 def test_stale_realtime_resume_requires_historical_refresh(tmp_path: Path) -> None:
@@ -677,3 +679,123 @@ def test_rest_response_raw_evidence_links_all_canonical_facts(tmp_path: Path) ->
     assert raw.provenance == "REST_BACKFILL"
     assert isinstance(updates, tuple) and len(updates) == 1
     assert updates[0].data_type is OnlyMarketDataType.BAR
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("event_ms", [None, 0, 1_767_225_599_999, 1_767_225_600_000, 1_767_225_600_001])
+def test_realtime_ingress_observation_keeps_actual_clock_values(
+    tmp_path: Path, closed: bool, event_ms: int | None
+) -> None:
+    import json
+
+    delivered = []
+    recorded = []
+    request = replace(
+        _request(tmp_path),
+        market_data_sink=delivered.append,
+        market_data_preview_sink=delivered.append,
+        provider_evidence_sink=lambda raw, update: recorded.append((raw, update)),
+    )
+    resource = OnlyBinanceSpotDataSourceFactory().create(request)
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    resource._continuity.subscription_established()  # noqa: SLF001
+    resource._continuity.begin_recovery()  # noqa: SLF001
+    resource._continuity.establish_empty_baseline()  # noqa: SLF001
+    resource._continuity.complete_recovery()  # noqa: SLF001
+    event = {
+        "e": "kline",
+        "s": "BTCUSDT",
+        "k": {
+            "t": 1767225600000,
+            "i": "1m",
+            "s": "BTCUSDT",
+            "o": "10.00",
+            "h": "11.00",
+            "l": "9.00",
+            "c": "10.50",
+            "v": "100",
+            "q": "1050",
+            "n": 42,
+            "x": closed,
+        },
+    }
+    if event_ms is not None:
+        event["E"] = event_ms
+    resource.ingest_websocket_message(json.dumps(event).encode())
+    [item] = delivered
+    timing = getattr(item, "ingress_observation", None)
+    assert timing is not None, "actual inbound occurrence must carry operational timing"
+    assert timing.provider_event_ns == (None if event_ms is None else event_ms * 1_000_000)
+    assert timing.ingress_received_ns == request.clock.timestamp_ns()
+    assert timing.runtime_id == request.runtime_id
+    assert recorded[0][0].ts_event_ns == timing.provider_event_ns
+    if closed:
+        assert (
+            json.dumps(item.to_dict(), sort_keys=True).encode()
+            == json.dumps(recorded[0][1].to_dict(), sort_keys=True).encode()
+        )
+        assert item == recorded[0][1]
+        assert "ingress_observation" not in item.to_dict()
+        assert getattr(type(item).from_dict(item.to_dict()), "ingress_observation", None) is None
+
+
+def test_recovery_items_cannot_inherit_current_frame_ingress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    delivered = []
+    resource = OnlyBinanceSpotDataSourceFactory().create(replace(_request(tmp_path), market_data_sink=delivered.append))
+    recovered = []
+
+    def accept(update, _recover):
+        # A separate recovered object with identical canonical identity is not this occurrence.
+        recovered.append(replace(update))
+        return (recovered[0], update)
+
+    monkeypatch.setattr(resource._continuity, "accept", accept)  # noqa: SLF001
+    resource.ingest_websocket_message(
+        b'{"e":"kline","E":1767225660000,"s":"BTCUSDT","k":{"t":1767225600000,"i":"1m","s":"BTCUSDT","o":"10.00","h":"11.00","l":"9.00","c":"10.50","v":"100","q":"1050","n":42,"x":true}}'
+    )
+    assert len(delivered) == 2
+    assert getattr(delivered[0], "ingress_observation", None) is None
+    assert getattr(delivered[1], "ingress_observation", None) is not None
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_buffered_recovery_delivery_does_not_claim_a_fresh_ingress(tmp_path: Path, closed: bool) -> None:
+    import json
+
+    delivered = []
+    resource = OnlyBinanceSpotDataSourceFactory().create(
+        replace(_request(tmp_path), market_data_sink=delivered.append, market_data_preview_sink=delivered.append)
+    )
+    resource.initialize()
+    resource.connect()
+    resource.start()
+    resource._continuity.subscription_established()  # noqa: SLF001
+    resource._continuity.begin_recovery()  # noqa: SLF001
+    resource._continuity.establish_empty_baseline()  # noqa: SLF001
+    event = {
+        "e": "kline",
+        "E": 1767225660000,
+        "s": "BTCUSDT",
+        "k": {
+            "t": 1767225600000,
+            "i": "1m",
+            "s": "BTCUSDT",
+            "o": "10.00",
+            "h": "11.00",
+            "l": "9.00",
+            "c": "10.50",
+            "v": "100",
+            "q": "1050",
+            "n": 42,
+            "x": closed,
+        },
+    }
+    assert resource.ingest_websocket_message(json.dumps(event).encode()) == ()
+    assert delivered == []
+    for update in resource._continuity.complete_recovery():  # noqa: SLF001
+        resource._publish(update)  # noqa: SLF001
+    resource._flush_previews()  # noqa: SLF001
+    [item] = delivered
+    assert item.ingress_observation is None

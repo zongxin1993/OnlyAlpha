@@ -81,11 +81,22 @@ class MarketDataBaseCursorDto(_Event):
     sequence: str = Field(pattern=r"^(?:0|[1-9][0-9]*)$")
 
 
+class MarketDataIngressTimingDto(BaseModel):
+    """Operational same-occurrence native timing; not canonical Market Data truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    stream_id: str = Field(min_length=1)
+    provider_event_ns: str | None = Field(pattern=r"^(?:0|[1-9][0-9]*)$")
+    ingress_received_ns: str | None = Field(pattern=r"^(?:0|[1-9][0-9]*)$")
+
+
 class _BarEvent(_Event):
     source_id: str
     instrument_id: str
     bar_semantic: MarketDataBarSemanticDto
     bar: MarketDataBarDto
+    timing: MarketDataIngressTimingDto | None
 
 
 class MarketDataBarPreviewDto(_BarEvent):

@@ -51,6 +51,11 @@ const MarketDataBaseCursorDtoSchema = z.strictObject({
     event: z.literal("BASE_CURSOR"),
     sequence: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$"))
 });
+const MarketDataIngressTimingDtoSchema = z.strictObject({
+    stream_id: z.string().min(1),
+    provider_event_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")).nullable(),
+    ingress_received_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")).nullable()
+});
 const MarketDataStateDtoSchema = z.strictObject({
     schema_version: z.literal(2),
     event: z.literal("STATE"),
@@ -90,6 +95,7 @@ const MarketDataBarClosedDtoSchema = z.strictObject({
     instrument_id: z.string(),
     bar_semantic: MarketDataBarSemanticDtoSchema,
     bar: MarketDataBarDtoSchema,
+    timing: z.union([MarketDataIngressTimingDtoSchema, z.null()]),
     event: z.literal("BAR_CLOSED"),
     sequence: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$"))
 });
@@ -99,6 +105,7 @@ const MarketDataBarPreviewDtoSchema = z.strictObject({
     instrument_id: z.string(),
     bar_semantic: MarketDataBarSemanticDtoSchema,
     bar: MarketDataBarDtoSchema,
+    timing: z.union([MarketDataIngressTimingDtoSchema, z.null()]),
     event: z.literal("BAR_PREVIEW")
 });
 export const marketDataStreamSubscribeSchema = z

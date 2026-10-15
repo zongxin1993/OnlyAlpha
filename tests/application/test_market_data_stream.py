@@ -321,10 +321,11 @@ def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> No
 
     session.emit_closed(update(0))
     assert session.next_event(0).event == "BASE_CURSOR"  # type: ignore[union-attr]
-    forming = _preview("1.75")
+    forming = replace(_preview("1.75"), ingress_observation=_ingress_observation())
     session.emit_preview(replace(forming, ts_receive_ns=forming.ts_event_ns - 4_000_000_000))
     preview = session.next_event(0)
     assert preview is not None and preview.event == "BAR_PREVIEW"
+    assert preview.payload["timing"] is None
     assert preview.payload["bar_semantic"] == target.semantic.to_dict()
     assert preview.payload["bar"]["volume"] == "20"  # type: ignore[index]
     for minute in range(1, 7):
@@ -333,8 +334,145 @@ def test_derived_stream_emits_base_cursor_preview_and_seven_minute_close() -> No
     assert [item.event for item in messages if item is not None].count("BAR_CLOSED") == 1
     closed = messages[-1]
     assert closed is not None and closed.payload["bar"]["closed"] is True  # type: ignore[index]
+    assert closed.payload["timing"] is None
     session.emit_preview(_preview("1.75", 7))
     next_preview = session.next_event(0)
     assert next_preview is not None and next_preview.event == "BAR_PREVIEW"
     assert next_preview.payload["bar"]["bar_start_ns"] == "420000000000"  # type: ignore[index]
     assert next_preview.payload["bar"]["volume"] == "10"  # type: ignore[index]
+
+
+def _ingress_observation(
+    *, runtime: str = "market-data-stream:stream", event_ns: int | None = 1, received_ns: int | None = 2
+):
+    from onlyalpha.data import models
+
+    model = getattr(models, "OnlyRealtimeIngressObservation", None)
+    assert model is not None, "public operational ingress carrier is required"
+    return model(OnlyRuntimeId(runtime), event_ns, received_ns)
+
+
+@pytest.mark.parametrize("event_ns,received_ns", [(1, 2), (2, 2), (3, 2), (None, 2), (1, None), (None, None)])
+def test_native_preview_projects_only_actual_nullable_ingress(event_ns: int | None, received_ns: int | None) -> None:
+    preview = _preview("1")
+    timing = _ingress_observation(event_ns=event_ns, received_ns=received_ns)
+    session = _session([], native_bar_type=preview.bar_type)
+    session.source_id = str(preview.source_id)
+    session.emit_preview(replace(preview, ingress_observation=timing))
+    session.next_event(0)
+    event = session.next_event(0)
+    assert event is not None
+    assert event.payload["timing"] == {
+        "stream_id": "stream",
+        "provider_event_ns": None if event_ns is None else str(event_ns),
+        "ingress_received_ns": None if received_ns is None else str(received_ns),
+    }
+
+
+@pytest.mark.parametrize("mutation", ["missing", "runtime", "source", "instrument", "semantic", "closed_session"])
+def test_native_timing_requires_complete_exact_owning_context(mutation: str) -> None:
+    preview = _preview("1")
+    timing = _ingress_observation(runtime="old" if mutation == "runtime" else "market-data-stream:stream")
+    session = _session([], native_bar_type=preview.bar_type)
+    session.source_id = str(preview.source_id)
+    preview = replace(preview, ingress_observation=None if mutation == "missing" else timing)
+    if mutation == "source":
+        preview = replace(preview, source_id=OnlyMarketDataSourceId("other"))
+    if mutation == "instrument":
+        preview = replace(preview, instrument_id=OnlyInstrumentId.parse("ETHUSDT.BINANCE"))
+    if mutation == "semantic":
+        preview = replace(preview, bar_type=OnlyBarType(preview.instrument_id, OnlyBarSemantic.fixed_duration(15)))
+    if mutation == "closed_session":
+        session.close()
+    session.emit_preview(preview)
+    events = [session.next_event(0) for _ in range(4)]
+    bars = [event for event in events if event is not None and event.event == "BAR_PREVIEW"]
+    assert not bars or all(event.payload["timing"] is None for event in bars)
+
+
+@pytest.mark.parametrize("mutation", ["match", "replay", "source", "runtime", "observation_runtime", "semantic"])
+def test_native_closed_timing_binds_envelope_runtime_and_survives_no_replay(mutation: str) -> None:
+    preview = _preview("1")
+    end = OnlyTimestamp.from_unix_nanos(preview.bar_end_ns)
+    start = OnlyTimestamp.from_unix_nanos(preview.bar_start_ns).to_datetime()
+    bar = OnlyBar(
+        bar_type=preview.bar_type,
+        open=OnlyPrice(Decimal("1"), 2),
+        high=OnlyPrice(Decimal("2"), 2),
+        low=OnlyPrice(Decimal("0.5"), 2),
+        close=OnlyPrice(Decimal("1"), 2),
+        volume=OnlyQuantity(Decimal("10"), 0),
+        quote_volume=None,
+        turnover=None,
+        trade_count=1,
+        open_interest=None,
+        bar_start=start,
+        bar_end=end.to_datetime(),
+        ts_event=end.to_datetime(),
+        ts_init=end.to_datetime(),
+        is_closed=True,
+        revision=0,
+        adjustment_type=OnlyAdjustmentType.RAW,
+        trading_day=start.date(),
+        session_type=OnlySessionType.CONTINUOUS,
+    )
+    update = OnlyMarketDataInboundUpdate(
+        OnlyMarketDataUpdateId("bar"),
+        OnlyRuntimeId("old" if mutation == "runtime" else "market-data-stream:stream"),
+        preview.source_id,
+        OnlyDataSequence(1),
+        OnlyDataVersion("v1"),
+        preview.instrument_id,
+        OnlyMarketDataType.BAR,
+        OnlyBarUpdate(bar),
+        end,
+        end,
+        ingress_observation=_ingress_observation(
+            runtime="old" if mutation == "observation_runtime" else "market-data-stream:stream",
+            event_ns=end.unix_nanos + 3,
+            received_ns=end.unix_nanos - 1,
+        ),
+    )
+    if mutation == "source":
+        update = replace(update, source_id=OnlyMarketDataSourceId("wrong"), sequence_scope=None)
+    if mutation == "replay":
+        update = OnlyMarketDataInboundUpdate.from_dict(update.to_dict())
+    session = _session(
+        [],
+        native_bar_type=OnlyBarType(preview.instrument_id, OnlyBarSemantic.fixed_duration(15))
+        if mutation == "semantic"
+        else preview.bar_type,
+    )
+    session.source_id = str(preview.source_id)
+    session.next_event(0)
+    session.emit_closed(update)
+    event = session.next_event(0)
+    assert event is not None and event.event == "BAR_CLOSED"
+    assert event.payload["bar"]["bar_end_ns"] == str(end.unix_nanos)  # type: ignore[index]
+    if mutation == "match":
+        assert event.payload["timing"] == {
+            "stream_id": "stream",
+            "provider_event_ns": str(end.unix_nanos + 3),
+            "ingress_received_ns": str(end.unix_nanos - 1),
+        }
+    else:
+        assert event.payload["timing"] is None
+
+
+def test_connection_loss_retires_coalesced_preview_timing_before_state_delivery() -> None:
+    preview = _preview("1")
+    session = _session([], capacity=8, native_bar_type=preview.bar_type)
+    session.source_id = str(preview.source_id)
+    session.next_event(0)
+    session.emit_state("READY")
+    session.next_event(0)
+    session.emit_preview(replace(preview, ingress_observation=_ingress_observation()))
+    session.emit_state("DEGRADED")
+    assert session.next_event(0).payload["state"] == "DEGRADED"  # type: ignore[union-attr]
+    delayed = session.next_event(0)
+    assert delayed is not None and delayed.event == "BAR_PREVIEW"
+    assert delayed.payload["bar"]["close"] == "1"  # type: ignore[index]
+    assert delayed.payload["timing"] is None
+    session.emit_state("READY")
+    assert session.next_event(0).payload["state"] == "READY"  # type: ignore[union-attr]
+    assert session.next_event(0) is None

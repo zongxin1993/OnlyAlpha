@@ -10,6 +10,8 @@ import {
     type MarketDataApiClient,
     type MarketDataBarsQuery
 } from "../../api/marketData/client";
+import { nextMarketDataTiming, type MarketDataTiming } from "./marketDataTiming";
+import type { MarketDataStreamEvent } from "../../api/marketData/stream";
 import { openMarketDataStream } from "../../api/marketData/stream";
 import type {
     MarketDataBarSemantic,
@@ -78,6 +80,7 @@ export interface MarketDataChartState {
     readonly olderHistoryStatus: "idle" | "loading" | "acquiring" | "failed" | "exhausted";
     readonly olderHistoryMessage: string | null;
     readonly streamId: string | null;
+    readonly timing: MarketDataTiming | null;
     readonly streamError: string | null;
     readonly lastClosedCursor: string | null;
     readonly selectSource: (integrationId: string) => void;
@@ -123,6 +126,7 @@ export function useMarketDataChart(): MarketDataChartState {
         "idle" | "loading" | "acquiring" | "failed" | "exhausted"
     >("idle");
     const [olderHistoryMessage, setOlderHistoryMessage] = useState<string | null>(null);
+    const [timing, setTiming] = useState<MarketDataTiming | null>(null);
     const [streamId, setStreamId] = useState<string | null>(null);
     const [streamError, setStreamError] = useState<string | null>(null);
     const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
@@ -371,6 +375,7 @@ export function useMarketDataChart(): MarketDataChartState {
             setHistoryProjectionFingerprint(null);
             setResolvedSourceId(null);
             setStatus("loading");
+            setTiming(null);
             setRealtimeStatus("disabled");
             setMessage(null);
             try {
@@ -454,8 +459,12 @@ export function useMarketDataChart(): MarketDataChartState {
         let stopped = false;
         let terminal = false;
         let reconnectAttempt = 0;
+        let connectionAttempt = 0;
         const connect = () => {
             if (stopped || resume.current === null) return;
+            const attempt = ++connectionAttempt;
+            let connectionReady = false;
+            let subscription: Extract<MarketDataStreamEvent, { event: "SUBSCRIBED" }> | null = null;
             setRealtimeStatus("connecting");
             close = openMarketDataStream(
                 {
@@ -471,7 +480,16 @@ export function useMarketDataChart(): MarketDataChartState {
                     resume_plan_fingerprint: resume.current.fingerprint
                 },
                 (event) => {
-                    if (generation !== streamGeneration.current || terminal) return;
+                    if (
+                        generation !== streamGeneration.current ||
+                        attempt !== connectionAttempt ||
+                        stopped ||
+                        terminal
+                    )
+                        return;
+                    // React may apply functional state updates after later stream events.
+                    const timingConnectionReady = connectionReady;
+                    const timingSubscription = subscription;
                     if (
                         (event.event === "SUBSCRIBED" ||
                             event.event === "BAR_PREVIEW" ||
@@ -518,8 +536,15 @@ export function useMarketDataChart(): MarketDataChartState {
                             close();
                             return;
                         }
+                        subscription = event;
+                        setTiming(null);
                         setStreamId(event.stream_id);
                     } else if (event.event === "STATE") {
+                        connectionReady = event.state === "READY";
+                        if (!connectionReady)
+                            setTiming((current) =>
+                                current === null ? null : { ...current, currentConnection: false }
+                            );
                         setRealtimeStatus(
                             event.state === "CONNECTING"
                                 ? "connecting"
@@ -542,6 +567,17 @@ export function useMarketDataChart(): MarketDataChartState {
                         try {
                             const changed = ledger.current?.applyPreview(event.bar);
                             if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
+                            // Identical current price may carry a new occurrence; rejected
+                            // older/closed-overlap previews never update telemetry.
+                            if (changed?.snapshot.preview?.bar_start_ns === event.bar.bar_start_ns)
+                                setTiming((current) =>
+                                    nextMarketDataTiming(
+                                        current,
+                                        event,
+                                        timingSubscription,
+                                        timingConnectionReady
+                                    )
+                                );
                         } catch (error) {
                             if (error instanceof MarketDataBarLedgerConflictError) {
                                 terminal = true;
@@ -551,8 +587,25 @@ export function useMarketDataChart(): MarketDataChartState {
                         }
                     } else if (event.event === "BAR_CLOSED") {
                         try {
+                            const previousStart =
+                                ledger.current?.snapshot().latestClosedStartNs ?? null;
                             const changed = ledger.current?.applyClosed(event.bar);
                             if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
+                            if (
+                                changed?.appendedCount === 1 &&
+                                (previousStart === null ||
+                                    BigInt(event.bar.bar_start_ns) > BigInt(previousStart)) &&
+                                (resume.current === null ||
+                                    BigInt(event.sequence) > BigInt(resume.current.cursor))
+                            )
+                                setTiming((current) =>
+                                    nextMarketDataTiming(
+                                        current,
+                                        event,
+                                        timingSubscription,
+                                        timingConnectionReady
+                                    )
+                                );
                         } catch (error) {
                             if (error instanceof MarketDataBarLedgerConflictError) {
                                 terminal = true;
@@ -591,7 +644,18 @@ export function useMarketDataChart(): MarketDataChartState {
                     }
                 },
                 (failure) => {
-                    if (generation !== streamGeneration.current || stopped || terminal) return;
+                    if (
+                        generation !== streamGeneration.current ||
+                        attempt !== connectionAttempt ||
+                        stopped ||
+                        terminal
+                    )
+                        return;
+                    connectionAttempt += 1;
+                    connectionReady = false;
+                    setTiming((current) =>
+                        current === null ? null : { ...current, currentConnection: false }
+                    );
                     if (failure !== undefined) {
                         terminal = true;
                         setStreamError(failure);
@@ -656,6 +720,7 @@ export function useMarketDataChart(): MarketDataChartState {
         setStreamId(null);
         setStreamError(null);
         setRealtimeStatus("disabled");
+        setTiming(null);
         setStatus(integrationId === "" ? "no-source" : "idle");
         setMessage(integrationId === "" ? "请选择数据源" : null);
     }, []);
@@ -821,6 +886,7 @@ export function useMarketDataChart(): MarketDataChartState {
             setStreamId(null);
             setStreamError(null);
             setRealtimeStatus("disabled");
+            setTiming(null);
             setInstrument(target);
             if (reference === null || selectedSource === null) {
                 setMessage("请先选择数据源");
@@ -854,6 +920,7 @@ export function useMarketDataChart(): MarketDataChartState {
             setStreamId(null);
             setStreamError(null);
             setRealtimeStatus("disabled");
+            setTiming(null);
             ledger.current = null;
             olderHistoryLoader.current = null;
             setLedgerSnapshot(null);
@@ -931,6 +998,7 @@ export function useMarketDataChart(): MarketDataChartState {
         olderHistoryStatus,
         olderHistoryMessage,
         streamId,
+        timing,
         streamError,
         lastClosedCursor,
         selectSource,

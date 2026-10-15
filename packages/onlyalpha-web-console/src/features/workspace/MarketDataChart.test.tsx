@@ -130,6 +130,8 @@ const chartMocks = vi.hoisted(() => {
         )
     };
     const created = {
+        applyOptions: vi.fn(),
+        removePane: vi.fn(),
         addPane: () => volumePane,
         panes: () => [pricePane, volumePane],
         addSeries,
@@ -1085,6 +1087,7 @@ it("derives selected preview updates from identity and falls back on mouse leave
     const event = {
         schema_version: 2 as const,
         event: "BAR_PREVIEW" as const,
+        timing: null,
         source_id: marketDataSource().source_id,
         instrument_id: marketDataInstrument().instrument_id,
         bar_semantic: marketDataBarSemantic(1),
@@ -1122,6 +1125,7 @@ it("derives selected preview updates from identity and falls back on mouse leave
         streams.callbacks[0]?.({
             ...event,
             event: "BAR_CLOSED",
+            timing: null,
             sequence: "29453762",
             bar: { ...bar, closed: true }
         });
@@ -1172,6 +1176,7 @@ it("conflicting closed history withdraws its fingerprint without starting acquis
         streams.callbacks[0]?.({
             schema_version: 2,
             event: "BAR_CLOSED",
+            timing: null,
             source_id: history.source_selection.source_id,
             instrument_id: history.instrument_id,
             bar_semantic: history.bar_semantic,

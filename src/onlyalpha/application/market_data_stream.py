@@ -35,6 +35,7 @@ from onlyalpha.data.models import (
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataUnsubscriptionRequest,
     OnlyRealtimeBarPreviewV1,
+    OnlyRealtimeIngressObservation,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyAdjustmentType
@@ -108,6 +109,7 @@ class OnlyMarketDataStreamSession:
         aggregator: OnlyTimeBarAggregator | None = None,
         instrument: OnlyInstrument | None = None,
         calendar: OnlyTradingCalendar | None = None,
+        native_bar_type: OnlyBarType | None = None,
     ) -> None:
         self.stream_id = stream_id
         self.source_id = source_id
@@ -130,6 +132,7 @@ class OnlyMarketDataStreamSession:
         self._aggregator = aggregator
         self._instrument = instrument
         self._calendar = calendar
+        self._native_bar_type = native_bar_type
         self._projection_lock = threading.Lock()
 
     def bind_subscription(self, subscription_id: str) -> None:
@@ -192,7 +195,13 @@ class OnlyMarketDataStreamSession:
                 return
             preview = _bar_preview(projected, preview)
         with self._lock:
-            self._preview = OnlyMarketDataStreamEventV1("BAR_PREVIEW", _preview_payload(preview))
+            if self._closed:
+                return
+            payload = _preview_payload(preview)
+            payload["timing"] = self._timing_payload(
+                preview.ingress_observation, preview.source_id, preview.instrument_id, preview.bar_type
+            )
+            self._preview = OnlyMarketDataStreamEventV1("BAR_PREVIEW", payload)
 
     def emit_closed(self, update: OnlyMarketDataInboundUpdate) -> None:
         if not isinstance(update.payload, OnlyBarUpdate):
@@ -200,6 +209,14 @@ class OnlyMarketDataStreamSession:
         if self._aggregator is None:
             event = _closed_event(update, self.source_id)
             if event is not None:
+                observation = (
+                    update.ingress_observation
+                    if update.runtime_id == OnlyRuntimeId(f"market-data-stream:{self.stream_id}")
+                    else None
+                )
+                event.payload["timing"] = self._timing_payload(
+                    observation, update.source_id, update.instrument_id, update.bar_type
+                )
                 self.emit_reliable(event)
             return
         with self._projection_lock:
@@ -219,8 +236,41 @@ class OnlyMarketDataStreamSession:
             payload["sequence"] = str(int(update.source_sequence))
             self.emit_reliable(OnlyMarketDataStreamEventV1("BAR_CLOSED", payload))
 
+    def _timing_payload(
+        self,
+        observation: OnlyRealtimeIngressObservation | None,
+        source_id: object,
+        instrument_id: object,
+        bar_type: OnlyBarType | None,
+    ) -> dict[str, object] | None:
+        if (
+            observation is None
+            or self._closed
+            or self._aggregator is not None
+            or observation.runtime_id != OnlyRuntimeId(f"market-data-stream:{self.stream_id}")
+            or str(source_id) != self.source_id
+            or str(instrument_id) != self.instrument_id
+            or self._native_bar_type is None
+            or bar_type != self._native_bar_type
+        ):
+            return None
+        return {
+            "stream_id": self.stream_id,
+            "provider_event_ns": None if observation.provider_event_ns is None else str(observation.provider_event_ns),
+            "ingress_received_ns": None
+            if observation.ingress_received_ns is None
+            else str(observation.ingress_received_ns),
+        }
+
     def emit_state(self, state: str) -> None:
-        self._connection_state = state
+        with self._lock:
+            self._connection_state = state
+            # Reliable STATE is drained before the coalesced preview slot. Keep
+            # its price projection, but never deliver old telemetry after loss.
+            if state != "READY" and self._preview is not None:
+                self._preview = OnlyMarketDataStreamEventV1(
+                    self._preview.event, {**self._preview.payload, "timing": None}
+                )
         self.emit_reliable(OnlyMarketDataStreamEventV1("STATE", {"state": state}))
 
     def next_event(self, timeout: float = 0.25) -> OnlyMarketDataStreamEventV1 | None:
@@ -466,6 +516,7 @@ class OnlyMarketDataStreamProductService:
             aggregator=aggregator,
             instrument=instrument,
             calendar=calendar,
+            native_bar_type=_bar_type(instrument_key, provider_semantic),
         )
         session_ref.append(session)
         try:
@@ -632,6 +683,7 @@ def _preview_payload(preview: OnlyRealtimeBarPreviewV1) -> dict[str, object]:
         "source_id": str(preview.source_id),
         "instrument_id": str(preview.instrument_id),
         "bar_semantic": _spec_payload(preview.bar_type.semantic),
+        "timing": None,
         "bar": {
             "bar_start_ns": str(preview.bar_start_ns),
             "bar_end_ns": str(preview.bar_end_ns),
