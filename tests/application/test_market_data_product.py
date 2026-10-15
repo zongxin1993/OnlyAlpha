@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import importlib
 import json
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from threading import Event, get_ident
 from typing import NamedTuple
 
 import pytest
-from filelock import Timeout, UnixFileLock
+from filelock import Timeout
 
 import onlyalpha.application.market_data_product as market_data_product
 import onlyalpha.market_data.durable.range_query as range_query
@@ -2615,8 +2616,9 @@ def test_acquisition_failures_stop_provider_and_persist_original_failure(
         pass
 
 
-def _observe_hard_lock_contention(monkeypatch: pytest.MonkeyPatch, on_wait: Callable[[], None]) -> None:
-    acquire = UnixFileLock.acquire
+def _observe_hard_lock_contention(monkeypatch: pytest.MonkeyPatch, on_wait: Callable[[], None], root: Path) -> None:
+    lock_class = type(market_data_product._only_historical_root_lock(root))
+    acquire = lock_class.acquire
 
     def observed(self, *args, **kwargs):
         try:
@@ -2625,7 +2627,7 @@ def _observe_hard_lock_contention(monkeypatch: pytest.MonkeyPatch, on_wait: Call
             on_wait()
             return acquire(self, *args, **kwargs)
 
-    monkeypatch.setattr(UnixFileLock, "acquire", observed)
+    monkeypatch.setattr(lock_class, "acquire", observed)
 
 
 def test_overlapping_native_acquisitions_never_recover_another_live_open_writer(
@@ -2664,7 +2666,7 @@ def test_overlapping_native_acquisitions_never_recover_another_live_open_writer(
 
     monkeypatch.setattr(OnlyMarketDataIngress, "record", paused_record)
     monkeypatch.setattr(OnlyMarketDataRecoveryCoordinator, "recover_all", checked_recovery)
-    _observe_hard_lock_contention(monkeypatch, queued)
+    _observe_hard_lock_contention(monkeypatch, queued, harness.wal_root / "test.spot.live")
 
     def acquire(step):
         return harness.service.acquire_bars(
@@ -2745,14 +2747,13 @@ def test_historical_root_owner_excludes_independent_process_and_releases_on_cras
 def test_historical_root_native_lock_failure_never_falls_back_to_soft(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import filelock._unix as unix_lock
-
     owner = market_data_product._only_historical_root_lock(tmp_path)
+    native_lock = importlib.import_module(type(owner).__module__)
 
     def unavailable(*args):
         raise OSError(errno.ENOSYS, "native locking unavailable")
 
-    monkeypatch.setattr(unix_lock.fcntl, "flock", unavailable)
+    monkeypatch.setattr(native_lock, "_lock_fd_nonblocking", unavailable)
     with pytest.raises(OSError) as failure:
         owner.acquire(timeout=0)
     assert failure.value.errno == errno.ENOSYS
@@ -2802,7 +2803,7 @@ def test_queued_acquisition_rechecks_withdrawn_grant_before_provider_or_wal(
     start, end = _range()
     with ThreadPoolExecutor(max_workers=1) as pool:
         with owner:
-            _observe_hard_lock_contention(monkeypatch, waiting.set)
+            _observe_hard_lock_contention(monkeypatch, waiting.set, root)
             pending = pool.submit(
                 harness.service.acquire_bars,
                 reference,
@@ -2906,3 +2907,27 @@ def test_different_historical_source_roots_allow_concurrent_product_acquisitions
         finally:
             first.provider.release.set()
         assert pending.result(5).status == "COMPLETE"
+
+
+@pytest.mark.parametrize("platform", ("linux", "win32"))
+def test_contention_observer_follows_selected_native_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    # Hermetic dispatch proof only; the real native backend is exercised by
+    # the separate ownership, overlap and grant-withdrawal regressions.
+    monkeypatch.setattr(market_data_product.sys, "platform", platform)
+    owner = market_data_product._only_historical_root_lock(tmp_path)
+    attempts, waits = [], []
+    acquired = object()
+
+    def acquire(self, *args, **kwargs):
+        attempts.append(kwargs)
+        if kwargs.get("timeout") == 0:
+            raise Timeout(self.lock_file)
+        return acquired
+
+    monkeypatch.setattr(type(owner), "acquire", acquire)
+    _observe_hard_lock_contention(monkeypatch, lambda: waits.append("native contention"), tmp_path)
+    assert owner.acquire() is acquired
+    assert attempts == [{"timeout": 0}, {}]
+    assert waits == ["native contention"]
