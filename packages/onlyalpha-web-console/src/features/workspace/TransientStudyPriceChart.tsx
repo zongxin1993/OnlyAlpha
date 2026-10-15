@@ -9,6 +9,7 @@ import {
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import type { StudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
 import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
+import { MarketDataWebError } from "../../api/marketData/client";
 import {
     readChartStudyCapability,
     readChartStudyEvidence,
@@ -33,22 +34,25 @@ interface QueryState {
 }
 function failureStatus(error: unknown): string {
     if (error instanceof MarketDataBarsAuthorityMismatchError) return "INVALID";
-    if (!(error instanceof ChartStudyWebError)) return "UNAVAILABLE";
+    if (!(error instanceof ChartStudyWebError) && !(error instanceof MarketDataWebError))
+        return "UNAVAILABLE";
     return error.status === 401
         ? "UNAUTHORIZED"
         : error.status === 403
           ? "FORBIDDEN"
           : error.status === 409
             ? "STALE"
-            : error.status === 500 || error.code === "INVALID"
-              ? "INVALID"
-              : [
-                      "UNSUPPORTED",
-                      "CHART_STUDY_INPUT_UNSUPPORTED",
-                      "MARKET_DATA_BAR_GRID_UNSUPPORTED"
-                  ].includes(error.code)
-                ? "UNSUPPORTED"
-                : "UNAVAILABLE";
+            : error instanceof MarketDataWebError
+              ? "UNAVAILABLE"
+              : error.status === 500 || error.code === "INVALID"
+                ? "INVALID"
+                : [
+                        "UNSUPPORTED",
+                        "CHART_STUDY_INPUT_UNSUPPORTED",
+                        "MARKET_DATA_BAR_GRID_UNSUPPORTED"
+                    ].includes(error.code)
+                  ? "UNSUPPORTED"
+                  : "UNAVAILABLE";
 }
 /** Shipping read-only consumer. Main-chart Acquisition and stream remain independent. */
 export function TransientStudyPriceChart({
@@ -394,7 +398,16 @@ export function TransientStudyPriceChart({
                     failed
                 );
             } catch (error) {
-                if (current()) update(failureStatus(error));
+                if (current())
+                    update(
+                        failureStatus(error),
+                        [],
+                        error instanceof MarketDataWebError
+                            ? [`${error.code}: ${error.message}`]
+                            : error instanceof ChartStudyWebError
+                              ? [error.code]
+                              : []
+                    );
             }
         }
     );

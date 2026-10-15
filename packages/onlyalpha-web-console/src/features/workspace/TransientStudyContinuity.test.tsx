@@ -8,7 +8,7 @@ import {
     ChartStudyCapabilitiesSchema,
     ChartStudyEvaluateSchema
 } from "../../api/chartStudies/http.generated";
-import type { MarketDataBarsQuery } from "../../api/marketData/client";
+import { MarketDataWebError, type MarketDataBarsQuery } from "../../api/marketData/client";
 import type { MarketDataSourceReference } from "../../api/marketData/model";
 import { marketDataClient } from "../../test/marketDataClient";
 import { projectMarketDataBar } from "../../charts/lightweight/marketDataChartProjection";
@@ -585,6 +585,7 @@ it.each([
                 "QUERYING"
             );
         });
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(code);
         expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
         expect(screen.getByTestId("chart-study-query-status")).not.toHaveAttribute(
             "data-query-status",
@@ -592,6 +593,65 @@ it.each([
         );
     }
 );
+
+it.each([
+    ["MARKET_DATA_WINDOW_REQUEST_INVALID", 400, "UNAVAILABLE"],
+    ["MARKET_DATA_FACT_STORE_UNAVAILABLE", 503, "UNAVAILABLE"],
+    ["LOCAL_READ_UNAUTHORIZED", 401, "UNAUTHORIZED"],
+    ["LOCAL_READ_FORBIDDEN", 403, "FORBIDDEN"],
+    ["MARKET_DATA_RANGE_COMPOSITION_CONFLICT", 409, "STALE"]
+] as const)("shows the formal shared history failure %s", async (code, status, visibleStatus) => {
+    const test = setup();
+    const view = render(test.tree({ siblings: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    test.queryBars.mockRejectedValueOnce(
+        new MarketDataWebError(code, "Formal history read refused", status)
+    );
+    view.rerender(test.tree({ siblings: true, step: 1 }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            visibleStatus
+        );
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(code);
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(
+            "Formal history read refused"
+        );
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    if (status === 401 || status === 403) {
+        expect(screen.queryByRole("button", { name: "重新查询指标" })).not.toBeInTheDocument();
+    } else {
+        fireEvent.click(screen.getByRole("button", { name: "重新查询指标" }));
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+        });
+        expect(screen.getByTestId("chart-study-query-status")).not.toHaveTextContent(code);
+        expect(screen.getByTestId("chart-study-query-status")).not.toHaveTextContent(
+            "Formal history read refused"
+        );
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    }
+});
+
+it("keeps unknown shared history exceptions private", async () => {
+    const test = setup();
+    test.queryBars.mockRejectedValueOnce(new Error("internal credential=do-not-display"));
+    render(test.tree({ siblings: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "UNAVAILABLE"
+        );
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    expect(document.body).not.toHaveTextContent("do-not-display");
+    expect(screen.getByRole("button", { name: "重新查询指标" })).toBeEnabled();
+});
 
 it.each([
     ["CHART_STUDY_CAPACITY_UNAVAILABLE", 503],
