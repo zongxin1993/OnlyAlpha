@@ -55,6 +55,38 @@ def test_source_inventory_excludes_artifacts_and_host_dependencies(tmp_path: Pat
     assert dev_verification.source_inputs(tmp_path) != before
 
 
+@pytest.mark.parametrize("name", ["env", "venv"])
+@pytest.mark.parametrize("product", [False, True])
+def test_root_host_environments_never_enter_frozen_source(tmp_path: Path, name: str, product: bool) -> None:
+    _environment(tmp_path)
+    before = dev_verification.source_inputs(tmp_path)
+    environment = tmp_path / name / "host-python"
+    (environment / "bin").mkdir(parents=True)
+    (environment / "pyvenv.cfg").write_text("controlled host dependency")
+    (environment / "bin/python").symlink_to("/unavailable/host/python")
+    assert dev_verification.source_inputs(tmp_path) == before
+    assert dev_verification.freeze_source(tmp_path, "host-environment-isolation", product=product) == before
+    cut = tmp_path / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
+    assert not (cut / name).exists()
+    assert (environment / "bin/python").is_symlink()
+    assert (environment / "pyvenv.cfg").read_text() == "controlled host dependency"
+
+
+@pytest.mark.parametrize("name", ["env", "venv"])
+def test_nested_environment_named_source_remains_part_of_frozen_input(tmp_path: Path, name: str) -> None:
+    _environment(tmp_path)
+    source = tmp_path / "packages/example" / name / "configuration.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("initial source")
+    before = dev_verification.source_inputs(tmp_path)
+    assert source.relative_to(tmp_path).as_posix() in before
+    source.write_text("changed source")
+    assert dev_verification.source_inputs(tmp_path) != before
+    (source.parent / "alias.py").symlink_to(source)
+    with pytest.raises(ValueError, match="SOURCE_SYMLINK"):
+        dev_verification.source_inputs(tmp_path)
+
+
 @pytest.mark.parametrize("directory", [False, True])
 def test_source_inventory_refuses_symlinks(tmp_path: Path, directory: bool) -> None:
     target = tmp_path / "unknown"

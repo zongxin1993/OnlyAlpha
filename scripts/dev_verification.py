@@ -65,10 +65,10 @@ def source_inputs(root: Path) -> dict[str, str]:
     result = {}
     for directory, children, files in os.walk(root):
         children[:] = sorted(name for name in children if name not in EXCLUDED_DIRECTORIES)
-        # The supported in-tree local runtime root is not source. Never copy its
-        # secrets or semantic history into either frozen source view or its hashes.
+        # Root runtime data and host environments are not source. Keep nested
+        # env/venv source directories visible and subject to symlink validation.
         if Path(directory) == root:
-            children[:] = [name for name in children if name != "user_data"]
+            children[:] = [name for name in children if name not in {"user_data", "env", "venv"}]
         if any((Path(directory) / name).is_symlink() for name in children):
             raise ValueError("DEV_VERIFICATION_SOURCE_SYMLINK")
         for name in sorted(files):
