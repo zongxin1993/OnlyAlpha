@@ -241,6 +241,8 @@ describe("one server-derived strict Chart schema", () => {
         });
         if (evidence === null) throw new Error("Expected admitted evidence");
         expect(isAdmittedChartStudyEvidence(evidence)).toBe(true);
+        expect(evidence.outputUnit).toBe("PRICE");
+        expect(v.capability.descriptor.outputs[0]?.unit).toBeNull();
         expect(isAdmittedChartStudyEvidence(structuredClone(evidence))).toBe(false);
         controller.abort();
         expect(isAdmittedChartStudyEvidence(evidence)).toBe(false);

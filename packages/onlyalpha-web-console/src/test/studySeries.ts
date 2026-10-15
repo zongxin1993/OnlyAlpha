@@ -59,6 +59,7 @@ export function studySeriesFixture() {
         incarnationKey: "controlled-incarnation",
         configurationKey: JSON.stringify(instance.configuration),
         outputName: "value",
+        outputUnit: "PRICE",
         points: bars.map((bar, index) => ({
             timeNs: bar.barStartNs,
             value: index === 40 ? null : "102.000000000000000001",

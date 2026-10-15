@@ -6,10 +6,22 @@ import type { ChartStudyInstance } from "../features/workspace/chartStudy";
 import "../app/styles/tokens.css";
 import "../features/workspace/chartStudy.css";
 
-const { instance, bars, evidence } = studySeriesFixture();
+const { instance, bars: originalBars, evidence } = studySeriesFixture();
+const bars = originalBars.map((bar, index) => ({
+    ...bar,
+    close: index % 3 === 0 ? "101" : index % 3 === 1 ? "99" : "100",
+    numeric: { ...bar.numeric, close: index % 3 === 0 ? 101 : index % 3 === 1 ? 99 : 100 }
+}));
 const initial: readonly ChartStudyInstance[] = Array.from({ length: 4 }, (_, index) => ({
     ...instance,
     instanceId: `controlled-${String(index)}`,
+    configuration: {
+        ...instance.configuration,
+        parameters: {
+            ...instance.configuration.parameters,
+            period: { type: "INTEGER", value: index === 1 ? 10 : 20 }
+        }
+    },
     presentation: {
         ...instance.presentation,
         placement: index < 2 ? "PRICE_OVERLAY" : "SEPARATE_PANE",
@@ -26,6 +38,7 @@ function Harness() {
     const [type, setType] = useState<"LINE" | "CANDLESTICK">("CANDLESTICK");
     const [prepend, setPrepend] = useState(false);
     const [tick, setTick] = useState(0);
+    const [units, setUnits] = useState(false);
     const lastBar = bars[bars.length - 1];
     if (lastBar === undefined) throw new Error("Missing last controlled Bar");
     const preview =
@@ -102,6 +115,15 @@ function Harness() {
                 }
             },
             "mount / unmount"
+        ),
+        h(
+            "button",
+            {
+                onClick: () => {
+                    setUnits((previous) => !previous);
+                }
+            },
+            "controlled units"
         ),
         ...studies.map((study) =>
             h(
@@ -191,7 +213,22 @@ function Harness() {
                       chartType: type,
                       studyEvidence: initial.map((item) => ({
                           ...evidence,
-                          instanceId: item.instanceId
+                          instanceId: item.instanceId,
+                          configurationKey: JSON.stringify(item.configuration),
+                          points:
+                              item.instanceId === "controlled-1"
+                                  ? evidence.points.map((point) => ({
+                                        ...point,
+                                        value:
+                                            point.value === null ? null : "100.500000000000000001"
+                                    }))
+                                  : evidence.points,
+                          outputUnit:
+                              units && item.instanceId === "controlled-0"
+                                  ? "PERCENT"
+                                  : units && item.instanceId === "controlled-1"
+                                    ? null
+                                    : "PRICE"
                       }))
                   })
                 : null

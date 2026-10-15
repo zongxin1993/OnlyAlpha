@@ -17,6 +17,7 @@ export interface StudySeriesEvidence {
     readonly incarnationKey: string;
     readonly configurationKey: string;
     readonly outputName: string;
+    readonly outputUnit: string | null;
     readonly points: readonly {
         readonly timeNs: string;
         readonly value: string | null;
@@ -25,6 +26,7 @@ export interface StudySeriesEvidence {
     }[];
 }
 export interface StudySeriesProjection {
+    readonly outputUnit: string | null;
     readonly pointsByTime: ReadonlyMap<number, StudySeriesEvidence["points"][number]>;
     /** Separate contiguous lines: native whitespace alone can bridge a gap. */
     readonly segments: readonly (readonly (
@@ -43,6 +45,7 @@ const evidenceShape = z.strictObject({
     incarnationKey: text,
     configurationKey: text,
     outputName: text,
+    outputUnit: text.nullable(),
     points: z.array(
         z.strictObject({
             timeNs: text,
@@ -136,7 +139,10 @@ export function projectStudySeries(
             else run.set(time, { time: time as UTCTimestamp, value });
         }
         flush();
-        return { status: "PROJECTED", projection: { pointsByTime, segments } };
+        return {
+            status: "PROJECTED",
+            projection: { pointsByTime, segments, outputUnit: evidence.outputUnit }
+        };
     } catch (error) {
         return {
             status: "INVALID",

@@ -354,6 +354,18 @@ export async function readChartStudyEvidence(
     const active = () => !signal.aborted && credentials.isCurrent(generation) && current();
     if (!active()) throw new ChartStudyWebError("STALE");
     if (result.query_status === "INPUT_INCOMPLETE") return null;
+    const series = result.series[0];
+    const members = result.calculation.output_members.filter(
+        (member) => member.name === series?.output_name
+    );
+    const output = members[0];
+    if (
+        series === undefined ||
+        output === undefined ||
+        members.length !== 1 ||
+        series.output_name !== request.calculation.output_members[0]
+    )
+        throw new ChartStudyWebError("INVALID");
     const evidence: StudySeriesEvidence = Object.freeze({
         ...binding,
         source: Object.freeze({
@@ -361,9 +373,10 @@ export async function readChartStudyEvidence(
             historyProjectionFingerprint: request.expected_history_projection_fingerprint,
             capabilityProjectionFingerprint: capability.capability_projection_fingerprint
         }),
-        outputName: "value",
+        outputName: series.output_name,
+        outputUnit: output.unit,
         points: Object.freeze(
-            (result.series[0]?.points ?? []).map((point) =>
+            series.points.map((point) =>
                 Object.freeze({
                     timeNs: point.time_ns,
                     value: point.value,

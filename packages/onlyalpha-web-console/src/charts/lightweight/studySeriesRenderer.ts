@@ -17,7 +17,7 @@ interface Resource {
     projection: StudySeriesView | null;
 }
 
-/** One chart, one private pane per instance. Stable refs survive index compaction. */
+/** One chart, one private pane per separate/unknown-unit instance. Stable refs survive index compaction. */
 export class StudySeriesRenderer {
     private readonly resources = new Map<string, Resource>();
     private frame: number | null = null;
@@ -51,13 +51,17 @@ export class StudySeriesRenderer {
                 resource = { lines: [], pane: null, label: null, projection: null };
                 this.resources.set(instance.instanceId, resource);
             }
-            if (instance.presentation.placement === "SEPARATE_PANE" && resource.pane === null) {
+            const priceOverlay =
+                instance.presentation.placement === "PRICE_OVERLAY" &&
+                view.status === "PROJECTED" &&
+                view.projection.outputUnit === "PRICE";
+            if (!priceOverlay && resource.pane === null) {
                 resource.pane = this.chart.addPane(true);
                 resource.pane.setStretchFactor(0.25);
             }
             const destination = resource.pane ?? this.pricePane;
             // Move before deleting the old preserved pane; its index may compact.
-            if (instance.presentation.placement === "PRICE_OVERLAY" && resource.pane !== null) {
+            if (priceOverlay && resource.pane !== null) {
                 for (const line of resource.lines) line.moveToPane(this.pricePane.paneIndex());
                 this.removePane(resource);
             } else for (const line of resource.lines) line.moveToPane(destination.paneIndex());
@@ -85,6 +89,7 @@ export class StudySeriesRenderer {
             resource.lines.forEach((line, index) => {
                 line.applyOptions({
                     color,
+                    priceScaleId: "right",
                     lineWidth: Math.min(
                         4,
                         Math.max(

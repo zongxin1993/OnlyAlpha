@@ -3,7 +3,6 @@ import {
     ColorType,
     LineSeries,
     HistogramSeries,
-    TickMarkType,
     createChart
 } from "lightweight-charts";
 import type {
@@ -11,7 +10,6 @@ import type {
     ISeriesApi,
     LogicalRange,
     MouseEventParams,
-    Time,
     UTCTimestamp
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -37,7 +35,12 @@ import {
     type MarketDataChartBarProjection,
     type MarketDataChartSelection
 } from "./marketDataChartProjection";
-const utcTime = (seconds: number) => new Date(seconds * 1_000).toISOString();
+import {
+    chartTimeFormatters,
+    displayTimezoneKey,
+    isDisplayTimezone,
+    readDisplayTimezone
+} from "./chartDisplayTime";
 type RenderBar = CandlestickData<UTCTimestamp> & { readonly barStartNs?: string };
 const barIdentity = (bar: RenderBar) => bar.barStartNs ?? String(bar.time);
 const noStudies: readonly ChartStudyInstance[] = [];
@@ -83,6 +86,8 @@ export function PriceChart({
     readonly incarnationKey?: string;
     readonly studyEvidence?: readonly StudySeriesEvidence[];
 }) {
+    const [display, setDisplay] = useState(readDisplayTimezone);
+    const volumeColors = useRef({ up: "#c8332a", down: "#2f7d47" });
     const container = useRef<HTMLDivElement>(null);
     const priceSeries = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
     const volumeSeries = useRef<ISeriesApi<"Histogram"> | null>(null);
@@ -176,12 +181,7 @@ export function PriceChart({
             tokens.getPropertyValue(name).trim() || fallback;
         const chart = createChart(element, {
             autoSize: true,
-            localization: {
-                timeFormatter: (time: Time) =>
-                    typeof time === "number"
-                        ? `${utcTime(time).slice(0, 16).replace("T", " ")} UTC`
-                        : ""
-            },
+            localization: { timeFormatter: chartTimeFormatters("UTC").timeFormatter },
             layout: {
                 background: { type: ColorType.Solid, color: token("--surface", "#ffffff") },
                 textColor: token("--muted", "#5f6874"),
@@ -198,16 +198,11 @@ export function PriceChart({
                 secondsVisible: false,
                 shiftVisibleRangeOnNewBar: false,
                 allowShiftVisibleRangeOnWhitespaceReplacement: false,
-                tickMarkFormatter: (time: Time, kind: TickMarkType) => {
-                    if (typeof time !== "number") return null;
-                    const value = utcTime(time);
-                    return kind === TickMarkType.Time || kind === TickMarkType.TimeWithSeconds
-                        ? value.slice(11, 16)
-                        : value.slice(5, 10);
-                }
+                tickMarkFormatter: chartTimeFormatters("UTC").tickMarkFormatter
             }
         });
         chartRef.current = chart;
+        volumeColors.current = { up: token("--up", "#c8332a"), down: token("--down", "#2f7d47") };
         const series = chart.addSeries(CandlestickSeries, {
             upColor: token("--up", "#c8332a"),
             downColor: token("--down", "#2f7d47"),
@@ -227,8 +222,7 @@ export function PriceChart({
             {
                 priceFormat: { type: "volume" },
                 lastValueVisible: false,
-                priceLineVisible: false,
-                color: token("--accent", "#1f5f8b")
+                priceLineVisible: false
             },
             volumePane.paneIndex()
         );
@@ -285,6 +279,14 @@ export function PriceChart({
             chart.remove();
         };
     }, []);
+
+    useEffect(() => {
+        const formatter = chartTimeFormatters(display.zone);
+        chartRef.current?.applyOptions({
+            localization: { timeFormatter: formatter.timeFormatter },
+            timeScale: { tickMarkFormatter: formatter.tickMarkFormatter }
+        });
+    }, [display.zone]);
 
     useEffect(() => {
         const chart = chartRef.current;
@@ -425,7 +427,14 @@ export function PriceChart({
             )
         );
         volumeSeries.current?.setData(
-            displayedProduct.map((bar) => ({ time: bar.time, value: bar.numeric.volume }))
+            displayedProduct.map((bar) => ({
+                time: bar.time,
+                value: bar.numeric.volume,
+                color:
+                    bar.numeric.close >= bar.numeric.open
+                        ? volumeColors.current.up
+                        : volumeColors.current.down
+            }))
         );
         if (container.current !== null) {
             container.current.dataset.volumePointCount = String(displayedProduct.length);
@@ -475,7 +484,19 @@ export function PriceChart({
     return (
         <div className="price-chart-surface">
             <div className="study-hover" aria-label="指标悬浮信息">
-                <span>Volume · 正式 Market Data Bars</span>
+                <span aria-label="成交量悬浮信息">
+                    Volume · 正式 Market Data Bars ·{" "}
+                    {hover.context === contextKey &&
+                    hover.incarnation === incarnationKey &&
+                    hover.time !== null
+                        ? ((liveBar !== null &&
+                          liveBar.time === hover.time &&
+                          liveBar.time >= (productBars.at(-1)?.time ?? -Infinity)
+                              ? liveBar
+                              : productBars.find((bar) => bar.time === hover.time)
+                          )?.volume ?? "此时间无对应结果")
+                        : "请移动十字线查看精确点"}
+                </span>
                 {studies
                     .filter(
                         (instance) =>
@@ -493,6 +514,12 @@ export function PriceChart({
                             >
                                 {studyDescriptor(instance.selection).typeId} ·{" "}
                                 {instance.configuration.outputName} ·{" "}
+                                {view.status === "PROJECTED"
+                                    ? view.projection.outputUnit === "PRICE"
+                                        ? "PRICE"
+                                        : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
+                                    : "无有效结果"}{" "}
+                                ·{" "}
                                 {studyHover(
                                     view,
                                     hover.context === contextKey &&
@@ -514,6 +541,31 @@ export function PriceChart({
                     setHover({ context: contextKey, incarnation: incarnationKey, time: null });
                 }}
             />
+            <div className="chart-display-controls">
+                {display.notice !== "" && <span role="status">{display.notice}</span>}
+                <label>
+                    显示时区{" "}
+                    <select
+                        aria-label="显示时区"
+                        value={display.zone}
+                        onChange={(event) => {
+                            const zone = event.target.value;
+                            if (!isDisplayTimezone(zone)) return;
+                            let notice = "";
+                            try {
+                                localStorage.setItem(displayTimezoneKey, zone);
+                            } catch {
+                                notice = "无法保存时区偏好；仅本次显示生效";
+                            }
+                            setDisplay({ zone, notice });
+                        }}
+                    >
+                        <option value="UTC">UTC</option>
+                        <option value="Asia/Shanghai">北京时间</option>
+                        <option value="USER_LOCAL">本地时区</option>
+                    </select>
+                </label>
+            </div>
         </div>
     );
 }

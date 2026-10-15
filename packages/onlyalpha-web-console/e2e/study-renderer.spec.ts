@@ -59,7 +59,7 @@ for (const width of [1440, 1024, 390]) {
             volumeBox.y + volumeBox.height * 0.5
         );
         await expect(page.getByTestId("study-hover").first()).toContainText(
-            "102.000000000000000001"
+            "100.500000000000000001"
         );
         await page.getByRole("button", { name: "chart type", exact: true }).click();
         await expect(chart).toHaveAttribute("data-chart-type", "LINE");
@@ -71,7 +71,13 @@ for (const width of [1440, 1024, 390]) {
         );
         await test.info().attach("controlled-renderer", {
             contentType: "image/png",
-            body: await page.screenshot()
+            body: await page.screenshot({
+                path: test
+                    .info()
+                    .outputPath(
+                        `controlled-${String(width)}-${String(test.info().attachments.length)}.png`
+                    )
+            })
         });
         await page.getByRole("button", { name: "change context", exact: true }).click();
         await expect(chart).toHaveAttribute("data-study-series-count", "0");
@@ -110,3 +116,99 @@ test("CONTROLLED_TEST_EVIDENCE repeated preview with studies does not drift the 
         expect(await readRange()).toEqual(first);
     }
 });
+
+for (const width of [1440, 1024, 390]) {
+    test(`CONTROLLED_TEST_EVIDENCE unit axes, volume colors and display timezone at ${String(width)}px`, async ({
+        page
+    }) => {
+        const requests: string[] = [],
+            errors: string[] = [];
+        page.on("request", (request) => {
+            if (new URL(request.url()).pathname.startsWith("/api/")) requests.push(request.url());
+        });
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.setViewportSize({ width, height: 1000 });
+        await page.goto("http://127.0.0.1:4180/e2e/support/study-renderer.html");
+        const chart = page.getByTestId("price-chart");
+        await expect(chart).toHaveAttribute("data-pane-count", "4");
+        await expect(chart).toHaveAttribute("data-study-series-count", "8");
+        const from = await chart.getAttribute("data-visible-range-from");
+        const to = await chart.getAttribute("data-visible-range-to");
+        const box = await chart.locator("canvas").first().boundingBox();
+        if (!box || box.height < 100) throw new Error("Native price canvas must remain usable");
+        const select = page.getByRole("combobox", { name: "显示时区" });
+        await expect(select).toHaveValue("UTC");
+        await select.focus();
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("Enter");
+        await expect(select).toHaveValue("Asia/Shanghai");
+        await page.keyboard.press("Escape");
+        await expect(chart).toHaveAttribute("data-visible-range-from", from ?? "");
+        await expect(chart).toHaveAttribute("data-visible-range-to", to ?? "");
+        await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.5);
+        await expect(page.getByTestId("study-hover").first()).toContainText(
+            "102.000000000000000001"
+        );
+        await expect(page.getByTestId("study-hover").first()).toContainText("UTC ns");
+        await expect(page.getByLabel("成交量悬浮信息")).toContainText("2.1234567890123456789");
+        // Read native paint pixels only: no renderer state or product state injection.
+        const volumeColors = await chart
+            .locator("canvas")
+            .nth(4)
+            .evaluate((element) => {
+                const canvas = element as HTMLCanvasElement;
+                const pixels = canvas
+                    .getContext("2d")
+                    ?.getImageData(0, 0, canvas.width, canvas.height).data;
+                let up = 0,
+                    down = 0;
+                if (pixels)
+                    for (let i = 0; i < pixels.length; i += 4) {
+                        if (pixels[i] === 200 && pixels[i + 1] === 51 && pixels[i + 2] === 42) up++;
+                        if (pixels[i] === 47 && pixels[i + 1] === 125 && pixels[i + 2] === 71)
+                            down++;
+                    }
+                return { up, down };
+            });
+        expect(volumeColors.up).toBeGreaterThan(20);
+        expect(volumeColors.down).toBeGreaterThan(20);
+        await test.info().attach(`task2-price-volume-timezone-${String(width)}`, {
+            contentType: "image/png",
+            body: await page.screenshot({
+                path: test
+                    .info()
+                    .outputPath(
+                        `controlled-${String(width)}-${String(test.info().attachments.length)}.png`
+                    )
+            })
+        });
+        await select.selectOption("USER_LOCAL");
+        await expect(select).toHaveValue("USER_LOCAL");
+        await page.getByRole("button", { name: "controlled units", exact: true }).click();
+        await expect(chart).toHaveAttribute("data-pane-count", "6");
+        await expect(page.getByTestId("study-hover").first()).toContainText("PERCENT · 独立纵轴");
+        await expect(page.getByTestId("study-hover").nth(1)).toContainText("单位未知 · 独立纵轴");
+        await expect(chart).toHaveAttribute("data-study-series-count", "8");
+        await test.info().attach(`task2-independent-units-${String(width)}`, {
+            contentType: "image/png",
+            body: await page.screenshot({
+                path: test
+                    .info()
+                    .outputPath(
+                        `controlled-${String(width)}-${String(test.info().attachments.length)}.png`
+                    )
+            })
+        });
+        await page.getByRole("button", { name: "preview tick", exact: true }).click();
+        await expect(chart).toHaveAttribute("data-volume-point-count", "81");
+        await expect(chart).toHaveAttribute("data-volume-latest", "2.1234567890123456789");
+        await expect(select).toBeVisible();
+        const selectBox = await select.boundingBox();
+        expect(selectBox?.height ?? 0).toBeGreaterThanOrEqual(width === 390 ? 44 : 20);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+            width
+        );
+        expect(requests).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
