@@ -1,3 +1,4 @@
+import { WatchlistPanel } from "./WatchlistPanel";
 import { formatMarketDataDelay } from "./marketDataTiming";
 import { useState } from "react";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
@@ -536,33 +537,15 @@ export function WorkspacePage() {
                 </div>
                 <div className="panel-scroll">
                     {panelTab === "watchlist" ? (
-                        realInstrument === null ? (
-                            <p className="panel-note">选择真实标的后显示当前行情</p>
-                        ) : (
-                            <table className="data-table">
-                                <caption className="visually-hidden">当前标的行情</caption>
-                                <thead>
-                                    <tr>
-                                        <th scope="col">标的</th>
-                                        <th scope="col">K 线收盘</th>
-                                        <th scope="col">状态</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td className="value">{realInstrument.instrument_id}</td>
-                                        <td className="value">{latestBar?.close ?? "—"}</td>
-                                        <td>
-                                            {latestBar == null
-                                                ? "不可用"
-                                                : latestBar.closed
-                                                  ? "已关闭"
-                                                  : "实时预览"}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        )
+                        <WatchlistPanel
+                            sources={marketData.selectableSources}
+                            onRefreshSources={marketData.refreshSources}
+                            enabled={true}
+                            onSelect={marketData.selectWatchlistInstrument}
+                            onPrepare={(source, instrumentId) =>
+                                marketData.selectWatchlistInstrument(source, instrumentId, true)
+                            }
+                        />
                     ) : inspector.length === 0 ? (
                         <p className="panel-note">尚未选择行情上下文</p>
                     ) : (

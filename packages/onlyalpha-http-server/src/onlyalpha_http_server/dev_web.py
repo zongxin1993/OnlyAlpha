@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import secrets
 from collections.abc import Callable
 from pathlib import Path
@@ -196,12 +197,24 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
             await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
             return
         acquisition = is_http and scope["method"] == "POST" and path == "/api/v2/market-data/acquisitions"
-        if acquisition:
+        watchlist = is_http and (
+            path == "/api/v2/watchlists" or re.fullmatch(r"/api/v2/watchlists/commands/[0-9a-f-]{36}", path) is not None
+        )
+        watchlist_write = watchlist and path == "/api/v2/watchlists" and scope["method"] == "PUT"
+        bounded_command = acquisition or watchlist_write
+        bounded_work = bounded_command or watchlist
+        if watchlist and self._reads >= MAX_READS:
+            await self._deny(scope, receive, guarded_send, "LOCAL_READ_CAPACITY_EXCEEDED")
+            return
+        if watchlist and scope["method"] in {"GET", "PUT"}:
+            # Explicit local Owner configuration permission; never inferred from Source read grants.
+            scope["onlyalpha.watchlist_owner_session"] = session
+        if bounded_command:
             lengths = headers.get(b"content-length", [])
             if (
                 len(lengths) != 1
                 or not lengths[0].isdigit()
-                or not 0 < int(lengths[0]) <= MAX_CONTROL_BYTES
+                or not 0 < int(lengths[0]) <= (128 * 1024 if watchlist_write else MAX_CONTROL_BYTES)
                 or headers.get(b"content-type") != [b"application/json"]
                 or b"transfer-encoding" in headers
                 or scope.get("query_string")
@@ -213,7 +226,8 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
                 return
             # This exact dev-human Command policy is independent of read grants.
             # The owning service still proves the exact Source before any write.
-            scope["onlyalpha.dev_acquisition_session"] = session
+            if acquisition:
+                scope["onlyalpha.dev_acquisition_session"] = session
         elif path.startswith(("/api/v2/market-data/", "/api/v2/market/", "/api/v2/chart/")):
             if not is_http:
                 scope["onlyalpha.local_read_generation_withdrawn"] = self._source_withdrawn
@@ -223,7 +237,7 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
         integration = path == "/api/v2/integrations" or path.startswith("/api/v2/integrations/")
         if is_http and (
             scope["method"] == "GET"
-            or acquisition
+            or bounded_command
             or (integration and scope["method"] in {"POST", "PUT", "PATCH", "DELETE"})
         ):
             started = False
@@ -249,7 +263,7 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
             # their owning Authority, but withdrawal suppresses subsequent release.
             async def work() -> None:
                 application_receive = receive
-                if acquisition:
+                if bounded_command:
                     payload = bytearray()
                     deadline = asyncio.get_running_loop().time() + HANDSHAKE_SECONDS
                     try:
@@ -266,7 +280,10 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
                                 break
                         if len(payload) != int(lengths[0]):
                             raise ValueError
-                        if not isinstance(only_decode_local_control(payload.decode("utf-8")), dict):
+                        decoded = only_decode_local_control(
+                            payload.decode("utf-8"), max_bytes=128 * 1024 if watchlist_write else MAX_CONTROL_BYTES
+                        )
+                        if not isinstance(decoded, dict):
                             raise ValueError
                     except (ValueError, UnicodeError, TimeoutError):
                         await self._deny(scope, receive, guarded_send, "LOCAL_READ_FORBIDDEN")
@@ -286,7 +303,7 @@ class OnlyDevWebIngress(OnlyLocalReadIngress):
                 if suppressed and not started and not detached.is_set():
                     await self._deny(scope, receive, guarded_send, "LOCAL_READ_UNAUTHORIZED")
 
-            if acquisition:
+            if bounded_work:
                 self._reads += 1
                 await self._retain_work(work(), detached, stream=False)
             else:

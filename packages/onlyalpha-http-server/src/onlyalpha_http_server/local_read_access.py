@@ -30,7 +30,14 @@ HANDSHAKE_SECONDS = 5
 MAX_READS = 4
 MAX_STREAMS = 4
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-_READ_PATHS = frozenset({"/api/v2/market-data/sources", "/api/v2/market/instruments", "/api/v2/market-data/bars"})
+_READ_PATHS = frozenset(
+    {
+        "/api/v2/market-data/sources",
+        "/api/v2/market/instruments",
+        "/api/v2/market-data/bars",
+        "/api/v2/market-data/latest-bar",
+    }
+)
 _HEALTH_PATHS = frozenset({"/health/live", "/health/ready"})
 MAX_CHART_QUERY_BYTES = 64 * 1024
 CHART_QUERY_SECONDS = 10
@@ -44,8 +51,8 @@ def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return dict(pairs)
 
 
-def only_decode_local_control(text: str) -> object:
-    if len(text.encode("utf-8")) > MAX_CONTROL_BYTES:
+def only_decode_local_control(text: str, *, max_bytes: int = MAX_CONTROL_BYTES) -> object:
+    if len(text.encode("utf-8")) > max_bytes:
         raise ValueError("LOCAL_READ_CONTROL_INVALID")
     return json.loads(text, object_pairs_hook=_strict_object)
 

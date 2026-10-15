@@ -592,6 +592,57 @@ class OnlyMarketDataProductService:
             ),
         )
 
+    def query_latest_bar(
+        self,
+        reference: OnlyMarketDataSourceReferenceV1,
+        *,
+        instrument_id: str,
+        bar_semantic: OnlyBarSemantic = BASE_BAR_SEMANTIC,
+        read_session: OnlySourceReadSession | None = None,
+    ) -> OnlyMarketDataBarWindowProjectionV1 | None:
+        """Latest available sealed native close; metadata selects, existing range proof admits.
+
+        None means no sealed history in this exact family, never absence of market facts.
+        No acquisition, stream opening, or older-Revision substitution is permitted.
+        """
+        with only_market_data_performance("QUERY"):
+            resolved = self.resolve_read_runtime(reference, read_session=read_session)
+            semantic = only_product_bar_semantic(bar_semantic)
+            plan = self._plan(resolved, instrument_id, semantic)
+            if plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE or plan.provider_semantic is None:
+                raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID")
+            grid_ns = plan.provider_semantic.stride_minutes * MINUTE_NS
+            start_ns = plan.grid_origin_ns % grid_ns
+            closed_ns = plan.grid_origin_ns + (self._clock.timestamp_ns() - plan.grid_origin_ns) // grid_ns * grid_ns
+            if closed_ns <= start_ns:
+                return None
+            scope = self._scope(resolved, instrument_id, start_ns, closed_ns, plan)
+            family = OnlyMarketDataRangeFamily.from_scope(scope)
+            try:
+                revisions = self._catalog.list_current_sealed_revisions_overlapping(family, start_ns, closed_ns)
+                if any(OnlyMarketDataRangeFamily.from_scope(item.scope) != family for item in revisions):
+                    raise ValueError("MARKET_DATA_REVISION_FAMILY_MISMATCH")
+                if not revisions:
+                    return None
+                before_ns = max(min(item.scope.end_ns, closed_ns) for item in revisions)
+                projection = self._read_bar_window(
+                    resolved,
+                    instrument_id=instrument_id,
+                    anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
+                    target_bar_count=1,
+                    before_ns=before_ns,
+                    semantic=semantic,
+                    plan=plan,
+                    query_started=perf_counter_ns(),
+                )
+                if projection.coverage.status != "COMPLETE" or len(projection.bars) != 1:
+                    raise OnlyMarketDataProductError("MARKET_DATA_RANGE_EVIDENCE_UNAVAILABLE")
+                return projection
+            except OnlyMarketDataProductError:
+                raise
+            except Exception as error:
+                raise OnlyMarketDataProductError("MARKET_DATA_RANGE_EVIDENCE_UNAVAILABLE") from error
+
     def query_bars(
         self,
         reference: OnlyMarketDataSourceReferenceV1,

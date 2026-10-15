@@ -64,7 +64,7 @@ it("exposes honest unconnected watchlist, inspector, runs, results and backtest 
     const user = userEvent.setup();
     renderWorkspace();
     const contextPanel = screen.getByRole("complementary", { name: "上下文面板" });
-    expect(within(contextPanel).getByText("选择真实标的后显示当前行情")).toBeInTheDocument();
+    expect(within(contextPanel).getByRole("region", { name: "自选列表管理" })).toBeInTheDocument();
     await user.click(within(contextPanel).getByRole("button", { name: "检查器" }));
     expect(within(contextPanel).getByText("尚未选择行情上下文")).toBeInTheDocument();
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });

@@ -31,7 +31,15 @@ def exact_host_environment(tmp_path_factory):
 
     root = tmp_path_factory.mktemp("exact-chart-host")
     repository = Path(__file__).resolve().parents[2]
-    postgres_dependencies = ("psycopg", "psycopg-binary", "typing-extensions", "cryptography", "cffi", "pycparser")
+    postgres_dependencies = (
+        "psycopg",
+        "psycopg-binary",
+        "typing-extensions",
+        "cryptography",
+        "cffi",
+        "pycparser",
+        "filelock",
+    )
     wheels = [
         build_wheel(repository, root / "core"),
         build_wheel(repository / "packages/onlyalpha-runtime-generation-manager", root / "manager"),

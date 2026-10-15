@@ -87,6 +87,11 @@ export interface MarketDataChartState {
     readonly refreshSources: () => void;
     readonly searchInstruments: (query: string) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
+    readonly selectWatchlistInstrument: (
+        source: MarketDataSourceReference,
+        instrumentId: string,
+        prepare?: boolean
+    ) => Promise<void>;
     readonly selectBarDuration: (durationMinutes: number) => Promise<void>;
     readonly loadOlderHistory: () => Promise<void>;
 }
@@ -110,6 +115,8 @@ export function useMarketDataChart(): MarketDataChartState {
     }, []);
     const [sourceId, setSourceId] = useState("");
     const selectedSourceId = useRef("");
+    const [watchlistSource, setWatchlistSource] = useState<MarketDataSourceReference | null>(null);
+    const watchlistSourceRef = useRef<MarketDataSourceReference | null>(null);
     const [instruments, setInstruments] = useState<readonly MarketDataInstrument[]>([]);
     const [instrument, setInstrument] = useState<MarketDataInstrument | null>(null);
     const [barSemantic, setBarSemantic] = useState(marketDataBarSemantic(15));
@@ -153,8 +160,16 @@ export function useMarketDataChart(): MarketDataChartState {
 
     const selectableSources = sources;
     const selectedSource = useMemo(
-        () => selectableSources.find((item) => item.integration_id === sourceId) ?? null,
-        [selectableSources, sourceId]
+        () =>
+            selectableSources.find(
+                (item) =>
+                    item.integration_id === sourceId &&
+                    (watchlistSource === null ||
+                        (item.integration_revision_fingerprint ===
+                            watchlistSource.integration_revision_fingerprint &&
+                            item.type_id === watchlistSource.expected_type_id))
+            ) ?? null,
+        [selectableSources, sourceId, watchlistSource]
     );
     const reference = useMemo(
         () => (selectedSource === null ? null : onlyMarketDataSourceReference(selectedSource)),
@@ -197,6 +212,8 @@ export function useMarketDataChart(): MarketDataChartState {
         setOlderHistoryMessage(error.code);
     }, []);
 
+    const automaticPreparation = useRef(true);
+
     const publishCompleteHistory = useCallback(
         (
             active: MarketDataSourceReference,
@@ -226,7 +243,7 @@ export function useMarketDataChart(): MarketDataChartState {
                       }
                     : null;
             olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
-                readOnly: credentials.capture().bearer !== null,
+                readOnly: credentials.capture().bearer !== null || !automaticPreparation.current,
                 client,
                 reference: active,
                 expectedSourceId,
@@ -404,9 +421,13 @@ export function useMarketDataChart(): MarketDataChartState {
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
-                if (credentials.capture().bearer !== null) {
+                if (credentials.capture().bearer !== null || !automaticPreparation.current) {
                     setStatus("failed");
-                    setMessage("只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集");
+                    setMessage(
+                        credentials.capture().bearer !== null
+                            ? "只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集"
+                            : "行情覆盖不足；请明确选择准备行情，本次选择不会自动采集"
+                    );
                     return;
                 }
                 await acquire(
@@ -438,6 +459,20 @@ export function useMarketDataChart(): MarketDataChartState {
             setStreamId(null);
             if (reference !== null && selectedSource !== null && instrument !== null)
                 void load(reference, selectedSource.source_id, instrument, barSemantic, generation);
+            else if (watchlistSourceRef.current !== null) {
+                ledger.current = null;
+                olderHistoryLoader.current = null;
+                setLedgerSnapshot(null);
+                setCoverage(null);
+                setHistoryProjectionFingerprint(null);
+                setResolvedSourceId(null);
+                setOlderHistoryStatus("idle");
+                setOlderHistoryMessage(null);
+                setRealtimeStatus("disabled");
+                setTiming(null);
+                setStatus("failed");
+                setMessage("自选绑定的数据源不可用；请明确重新绑定，不会自动换源");
+            }
         }
         previousRevision.current = revision;
     }, [reference, selectedSource, instrument, barSemantic, load]);
@@ -696,14 +731,24 @@ export function useMarketDataChart(): MarketDataChartState {
         status
     ]);
 
-    const selectSource = useCallback((integrationId: string) => {
-        if (integrationId !== "" && integrationId === selectedSourceId.current) return;
+    const selectSource = useCallback((integrationId: string, preservePeriod = false) => {
+        if (
+            integrationId !== "" &&
+            integrationId === selectedSourceId.current &&
+            (preservePeriod || watchlistSourceRef.current === null)
+        )
+            return;
+        if (!preservePeriod) {
+            watchlistSourceRef.current = null;
+            setWatchlistSource(null);
+            automaticPreparation.current = true;
+        }
         selectedSourceId.current = integrationId;
         searchGeneration.current += 1;
         streamGeneration.current += 1;
         historyGeneration.current += 1;
         setSourceId(integrationId);
-        setBarSemantic(marketDataBarSemantic(15));
+        if (!preservePeriod) setBarSemantic(marketDataBarSemantic(15));
         setInstruments([]);
         setInstrument(null);
         setCoverage(null);
@@ -749,7 +794,11 @@ export function useMarketDataChart(): MarketDataChartState {
                 );
                 // Preserve a user's exact still-available choice, not a new default
                 // or an old response's choice after management changed the catalog.
-                if (found.some((item) => item.integration_id === selectedSourceId.current)) return;
+                if (
+                    watchlistSourceRef.current !== null ||
+                    found.some((item) => item.integration_id === selectedSourceId.current)
+                )
+                    return;
                 const matches = found.filter(
                     (item) =>
                         item.type_id === DEFAULT_SOURCE_TYPE &&
@@ -769,7 +818,7 @@ export function useMarketDataChart(): MarketDataChartState {
             .catch((error: unknown) => {
                 if (controller.signal.aborted) return;
                 setSources([]);
-                selectSource("");
+                if (watchlistSourceRef.current === null) selectSource("");
                 apply(error);
                 if (error instanceof MarketDataWebError && error.code === "TRANSPORT_ERROR")
                     setMessage("行情服务不可用：TRANSPORT_ERROR");
@@ -879,6 +928,11 @@ export function useMarketDataChart(): MarketDataChartState {
                 realtimeStatus !== "failed"
             )
                 return;
+            if (target.instrument_id !== instrument?.instrument_id) {
+                watchlistSourceRef.current = null;
+                setWatchlistSource(null);
+                automaticPreparation.current = true;
+            }
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
             setLastClosedCursor(null);
@@ -895,6 +949,59 @@ export function useMarketDataChart(): MarketDataChartState {
             await load(reference, selectedSource.source_id, target, barSemantic, generation);
         },
         [barSemantic, instrument, load, realtimeStatus, reference, selectedSource, status]
+    );
+
+    const selectWatchlistInstrument = useCallback(
+        async (active: MarketDataSourceReference, instrumentId: string, prepare = false) => {
+            const source = sources.find(
+                (item) =>
+                    item.integration_id === active.integration_id &&
+                    item.integration_revision_fingerprint ===
+                        active.integration_revision_fingerprint &&
+                    item.type_id === active.expected_type_id
+            );
+            if (source === undefined) {
+                setMessage("自选绑定的数据源不可用；请明确重新绑定，不会自动换源");
+                return;
+            }
+            const minutes =
+                barSemantic.formation.kind === "FIXED_DURATION"
+                    ? barSemantic.formation.window_minutes
+                    : 0;
+            if (
+                minutes < source.time_bar_capability.minimum_window_minutes ||
+                minutes > source.time_bar_capability.maximum_window_minutes
+            ) {
+                setMessage("该数据源不支持当前图表周期；请先明确修改周期");
+                return;
+            }
+            const search = ++searchGeneration.current;
+            const history = historyGeneration.current;
+            try {
+                const found = await client.listInstruments(active, "", undefined, [instrumentId]);
+                if (search !== searchGeneration.current || history !== historyGeneration.current)
+                    return;
+                const target = found.find((item) => item.instrument_id === instrumentId);
+                if (found.length !== 1 || target === undefined)
+                    throw new MarketDataWebError("CONTRACT_ERROR", "未取得 exact 自选标的");
+                automaticPreparation.current = prepare;
+                selectSource(source.integration_id, true);
+                watchlistSourceRef.current = active;
+                setWatchlistSource(active);
+                streamGeneration.current++;
+                const generation = ++historyGeneration.current;
+                setLastClosedCursor(null);
+                resume.current = null;
+                setStreamId(null);
+                setStreamError(null);
+                setRealtimeStatus("disabled");
+                setInstrument(target);
+                await load(active, source.source_id, target, barSemantic, generation);
+            } catch (error) {
+                if (search === searchGeneration.current) apply(error);
+            }
+        },
+        [apply, barSemantic, client, load, selectSource, sources]
     );
 
     const selectBarDuration = useCallback(
@@ -981,7 +1088,7 @@ export function useMarketDataChart(): MarketDataChartState {
         selectableSources,
         reference,
         resolvedSourceId,
-        sourceId,
+        sourceId: watchlistSource !== null && selectedSource === null ? "" : sourceId,
         instruments,
         instrument,
         barSemantic,
@@ -1005,6 +1112,7 @@ export function useMarketDataChart(): MarketDataChartState {
         refreshSources,
         searchInstruments,
         selectInstrument,
+        selectWatchlistInstrument,
         selectBarDuration,
         loadOlderHistory
     };

@@ -67,6 +67,7 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyPromotionProductService,
     OnlyStrategyQueryService,
 )
+from onlyalpha.application.watchlists import OnlyWatchlistService
 from onlyalpha.backtest import (
     OnlyBacktestAdmissionService,
     OnlyBacktestCommandService,
@@ -118,6 +119,7 @@ from onlyalpha.persistence.postgres.private_strategy_research_composition_store 
 )
 from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
 from onlyalpha.persistence.postgres.strategy_product_store import OnlyPostgresStrategyProductStore
+from onlyalpha.persistence.postgres.watchlist_store import OnlyPostgresWatchlistStore
 from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
 from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
 from onlyalpha.quant_assets.private_strategy_composition import (
@@ -1156,6 +1158,12 @@ def main(argv: Sequence[str] | None = None, *, _contained_dev: bool = False) -> 
             local_read_configuration=local_read_configuration,
             calculation_composition=calculation_composition,
             dev_web_configuration=dev_web_configuration,
+            watchlists=OnlyWatchlistService(
+                OnlyPostgresWatchlistStore(
+                    postgres.dsn, OnlyResearchSemanticStoreIdentity(layout.research_root).load_verified()
+                ),
+                market_data,
+            ),
         )
         if args.dev_web_root is not None:
             assert dev_credential is not None

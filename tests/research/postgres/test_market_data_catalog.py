@@ -324,6 +324,7 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
         "0048_chart_calculation_run_admission",
         "0049_chart_native_publication_permissions",
         "0050_chart_native_execution_entry",
+        "0051_watchlist_configuration",
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
     loaded = catalog.load_acquisition_intent(acquisition_id)

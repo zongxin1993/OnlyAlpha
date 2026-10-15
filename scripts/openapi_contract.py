@@ -18,6 +18,7 @@ from onlyalpha_http_server.agent_gateway import OnlyAgentNodeGateway
 from onlyalpha_http_server.chart_studies.routes import create_chart_study_router
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
+from onlyalpha_http_server.watchlists.routes import create_watchlist_router
 
 from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
 from onlyalpha.application.chart_study_product_query import OnlyChartStudyProductQueryService
@@ -41,6 +42,7 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyPromotionProductService,
     OnlyStrategyQueryService,
 )
+from onlyalpha.application.watchlists import OnlyWatchlistService
 from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
@@ -368,6 +370,7 @@ def render_document() -> JsonObject:
             integration_operational_queries=cast(Any, object()),
             market_data=cast(OnlyMarketDataProductService, object()),
         )
+        app.include_router(create_watchlist_router(cast(OnlyWatchlistService, object())))
         # Document the conditional protected family without admitting a runtime
         # installation or exposing these routes in anonymous Product composition.
         app.include_router(create_chart_study_router(cast(OnlyChartStudyProductQueryService, object())))

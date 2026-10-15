@@ -71,6 +71,7 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyPromotionProductService,
     OnlyStrategyQueryService,
 )
+from onlyalpha.application.watchlists import OnlyWatchlistError, OnlyWatchlistService
 from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
 from onlyalpha.backtest.errors import (
     OnlyBacktestError,
@@ -171,6 +172,7 @@ from .research.search_provenance_routes import (
 from .search import SEARCH_ROUTE_TAG, OnlySearchProductHttpBoundary, create_search_router
 from .search.schema import SearchErrorDto, SearchErrorEnvelopeDto
 from .strategy.routes import STRATEGY_ROUTE_TAG, create_strategy_router
+from .watchlists.routes import create_watchlist_router, watchlist_error_response
 
 
 def _artifact_validation_error_response() -> JSONResponse:
@@ -236,6 +238,7 @@ def _request_route_tag(request: Request) -> str | None:
             INTEGRATION_TYPE_ROUTE_TAG,
             INTEGRATION_ROUTE_TAG,
             MARKET_DATA_ROUTE_TAG,
+            "watchlists",
         }
     )
     return known[0] if len(known) == 1 else None
@@ -285,6 +288,7 @@ def create_research_app(
     local_read_configuration: OnlyLocalReadConfiguration | None = None,
     calculation_composition: OnlyProductCalculationComposition | None = None,
     dev_web_configuration: OnlyLocalReadConfiguration | None = None,
+    watchlists: OnlyWatchlistService | None = None,
 ) -> FastAPI:
     if local_read_configuration is not None and dev_web_configuration is not None:
         raise ValueError("DEV_WEB_ACCESS_MODES_CONFLICT")
@@ -330,6 +334,14 @@ def create_research_app(
         )
     if chart_study is not None:
         app.include_router(create_chart_study_router(chart_study))
+    if watchlists is not None:
+        app.include_router(create_watchlist_router(watchlists))
+
+    async def watchlist_error_handler(_request: Request, error: Exception) -> JSONResponse:
+        assert isinstance(error, OnlyWatchlistError)
+        return watchlist_error_response(error)
+
+    app.add_exception_handler(OnlyWatchlistError, watchlist_error_handler)
     artifact_service = OnlyResearchQueryService(reader)
 
     @app.exception_handler(OnlySourceReadAccessError)
@@ -599,6 +611,8 @@ def create_research_app(
             )
         if family == INTEGRATION_ROUTE_TAG:
             return await integration_request_validation_error_response(request, error)
+        if family == "watchlists":
+            return watchlist_error_response(OnlyWatchlistError("WATCHLIST_INVALID"))
         if family == MARKET_DATA_ROUTE_TAG:
             return market_data_request_validation_error_response()
         if family in {STRATEGY_ROUTE_TAG, BACKTEST_ROUTE_TAG}:
@@ -797,6 +811,7 @@ def create_product_app(
     local_read_configuration: OnlyLocalReadConfiguration | None = None,
     calculation_composition: OnlyProductCalculationComposition | None = None,
     dev_web_configuration: OnlyLocalReadConfiguration | None = None,
+    watchlists: OnlyWatchlistService | None = None,
 ) -> FastAPI:
     if (
         integration_types is None
@@ -844,6 +859,7 @@ def create_product_app(
         local_read_configuration,
         calculation_composition,
         dev_web_configuration,
+        watchlists,
     )
     app.title = "OnlyAlpha Product API"
     return app

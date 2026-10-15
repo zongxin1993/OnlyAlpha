@@ -81,11 +81,13 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
         expected_type_id: str | None = None,
         query: str = "",
         limit: int = Query(default=25, ge=1, le=25),
+        instrument_ids: Annotated[list[str] | None, Query(max_length=25)] = None,
     ) -> MarketDataInstrumentListDto:
         return MarketDataInstrumentListDto.from_model(
             service.list_instruments(
                 _reference(integration_id, integration_revision_fingerprint, expected_type_id),
                 query=query,
+                **({"instrument_ids": tuple(instrument_ids)} if instrument_ids else {}),
                 limit=limit,
                 read_session=only_request_read_session(request.scope),
             )
@@ -123,6 +125,28 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
             )
             with only_market_data_phase("serialization_projection"):
                 return MarketDataBarWindowDto.from_model(projection)
+
+    @router.get(
+        "/api/v2/market-data/latest-bar",
+        response_model=MarketDataBarWindowDto | None,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
+    def latest_bar(
+        request: Request,
+        integration_id: str,
+        integration_revision_fingerprint: str,
+        instrument_id: str,
+        bar_semantic: str,
+        expected_type_id: str | None = None,
+    ) -> MarketDataBarWindowDto | None:
+        projection = service.query_latest_bar(
+            _reference(integration_id, integration_revision_fingerprint, expected_type_id),
+            instrument_id=instrument_id,
+            bar_semantic=MarketDataBarSemanticDto.model_validate_json(bar_semantic).to_model(),
+            read_session=only_request_read_session(request.scope),
+        )
+        return None if projection is None else MarketDataBarWindowDto.from_model(projection)
 
     @router.post(
         "/api/v2/market-data/acquisitions",

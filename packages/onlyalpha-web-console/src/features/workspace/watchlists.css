@@ -1,0 +1,76 @@
+.watchlists {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+.watchlists fieldset {
+    display: grid;
+    gap: 10px;
+    border: 0;
+    padding: 0;
+    min-width: 0;
+}
+.watchlists form {
+    display: grid;
+    gap: 6px;
+}
+.watchlists label {
+    display: grid;
+    gap: 4px;
+}
+.watchlists input,
+.watchlists select {
+    min-width: 0;
+    max-width: 100%;
+}
+.watchlists small {
+    display: block;
+    color: var(--muted);
+}
+.watchlists__rows {
+    max-height: 45vh;
+    overflow: auto;
+}
+.watchlists__rows button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+.watchlists__status {
+    overflow-wrap: anywhere;
+}
+
+.watchlists__rows table {
+    width: 100%;
+    table-layout: fixed;
+}
+.watchlists__rows caption {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.watchlists__rows th,
+.watchlists__rows td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+}
+.watchlists__rows th:first-child {
+    width: 44%;
+}
+.watchlists__rows button {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 5px;
+    margin-top: 4px;
+    white-space: normal;
+    font-size: 11px;
+}
+.watchlists__member-actions {
+    display: flex;
+    gap: 3px;
+}
+.watchlists__member-actions button {
+    width: auto;
+    flex: 1;
+}

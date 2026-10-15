@@ -37,6 +37,7 @@ from tests.research.postgres.test_chart_native_publication_permissions import ru
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 _MIGRATION = "0050_chart_native_execution_entry"
+_FORWARD = (_MIGRATION, "0051_watchlist_configuration")
 _CLAIM = "public.chart_native_claim_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,interval,integer,timestamptz)"
 _HEARTBEAT = "public.chart_native_heartbeat_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,integer,interval)"
 
@@ -534,7 +535,7 @@ def test_forward_entry_migration_is_atomic_and_previous_reader_reports_ahead(
         assert connection.execute(
             "SELECT count(*) FROM pg_auth_members WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='onlyalpha_chart_sql_executor')"
         ).fetchone() == (0,)
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
     assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
     with pytest.raises(OnlyPostgresSchemaIncompatibleError, match="AHEAD"):
         OnlyPostgresSchemaVerifier(postgres_dsn, migration_root=reference).assert_compatible()
@@ -569,7 +570,7 @@ def test_creator_named_default_execute_grants_cannot_open_entry(postgres_dsn: st
                         sql.Identifier(name)
                     )
                 )
-        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+        assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
 
 
 def executor_inventory(dsn: str):
@@ -671,7 +672,7 @@ def test_unsafe_preexisting_executor_is_rejected_without_role_repair(
     finally:
         with psycopg.connect(postgres_dsn) as admin:
             admin.execute(statements[mutation][1])
-    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == (_MIGRATION,)
+    assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == _FORWARD
 
 
 @pytest.mark.parametrize("missing", ["receipt", "admission", "preparation", "compilation", "consumption", "other_work"])

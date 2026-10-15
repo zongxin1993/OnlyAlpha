@@ -35,10 +35,18 @@ const acquisitionQuery = {
     bar_semantic: query.bar_semantic
 };
 
-function stubFetch(response: Response): ReturnType<typeof vi.fn> {
-    const fetchMock = vi.fn(() => Promise.resolve(response));
+function stubFetch(response: Response): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
+    const fetchMock = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(response));
     vi.stubGlobal("fetch", fetchMock);
     return fetchMock;
+}
+
+function requestUrl(value: RequestInfo | URL | undefined): string {
+    return typeof value === "string"
+        ? value
+        : value instanceof URL
+          ? value.href
+          : (value?.url ?? "");
 }
 
 afterEach(() => {
@@ -113,7 +121,7 @@ it("sends only the exact Revision reference and never asserts canonical source i
         "BTC"
     );
 
-    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+    const url = new URL(requestUrl(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.pathname).toBe("/api/v2/market/instruments");
     expect(Object.fromEntries(url.searchParams)).toEqual({
         integration_id: FIXTURE_REFERENCE.integration_id,
@@ -147,7 +155,7 @@ it("omits an absent type guard and projects the server-derived canonical identit
         query
     );
 
-    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+    const url = new URL(requestUrl(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.searchParams.has("expected_type_id")).toBe(false);
     expect(JSON.parse(url.searchParams.get("bar_semantic") ?? "null")).toEqual(
         marketDataBarSemantic(1)
@@ -211,7 +219,7 @@ it("posts an acquisition command carrying a source reference rather than a sourc
     );
 
     expect(acquisition.status).toBe("COMPLETE");
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const init = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
     expect(init?.method).toBe("POST");
     expect(body).toEqual({
@@ -234,7 +242,7 @@ it("reads exact acquisition status by reference", async () => {
     );
 
     expect(acquisition.status).toBe("FAILED");
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+    expect(requestUrl(fetchMock.mock.calls[0]?.[0])).toContain(
         "/api/v2/market-data/acquisitions/acquisition%3A" + "b".repeat(64)
     );
 });
@@ -347,3 +355,53 @@ it.each([
         ).rejects.toMatchObject({ code, status, retryAfterSeconds: null });
     }
 );
+
+it("reads the latest stored native close through the protected nullable query", async () => {
+    const credentials = new LocalReadCredentials();
+    credentials.replace("a".repeat(64));
+    const fetch = stubFetch(json(marketDataBars()));
+    const client = new FetchMarketDataApiClient(credentials);
+    const result = await client.queryLatestBar(
+        FIXTURE_REFERENCE,
+        "BTCUSDT.TEST",
+        marketDataBarSemantic(1)
+    );
+    expect(result?.bars.at(-1)?.close).toBe("102.50");
+    const url = new URL(requestUrl(fetch.mock.calls[0]?.[0]), "http://localhost");
+    expect(url.pathname).toBe("/api/v2/market-data/latest-bar");
+    expect(url.searchParams.get("instrument_id")).toBe("BTCUSDT.TEST");
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe(
+        "Bearer " + "a".repeat(64)
+    );
+    stubFetch(json(null));
+    expect(
+        await client.queryLatestBar(FIXTURE_REFERENCE, "BTCUSDT.TEST", marketDataBarSemantic(1))
+    ).toBeNull();
+});
+
+it("exact instrument lookups refuse missing or substituted members", async () => {
+    const fetch = stubFetch(json(instrumentList));
+    const client = new FetchMarketDataApiClient();
+    const result = await client.listInstruments(FIXTURE_REFERENCE, "", undefined, ["BTCUSDT.TEST"]);
+    expect(result[0]?.instrument_id).toBe("BTCUSDT.TEST");
+    expect(requestUrl(fetch.mock.calls[0]?.[0])).toContain("instrument_ids=BTCUSDT.TEST");
+    stubFetch(json(instrumentList));
+    await expect(
+        client.listInstruments(FIXTURE_REFERENCE, "", undefined, ["ETHUSDT.TEST"])
+    ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+});
+
+it("exact instrument lookups reject duplicated rows hiding a missing requested identity", async () => {
+    stubFetch(
+        json({
+            ...instrumentList,
+            instruments: [instrumentList.instruments[0], instrumentList.instruments[0]]
+        })
+    );
+    await expect(
+        new FetchMarketDataApiClient().listInstruments(FIXTURE_REFERENCE, "", undefined, [
+            "BTCUSDT.TEST",
+            "ETHUSDT.TEST"
+        ])
+    ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+});

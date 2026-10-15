@@ -180,6 +180,7 @@ export function marketDataClient(
         listSources: () => Promise.resolve([marketDataSource()]),
         listInstruments: () => Promise.resolve([]),
         queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query)),
+        queryLatestBar: () => Promise.resolve(null),
         createAcquisition: () => Promise.resolve(marketDataAcquisition()),
         getAcquisition: unused,
         ...overrides

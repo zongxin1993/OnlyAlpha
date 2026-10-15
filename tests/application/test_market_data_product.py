@@ -968,7 +968,7 @@ def test_acquisition_seals_exact_revision_and_later_query_uses_database(tmp_path
     assert harness.provider.bar_fetches == fetches_after_acquisition
 
 
-@pytest.mark.parametrize("caller", ["acquire", "status"])
+@pytest.mark.parametrize("caller", ["acquire", "status", "latest"])
 @pytest.mark.parametrize(
     "damage",
     [
@@ -1021,13 +1021,18 @@ def test_complete_projection_rejects_inexact_sealed_authority(tmp_path: Path, ca
     with pytest.raises(OnlyMarketDataProductError) as error:
         if caller == "acquire":
             harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+        elif caller == "latest":
+            harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT))
         else:
             harness.service.acquisition_status(reference, acquisition.acquisition_id)
-    assert error.value.code in {
+    expected_codes = {
         "MARKET_DATA_CATALOG_CORRUPT",
         "MARKET_DATA_REVISION_EVIDENCE_INVALID",
         "MARKET_DATA_FACT_STORE_UNAVAILABLE",
     }
+    if caller == "latest":
+        expected_codes.update({"MARKET_DATA_RANGE_EVIDENCE_UNAVAILABLE", "MARKET_DATA_RANGE_COMPOSITION_CONFLICT"})
+    assert error.value.code in expected_codes
 
 
 def test_complete_projection_uses_only_latest_corrected_revision(tmp_path: Path) -> None:
@@ -2931,3 +2936,66 @@ def test_contention_observer_follows_selected_native_backend(
     assert owner.acquire() is acquired
     assert attempts == [{"timeout": 0}, {}]
     assert waits == ["native contention"]
+
+
+def test_latest_available_quote_reads_sealed_history_without_acquisition(tmp_path: Path) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    assert harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT)) is None
+    assert harness.provider.bar_fetches == 0
+    start_ns, end_ns = _range()
+    acquired = harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns)
+    assert acquired.status == "COMPLETE"
+    fetches = harness.provider.bar_fetches
+    latest = harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT))
+    assert latest is not None and len(latest.bars) == 1
+    assert latest.bars[0].bar_end_ns == end_ns
+    assert latest.bars[0].closed
+    assert latest.history_projection_fingerprint is not None
+    assert latest.requested_before_ns == end_ns
+    assert harness.provider.bar_fetches == fetches
+
+
+def test_latest_quote_lost_selection_proof_is_unavailable_not_absence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path)
+    reference = _reference(harness.revision_fingerprint)
+    start_ns, end_ns = _range()
+    assert (
+        harness.service.acquire_bars(reference, instrument_id=str(INSTRUMENT), start_ns=start_ns, end_ns=end_ns).status
+        == "COMPLETE"
+    )
+    original = harness.catalog.list_current_sealed_revisions_overlapping
+    calls = 0
+
+    def lost_after_selection(*args):
+        nonlocal calls
+        calls += 1
+        return original(*args) if calls == 1 else ()
+
+    monkeypatch.setattr(harness.catalog, "list_current_sealed_revisions_overlapping", lost_after_selection)
+    with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_RANGE_EVIDENCE_UNAVAILABLE"):
+        harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT))
+
+
+def test_latest_native_close_uses_selected_grid_when_clock_is_between_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _service(tmp_path, native_minutes=(1, 15))
+    reference = _reference(harness.revision_fingerprint)
+    semantic = OnlyBarSemantic.fixed_duration(15)
+    start, end = _range(minutes=60)
+    monkeypatch.setattr(harness.service._clock, "timestamp_ns", lambda: end + MINUTE_NS)
+    assert harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT), bar_semantic=semantic) is None
+    assert (
+        harness.service.acquire_bars(
+            reference, instrument_id=str(INSTRUMENT), start_ns=start, end_ns=end, bar_semantic=semantic
+        ).status
+        == "COMPLETE"
+    )
+    fetches = harness.provider.bar_fetches
+    latest = harness.service.query_latest_bar(reference, instrument_id=str(INSTRUMENT), bar_semantic=semantic)
+    assert latest is not None and latest.bars[0].bar_end_ns == end
+    assert latest.bar_semantic == semantic
+    assert harness.provider.bar_fetches == fetches

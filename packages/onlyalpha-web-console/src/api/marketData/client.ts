@@ -64,13 +64,20 @@ export interface MarketDataApiClient {
     listInstruments(
         reference: MarketDataSourceReference,
         query: string,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        instrumentIds?: readonly string[]
     ): Promise<readonly MarketDataInstrument[]>;
     queryBars(
         reference: MarketDataSourceReference,
         query: MarketDataBarsQuery,
         signal?: AbortSignal
     ): Promise<MarketDataBars>;
+    queryLatestBar(
+        reference: MarketDataSourceReference,
+        instrumentId: string,
+        semantic: MarketDataBarSemantic,
+        signal?: AbortSignal
+    ): Promise<MarketDataBars | null>;
     createAcquisition(
         reference: MarketDataSourceReference,
         query: MarketDataAcquisitionQuery
@@ -186,10 +193,12 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
     async listInstruments(
         reference: MarketDataSourceReference,
         query: string,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        instrumentIds?: readonly string[]
     ) {
         const params = referenceParams(reference);
         params.set("query", query);
+        for (const id of instrumentIds ?? []) params.append("instrument_ids", id);
         const value = await protectedRead(
             this.credentials,
             marketDataInstrumentListSchema,
@@ -207,6 +216,14 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
                 "CONTRACT_ERROR",
                 "Instrument response belongs to a different source reference"
             );
+        if (
+            instrumentIds !== undefined &&
+            (value.instruments.length !== instrumentIds.length ||
+                new Set(value.instruments.map((item) => item.instrument_id)).size !==
+                    instrumentIds.length ||
+                value.instruments.some((item) => !instrumentIds.includes(item.instrument_id)))
+        )
+            throw new MarketDataWebError("CONTRACT_ERROR", "标的响应不匹配请求");
         return value.instruments;
     }
     async queryBars(
@@ -226,6 +243,22 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
                 "Market Data returned a different Bar Specification"
             );
         return result;
+    }
+    async queryLatestBar(
+        reference: MarketDataSourceReference,
+        instrumentId: string,
+        semantic: MarketDataBarSemantic,
+        signal?: AbortSignal
+    ) {
+        const params = referenceParams(reference);
+        params.set("instrument_id", instrumentId);
+        params.set("bar_semantic", JSON.stringify(semantic));
+        return protectedRead(
+            this.credentials,
+            marketDataBarsSchema.nullable(),
+            `/api/v2/market-data/latest-bar?${params.toString()}`,
+            signal
+        );
     }
     async createAcquisition(
         reference: MarketDataSourceReference,

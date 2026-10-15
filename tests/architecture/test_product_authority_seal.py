@@ -176,6 +176,7 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
                 "onlyalpha.application.qualification_product",
                 "onlyalpha.application.research_advisory",
                 "onlyalpha.application.strategy_product",
+                "onlyalpha.application.watchlists",
             }
             for name in imports
         ), path

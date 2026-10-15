@@ -12,6 +12,8 @@ sensitive_path_patterns = [
   "src/onlyalpha/application/strategy_product.py",
   "src/onlyalpha/application/qualification_product.py",
   "src/onlyalpha/application/integration_probe.py",
+  "src/onlyalpha/application/watchlists.py",
+  "src/onlyalpha/persistence/postgres/watchlist_store.py",
   "src/onlyalpha/backtest/*.py",
   "src/onlyalpha/strategy/freeze.py",
   "src/onlyalpha/strategy/promotion.py",
@@ -45,6 +47,7 @@ sensitive_path_patterns = [
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/integration_types/*.py",
   "packages/onlyalpha-http-server/src/onlyalpha_http_server/integrations/*.py",
+  "packages/onlyalpha-http-server/src/onlyalpha_http_server/watchlists/*.py",
   "scripts/database.py",
   "scripts/regenerate_*.py",
 ]
@@ -223,6 +226,14 @@ identity_authority = "canonical UUID4 attempt ID bound to exact Integration Revi
 mutation_capability = "C31"
 read_capability = "C31"
 semantic_persistence_relation = "append-only PostgreSQL Probe Attempt is operational observation evidence; current status is an exact-Revision projection and never Runtime admission authority"
+
+[[facts]]
+id = "F23"
+name = "Owner Watchlist configuration"
+identity_authority = "deployment semantic-store namespace plus immutable book version and canonical fingerprint"
+mutation_capability = "C32"
+read_capability = "C32"
+semantic_persistence_relation = "PostgreSQL immutable configuration revisions and global Product Command bindings; no market or trading facts"
 
 [[capabilities]]
 id = "C01"
@@ -410,6 +421,12 @@ name = "INTEGRATION_PROBE_OBSERVE"
 kind = "EXECUTE"
 privileged = true
 
+[[capabilities]]
+id = "C32"
+name = "WATCHLIST_CONFIGURATION_MANAGE"
+kind = "TRANSITION"
+privileged = true
+
 [[actors]]
 id = "A01"
 name = "PUBLIC_PYTHON_SURFACE"
@@ -420,13 +437,13 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30", "C31"]
+allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30", "C31", "C32"]
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27", "C31"]
+allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27", "C31", "C32"]
 
 [[actors]]
 id = "A05"
@@ -555,16 +572,28 @@ production = true
 allowed_capabilities = ["C31"]
 
 [[actors]]
+id = "A26"
+name = "WATCHLIST_APPLICATION"
+production = true
+allowed_capabilities = ["C32"]
+
+[[actors]]
+id = "A27"
+name = "WATCHLIST_PERSISTENCE_ADAPTER"
+production = true
+allowed_capabilities = ["C32"]
+
+[[actors]]
 id = "T01"
 name = "TEST"
 production = false
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C31"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C31", "C32"]
 
 [[actors]]
 id = "T02"
 name = "CERTIFICATION"
 production = false
-allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C31"]
+allowed_capabilities = ["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C31", "C32"]
 
 [[actor_paths]]
 pattern = "src/onlyalpha/__init__.py"
@@ -626,6 +655,15 @@ actor = "A04"
 [[actor_paths]]
 pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/chart_studies/*.py"
 actor = "A04"
+[[actor_paths]]
+pattern = "packages/onlyalpha-http-server/src/onlyalpha_http_server/watchlists/*.py"
+actor = "A04"
+[[actor_paths]]
+pattern = "src/onlyalpha/application/watchlists.py"
+actor = "A26"
+[[actor_paths]]
+pattern = "src/onlyalpha/persistence/postgres/watchlist_store.py"
+actor = "A27"
 [[actor_paths]]
 pattern = "src/onlyalpha/research/worker_main.py"
 actor = "A05"
@@ -1143,3 +1181,22 @@ id = "K23"
 capability = "C31"
 symbol = "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"
 approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "src/onlyalpha/persistence/postgres/integration_runtime_composition.py", "scripts/agent_provider_bootstrap.py"]
+
+[[bindings]]
+capability = "C32"
+symbols = ["onlyalpha.application.watchlists.OnlyWatchlistService", "onlyalpha.application.watchlists.OnlyWatchlistStore", "onlyalpha.persistence.postgres.watchlist_store.OnlyPostgresWatchlistStore"]
+
+[[ownership]]
+capability = "C32"
+approved_production_holders = ["A03", "A04", "A26", "A27"]
+
+[[constructors]]
+id = "K24"
+capability = "C32"
+symbol = "onlyalpha.application.watchlists.OnlyWatchlistService"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+[[constructors]]
+id = "K25"
+capability = "C32"
+symbol = "onlyalpha.persistence.postgres.watchlist_store.OnlyPostgresWatchlistStore"
+approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]

@@ -9568,6 +9568,42 @@
         "title": "ResearchVariableRefDto",
         "type": "object"
       },
+      "SaveWatchlistsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/WatchlistDto"
+            },
+            "maxItems": 20,
+            "title": "Lists",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "expected_version",
+          "lists"
+        ],
+        "title": "SaveWatchlistsDto",
+        "type": "object"
+      },
       "SearchAdvanceRequestDto": {
         "additionalProperties": false,
         "properties": {
@@ -10333,6 +10369,125 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WatchlistBookDto": {
+        "additionalProperties": false,
+        "properties": {
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/WatchlistDto"
+            },
+            "maxItems": 20,
+            "title": "Lists",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "version": {
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "lists"
+        ],
+        "title": "WatchlistBookDto",
+        "type": "object"
+      },
+      "WatchlistDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instrument_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Instrument Ids",
+            "type": "array"
+          },
+          "list_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "List Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/WatchlistSourceDto"
+          }
+        },
+        "required": [
+          "list_id",
+          "name",
+          "source",
+          "instrument_ids"
+        ],
+        "title": "WatchlistDto",
+        "type": "object"
+      },
+      "WatchlistErrorDto": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "WatchlistErrorDto",
+        "type": "object"
+      },
+      "WatchlistErrorEnvelopeDto": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/WatchlistErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "WatchlistErrorEnvelopeDto",
+        "type": "object"
+      },
+      "WatchlistSourceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_type_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Expected Type Id",
+            "type": "string"
+          },
+          "integration_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "integration_revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Integration Revision Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "integration_revision_fingerprint",
+          "expected_type_id"
+        ],
+        "title": "WatchlistSourceDto",
         "type": "object"
       }
     },
@@ -13183,6 +13338,184 @@
         ]
       }
     },
+    "/api/v2/market-data/latest-bar": {
+      "get": {
+        "operationId": "latest_bar_api_v2_market_data_latest_bar_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "integration_revision_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Integration Revision Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar_semantic",
+            "required": true,
+            "schema": {
+              "title": "Bar Semantic",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_type_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Type Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MarketDataBarWindowDto"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Latest Bar Api V2 Market Data Latest Bar Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "LocalSourceReadBearer": []
+          }
+        ],
+        "summary": "Latest Bar",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
     "/api/v2/market-data/sources": {
       "get": {
         "operationId": "list_sources_api_v2_market_data_sources_get",
@@ -13347,6 +13680,26 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 25,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Instrument Ids"
             }
           }
         ],
@@ -18065,6 +18418,237 @@
         "summary": "Freeze Strategy",
         "tags": [
           "strategies"
+        ]
+      }
+    },
+    "/api/v2/watchlists": {
+      "get": {
+        "operationId": "read_api_v2_watchlists_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistBookDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read",
+        "tags": [
+          "watchlists"
+        ]
+      },
+      "put": {
+        "operationId": "save_api_v2_watchlists_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveWatchlistsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistBookDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Save",
+        "tags": [
+          "watchlists"
+        ]
+      }
+    },
+    "/api/v2/watchlists/commands/{command_id}": {
+      "get": {
+        "operationId": "command_api_v2_watchlists_commands__command_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "title": "Command Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WatchlistBookDto"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Command Api V2 Watchlists Commands  Command Id  Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Command",
+        "tags": [
+          "watchlists"
         ]
       }
     },
