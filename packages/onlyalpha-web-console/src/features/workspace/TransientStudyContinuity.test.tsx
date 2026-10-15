@@ -15,6 +15,7 @@ import { projectMarketDataBar } from "../../charts/lightweight/marketDataChartPr
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
 import { isAdmittedChartStudyEvidence } from "../../api/chartStudies/client";
+import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 import type { ChartStudyInstance } from "./chartStudy";
 
 const observedEvidence: (readonly object[])[] = [];
@@ -146,6 +147,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         hold: boolean;
         failSibling: boolean;
         siblingFailure: { code: string; status: number };
+        siblingBody?: string;
         conflict: boolean;
         derived: boolean;
     } = {
@@ -186,14 +188,15 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
             if (traffic.failSibling && traffic.anchors.length > 1)
                 return Promise.resolve(
                     new Response(
-                        JSON.stringify({
-                            schema_version: 1,
-                            error: {
-                                phase: "QUERY",
-                                code: traffic.siblingFailure.code,
-                                detail: "Calculation capacity exhausted"
-                            }
-                        }),
+                        traffic.siblingBody ??
+                            JSON.stringify({
+                                schema_version: 1,
+                                error: {
+                                    phase: "QUERY",
+                                    code: traffic.siblingFailure.code,
+                                    detail: "Calculation capacity exhausted"
+                                }
+                            }),
                         { status: traffic.siblingFailure.status }
                     )
                 );
@@ -203,6 +206,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         })
     );
     const market = marketDataClient({ queryBars });
+    let activeCredentials: LocalReadCredentials | undefined;
     function Query({
         step = 0,
         siblings = false,
@@ -225,6 +229,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         stale?: boolean;
     }) {
         const credentials = useLocalReadCredentials();
+        activeCredentials = credentials;
         useLayoutEffect(() => {
             if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
         }, [credentials]);
@@ -311,7 +316,10 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
             <Query {...props} />
         </AppProviders>
     );
-    return { traffic, tree, response, queryBars, baseEnd, duration };
+    const recoverSession = () => {
+        required(activeCredentials).replace("ee".repeat(32));
+    };
+    return { traffic, tree, response, queryBars, baseEnd, duration, recoverSession };
 }
 
 it.each([1, 3, 5, 15, 30, 60, 120, 240])(
@@ -635,3 +643,116 @@ it("shared input failure revokes a retained sibling's response admission before 
     });
     expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
 });
+
+const malformedFailures = (
+    [
+        [401, "UNAUTHORIZED"],
+        [403, "FORBIDDEN"],
+        [409, "STALE"]
+    ] as const
+).flatMap(([status, terminal]) =>
+    ["", "<html>Denied</html>", '{"schema_version":'].map((body) => ({
+        status,
+        terminal,
+        body
+    }))
+);
+
+it.each(malformedFailures)(
+    "withdraws a successful first sibling on HTTP $status with undecodable body $body",
+    async ({ status, terminal, body }) => {
+        const test = setup();
+        test.traffic.failSibling = true;
+        test.traffic.siblingFailure = { code: "INVALID", status };
+        test.traffic.siblingBody = body;
+        render(test.tree({ siblings: true }));
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                terminal
+            );
+        });
+        expect(test.traffic.anchors).toHaveLength(2);
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    }
+);
+
+it.each(malformedFailures)(
+    "retires retained sibling admission on HTTP $status with undecodable body $body",
+    async ({ status, terminal, body }) => {
+        const test = setup();
+        test.traffic.failSibling = true;
+        render(test.tree({ siblings: true }));
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "PARTIALLY_DISPLAYABLE"
+            );
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+        test.traffic.siblingFailure = { code: "INVALID", status };
+        test.traffic.siblingBody = body;
+        fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                terminal
+            );
+        });
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        const capabilityReadsBeforeRecovery = vi
+            .mocked(fetch)
+            .mock.calls.filter(
+                ([url]) => typeof url === "string" && url.endsWith("capabilities")
+            ).length;
+        test.traffic.failSibling = false;
+        act(() => {
+            test.recoverSession();
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+        });
+        expect(test.queryBars).toHaveBeenCalledTimes(3);
+        expect(
+            vi
+                .mocked(fetch)
+                .mock.calls.filter(
+                    ([url]) => typeof url === "string" && url.endsWith("capabilities")
+                )
+        ).toHaveLength(capabilityReadsBeforeRecovery + 1);
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    }
+);
+
+it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
+    "isolates malformed HTTP 200 body %s without retiring the valid sibling",
+    async (body) => {
+        const test = setup();
+        test.traffic.failSibling = true;
+        test.traffic.siblingFailure = { code: "INVALID", status: 200 };
+        test.traffic.siblingBody = body;
+        render(test.tree({ siblings: true }));
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "PARTIALLY_DISPLAYABLE"
+            );
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        expect(screen.getByTestId("overlays")).not.toHaveTextContent("two");
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+        fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+        await waitFor(() => {
+            expect(test.traffic.anchors).toHaveLength(3);
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "PARTIALLY_DISPLAYABLE"
+            );
+        });
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+    }
+);

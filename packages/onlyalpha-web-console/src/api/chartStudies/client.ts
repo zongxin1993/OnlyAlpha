@@ -74,7 +74,7 @@ async function read<T>(
     try {
         value = await response.json();
     } catch {
-        throw new ChartStudyWebError("INVALID");
+        throw new ChartStudyWebError("INVALID", response.status);
     }
     if (!current()) throw new ChartStudyWebError("STALE");
     if (!response.ok) {

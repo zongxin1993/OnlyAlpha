@@ -147,6 +147,25 @@ describe("one server-derived strict Chart schema", () => {
         expect(credentials.capture().bearer).toBeNull();
     });
 
+    it.each(
+        [401, 403, 409].flatMap((status) =>
+            ["", "<html>Denied</html>", '{"schema_version":'].map((body) => ({ status, body }))
+        )
+    )("preserves HTTP $status for undecodable body $body", async ({ status, body }) => {
+        const v = vector();
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve(new Response(body, { status })))
+        );
+        await expect(readChartStudyCapability(v.credentials)).rejects.toMatchObject({
+            code: "INVALID",
+            status
+        });
+        await expect(
+            readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+        ).rejects.toMatchObject({ code: "INVALID", status });
+    });
+
     it("admits owning complete-to-incomplete without requiring its absent cursor to match the old history", async () => {
         const v = vector();
         expect(v.history.resume_after_sequence).not.toBeNull();
