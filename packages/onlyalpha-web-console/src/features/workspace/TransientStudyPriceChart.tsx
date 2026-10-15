@@ -109,8 +109,20 @@ export function TransientStudyPriceChart({
         pending: boolean;
         retryId: string | null;
         controller: AbortController | null;
-    }>({ running: false, pending: false, retryId: null, controller: null });
+        timer: ReturnType<typeof setTimeout> | null;
+        deferred: boolean;
+    }>({
+        running: false,
+        pending: false,
+        retryId: null,
+        controller: null,
+        timer: null,
+        deferred: false
+    });
     useLayoutEffect(() => {
+        if (work.current.timer !== null) clearTimeout(work.current.timer);
+        work.current.timer = null;
+        work.current.deferred = false;
         live.current = { key, generation: live.current.generation + 1, mounted: true };
     }, [key]);
     useEffect(
@@ -118,6 +130,8 @@ export function TransientStudyPriceChart({
             live.current.mounted = false;
             ++live.current.generation;
             work.current.pending = false;
+            if (work.current.timer !== null) clearTimeout(work.current.timer);
+            work.current.timer = null;
             work.current.controller?.abort();
         },
         []
@@ -125,10 +139,12 @@ export function TransientStudyPriceChart({
     const querySnapshot = useEffectEvent(
         async (controller: AbortController, retryId: string | null) => {
             const generation = live.current.generation;
+            const credentialGeneration = credentials.getGeneration();
             const current = () =>
                 live.current.mounted &&
                 live.current.key === key &&
                 live.current.generation === generation &&
+                credentials.getGeneration() === credentialGeneration &&
                 !controller.signal.aborted;
             const update = (
                 status: string,
@@ -398,16 +414,43 @@ export function TransientStudyPriceChart({
                     failed
                 );
             } catch (error) {
-                if (current())
-                    update(
-                        failureStatus(error),
-                        [],
-                        error instanceof MarketDataWebError
-                            ? [`${error.code}: ${error.message}`]
-                            : error instanceof ChartStudyWebError
-                              ? [error.code]
-                              : []
-                    );
+                if (!current()) return;
+                if (
+                    (error instanceof MarketDataWebError || error instanceof ChartStudyWebError) &&
+                    error.code === "MARKET_DATA_WINDOW_NOT_CLOSED" &&
+                    error.status === 503 &&
+                    error.retryAfterSeconds !== null &&
+                    !work.current.deferred
+                ) {
+                    work.current.deferred = true;
+                    update("WAITING_FOR_CLOSED_WINDOW", [], [error.code]);
+                    const waitingGeneration = live.current.generation;
+                    const timer = setTimeout(() => {
+                        if (
+                            work.current.timer !== timer ||
+                            !live.current.mounted ||
+                            live.current.key !== key ||
+                            live.current.generation !== waitingGeneration ||
+                            credentials.getGeneration() !== credentialGeneration
+                        )
+                            return;
+                        work.current.timer = null;
+                        work.current.pending = true;
+                        work.current.retryId = null;
+                        setSettled((previous) => previous + 1);
+                    }, error.retryAfterSeconds * 1000);
+                    work.current.timer = timer;
+                    return;
+                }
+                update(
+                    failureStatus(error),
+                    [],
+                    error instanceof MarketDataWebError
+                        ? [`${error.code}: ${error.message}`]
+                        : error instanceof ChartStudyWebError
+                          ? [error.code]
+                          : []
+                );
             }
         }
     );
@@ -463,7 +506,9 @@ export function TransientStudyPriceChart({
                     >
                         {active.status === "INPUT_INCOMPLETE"
                             ? "缺少已完成历史 K 线"
-                            : active.status}{" "}
+                            : active.status === "WAITING_FOR_CLOSED_WINDOW"
+                              ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
+                              : active.status}{" "}
                         · DISPLAY_ONLY · 不是 Research Result
                         {active.rejected.length === 0 ? null : ` · ${active.rejected.join("；")}`}
                         {active.evidence.some((row) =>

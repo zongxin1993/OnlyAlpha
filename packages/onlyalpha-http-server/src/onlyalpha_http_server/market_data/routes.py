@@ -20,6 +20,7 @@ from onlyalpha.market_data.durable.range_query import OnlyBarWindowAnchorKind
 
 from ..local_read_access import only_request_read_session
 from .schema import (
+    WINDOW_NOT_CLOSED_HEADERS,
     MarketDataAcquisitionDto,
     MarketDataAcquisitionRequestDto,
     MarketDataBarSemanticDto,
@@ -93,7 +94,10 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
     @router.get(
         "/api/v2/market-data/bars",
         response_model=MarketDataBarWindowDto,
-        responses=_ERROR_RESPONSES,
+        responses={
+            **_ERROR_RESPONSES,
+            503: {"model": MarketDataErrorEnvelopeDto, "headers": WINDOW_NOT_CLOSED_HEADERS},
+        },
         dependencies=read_credentials,
     )
     def query_bars(
@@ -173,6 +177,7 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
 def market_data_error_response(error: OnlyMarketDataProductError) -> JSONResponse:
     status_by_code = {
         "MARKET_DATA_WINDOW_REQUEST_INVALID": 400,
+        "MARKET_DATA_WINDOW_NOT_CLOSED": 503,
         "MARKET_DATA_RANGE_COMPOSITION_CONFLICT": 409,
         "MARKET_DATA_REVISION_EVIDENCE_INVALID": 500,
         "MARKET_DATA_CATALOG_CORRUPT": 500,
@@ -192,7 +197,15 @@ def market_data_error_response(error: OnlyMarketDataProductError) -> JSONRespons
     else:
         status = 400
     body = MarketDataErrorEnvelopeDto(error=MarketDataErrorDto(phase=error.phase, code=error.code, detail=error.detail))
-    return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+    headers = {}
+    if (
+        error.code == "MARKET_DATA_WINDOW_NOT_CLOSED"
+        and error.phase == "QUERY"
+        and type(error.retry_after_seconds) is int
+        and error.retry_after_seconds > 0
+    ):
+        headers["Retry-After"] = str(error.retry_after_seconds)
+    return JSONResponse(status_code=status, content=body.model_dump(mode="json"), headers=headers)
 
 
 def market_data_request_validation_error_response() -> JSONResponse:

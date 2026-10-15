@@ -60,6 +60,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
     observedEvidence.length = 0;
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     document.documentElement.style.removeProperty("--accent-solid");
     for (const name of ["showModal", "close"] as const) {
@@ -148,6 +149,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         failSibling: boolean;
         siblingFailure: { code: string; status: number };
         siblingBody?: string;
+        retryAfter?: string;
         conflict: boolean;
         derived: boolean;
     } = {
@@ -197,7 +199,13 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
                                     detail: "Calculation capacity exhausted"
                                 }
                             }),
-                        { status: traffic.siblingFailure.status }
+                        {
+                            status: traffic.siblingFailure.status,
+                            headers:
+                                traffic.retryAfter === undefined
+                                    ? {}
+                                    : { "Retry-After": traffic.retryAfter }
+                        }
                     )
                 );
             if (traffic.hold)
@@ -312,12 +320,12 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         );
     }
     const tree = (props: Parameters<typeof Query>[0] = {}) => (
-        <AppProviders marketDataClient={market}>
+        <AppProviders key={context.key} marketDataClient={market}>
             <Query {...props} />
         </AppProviders>
     );
-    const recoverSession = () => {
-        required(activeCredentials).replace("ee".repeat(32));
+    const recoverSession = (bearer: string | null = "ee".repeat(32)) => {
+        required(activeCredentials).replace(bearer);
     };
     return { traffic, tree, response, queryBars, baseEnd, duration, recoverSession };
 }
@@ -816,3 +824,231 @@ it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
         expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
     }
 );
+
+it.each(["history", "evaluation"])(
+    "defers one shared %s window once and then freshly admits both SMA instances",
+    async (failureAt) => {
+        const test = setup(1);
+        const view = render(test.tree({ siblings: true }));
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        vi.useFakeTimers();
+        if (failureAt === "history")
+            test.queryBars.mockRejectedValueOnce(
+                new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
+            );
+        else {
+            test.traffic.failSibling = true;
+            test.traffic.siblingFailure = { code: "MARKET_DATA_WINDOW_NOT_CLOSED", status: 503 };
+            test.traffic.retryAfter = "4";
+        }
+        view.rerender(test.tree({ siblings: true, step: 1 }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "WAITING_FOR_CLOSED_WINDOW"
+            );
+        });
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(
+            "MARKET_DATA_WINDOW_NOT_CLOSED"
+        );
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(
+            "等待 K 线时间窗口就绪 · 将自动重新查询一次"
+        );
+        const count = test.queryBars.mock.calls.length;
+        vi.setSystemTime(new Date("2000-01-01T00:00:00Z"));
+        test.traffic.failSibling = false;
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4000);
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+        });
+        expect(test.queryBars).toHaveBeenCalledTimes(count + 1);
+        expect(test.queryBars.mock.calls.at(-1)?.[1].before_ns).toBe(
+            (test.baseEnd + test.duration).toString()
+        );
+        expect(test.queryBars.mock.calls.at(-1)?.[1].target_bar_count).toBe(2000);
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(test.queryBars).toHaveBeenCalledTimes(count + 1);
+    }
+);
+
+it("stops after the one server-directed reobservation is still not ready", async () => {
+    const test = setup(1);
+    test.queryBars.mockRejectedValue(
+        new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
+    );
+    vi.useFakeTimers();
+    render(test.tree({ siblings: true }));
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "WAITING_FOR_CLOSED_WINDOW"
+        );
+    });
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+    });
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "UNAVAILABLE"
+        );
+    });
+    expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(
+        "MARKET_DATA_WINDOW_NOT_CLOSED"
+    );
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "重新查询指标" }));
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(test.queryBars).toHaveBeenCalledTimes(3);
+    });
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+        "data-query-status",
+        "UNAVAILABLE"
+    );
+});
+
+it.each(["new-close", "context", "auth-replacement", "logout", "unmount"])(
+    "retires a pending window timer after %s",
+    async (change) => {
+        const test = setup(1);
+        test.queryBars.mockRejectedValueOnce(
+            new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
+        );
+        vi.useFakeTimers();
+        const view = render(test.tree({ siblings: true }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "WAITING_FOR_CLOSED_WINDOW"
+            );
+        });
+        if (change === "unmount") view.unmount();
+        else if (change === "logout" || change === "auth-replacement")
+            act(() => {
+                test.recoverSession(change === "logout" ? null : "ff".repeat(32));
+            });
+        else {
+            const replacement = change === "context" ? setup(15) : test;
+            view.rerender(replacement.tree({ siblings: true, step: 1 }));
+            await act(async () => {
+                await Promise.resolve();
+            });
+            await vi.waitFor(() => {
+                expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+            });
+        }
+        const count = test.queryBars.mock.calls.length;
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4000);
+        });
+        expect(test.queryBars).toHaveBeenCalledTimes(count);
+    }
+);
+
+it.each([
+    new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503),
+    new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 400, 4),
+    new MarketDataWebError("LOCAL_READ_UNAUTHORIZED", "Denied", 401, 4),
+    new MarketDataWebError("LOCAL_READ_FORBIDDEN", "Denied", 403, 4),
+    new MarketDataWebError("MARKET_DATA_RANGE_COMPOSITION_CONFLICT", "Conflict", 409, 4)
+])("does not schedule unadmitted readiness or denial %s", async (error) => {
+    const test = setup(1);
+    test.queryBars.mockRejectedValue(error);
+    vi.useFakeTimers();
+    render(test.tree({ siblings: true }));
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(error.code);
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(1);
+});
+
+it("ignores queued stale timer callbacks without disturbing the latest intent timer", async () => {
+    const test = setup(1);
+    test.queryBars.mockRejectedValueOnce(
+        new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503, 4)
+    );
+    test.queryBars.mockRejectedValueOnce(
+        new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503, 4)
+    );
+    vi.useFakeTimers();
+    const callbacks: (() => void)[] = [];
+    const schedule = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, delay) => {
+        if (delay === 4000 && typeof callback === "function")
+            callbacks.push(callback as () => void);
+        return schedule(callback, delay);
+    });
+    const view = render(test.tree({ siblings: true }));
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(callbacks).toHaveLength(1);
+    });
+    view.rerender(test.tree({ siblings: true, step: 1 }));
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(callbacks).toHaveLength(2);
+    });
+    act(() => {
+        required(callbacks[0])();
+    });
+    view.rerender(test.tree({ siblings: true, step: 1, hidden: true, older: true, preview: true }));
+    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+    });
+    await act(async () => {
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(3);
+    spy.mockRestore();
+});

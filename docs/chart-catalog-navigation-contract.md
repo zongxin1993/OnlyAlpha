@@ -60,6 +60,35 @@ The Research metadata/revalidation and existing configuration-only behavior desc
 production transient values require a strict generated-DTO adapter plus context/incarnation/configuration/request-generation
 and data/registration fences. Style, hide/show, pane and selection changes remain presentation-only and do not calculate or acquire.
 
+### Closed-window readiness
+
+The owning Market Data window planner preserves its explicit-clock minute-floor future-window guard.
+For an otherwise valid BEFORE_TIME request beyond that floor, it reports `MARKET_DATA_WINDOW_NOT_CLOSED`.
+`GET /api/v2/market-data/bars` and the same owning read through `POST /api/v2/chart/studies/evaluate`
+return HTTP 503 with standard `Retry-After` delta-seconds. The service samples its explicit clock once:
+`ready_ns = ceil(before_ns / MINUTE_NS) * MINUTE_NS`, then
+`retry_after_seconds = ceil((ready_ns - clock_ns) / 1_000_000_000)`. Thus a non-minute-aligned anchor waits
+until the next minute at which the existing guard accepts it. Malformed requests remain invalid;
+a readiness hint proves neither coverage nor the requested immutable Source/history identity.
+Other failures, including authentication, authorization and composition conflict, carry no readiness hint.
+
+The strict browser adapters admit the hint only for this code, QUERY phase and HTTP 503, with a positive
+canonical decimal integer that fits the platform's signed 32-bit millisecond timer (at most 2147483 seconds).
+Missing, malformed, HTTP-date, zero or excessive values do not schedule a retry and are never clamped.
+The chart's existing shared single-flight coordinator allows one server-directed re-observation per exact
+closed-window intent. While waiting, `WAITING_FOR_CLOSED_WINDOW` is visible and all old numeric admissions
+are retired. The timer only schedules a fresh formal query; elapsed time is never a validity proof.
+Two SMA instances share the same deferral. A second not-ready result is terminal for automatic observation.
+Context, new close, credential generation and unmount cancel/fence the old timer; presentation changes do
+not query or reset its budget. Normal explicit UI recovery remains available. The requested anchor, 2000-bar
+window, Source pins, authorization and fresh evidence admission are unchanged.
+
+This is an intentional **development-unfrozen** behavioral contract change from generic HTTP 400
+`MARKET_DATA_WINDOW_REQUEST_INVALID` to the distinct HTTP 503 readiness failure for valid future anchors.
+The optional standard response header is additive; body schemas are unchanged. Repository consumers,
+OpenAPI and generated TypeScript evolve atomically, with no old-version fallback or persisted-format change.
+The standard header semantics follow [RFC 9110 section 10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3).
+
 ### Internal numeric admission
 
 The disposable SMA adapter retains the actual registrations from one installed Provider discovery and the Catalog built from

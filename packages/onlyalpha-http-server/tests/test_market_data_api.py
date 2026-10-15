@@ -481,3 +481,22 @@ def test_market_data_errors_map_to_explicit_http_status() -> None:
     )
     assert invalid.status_code == 400
     assert invalid.json()["error"]["code"] == "MARKET_DATA_REQUEST_INVALID"
+
+
+def test_future_window_readiness_is_exact_retry_after_http_contract():
+    service = _Service()
+    client = _client(service)
+    service.failure = OnlyMarketDataProductError("MARKET_DATA_WINDOW_NOT_CLOSED", retry_after_seconds=4)
+    response = client.get("/api/v2/market-data/bars", params=_selection_params(instrument_id=INSTRUMENT_ID))
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "4"
+    assert response.json()["error"]["code"] == "MARKET_DATA_WINDOW_NOT_CLOSED"
+    service.failure = OnlyMarketDataProductError("MARKET_DATA_FACT_STORE_UNAVAILABLE")
+    assert (
+        "Retry-After"
+        not in client.get("/api/v2/market-data/bars", params=_selection_params(instrument_id=INSTRUMENT_ID)).headers
+    )
+    document = client.app.openapi()
+    header = document["paths"]["/api/v2/market-data/bars"]["get"]["responses"]["503"]["headers"]["Retry-After"]
+    assert header["schema"]["pattern"] == "^[1-9][0-9]*$"
+    assert "headers" not in document["paths"]["/api/v2/market-data/sources"]["get"]["responses"]["503"]

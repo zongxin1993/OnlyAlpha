@@ -426,3 +426,41 @@ it.each([1, 3, 5, 15, 30, 60, 120, 240])(
         ).resolves.toEqual(v.evaluated);
     }
 );
+
+it.each([
+    ["4", 4],
+    [null, null],
+    ["0", null],
+    ["1.5", null],
+    ["2147484", null]
+] as const)("preserves only strict evaluate readiness Retry-After %s", async (header, expected) => {
+    const v = vector();
+    vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        schema_version: 1,
+                        error: {
+                            phase: "QUERY",
+                            code: "MARKET_DATA_WINDOW_NOT_CLOSED",
+                            detail: "Window not closed"
+                        }
+                    }),
+                    { status: 503, headers: header === null ? {} : { "Retry-After": header } }
+                )
+            )
+        )
+    );
+    await expect(
+        readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+    ).rejects.toMatchObject({
+        code: "MARKET_DATA_WINDOW_NOT_CLOSED",
+        status: 503,
+        retryAfterSeconds: expected
+    });
+    await expect(readChartStudyCapability(v.credentials)).rejects.toMatchObject({
+        retryAfterSeconds: null
+    });
+});

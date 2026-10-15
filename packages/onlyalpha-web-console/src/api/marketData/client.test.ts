@@ -287,3 +287,63 @@ it("fences a dev acquisition response after the local credential generation chan
     release(json(marketDataAcquisition()));
     await expect(pending).rejects.toMatchObject({ code: "LOCAL_READ_GENERATION_CHANGED" });
 });
+
+it.each([
+    ["4", 4],
+    ["2147483", 2147483],
+    [null, null],
+    ["0", null],
+    ["04", null],
+    ["-1", null],
+    ["1.5", null],
+    ["NaN", null],
+    ["Infinity", null],
+    ["2147484", null],
+    ["999999999999999999999", null],
+    ["Wed, 21 Oct 2026 07:28:00 GMT", null]
+] as const)("admits only safe window Retry-After delta seconds %s", async (header, expected) => {
+    stubFetch(
+        new Response(
+            JSON.stringify({
+                error: {
+                    phase: "QUERY",
+                    code: "MARKET_DATA_WINDOW_NOT_CLOSED",
+                    detail: "Window not closed"
+                }
+            }),
+            {
+                status: 503,
+                headers: header === null ? {} : { "Retry-After": header }
+            }
+        )
+    );
+    await expect(
+        new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
+    ).rejects.toMatchObject({
+        code: "MARKET_DATA_WINDOW_NOT_CLOSED",
+        status: 503,
+        retryAfterSeconds: expected
+    });
+});
+
+it.each([
+    [401, "LOCAL_READ_UNAUTHORIZED", "QUERY"],
+    [403, "LOCAL_READ_FORBIDDEN", "QUERY"],
+    [409, "MARKET_DATA_RANGE_COMPOSITION_CONFLICT", "QUERY"],
+    [503, "MARKET_DATA_FACT_STORE_UNAVAILABLE", "QUERY"],
+    [400, "MARKET_DATA_WINDOW_NOT_CLOSED", "QUERY"],
+    [503, "MARKET_DATA_WINDOW_NOT_CLOSED", "COMMAND"]
+] as const)(
+    "never turns unrelated error %s %s %s into window readiness",
+    async (status, code, phase) => {
+        stubFetch(
+            new Response(JSON.stringify({ error: { phase, code, detail: "Refused" } }), {
+                status,
+                headers: { "Retry-After": "4" }
+            })
+        );
+        await expect(
+            new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
+        ).rejects.toMatchObject({ code, status, retryAfterSeconds: null });
+    }
+);

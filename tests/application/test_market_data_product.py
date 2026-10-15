@@ -1514,8 +1514,11 @@ def test_window_rejects_invalid_anchor_combination_without_acquiring(tmp_path: P
     assert harness.provider.bar_fetches == 0
     assert harness.catalog.mutations == 0
 
-    for invalid_before_ns in (0, end_ns + 60 * MINUTE_NS):
-        with pytest.raises(OnlyMarketDataProductError, match="MARKET_DATA_WINDOW_REQUEST_INVALID"):
+    for invalid_before_ns, code in (
+        (0, "MARKET_DATA_WINDOW_REQUEST_INVALID"),
+        (end_ns + 60 * MINUTE_NS, "MARKET_DATA_WINDOW_NOT_CLOSED"),
+    ):
+        with pytest.raises(OnlyMarketDataProductError, match=code):
             harness.service.query_bars(
                 _reference(harness.revision_fingerprint),
                 instrument_id=str(INSTRUMENT),
@@ -2471,3 +2474,51 @@ def test_thirteen_minute_reconnect_repairs_gap_replays_once_then_reports_ready(
     assert events[-1].event == "STATE" and events[-1].payload["state"] == "READY"
     assert harness.provider.bar_fetches == 2
     stream.close()
+
+
+@pytest.mark.parametrize(
+    "anchor_offset, lag_ns, delay_seconds",
+    [(0, 3_800_000_000, 4), (0, 1_000_000_000, 1), (0, 1_000_000_001, 2), (1, 3_800_000_000, 64)],
+)
+def test_future_window_readiness_uses_one_clock_sample_without_reading_facts(
+    tmp_path, monkeypatch, anchor_offset, lag_ns, delay_seconds
+):
+    harness = _service(tmp_path)
+    boundary = harness.service._clock.timestamp_ns()
+    before = boundary + anchor_offset
+    samples = []
+    now = boundary - lag_ns
+
+    def timestamp_ns():
+        samples.append(now)
+        return now
+
+    monkeypatch.setattr(harness.service._clock, "timestamp_ns", timestamp_ns)
+    reads = []
+    original = harness.service._ranges.read
+
+    def read(*args):
+        reads.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(harness.service._ranges, "read", read)
+    query = dict(
+        instrument_id=str(INSTRUMENT),
+        anchor_kind=OnlyBarWindowAnchorKind.BEFORE_TIME,
+        before_ns=before,
+        target_bar_count=2,
+    )
+    with pytest.raises(OnlyMarketDataProductError) as error:
+        harness.service.query_bars(_reference(harness.revision_fingerprint), **query)
+    assert error.value.code == "MARKET_DATA_WINDOW_NOT_CLOSED"
+    assert error.value.retry_after_seconds == delay_seconds
+    assert samples == [now]
+    assert reads == []
+    assert harness.provider.bar_fetches == harness.catalog.mutations == 0
+    now = boundary if anchor_offset == 0 else boundary + MINUTE_NS
+    projection = harness.service.query_bars(_reference(harness.revision_fingerprint), **query)
+    assert projection.requested_before_ns == before
+    assert projection.requested_bar_count == 2
+    assert len(reads) == 1
+    assert len(samples) == 2
+    assert harness.provider.bar_fetches == harness.catalog.mutations == 0

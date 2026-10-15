@@ -86,8 +86,10 @@ def only_plan_utc_24x7_bar_window(
         raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
     if (anchor_kind is OnlyBarWindowAnchorKind.LATEST_CLOSED) != (before_ns is None):
         raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
-    if before_ns is not None and (before_ns <= 0 or before_ns > latest_closed_ns):
+    if before_ns is not None and before_ns <= 0:
         raise ValueError("MARKET_DATA_WINDOW_REQUEST_INVALID")
+    if before_ns is not None and before_ns > latest_closed_ns:
+        raise ValueError("MARKET_DATA_WINDOW_NOT_CLOSED")
     anchor = latest_closed_ns if before_ns is None else before_ns
     step_ns = semantic.stride_minutes * MINUTE_NS
     complete_session_ns = DAY_NS - DAY_NS % step_ns

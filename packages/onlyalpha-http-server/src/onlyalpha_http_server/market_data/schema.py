@@ -439,3 +439,11 @@ __all__ = [
     "MarketDataSourceReferenceDto",
     "MarketDataSourceSelectionDto",
 ]
+
+
+WINDOW_NOT_CLOSED_HEADERS = {
+    "Retry-After": {
+        "description": "Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage.",
+        "schema": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    }
+}

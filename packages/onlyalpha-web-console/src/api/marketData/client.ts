@@ -18,11 +18,27 @@ export class MarketDataWebError extends Error {
     constructor(
         readonly code: string,
         message: string,
-        readonly status?: number
+        readonly status?: number,
+        readonly retryAfterSeconds: number | null = null
     ) {
         super(message);
         this.name = "MarketDataWebError";
     }
+}
+
+/** A bounded scheduling hint, never a closed-history or Source proof. */
+export function windowRetryAfterSeconds(
+    response: Response,
+    code: string,
+    phase: string
+): number | null {
+    if (response.status !== 503 || code !== "MARKET_DATA_WINDOW_NOT_CLOSED" || phase !== "QUERY")
+        return null;
+    const value = response.headers.get("Retry-After");
+    if (value === null || !/^[1-9][0-9]*$/.test(value)) return null;
+    const seconds = Number(value);
+    // setTimeout uses signed 32-bit milliseconds; never clamp overflow to an early retry.
+    return Number.isSafeInteger(seconds) && seconds * 1000 <= 2_147_483_647 ? seconds : null;
 }
 
 export interface MarketDataBarsQuery {
@@ -97,7 +113,8 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
         throw new MarketDataWebError(
             admitted.data.error.code,
             admitted.data.error.detail,
-            response.status
+            response.status,
+            windowRetryAfterSeconds(response, admitted.data.error.code, admitted.data.error.phase)
         );
     }
     const admitted = schema.safeParse(body);

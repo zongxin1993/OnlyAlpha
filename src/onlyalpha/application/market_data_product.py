@@ -140,10 +140,18 @@ _INELIGIBLE_SOURCE_CODES = frozenset(
 
 
 class OnlyMarketDataProductError(RuntimeError):
-    def __init__(self, code: str, detail: str | None = None, *, phase: Literal["QUERY", "COMMAND"] = "QUERY") -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str | None = None,
+        *,
+        phase: Literal["QUERY", "COMMAND"] = "QUERY",
+        retry_after_seconds: int | None = None,
+    ) -> None:
         self.code = code
         self.detail = detail or code
         self.phase = phase
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(f"{code}: {self.detail}")
 
 
@@ -740,15 +748,23 @@ class OnlyMarketDataProductService:
             if plan.mode is OnlyBarResolutionMode.PROVIDER_NATIVE
             else self._plan(resolved, instrument_id, BASE_BAR_SEMANTIC)
         )
+        clock_ns = self._clock.timestamp_ns()
         try:
             window = only_plan_utc_24x7_bar_window(
                 semantic,
                 anchor_kind=anchor_kind,
                 before_ns=before_ns,
                 target_bar_count=target_bar_count,
-                latest_closed_ns=self._closed_minute_ns(),
+                latest_closed_ns=(clock_ns // MINUTE_NS) * MINUTE_NS,
             )
         except (TypeError, ValueError) as exc:
+            if str(exc) == "MARKET_DATA_WINDOW_NOT_CLOSED" and before_ns is not None:
+                # The planner admits against a minute floor, including subminute anchors.
+                ready_ns = ((before_ns + MINUTE_NS - 1) // MINUTE_NS) * MINUTE_NS
+                raise OnlyMarketDataProductError(
+                    "MARKET_DATA_WINDOW_NOT_CLOSED",
+                    retry_after_seconds=(ready_ns - clock_ns + 999_999_999) // 1_000_000_000,
+                ) from exc
             raise OnlyMarketDataProductError("MARKET_DATA_WINDOW_REQUEST_INVALID", str(exc)) from exc
         scope = self._scope(resolved, instrument_id, window.resolved_start_ns, window.resolved_end_ns, acquisition_plan)
         measurement = only_current_market_data_performance()

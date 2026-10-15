@@ -446,3 +446,30 @@ def test_http_eth_native_hour_and_owning_input_support(tmp_path, monkeypatch):
         response = result.json()
         assert response["input"]["resolved_start_ns"] == str(model.before_ns - 25 * 60 * owner_fixture.MINUTE_NS)
         assert response["series"][0]["points"][19]["readiness"] == "READY"
+
+
+def test_future_window_readiness_survives_application_and_protected_evaluate_http(tmp_path, monkeypatch):
+    h, q, model, _, authority = arrange(tmp_path)
+    before = h.catalog.mutations, h.service._facts.writes, h.provider.sessions
+    now = model.before_ns - 3_800_000_000
+    monkeypatch.setattr(h.service._clock, "timestamp_ns", lambda: now)
+    application = app_for(q, authority)
+    with TestClient(application, base_url=ORIGIN) as client:
+        result = client.post(CHART_EVALUATE_PATH, json=request_body(model), headers=HEADERS)
+        assert result.status_code == 503, result.text
+        assert result.json()["error"]["code"] == "MARKET_DATA_WINDOW_NOT_CLOSED"
+        assert result.headers["Retry-After"] == "4"
+        assert result.headers["Cache-Control"] == "no-store"
+        now = model.before_ns
+        recovered = client.post(CHART_EVALUATE_PATH, json=request_body(model), headers=HEADERS)
+        assert recovered.status_code == 200, recovered.text
+        assert "Retry-After" not in recovered.headers
+    assert before == (h.catalog.mutations, h.service._facts.writes, h.provider.sessions)
+    document = application.openapi()
+    assert (
+        document["paths"][CHART_EVALUATE_PATH]["post"]["responses"]["503"]["headers"]["Retry-After"]["schema"][
+            "pattern"
+        ]
+        == "^[1-9][0-9]*$"
+    )
+    assert "headers" not in document["paths"][CHART_CAPABILITIES_PATH]["get"]["responses"]["503"]

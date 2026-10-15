@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { windowRetryAfterSeconds } from "../marketData/client";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
 import type { MarketDataBars, MarketDataBarSemantic } from "../marketData/model";
 import type { StudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
@@ -21,7 +22,8 @@ export function isAdmittedChartStudyEvidence(value: object): boolean {
 export class ChartStudyWebError extends Error {
     constructor(
         readonly code: string,
-        readonly status?: number
+        readonly status?: number,
+        readonly retryAfterSeconds: number | null = null
     ) {
         super(code);
     }
@@ -81,7 +83,10 @@ async function read<T>(
         const error = ChartStudyErrorEnvelopeSchema.safeParse(value);
         throw new ChartStudyWebError(
             error.success ? error.data.error.code : "INVALID",
-            response.status
+            response.status,
+            error.success && path === "evaluate"
+                ? windowRetryAfterSeconds(response, error.data.error.code, error.data.error.phase)
+                : null
         );
     }
     if (response.headers.get("cache-control") !== "no-store")

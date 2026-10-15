@@ -11071,7 +11071,16 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "Service Unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage.",
+                "schema": {
+                  "pattern": "^[1-9][0-9]*$",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -13151,7 +13160,16 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "Service Unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage.",
+                "schema": {
+                  "pattern": "^[1-9][0-9]*$",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [

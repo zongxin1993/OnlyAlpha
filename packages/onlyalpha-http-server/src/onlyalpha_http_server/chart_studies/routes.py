@@ -10,6 +10,7 @@ from onlyalpha.application.chart_study_product_query import OnlyChartStudyProduc
 from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 
 from ..local_read_access import CHART_CAPABILITIES_PATH, CHART_EVALUATE_PATH, only_request_read_session
+from ..market_data.schema import WINDOW_NOT_CLOSED_HEADERS
 from .schema import (
     ChartStudyCapabilitiesDto,
     ChartStudyCapabilityDto,
@@ -36,10 +37,19 @@ def create_chart_study_router(service: OnlyChartStudyProductQueryService) -> API
             status = 401 if code == "LOCAL_READ_UNAUTHORIZED" else 403
         else:
             code, status = "CHART_STUDY_OUTPUT_INVALID", 500
+        headers = {"Cache-Control": "no-store"}
+        if (
+            isinstance(error, OnlyChartStudyQueryError)
+            and code == "MARKET_DATA_WINDOW_NOT_CLOSED"
+            and status == 503
+            and type(error.retry_after_seconds) is int
+            and error.retry_after_seconds > 0
+        ):
+            headers["Retry-After"] = str(error.retry_after_seconds)
         return JSONResponse(
             {"schema_version": 1, "error": {"phase": "QUERY", "code": code, "detail": code}},
             status_code=status,
-            headers={"Cache-Control": "no-store"},
+            headers=headers,
         )
 
     @router.get(CHART_CAPABILITIES_PATH, response_model=ChartStudyCapabilitiesDto)
@@ -60,7 +70,11 @@ def create_chart_study_router(service: OnlyChartStudyProductQueryService) -> API
         except Exception as error:
             return failure(error)
 
-    @router.post(CHART_EVALUATE_PATH, response_model=ChartStudyEvaluateDto)
+    @router.post(
+        CHART_EVALUATE_PATH,
+        response_model=ChartStudyEvaluateDto,
+        responses={503: {"model": ChartStudyErrorEnvelopeDto, "headers": WINDOW_NOT_CLOSED_HEADERS}},
+    )
     async def evaluate(body: ChartStudyEvaluateRequestDto, request: Request) -> JSONResponse:
         session = only_request_read_session(request.scope)
         if session is None:

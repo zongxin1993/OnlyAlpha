@@ -26,9 +26,10 @@ from onlyalpha.research.calculation.backend import OnlyResearchCalculationBacken
 class OnlyChartStudyQueryError(RuntimeError):
     """A sanitized display Query failure, never a scientific outcome."""
 
-    def __init__(self, code: str, status: int) -> None:
+    def __init__(self, code: str, status: int, *, retry_after_seconds: int | None = None) -> None:
         self.code = code
         self.status = status
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(code)
 
 
@@ -153,7 +154,9 @@ class OnlyChartStudyProductQueryService:
                     if error.code.endswith(("INVALID", "UNSUPPORTED"))
                     else 503
                 )
-                raise OnlyChartStudyQueryError(error.code, status) from error
+                raise OnlyChartStudyQueryError(
+                    error.code, status, retry_after_seconds=error.retry_after_seconds
+                ) from error
             session.require_selection(window.source_selection, OnlySourceReadPermission.CLOSED_HISTORY)
             if (
                 window.instrument_id != request.instrument_id

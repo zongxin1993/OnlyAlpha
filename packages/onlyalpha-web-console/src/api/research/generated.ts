@@ -5915,6 +5915,8 @@ export interface operations {
             /** @description Service Unavailable */
             503: {
                 headers: {
+                    /** @description Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage. */
+                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7418,6 +7420,8 @@ export interface operations {
             /** @description Service Unavailable */
             503: {
                 headers: {
+                    /** @description Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage. */
+                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {
