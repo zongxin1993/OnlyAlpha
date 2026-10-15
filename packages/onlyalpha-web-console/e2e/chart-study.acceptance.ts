@@ -576,3 +576,68 @@ test("two SMA instances preserve parameters and colors across native 15m to 1m t
     expect(readStarts[0]).not.toBe(readStarts[2]);
     await disconnectChart(page);
 });
+
+for (const collapsed of [false, true]) {
+    test(`chart plot, native time axis and timezone remain reachable in 1280x720 shell with research dock ${collapsed ? "collapsed" : "expanded"}`, async ({
+        page
+    }, testInfo) => {
+        test.setTimeout(9 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await connectNativeChart(page);
+        const first = evaluationReply(page, 20);
+        await addSma(page, 20, "深蓝色");
+        expect((await first).status()).toBe(200);
+        const both = Promise.all([evaluationReply(page, 20), evaluationReply(page, 10)]);
+        await addSma(page, 10, "红色");
+        for (const reply of await both) expect(reply.status()).toBe(200);
+        const chart = page.getByTestId("price-chart");
+        await expect(chart).toHaveAttribute("data-study-series-count", "2");
+        await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+        if (collapsed) await page.getByRole("button", { name: "收起下方面板" }).click();
+        const main = page.getByRole("region", { name: "主图", exact: true });
+        // Scroll the existing owning region from its text surface. Wheel input on
+        // the financial canvas intentionally zooms; it is not a page-scroll path.
+        const bounds = await main.boundingBox();
+        if (bounds === null) throw new Error("Missing main chart region");
+        await page.mouse.move(bounds.x + 8, bounds.y + 8);
+        await page.mouse.wheel(0, 2000);
+        const timezone = page.getByRole("combobox", { name: "显示时区" });
+        await timezone.focus();
+        const geometry = await chart.evaluate((element) => {
+            const main = element.closest(".chart-region");
+            const surface = element.closest(".price-chart-surface");
+            if (main === null || surface === null) throw new Error("Missing owning chart layout");
+            const clip = main.getBoundingClientRect(),
+                plot = element.getBoundingClientRect();
+            const footer = surface
+                .querySelector(".chart-display-controls")
+                ?.getBoundingClientRect();
+            return {
+                clip: { top: clip.top, bottom: clip.bottom },
+                plot: { top: plot.top, bottom: plot.bottom, height: plot.height },
+                footer: footer === undefined ? null : { top: footer.top, bottom: footer.bottom },
+                scrollTop: main.scrollTop,
+                scrollHeight: main.scrollHeight,
+                clientHeight: main.clientHeight
+            };
+        });
+        await testInfo.attach("constrained-chart-layout", {
+            body: JSON.stringify(geometry),
+            contentType: "application/json"
+        });
+        expect(geometry.plot.height).toBeGreaterThanOrEqual(220);
+        expect(geometry.plot.top).toBeGreaterThanOrEqual(geometry.clip.top);
+        expect(geometry.plot.bottom).toBeLessThanOrEqual(geometry.clip.bottom);
+        expect(geometry.footer?.bottom).toBeLessThanOrEqual(geometry.clip.bottom);
+        await expect(timezone).toBeInViewport({ ratio: 1 });
+        await timezone.selectOption("Asia/Shanghai");
+        await expect(timezone).toHaveValue("Asia/Shanghai");
+        await page.getByRole("button", { name: "编辑 SMA", exact: true }).first().click();
+        await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toBeVisible();
+        await page.getByRole("button", { name: "取消配置" }).click();
+        await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    });
+}
