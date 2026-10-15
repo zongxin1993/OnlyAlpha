@@ -941,6 +941,9 @@
           "implementation": {
             "$ref": "#/components/schemas/ChartStudyManifestDto"
           },
+          "input_support": {
+            "$ref": "#/components/schemas/ChartStudyInputSupportDto"
+          },
           "invocation": {
             "$ref": "#/components/schemas/ChartStudyManifestDto"
           },
@@ -1015,6 +1018,7 @@
           "readiness_contract_versions",
           "output_members",
           "supported_shape",
+          "input_support",
           "finite_initialization",
           "limits",
           "numeric_binding"
@@ -1727,6 +1731,51 @@
           "resume_plan_fingerprint"
         ],
         "title": "ChartStudyInputDto",
+        "type": "object"
+      },
+      "ChartStudyInputSupportDto": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment": {
+            "const": "UTC_24X7",
+            "title": "Alignment",
+            "type": "string"
+          },
+          "bar_formation": {
+            "const": "FIXED_DURATION",
+            "title": "Bar Formation",
+            "type": "string"
+          },
+          "closed_only": {
+            "const": true,
+            "title": "Closed Only",
+            "type": "boolean"
+          },
+          "coverage_policy": {
+            "const": "COMPLETE_VERIFIED_WINDOW",
+            "title": "Coverage Policy",
+            "type": "string"
+          },
+          "instrument_policy": {
+            "const": "EXACT_SOURCE_CATALOG",
+            "title": "Instrument Policy",
+            "type": "string"
+          },
+          "resolution_mode": {
+            "const": "PROVIDER_NATIVE",
+            "title": "Resolution Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument_policy",
+          "resolution_mode",
+          "bar_formation",
+          "alignment",
+          "closed_only",
+          "coverage_policy"
+        ],
+        "title": "ChartStudyInputSupportDto",
         "type": "object"
       },
       "ChartStudyIntegerDto": {

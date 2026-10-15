@@ -19,9 +19,9 @@ import {
     marketDataBarSemantic
 } from "../../api/marketData/model";
 
-const realBarPresets = [1, 5, 15, 30, 60, 240] as const;
+const realBarPresets = [1, 3, 5, 15, 30, 60, 120, 240] as const;
 const CATALOG_NOTE =
-    "指标/因子仅选择正式目录；尚未执行计算。SMA 需受权 closed native 15m 历史；DISPLAY_ONLY，不是 Research Result";
+    "指标/因子仅选择正式目录；尚未执行计算。SMA 需受权 closed native 历史；DISPLAY_ONLY，不是 Research Result";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -353,13 +353,12 @@ export function WorkspacePage() {
                     </span>
                 </header>
                 <ChartStudies
-                    key={studyContext?.key ?? "no-chart-context"}
                     context={studyContext}
                     {...(credentials.capture().bearer === null && !credentials.localSession
                         ? {}
                         : { credentials })}
                 >
-                    {({ instances, selectedId, incarnationKey }) => (
+                    {({ instances, selectedId, incarnationKey, onTransientRevalidated }) => (
                         <>
                             <p
                                 className="chart-region__overlay-note"
@@ -448,6 +447,7 @@ export function WorkspacePage() {
                             <div className="chart-region__body">
                                 <TransientStudyPriceChart
                                     context={studyContext}
+                                    onTransientRevalidated={onTransientRevalidated}
                                     dataGeneration={marketData.historyProjectionFingerprint}
                                     expectedSourceId={marketData.resolvedSourceId}
                                     expectedEnvironment={

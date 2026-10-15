@@ -47,19 +47,20 @@ class OnlyChartStudyRequestV1:
 
     def __post_init__(self) -> None:
         if (
-            type(self.before_ns) is not int
+            type(self.bar_semantic) is not OnlyBarSemantic
+            or not self.bar_semantic.is_aligned
+            or type(self.before_ns) is not int
             or not 0 < self.before_ns <= 9_223_372_036_854_775_807
             or type(self.target_bar_count) is not int
             or not 1 <= self.target_bar_count <= 2000
-            or self.before_ns % 900_000_000_000 != 0
-            or self.before_ns < self.target_bar_count * 900_000_000_000
+            or self.before_ns % (self.bar_semantic.stride_minutes * 60_000_000_000) != 0
+            or self.before_ns < self.target_bar_count * self.bar_semantic.stride_minutes * 60_000_000_000
             or type(self.period) is not int
             or not 1 <= self.period <= 10000
             or type(self.instrument_id) is not str
             or not 1 <= len(self.instrument_id) <= 256
             or type(self.reference) is not OnlyMarketDataSourceReferenceV1
             or self.reference.expected_type_id is None
-            or self.bar_semantic != OnlyBarSemantic.fixed_duration(15)
             or any(
                 type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None
                 for value in (
@@ -86,27 +87,19 @@ class OnlyChartStudyProductQueryService:
 
     The outer slot covers owning IO as well as numeric work. The synchronous owner
     retains it until the actual call ends, irrespective of HTTP cancellation.
-    Supported instrument scope is supplied by the Product composition, not inferred
-    from a provider name or an untrusted request.
+    Exact instrument membership and native semantic support are proved by the
+    owning Source catalog and resolution planner for every request.
     """
 
     def __init__(
         self,
         market_data: OnlyMarketDataProductService,
         invocation: OnlyChartStudySmaInvocation,
-        *,
-        supported_instrument_ids: tuple[str, ...],
     ) -> None:
-        if (
-            type(market_data) is not OnlyMarketDataProductService
-            or type(invocation) is not OnlyChartStudySmaInvocation
-            or not supported_instrument_ids
-            or len(set(supported_instrument_ids)) != len(supported_instrument_ids)
-        ):
+        if type(market_data) is not OnlyMarketDataProductService or type(invocation) is not OnlyChartStudySmaInvocation:
             raise OnlyChartStudyQueryError("CHART_STUDY_CAPABILITY_UNAVAILABLE", 503)
         self._market_data = market_data
         self._invocation = invocation
-        self._instruments = supported_instrument_ids
         self._slot = Lock()
 
     def capabilities(self, session: OnlySourceReadSession) -> OnlyChartStudySmaAdmission:
@@ -122,8 +115,6 @@ class OnlyChartStudyProductQueryService:
 
     def evaluate(self, request: OnlyChartStudyRequestV1, session: OnlySourceReadSession) -> OnlyChartStudyProjectionV1:
         session.require_reference(request.reference, OnlySourceReadPermission.CLOSED_HISTORY)
-        if request.instrument_id not in self._instruments:
-            raise OnlyChartStudyQueryError("CHART_STUDY_INPUT_UNSUPPORTED", 400)
         if not self._slot.acquire(blocking=False):
             raise OnlyChartStudyQueryError("CHART_STUDY_CAPACITY_UNAVAILABLE", 503)
         try:
@@ -171,7 +162,8 @@ class OnlyChartStudyProductQueryService:
                 or window.requested_before_ns != request.before_ns
                 or window.resolved_end_ns != request.before_ns
                 or window.requested_bar_count != request.target_bar_count
-                or window.resolved_start_ns != request.before_ns - request.target_bar_count * 900_000_000_000
+                or window.resolved_start_ns
+                != request.before_ns - request.target_bar_count * request.bar_semantic.stride_minutes * 60_000_000_000
                 or window.resolution_mode != "PROVIDER_NATIVE"
                 or window.resolution_plan_fingerprint is None
                 or window.calendar_fingerprint is None

@@ -4,7 +4,7 @@
     "capability_projection": {
       "authority": "DISPLAY_ONLY",
       "backend": "RESEARCH",
-      "catalog_generation_fingerprint": "cf5dc563567838a7f3d430c7687a1062f6772ae923ae8057ab8e5c04c36dadf3",
+      "catalog_generation_fingerprint": "b6d071262b126427d740dda61f35f790e19553a3f298a91e3417056e43f920f2",
       "descriptor": {
         "execution_shape": "TIME_SERIES",
         "factor_kind": null,
@@ -82,11 +82,11 @@
           "type_id": "onlyalpha.indicator.sma"
         },
         "entrypoint_identity": "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-        "implementation_bundle_fingerprint": "26f9f475bc285129a31c1f36076d74f0c0c5ba53fb7fc96ddcdbd263c7056540",
-        "implementation_fingerprint": "046ae9569afc0bfc73de47c6bd119be6792fbe9dd783f7e363b025ccb57da196",
+        "implementation_bundle_fingerprint": "9dd521760106d0b51a95bce0723ce007123747111f3c421c882f7590ce727084",
+        "implementation_fingerprint": "6945df71fd676895456dcb576c0f805d20d5595f2099cb2915c2e16575e45917",
         "resources": [
           {
-            "byte_sha256": "c3ecf170bd44367329b1c6e9b0b0a0d2ceb23bfcdc4c5a5c5d0ce2afdd1a1c90",
+            "byte_sha256": "a705ef524fc64b7ca0a000ada3ae2b05da951b8d8189f6fc3574add72a245360",
             "relative_path": "provider.py"
           },
           {
@@ -111,7 +111,7 @@
             "semantic_version": "1"
           },
           {
-            "artifact_fingerprint": "393cc52ffe4dcea56c1db72f3715cdb06967fcdd63f3ba3617e4dd8d510feb80",
+            "artifact_fingerprint": "deadcaf3435a2a84f21aaf34e242450fdc40164240b5a278bcff5fa36a1430c8",
             "dependency_id": "onlyalpha.chart-study.invocation",
             "semantic_version": "1"
           },
@@ -127,6 +127,14 @@
           }
         ]
       },
+      "input_support": {
+        "alignment": "UTC_24X7",
+        "bar_formation": "FIXED_DURATION",
+        "closed_only": true,
+        "coverage_policy": "COMPLETE_VERIFIED_WINDOW",
+        "instrument_policy": "EXACT_SOURCE_CATALOG",
+        "resolution_mode": "PROVIDER_NATIVE"
+      },
       "invocation": {
         "backend_kind": "RESEARCH",
         "calculation_type_reference": {
@@ -135,19 +143,19 @@
           "type_id": "onlyalpha.indicator.sma"
         },
         "entrypoint_identity": "onlyalpha.application.chart_study_numeric:OnlyChartStudySmaInvocation",
-        "implementation_bundle_fingerprint": "d6ece169c3d561d724962311041c2eb2aae83e0c04980d47b86e4faed9fe6b71",
-        "implementation_fingerprint": "393cc52ffe4dcea56c1db72f3715cdb06967fcdd63f3ba3617e4dd8d510feb80",
+        "implementation_bundle_fingerprint": "0e0f4a0a703553ee90744576a3a2e50c00a56014e811c9e380aa9e68d2903a99",
+        "implementation_fingerprint": "deadcaf3435a2a84f21aaf34e242450fdc40164240b5a278bcff5fa36a1430c8",
         "resources": [
           {
             "byte_sha256": "bab8325043391dbf02824ee0472d803b6ec87653a85063a9b27553d60a9fe5fb",
             "relative_path": "application/chart_study_input.py"
           },
           {
-            "byte_sha256": "a83b2edf8ee5d876819d9adef54685f8da1f5bf8c02994e5dc2dcb1931ceae4d",
+            "byte_sha256": "884dd81312bdc158c7dd9cc60373e0d5b4267fb766244e16663e144c65ac38bc",
             "relative_path": "application/chart_study_numeric.py"
           },
           {
-            "byte_sha256": "183d654dd5ce608171ba9ea295949cb295bc8ef10c97c4baafb1cfb691d8d624",
+            "byte_sha256": "b9797aae75e9e2190b1eedd12cd06fe20199a3cdc4804f74cddc46adaab85fdb",
             "relative_path": "application/source_read_access.py"
           },
           {
@@ -243,11 +251,11 @@
       "output_members": [
         "value"
       ],
-      "provider_content_fingerprint": "5b6184b0af0ecb8d1486409c90886fddce0471bd854684bce98e91cefc6ab89a",
+      "provider_content_fingerprint": "61724da3bfc5cb92e317b0b52051aadbead81fc390793294734ef9370c196cc7",
       "provider_manifest": {
         "kind": "INDICATOR",
         "provider_id": "onlyalpha.indicator.library",
-        "provider_version": "7",
+        "provider_version": "8",
         "schema_version": 1,
         "source": {
           "distribution_name": "onlyalpha-plugin-indicators",
@@ -263,8 +271,8 @@
       "source_kind": "CHART_STUDY_TRANSIENT",
       "supported_shape": "TIME_SERIES/CLOSED_HISTORY/CLOSE/value"
     },
-    "capability_projection_fingerprint": "9792ea0ead7a1a23a3d0fa50f5df7615a201ab964fea42ff572a8a1592e00a9a",
-    "catalog_generation_fingerprint": "cf5dc563567838a7f3d430c7687a1062f6772ae923ae8057ab8e5c04c36dadf3",
+    "capability_projection_fingerprint": "e1288a10139d1031e1619782549e094d93e268685795de32e3c6d8789378f340",
+    "catalog_generation_fingerprint": "b6d071262b126427d740dda61f35f790e19553a3f298a91e3417056e43f920f2",
     "descriptor": {
       "execution_shape": "TIME_SERIES",
       "factor_kind": null,
@@ -334,8 +342,8 @@
     },
     "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
     "execution_shape": "TIME_SERIES",
-    "implementation_fingerprint": "046ae9569afc0bfc73de47c6bd119be6792fbe9dd783f7e363b025ccb57da196",
-    "invocation_implementation_fingerprint": "393cc52ffe4dcea56c1db72f3715cdb06967fcdd63f3ba3617e4dd8d510feb80",
+    "implementation_fingerprint": "6945df71fd676895456dcb576c0f805d20d5595f2099cb2915c2e16575e45917",
+    "invocation_implementation_fingerprint": "deadcaf3435a2a84f21aaf34e242450fdc40164240b5a278bcff5fa36a1430c8",
     "kind": "INDICATOR",
     "limits": {
       "max_concurrent_invocations": 1,
@@ -371,9 +379,9 @@
     "output_members": [
       "value"
     ],
-    "provider_content_fingerprint": "5b6184b0af0ecb8d1486409c90886fddce0471bd854684bce98e91cefc6ab89a",
+    "provider_content_fingerprint": "61724da3bfc5cb92e317b0b52051aadbead81fc390793294734ef9370c196cc7",
     "provider_id": "onlyalpha.indicator.library",
-    "provider_version": "7",
+    "provider_version": "8",
     "readiness_contract_version": 1,
     "semantic_version": "1",
     "type_id": "onlyalpha.indicator.sma"
@@ -394,12 +402,12 @@
     },
     "calculation": {
       "backend": "RESEARCH",
-      "capability_projection_fingerprint": "9792ea0ead7a1a23a3d0fa50f5df7615a201ab964fea42ff572a8a1592e00a9a",
-      "catalog_generation_fingerprint": "cf5dc563567838a7f3d430c7687a1062f6772ae923ae8057ab8e5c04c36dadf3",
+      "capability_projection_fingerprint": "e1288a10139d1031e1619782549e094d93e268685795de32e3c6d8789378f340",
+      "catalog_generation_fingerprint": "b6d071262b126427d740dda61f35f790e19553a3f298a91e3417056e43f920f2",
       "definition_fingerprint": "f21db1be2434426ef9fbf6e7ae806268bb866cf3bae005db4950891685e8d49e",
       "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
-      "implementation_fingerprint": "046ae9569afc0bfc73de47c6bd119be6792fbe9dd783f7e363b025ccb57da196",
-      "invocation_implementation_fingerprint": "393cc52ffe4dcea56c1db72f3715cdb06967fcdd63f3ba3617e4dd8d510feb80",
+      "implementation_fingerprint": "6945df71fd676895456dcb576c0f805d20d5595f2099cb2915c2e16575e45917",
+      "invocation_implementation_fingerprint": "deadcaf3435a2a84f21aaf34e242450fdc40164240b5a278bcff5fa36a1430c8",
       "kind": "INDICATOR",
       "normalized_definition": {
         "extensions": {},
@@ -508,9 +516,9 @@
           "unit": "PRICE"
         }
       ],
-      "provider_content_fingerprint": "5b6184b0af0ecb8d1486409c90886fddce0471bd854684bce98e91cefc6ab89a",
+      "provider_content_fingerprint": "61724da3bfc5cb92e317b0b52051aadbead81fc390793294734ef9370c196cc7",
       "provider_id": "onlyalpha.indicator.library",
-      "provider_version": "7",
+      "provider_version": "8",
       "semantic_version": "1",
       "type_id": "onlyalpha.indicator.sma"
     },

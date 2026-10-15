@@ -120,9 +120,9 @@ def test_financial_indicator_catalog_contracts_are_explicit() -> None:
     assert all(item.implementation_manifest is not None for item in actual)
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "7"
+    assert provider.manifest.provider_version == "8"
     # Provider content binds the exact invocation/registration bytes without changing Calculation semantics.
-    assert provider.content_fingerprint == "5b6184b0af0ecb8d1486409c90886fddce0471bd854684bce98e91cefc6ab89a"
+    assert provider.content_fingerprint == "61724da3bfc5cb92e317b0b52051aadbead81fc390793294734ef9370c196cc7"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
     financial = tuple(item for item in actual if item.type_definition in FINANCIAL_TYPES)
     assert all(

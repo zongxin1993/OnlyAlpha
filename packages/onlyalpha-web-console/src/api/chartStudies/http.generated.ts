@@ -26,6 +26,14 @@ const ChartStudyDistributionDtoSchema = z.strictObject({
     distribution_name: z.string().min(1).max(256),
     distribution_version: z.string().min(1).max(256)
 });
+const ChartStudyInputSupportDtoSchema = z.strictObject({
+    instrument_policy: z.literal("EXACT_SOURCE_CATALOG"),
+    resolution_mode: z.literal("PROVIDER_NATIVE"),
+    bar_formation: z.literal("FIXED_DURATION"),
+    alignment: z.literal("UTC_24X7"),
+    closed_only: z.literal(true),
+    coverage_policy: z.literal("COMPLETE_VERIFIED_WINDOW")
+});
 const ChartStudyLimitsDtoSchema = z.strictObject({
     max_input_rows: z.literal(2000),
     max_period: z.literal(10000),
@@ -279,6 +287,7 @@ const ChartStudyCapabilityProjectionDtoSchema = z.strictObject({
     readiness_contract_versions: z.array(z.literal(1)).min(1).max(1),
     output_members: z.array(z.literal("value")).min(1).max(1),
     supported_shape: z.literal("TIME_SERIES/CLOSED_HISTORY/CLOSE/value"),
+    input_support: ChartStudyInputSupportDtoSchema,
     finite_initialization: z.literal("PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START"),
     limits: ChartStudyLimitsDtoSchema,
     numeric_binding: ChartStudyNumericBindingDtoSchema

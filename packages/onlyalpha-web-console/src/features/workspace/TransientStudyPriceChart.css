@@ -5,16 +5,22 @@
     display: flex;
     flex-direction: column;
 }
-.transient-study-chart > [role="status"] {
+.transient-study-chart__status {
     flex-shrink: 0;
-    margin: 0;
     padding: 0.25rem 0.6rem;
     color: var(--muted);
     font-size: 0.7rem;
     border-bottom: 1px solid var(--line-soft);
 }
+.transient-study-chart__status > [role="status"] {
+    margin: 0;
+}
 .transient-study-chart__plot {
     position: relative;
     flex: 1;
     min-height: 0;
+}
+
+.transient-study-chart__plot .chart-region__canvas {
+    min-height: 220px;
 }

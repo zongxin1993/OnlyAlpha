@@ -6,9 +6,10 @@ import { CalculationPicker } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
 import { studyDescriptor, type ChartStudyContext, type ChartStudyInstance } from "./chartStudy";
 import "./chartStudy.css";
+import type { ChartStudyCapability } from "../../api/chartStudies/client";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 
-/** One context-keyed, disposable workspace state source; never scientific persistence. */
+/** One disposable workspace presentation-intent owner; never scientific persistence. */
 export function ChartStudies({
     context,
     children,
@@ -20,14 +21,47 @@ export function ChartStudies({
         readonly instances: readonly ChartStudyInstance[];
         readonly selectedId: string | null;
         readonly incarnationKey: string;
+        readonly onTransientRevalidated: (
+            capability: ChartStudyCapability,
+            instanceIds: readonly string[]
+        ) => void;
     }) => ReactNode;
 }) {
     const [draft, setDraft] = useState<ChartCalculationDraft | null>(null);
     const [instances, setInstances] = useState<readonly ChartStudyInstance[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [incarnationKey] = useState(createUuidV4);
+    const [incarnationKey, setIncarnationKey] = useState(createUuidV4);
+    const [contextKey, setContextKey] = useState(context?.key ?? null);
     const [editing, setEditing] = useState<ChartStudyInstance | null>(null);
     const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
+    // Retain intent, but each context occurrence gets a fresh numeric/request owner.
+    if (contextKey !== (context?.key ?? null)) {
+        setContextKey(context?.key ?? null);
+        setIncarnationKey(createUuidV4());
+        setDraft(null);
+        setEditing(null);
+        if (context !== null)
+            setInstances((previous) => previous.map((instance) => ({ ...instance, context })));
+    }
+    const onTransientRevalidated = useCallback(
+        (capability: ChartStudyCapability, instanceIds: readonly string[]) => {
+            const admitted = new Set(instanceIds);
+            setInstances((previous) =>
+                previous.map((instance) =>
+                    instance.selection.source === "CHART_STUDY_TRANSIENT" &&
+                    instance.connectionState === "STALE_CONFIG" &&
+                    admitted.has(instance.instanceId)
+                        ? {
+                              ...instance,
+                              selection: { source: "CHART_STUDY_TRANSIENT", capability },
+                              connectionState: "CONFIGURED_NOT_EXECUTED"
+                          }
+                        : instance
+                )
+            );
+        },
+        []
+    );
     const changeDraft = useCallback(
         (next: ChartCalculationDraft | null, trigger: HTMLElement | null) => {
             setEditing(null);
@@ -42,16 +76,19 @@ export function ChartStudies({
         const invalidate = () => {
             setDraft(null);
             setEditing(null);
+            setIncarnationKey(createUuidV4());
             // Focus is a re-observation boundary, not a cached validity/TTL claim.
             setInstances((previous) =>
                 previous.map((instance) => ({ ...instance, connectionState: "STALE_CONFIG" }))
             );
         };
         window.addEventListener("focus", invalidate);
+        const unsubscribe = credentials?.subscribe(invalidate);
         return () => {
             window.removeEventListener("focus", invalidate);
+            unsubscribe?.();
         };
-    }, []);
+    }, [credentials]);
     return (
         <>
             <section className="chart-studies" aria-label="图表配置实例">
@@ -140,7 +177,9 @@ export function ChartStudies({
                                     </button>
                                     <span>
                                         {instance.connectionState === "STALE_CONFIG"
-                                            ? "配置已过期；需重新验证"
+                                            ? instance.selection.source === "CHART_STUDY_TRANSIENT"
+                                                ? "配置已过期；正在重新验证，查询状态见图表"
+                                                : "配置已过期；需重新验证"
                                             : instance.selection.source === "CHART_STUDY_TRANSIENT"
                                               ? "已配置 · 查询状态见图表"
                                               : "已配置，尚未接入后端计算"}
@@ -195,6 +234,8 @@ export function ChartStudies({
                             setEditing(null);
                         }}
                         onStale={() => {
+                            if (editing?.selection.source === "CHART_STUDY_TRANSIENT")
+                                setIncarnationKey(createUuidV4());
                             if (editing !== null)
                                 setInstances((previous) =>
                                     previous.map((instance) =>
@@ -227,7 +268,7 @@ export function ChartStudies({
                     />
                 )}
             </section>
-            {children?.({ instances, selectedId, incarnationKey })}
+            {children?.({ instances, selectedId, incarnationKey, onTransientRevalidated })}
         </>
     );
 }

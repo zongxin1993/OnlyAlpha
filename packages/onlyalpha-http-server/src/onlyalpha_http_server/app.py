@@ -316,7 +316,6 @@ def create_research_app(
         chart_study = OnlyChartStudyProductQueryService(
             market_data,
             calculation_composition.chart_study,
-            supported_instrument_ids=("BTCUSDT.BINANCE",),
         )
     if local_read_configuration is not None:
         app.add_middleware(

@@ -378,3 +378,30 @@ describe("one server-derived strict Chart schema", () => {
         await expect(pending).rejects.toThrow("STALE");
     });
 });
+
+it.each([1, 3, 5, 15, 30, 60, 120, 240])(
+    "admits the proved ETH native %sm finite window",
+    async (minutes) => {
+        const v = vector();
+        const end = BigInt(v.input.window.before_ns);
+        const duration = BigInt(minutes) * 60_000_000_000n;
+        const start = end - BigInt(v.input.window.target_bar_count) * duration;
+        for (const item of [v.input, v.history, v.evaluated]) {
+            item.instrument_id = "ETHUSDT.BINANCE";
+            item.bar_semantic = marketDataBarSemantic(minutes);
+        }
+        v.history.resolved_start_ns = start.toString();
+        v.evaluated.input.resolved_start_ns = start.toString();
+        v.history.bars.forEach((bar, index) => {
+            bar.bar_start_ns = (start + BigInt(index) * duration).toString();
+            bar.bar_end_ns = (start + BigInt(index + 1) * duration).toString();
+        });
+        v.evaluated.series[0]?.points.forEach((point, index) => {
+            point.time_ns = (start + BigInt(index) * duration).toString();
+        });
+        v.respond();
+        await expect(
+            readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+        ).resolves.toEqual(v.evaluated);
+    }
+);

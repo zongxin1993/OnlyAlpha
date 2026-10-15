@@ -386,7 +386,7 @@ it("fences an old confirmation across A to B to restored A without polluting a n
                 >
                     switch context
                 </button>
-                <ChartStudies key={active.key} context={active}>
+                <ChartStudies context={active}>
                     {({ incarnationKey }) => (
                         <output data-testid="study-incarnation">{incarnationKey}</output>
                     )}
@@ -532,4 +532,39 @@ it("blocks unsupported transient editor inputs and submits supported inputs thro
     await waitFor(() => {
         expect(onConfirm).toHaveBeenCalledOnce();
     });
+});
+
+it("preserves instance presentation and parameters while rotating each context occurrence", async () => {
+    transport();
+    const user = userEvent.setup();
+    const view = render(
+        <ChartStudies context={context}>
+            {({ incarnationKey }) => <output data-testid="incarnation">{incarnationKey}</output>}
+        </ChartStudies>
+    );
+    await select(user);
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.click(screen.getByRole("button", { name: "隐藏 SMA" }));
+    const before = screen.getByTestId("chart-study-instance");
+    const id = before.getAttribute("data-instance-id");
+    const config = before.getAttribute("data-configuration");
+    const style = before.getAttribute("data-presentation");
+    const incarnation = screen.getByTestId("incarnation").textContent;
+    const other = {
+        ...context,
+        key: "eth:1m",
+        instrumentId: "ETHUSDT.BINANCE",
+        barSemantic: marketDataBarSemantic(1)
+    };
+    view.rerender(
+        <ChartStudies context={other}>
+            {({ incarnationKey }) => <output data-testid="incarnation">{incarnationKey}</output>}
+        </ChartStudies>
+    );
+    const current = screen.getByTestId("chart-study-instance");
+    expect(current).toHaveAttribute("data-instance-id", id);
+    expect(current).toHaveAttribute("data-configuration", config);
+    expect(current).toHaveAttribute("data-presentation", style);
+    expect(current).toHaveAttribute("data-chart-context-key", other.key);
+    expect(screen.getByTestId("incarnation").textContent).not.toBe(incarnation);
 });

@@ -253,6 +253,15 @@ class ChartStudyLimitsDto(_ChartDto):
     max_concurrent_invocations: Literal[1]
 
 
+class ChartStudyInputSupportDto(_ChartDto):
+    instrument_policy: Literal["EXACT_SOURCE_CATALOG"]
+    resolution_mode: Literal["PROVIDER_NATIVE"]
+    bar_formation: Literal["FIXED_DURATION"]
+    alignment: Literal["UTC_24X7"]
+    closed_only: Literal[True]
+    coverage_policy: Literal["COMPLETE_VERIFIED_WINDOW"]
+
+
 class ChartStudyCapabilityProjectionDto(_ChartDto):
     """Exact installed admission hash payload, not a second capability identity."""
 
@@ -271,6 +280,7 @@ class ChartStudyCapabilityProjectionDto(_ChartDto):
     readiness_contract_versions: list[Literal[1]] = Field(min_length=1, max_length=1)
     output_members: list[Literal["value"]] = Field(min_length=1, max_length=1)
     supported_shape: Literal["TIME_SERIES/CLOSED_HISTORY/CLOSE/value"]
+    input_support: ChartStudyInputSupportDto
     finite_initialization: Literal["PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START"]
     limits: ChartStudyLimitsDto
     numeric_binding: ChartStudyNumericBindingDto

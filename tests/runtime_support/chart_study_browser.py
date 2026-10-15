@@ -309,7 +309,7 @@ def main() -> None:
             )
             assert acquired.status == "COMPLETE", acquired
         acquired = product.acquire_bars(
-            reference, instrument_id=str(INSTRUMENT), start_ns=end - 1440 * 60_000_000_000, end_ns=end
+            reference, instrument_id=str(INSTRUMENT), start_ns=end - 2000 * 60_000_000_000, end_ns=end
         )
         assert acquired.status == "COMPLETE", acquired
         stream = OnlyMarketDataStreamProductService(

@@ -1025,8 +1025,11 @@ it("shows exact Workspace observations and changes only browser chart preference
     expect(acquisition).not.toHaveBeenCalled();
     const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
     const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
-    expect(activeHandler).not.toBe(retiredHandler);
-    expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledWith(retiredHandler);
+    // Context is refreshed through the existing chart's committed live ref.
+    // Retained presentation intent must not remount or duplicate subscriptions.
+    expect(activeHandler).toBe(retiredHandler);
+    expect(chartMocks.created.subscribeCrosshairMove).toHaveBeenCalledTimes(1);
+    expect(chartMocks.created.unsubscribeCrosshairMove).not.toHaveBeenCalled();
     const handler = activeHandler as (event: object) => void;
     act(() => {
         handler({ time: first.time, point: { x: 10, y: 10 } });
@@ -1096,8 +1099,11 @@ it("derives selected preview updates from identity and falls back on mouse leave
     expect(observation).toHaveTextContent("103.000000000000000001");
     const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
     const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
-    expect(activeHandler).not.toBe(retiredHandler);
-    expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledWith(retiredHandler);
+    // Context is refreshed through the existing chart's committed live ref.
+    // Retained presentation intent must not remount or duplicate subscriptions.
+    expect(activeHandler).toBe(retiredHandler);
+    expect(chartMocks.created.subscribeCrosshairMove).toHaveBeenCalledTimes(1);
+    expect(chartMocks.created.unsubscribeCrosshairMove).not.toHaveBeenCalled();
     const move = activeHandler as (event: object) => void;
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
@@ -1126,8 +1132,11 @@ it("derives selected preview updates from identity and falls back on mouse leave
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
     await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "");
-    expect(observation).not.toBeInTheDocument();
     const unavailableObservation = screen.getByTestId("market-data-observation");
+    expect(observation).toBe(unavailableObservation);
+    act(() => {
+        move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
+    });
     expect(unavailableObservation).toHaveAttribute("data-observation-mode", "unavailable");
     expect(unavailableObservation).toHaveAttribute("data-bar-start-ns", "");
 });

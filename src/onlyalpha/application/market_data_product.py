@@ -44,6 +44,7 @@ from onlyalpha.data.models import (
 from onlyalpha.domain.calendar import OnlyTradingCalendar
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyPriceType
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyRuntimeId
+from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.event.bus import OnlyEventBus
@@ -661,18 +662,24 @@ class OnlyMarketDataProductService:
 
         if (
             type(read_session) is not OnlySourceReadSession
+            or type(bar_semantic) is not OnlyBarSemantic
+            or not bar_semantic.is_aligned
             or type(target_bar_count) is not int
             or not 1 <= target_bar_count <= MAX_TARGET_BAR_COUNT
             or type(before_ns) is not int
             or not 0 < before_ns <= 9_223_372_036_854_775_807
-            or before_ns % 900_000_000_000 != 0
-            or before_ns < target_bar_count * 900_000_000_000
-            or bar_semantic != OnlyBarSemantic.fixed_duration(15)
+            or before_ns % (bar_semantic.stride_minutes * MINUTE_NS) != 0
+            or before_ns < target_bar_count * bar_semantic.stride_minutes * MINUTE_NS
         ):
             raise OnlyMarketDataProductError("CHART_STUDY_INPUT_UNSUPPORTED")
         started = perf_counter_ns()
         resolved = self.resolve_read_runtime(reference, read_session=read_session)
-        plan = self._plan(resolved, instrument_id, bar_semantic)
+        try:
+            plan = self._plan(resolved, instrument_id, bar_semantic)
+        except OnlyMarketDataProductError:
+            raise
+        except Exception as exc:
+            raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE") from exc
         if plan.mode is not OnlyBarResolutionMode.PROVIDER_NATIVE:
             raise OnlyMarketDataProductError("CHART_STUDY_INPUT_UNSUPPORTED")
         try:
@@ -687,7 +694,10 @@ class OnlyMarketDataProductService:
             raise OnlyMarketDataProductError("MARKET_DATA_INSTRUMENT_NOT_FOUND")
         if (
             len(instruments) != 1
-            or not isinstance(instruments[0], OnlyDataSourceInstrumentV1)
+            or type(instruments[0]) is not OnlyDataSourceInstrumentV1
+            or type(instruments[0].instrument) is not OnlyInstrument
+            or instruments[0].venue != resolved.venue
+            or instruments[0].market != resolved.market
             or str(instruments[0].instrument.instrument_id) != instrument_id
         ):
             raise OnlyMarketDataProductError("CHART_STUDY_SOURCE_UNAVAILABLE")

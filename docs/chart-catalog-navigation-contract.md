@@ -35,12 +35,16 @@ ADR 0138 defines a separate capability projection from the same immutable proces
 composition: `GET /api/v2/chart/studies/capabilities`. This is not a second registry, Runtime activation or an upgrade of
 discovery/exact Research metadata into permission. Capability admission proves the full descriptor, Definition resolver,
 RESEARCH batch implementation manifest, Provider ID/version/content, Catalog generation, numeric policy and supported
-shape/readiness/output/limits. `capability_projection_fingerprint` binds the whole row in the
+shape/readiness/output/limits and the conditional `capability_projection.input_support` policy.
+`capability_projection_fingerprint` binds the whole row, including that input policy, in the
 `onlyalpha.chart-study.capability-projection` domain. Evaluation compares that entire binding, not only a type name or descriptor.
 
-`POST /api/v2/chart/studies/evaluate` has strictly read-only Query semantics despite POST transport. The supported first slice
-is SMA@1 / CLOSE/value / single instrument / fixed complete closed historical / provider-native 15m. The server verifies the
-same fixed BEFORE_TIME window and owning history fingerprint; uploaded prices, scripts, Preview and implicit Acquisition are
+`POST /api/v2/chart/studies/evaluate` has strictly read-only Query semantics despite POST transport. Supported input is
+SMA@1 / CLOSE/value / one instrument from the exact Source catalog, with a provider-native aligned fixed-duration
+BarSemantic and UTC 24x7 calendar proved by the owning planner, plus a complete verified finite closed historical window.
+Catalog selection or
+Source interval min/max bounds alone do not prove input support. The server verifies the same fixed BEFORE_TIME window and
+owning history fingerprint; uploaded prices, scripts, Preview and implicit Acquisition are
 forbidden. It returns backend-atomic values/readiness as `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`, never
 a scientific publication. Incomplete input returns explicit coverage and an empty series without backend execution; missing
 proof is unavailable, not certified absence or a proved version change.
@@ -142,12 +146,23 @@ or Market Data requests. An independent empty native Pane may represent the sepa
 no numeric Study series is created without a validated value projection.
 
 Instances bind the exact Source reference, Instrument and BarSemantic, using the existing market-data
-context key. A context-keyed workspace lifecycle discards all Study/draft state on any context
-change, aborting old requests; old responses cannot attach to a new or restored context incarnation.
-Returning application focus closes pending editing and conservatively marks confirmed configurations
-stale until a new confirmation re-observes metadata. No timer claims validity. Browser-session
-state is disposable; no LocalStorage/PostgreSQL persistence or cross-refresh recovery is added.
-The market-data hook and Ledger receive no Study inputs. The context-keyed owner exposes its state
+context key. Source/Instrument/BarSemantic changes retain instance identity, parameter intent and presentation,
+close pending editing, discard prior numeric evidence and rotate the owner incarnation, including A→B→A.
+An issued transient HTTP Query stays owned until completion; generation fences reject its old response and a
+single latest pending intent replaces intermediate requests. A pending full closed-window batch takes priority
+over a per-instance retry. Unmount, including the existing authentication-generation owner replacement, aborts
+that owner and discards its volatile instances; context retention does not weaken that authentication boundary.
+Returning application focus closes pending editing, rotates the incarnation and marks confirmed configurations
+stale. Transient instances automatically re-observe current capabilities, Source grants and a complete verified
+finite closed window, then admit exact current type/version/normalized-parameter evidence before returning the
+fresh metadata binding to the presentation owner. Metadata-only instances require renewed confirmation.
+Capacity, per-instance request and output failures preserve independently admitted siblings and expose instance retry.
+Source/input/registration proof failures, authorization changes and unclassified formal Query failures withdraw all values
+in the shared batch; missing failure-scope proof cannot authorize retaining a sibling. A malformed individual response or
+transport failure rejects that response without claiming shared input invalidity.
+Style/visibility/pane/selection changes do not calculate; a failed editor proof retains the invalidation fence.
+No timer claims validity. Browser-session state is disposable; no LocalStorage/PostgreSQL persistence or
+cross-refresh recovery is added. The market-data hook and Ledger receive no Study inputs. The presentation owner exposes its state
 to the single chart through a local render callback; renderer resources are projections, not a second
 mutable collection of configuration truth.
 

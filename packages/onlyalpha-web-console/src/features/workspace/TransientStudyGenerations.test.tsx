@@ -159,41 +159,16 @@ it.each(["configuration", "context", "credentials", "instances"])(
         });
         const first = pending[0];
         if (first === undefined) throw new Error("Expected first occurrence");
+        // A single retained HTTP request owns its slot until response completion.
+        // Intermediate intents coalesce; restored equality must still fence it.
         if (kind === "configuration") {
             view.rerender(tree(30));
-            await waitFor(() => {
-                expect(pending).toHaveLength(2);
-            });
             view.rerender(tree());
-            await waitFor(() => {
-                expect(pending).toHaveLength(3);
-            });
         } else if (kind === "context") {
             view.rerender(tree(20, true));
-            await waitFor(() => {
-                expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
-                    "data-query-status",
-                    "UNSUPPORTED"
-                );
-            });
             view.rerender(tree());
-            await waitFor(() => {
-                expect(pending).toHaveLength(2);
-            });
         } else if (kind === "instances") {
             view.rerender(tree(20, false, true));
-            await waitFor(() => {
-                expect(pending).toHaveLength(2);
-            });
-            const next = pending[1];
-            if (next === undefined) throw new Error("Expected first duplicate owner request");
-            await act(async () => {
-                next.resolve(response());
-                await next.promise;
-            });
-            await waitFor(() => {
-                expect(pending).toHaveLength(3);
-            });
         } else {
             const active = credentials;
             if (active === undefined) throw new Error("Expected credential owner");
@@ -204,15 +179,27 @@ it.each(["configuration", "context", "credentials", "instances"])(
             act(() => {
                 active.replace("ee".repeat(32));
             });
-            await waitFor(() => {
-                expect(pending).toHaveLength(2);
-            });
         }
+        expect(pending).toHaveLength(1);
         await act(async () => {
             first.resolve(response());
             await first.promise;
         });
         expect(screen.getByTestId("admitted-overlay-count")).toHaveTextContent("0");
+        await waitFor(() => {
+            expect(pending).toHaveLength(2);
+        });
+        if (kind === "instances") {
+            const next = pending[1];
+            if (next === undefined) throw new Error("Expected duplicate owner response");
+            await act(async () => {
+                next.resolve(response());
+                await next.promise;
+            });
+            await waitFor(() => {
+                expect(pending).toHaveLength(3);
+            });
+        }
         const latest = pending.at(-1);
         if (latest === undefined) throw new Error("Expected restored occurrence");
         await act(async () => {

@@ -114,7 +114,7 @@ def test_authenticated_capability_and_exact_evaluation_are_no_store_and_zero_wri
 
 
 @pytest.mark.parametrize("seed", (False, True))
-def test_real_history_shortage_and_complete_changed_http_outcomes(tmp_path, seed):
+def test_incomplete_history_and_complete_changed_http_outcomes(tmp_path, seed):
     _, q, model, _, authority = arrange(tmp_path, seed=seed)
     body = request_body(model)
     body["expected_history_projection_fingerprint"] = "b" * 64
@@ -426,3 +426,23 @@ async def _transport_fault(tmp_path, fault):
         assert ingress._reads == 0
         if fault == "send_cutoff":
             assert start_sent.is_set() and len(sends) == 1
+
+
+def test_http_eth_native_hour_and_owning_input_support(tmp_path, monkeypatch):
+    from tests.application import test_market_data_product as owner_fixture
+
+    eth = type(owner_fixture.INSTRUMENT).parse("ETHUSDT.TEST")
+    monkeypatch.setattr(owner_fixture, "INSTRUMENT", eth)
+    _, query, model, _, authority = arrange(tmp_path, minutes=60, instrument=eth)
+    with TestClient(app_for(query, authority), base_url=ORIGIN) as client:
+        capability = client.get(CHART_CAPABILITIES_PATH, headers=HEADERS)
+        assert capability.status_code == 200
+        support = capability.json()["capabilities"][0]["capability_projection"]["input_support"]
+        assert support["instrument_policy"] == "EXACT_SOURCE_CATALOG"
+        assert support["resolution_mode"] == "PROVIDER_NATIVE"
+        assert support["coverage_policy"] == "COMPLETE_VERIFIED_WINDOW"
+        result = client.post(CHART_EVALUATE_PATH, json=request_body(model), headers=HEADERS)
+        assert result.status_code == 200, result.text
+        response = result.json()
+        assert response["input"]["resolved_start_ns"] == str(model.before_ns - 25 * 60 * owner_fixture.MINUTE_NS)
+        assert response["series"][0]["points"][19]["readiness"] == "READY"

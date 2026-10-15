@@ -53,11 +53,12 @@ function evaluationReply(page: Page, period: number): Promise<Response> {
     );
 }
 
-async function addSma(page: Page, period: number): Promise<void> {
+async function addSma(page: Page, period: number, color?: string): Promise<void> {
     await page.getByRole("button", { name: "指标", exact: true }).click();
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
     await expect(page.getByLabel("period", { exact: true })).toHaveValue("20");
     if (period !== 20) await page.getByLabel("period", { exact: true }).fill(String(period));
+    if (color !== undefined) await page.getByRole("button", { name: color, exact: true }).click();
     await page.getByRole("button", { name: "添加", exact: true }).click();
 }
 
@@ -212,16 +213,11 @@ test("different periods of the same SMA retain independent colors, edits and vis
 });
 
 for (const change of ["timeframe", "source"] as const)
-    test(`native ${change} A→B→A never restores an abandoned Study instance`, async ({
+    test(`native ${change} A→B→A retains display intent and requires fresh owning evaluation`, async ({
         page,
         request
     }) => {
-        // Two adds: each has three capability exchanges and one evaluation.
         test.setTimeout(8 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
-        let evaluations = 0;
-        page.on("request", (req) => {
-            if (req.url().endsWith("/api/v2/chart/studies/evaluate")) ++evaluations;
-        });
         await connectNativeChart(page);
         const first = evaluationReply(page, 20);
         await addSma(page, 20);
@@ -230,31 +226,44 @@ for (const change of ["timeframe", "source"] as const)
             "data-study-series-count",
             "1"
         );
-        if (change === "timeframe") await page.getByLabel("时间周期").selectOption("1");
-        else await page.getByLabel("数据源").selectOption("");
-        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
-        await expect(page.getByTestId("price-chart")).toHaveAttribute(
-            "data-study-series-count",
-            "0"
-        );
+        const id = await page.getByTestId("chart-study-instance").getAttribute("data-instance-id");
+        const config = await page
+            .getByTestId("chart-study-instance")
+            .getAttribute("data-configuration");
+        if (change === "timeframe") {
+            const native = evaluationReply(page, 20);
+            await page.getByLabel("时间周期").selectOption("1");
+            expect((await native).status()).toBe(200);
+            await expect(page.getByTestId("price-chart")).toHaveAttribute(
+                "data-study-series-count",
+                "1"
+            );
+        } else {
+            await page.getByLabel("数据源").selectOption("");
+            await expect(page.getByTestId("price-chart")).toHaveAttribute(
+                "data-study-series-count",
+                "0"
+            );
+        }
+        await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
         const restoredBars = nativeBarsReply(page);
+        const restored = evaluationReply(page, 20);
         if (change === "timeframe") await page.getByLabel("时间周期").selectOption("15");
         else await page.getByLabel("数据源").selectOption({ index: 1 });
         expect((await restoredBars).status()).toBe(200);
-        await expect(page.getByTestId("market-data-status")).toHaveAttribute(
-            "data-status",
-            "ready"
-        );
-        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
-        expect(evaluations).toBe(1);
-        const restored = evaluationReply(page, 20);
-        await addSma(page, 20);
         expect((await restored).status()).toBe(200);
+        await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
+            "data-instance-id",
+            id ?? ""
+        );
+        await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
+            "data-configuration",
+            config ?? ""
+        );
         await expect(page.getByTestId("price-chart")).toHaveAttribute(
             "data-study-series-count",
             "1"
         );
-        expect(evaluations).toBe(2);
         await disconnectChart(page);
         expect((await request.get("/health")).status()).toBe(200);
     });
@@ -438,13 +447,17 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
     expect(evaluations).toHaveLength(1);
     // Style-only confirmation rereads capability but never reevaluates values.
     await page.getByRole("button", { name: "编辑 SMA", exact: true }).click();
-    await page.getByLabel("颜色", { exact: true }).fill("#008877");
+    await page.getByRole("button", { name: "青绿色", exact: true }).click();
     await page.getByRole("button", { name: "应用", exact: true }).click();
     await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
         "data-query-status",
         "DISPLAYABLE"
     );
     expect(evaluations).toHaveLength(1);
+    await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
+        "data-presentation",
+        expect.stringContaining('"color":"#008877"')
+    );
     await page.getByRole("button", { name: "编辑 SMA", exact: true }).click();
     await page.getByLabel("period", { exact: true }).fill("30");
     const second = page.waitForResponse(
@@ -494,4 +507,72 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
         ).status()
     ).toBe(403);
     expect((await request.get("/health")).status()).toBe(200);
+});
+
+test("two SMA instances preserve parameters and colors across native 15m to 1m to 15m with fresh values", async ({
+    page
+}) => {
+    test.setTimeout(12 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
+    await connectNativeChart(page);
+    const first = evaluationReply(page, 20);
+    await addSma(page, 20);
+    expect((await first).status()).toBe(200);
+    const second = evaluationReply(page, 10);
+    await addSma(page, 10, "红色");
+    expect((await second).status()).toBe(200);
+    const chart = page.getByTestId("price-chart");
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    const instances = page.getByTestId("chart-study-instance");
+    const intent = () =>
+        instances.evaluateAll((nodes) =>
+            nodes.map((node) => ({
+                id: node.getAttribute("data-instance-id"),
+                configuration: node.getAttribute("data-configuration"),
+                presentation: node.getAttribute("data-presentation")
+            }))
+        );
+    const original = await intent();
+    expect(original).toHaveLength(2);
+    await page.getByRole("button", { name: "收起下方面板" }).click();
+    const plot = await chart.locator("canvas").first().boundingBox();
+    if (plot === null) throw new Error("Missing native price canvas");
+    await page.mouse.move(plot.x + plot.width * 0.45, plot.y + plot.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(plot.x + plot.width * 0.65, plot.y + plot.height * 0.5, { steps: 8 });
+    await page.mouse.up();
+    await page.mouse.wheel(0, -120);
+    await expect(chart).toHaveAttribute("data-study-series-count", "2");
+    const readStarts: string[] = [];
+    for (const minutes of [1, 15]) {
+        const replies = Promise.all([evaluationReply(page, 20), evaluationReply(page, 10)]);
+        await page.getByLabel("时间周期").selectOption(String(minutes));
+        await expect(instances).toHaveCount(2);
+        for (const reply of await replies) {
+            expect(reply.status()).toBe(200);
+            const body = (await reply.json()) as {
+                bar_semantic: { formation: { window_minutes: number } };
+                input: {
+                    resolved_start_ns: string;
+                    resolved_end_ns: string;
+                };
+                series: { points: { time_ns: string; value: string | null }[] }[];
+            };
+            expect(body.bar_semantic.formation.window_minutes).toBe(minutes);
+            expect(BigInt(body.input.resolved_end_ns) - BigInt(body.input.resolved_start_ns)).toBe(
+                BigInt(2000 * minutes) * 60_000_000_000n
+            );
+            expect(body.series[0]?.points).toHaveLength(2000);
+            expect(body.series[0]?.points[0]?.time_ns).toBe(body.input.resolved_start_ns);
+            expect(body.series[0]?.points[1999]?.value).toEqual(expect.any(String));
+            readStarts.push(body.input.resolved_start_ns);
+        }
+        await expect(chart).toHaveAttribute("data-study-series-count", "2");
+        await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+        expect(await intent()).toEqual(original);
+    }
+    expect(readStarts[0]).not.toBe(readStarts[2]);
+    await disconnectChart(page);
 });

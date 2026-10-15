@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
-import type { MarketDataBars } from "../marketData/model";
+import type { MarketDataBars, MarketDataBarSemantic } from "../marketData/model";
 import type { StudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
 import { onlyAssertMarketDataBarsAuthority } from "../../features/workspace/marketDataBarsAuthority";
 import {
@@ -130,6 +130,17 @@ export async function readChartStudyCapability(
     return capability;
 }
 
+/** Duration is request semantics, never evidence of Provider-native support. */
+function studyDurationNs(semantic: MarketDataBarSemantic): bigint {
+    if (
+        semantic.formation.kind !== "FIXED_DURATION" ||
+        semantic.formation.alignment !== "SESSION_START" ||
+        semantic.formation.window_minutes !== semantic.formation.stride_minutes
+    )
+        throw new ChartStudyWebError("UNSUPPORTED");
+    return BigInt(semantic.formation.window_minutes) * 60_000_000_000n;
+}
+
 /** Admit the requested owner/window before interpreting even an initial shortage. */
 export function assertChartStudyHistory(
     selection: Pick<
@@ -154,7 +165,9 @@ export function assertChartStudyHistory(
             history
         );
         const end = BigInt(selection.window.before_ns);
-        const start = end - BigInt(selection.window.target_bar_count) * 900_000_000_000n;
+        const start =
+            end -
+            BigInt(selection.window.target_bar_count) * studyDurationNs(selection.bar_semantic);
         if (
             history.source_selection.environment !== expectedEnvironment ||
             history.resolved_start_ns !== start.toString() ||
@@ -196,7 +209,8 @@ export async function readChartStudyEvaluation(
     const input = result.input,
         calc = result.calculation;
     const count = request.window.target_bar_count;
-    const start = BigInt(request.window.before_ns) - BigInt(count) * 900_000_000_000n;
+    const duration = studyDurationNs(request.bar_semantic);
+    const start = BigInt(request.window.before_ns) - BigInt(count) * duration;
     if (
         !sameChartBinding(result.source_selection, history.source_selection) ||
         result.instrument_id !== request.instrument_id ||
@@ -296,8 +310,8 @@ export async function readChartStudyEvaluation(
         if (
             bar?.closed !== true ||
             point.time_ns !== bar.bar_start_ns ||
-            BigInt(point.time_ns) !== start + BigInt(index) * 900_000_000_000n ||
-            BigInt(bar.bar_end_ns) !== BigInt(point.time_ns) + 900_000_000_000n ||
+            BigInt(point.time_ns) !== start + BigInt(index) * duration ||
+            BigInt(bar.bar_end_ns) !== BigInt(point.time_ns) + duration ||
             (point.readiness === "READY" && (point.reason !== "NONE" || point.value === null)) ||
             (point.readiness === "PARTIAL" &&
                 point.reason !== "WARMUP_INCOMPLETE" &&

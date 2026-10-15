@@ -1,0 +1,637 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ChartStudies } from "./ChartStudies";
+import { useLayoutEffect } from "react";
+import { AppProviders, useLocalReadCredentials } from "../../app/providers";
+import { marketDataBarSemantic, marketDataBarsSchema } from "../../api/marketData/model";
+import {
+    ChartStudyCapabilitiesSchema,
+    ChartStudyEvaluateSchema
+} from "../../api/chartStudies/http.generated";
+import type { MarketDataBarsQuery } from "../../api/marketData/client";
+import type { MarketDataSourceReference } from "../../api/marketData/model";
+import { marketDataClient } from "../../test/marketDataClient";
+import { projectMarketDataBar } from "../../charts/lightweight/marketDataChartProjection";
+import sample from "../../../../../test-data/web/chart-studies/query.json";
+import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
+import { isAdmittedChartStudyEvidence } from "../../api/chartStudies/client";
+import type { ChartStudyInstance } from "./chartStudy";
+
+const observedEvidence: (readonly object[])[] = [];
+
+vi.mock("../../charts/lightweight/PriceChart", () => ({
+    PriceChart: ({ studyEvidence }: { studyEvidence: readonly { instanceId: string }[] }) => {
+        observedEvidence.push(studyEvidence);
+        return (
+            <output data-testid="overlays">
+                {studyEvidence
+                    .filter(isAdmittedChartStudyEvidence)
+                    .map((row) => row.instanceId)
+                    .join(",")}
+            </output>
+        );
+    }
+}));
+const modalMethods = {
+    showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),
+    close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
+};
+beforeEach(async () => {
+    document.documentElement.style.setProperty("--accent-solid", "#2962FF");
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            value: function (this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
+    });
+    vi.stubGlobal(
+        "crypto",
+        (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
+    );
+});
+afterEach(() => {
+    observedEvidence.length = 0;
+    vi.unstubAllGlobals();
+    document.documentElement.style.removeProperty("--accent-solid");
+    for (const name of ["showModal", "close"] as const) {
+        const method = modalMethods[name];
+        if (method === undefined) Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+        else Object.defineProperty(HTMLDialogElement.prototype, name, method);
+    }
+});
+
+function required<T>(value: T | undefined): T {
+    if (value === undefined) throw new Error("Missing required test fact");
+    return value;
+}
+
+function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 1,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    const admittedCapability = required(capability);
+    const duration = BigInt(minutes) * 60_000_000_000n;
+    const baseEnd = BigInt(sample.history.resolved_end_ns);
+    const page = (anchor: string) => {
+        const history = marketDataBarsSchema.parse(structuredClone(sample.history));
+        const start = BigInt(anchor) - 2000n * duration;
+        history.instrument_id = instrument;
+        history.bar_semantic = marketDataBarSemantic(minutes);
+        history.requested_before_ns = anchor;
+        history.resolved_start_ns = start.toString();
+        history.resolved_end_ns = anchor;
+        history.bars.forEach((bar, index) => {
+            bar.bar_start_ns = (start + BigInt(index) * duration).toString();
+            bar.bar_end_ns = (start + BigInt(index + 1) * duration).toString();
+        });
+        return history;
+    };
+    const response = (anchor: string) => {
+        const history = page(anchor);
+        const value = ChartStudyEvaluateSchema.parse(structuredClone(sample.evaluation));
+        value.instrument_id = instrument;
+        value.bar_semantic = history.bar_semantic;
+        value.input.before_ns = anchor;
+        value.input.resolved_end_ns = anchor;
+        value.input.resolved_start_ns = history.resolved_start_ns;
+        value.series[0]?.points.forEach((point, index) => {
+            point.time_ns = required(history.bars[index]).bar_start_ns;
+        });
+        return new Response(JSON.stringify(value), { headers: { "cache-control": "no-store" } });
+    };
+    const initial = page(baseEnd.toString());
+    const context = {
+        key: `${instrument}:${String(minutes)}`,
+        source: {
+            integration_id: initial.source_selection.integration_id,
+            integration_revision_fingerprint:
+                initial.source_selection.integration_revision_fingerprint,
+            expected_type_id: initial.source_selection.type_id
+        },
+        instrumentId: instrument,
+        barSemantic: initial.bar_semantic
+    };
+    const instance: ChartStudyInstance = {
+        instanceId: "one",
+        context,
+        selection: { source: "CHART_STUDY_TRANSIENT", capability: admittedCapability },
+        configuration: {
+            parameters: {
+                period: { type: "INTEGER", value: 20 },
+                price_field: { type: "STRING", value: "CLOSE" }
+            },
+            outputName: "value"
+        },
+        presentation: {
+            placement: "PRICE_OVERLAY",
+            color: "#2962FF",
+            lineWidth: 2,
+            opacity: 1,
+            visible: true
+        },
+        connectionState: "CONFIGURED_NOT_EXECUTED"
+    };
+    const traffic: {
+        anchors: string[];
+        held: { anchor: string; resolve: (value: Response) => void }[];
+        hold: boolean;
+        failSibling: boolean;
+        siblingFailure: { code: string; status: number };
+        conflict: boolean;
+        derived: boolean;
+    } = {
+        anchors: [],
+        held: [],
+        hold: false,
+        failSibling: false,
+        siblingFailure: { code: "CHART_STUDY_CAPACITY_UNAVAILABLE", status: 503 },
+        conflict: false,
+        derived: false
+    };
+    const queryBars = vi.fn((_source: MarketDataSourceReference, query: MarketDataBarsQuery) => {
+        const result = page(required(query.before_ns));
+        if (traffic.conflict) required(result.bars.at(-1)).close = "999";
+        if (traffic.derived) {
+            result.resolution_mode = "DERIVED";
+            result.derived_projection_fingerprint = "d".repeat(64);
+            result.aggregation_semantics_version = "TIME_BAR@1";
+        }
+        return Promise.resolve(result);
+    });
+    vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string, init: RequestInit) => {
+            if (url.endsWith("capabilities"))
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }),
+                        { headers: { "cache-control": "no-store" } }
+                    )
+                );
+            const request = JSON.parse(init.body as string) as {
+                window: { before_ns: string };
+                calculation: { typed_parameters: { period: { value: number } } };
+            };
+            const anchor = request.window.before_ns;
+            traffic.anchors.push(anchor);
+            if (traffic.failSibling && traffic.anchors.length > 1)
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            schema_version: 1,
+                            error: {
+                                phase: "QUERY",
+                                code: traffic.siblingFailure.code,
+                                detail: "Calculation capacity exhausted"
+                            }
+                        }),
+                        { status: traffic.siblingFailure.status }
+                    )
+                );
+            if (traffic.hold)
+                return new Promise<Response>((resolve) => traffic.held.push({ anchor, resolve }));
+            return Promise.resolve(response(anchor));
+        })
+    );
+    const market = marketDataClient({ queryBars });
+    function Query({
+        step = 0,
+        siblings = false,
+        third = false,
+        owner = false,
+        hidden = false,
+        proof = "verified",
+        older = false,
+        preview = false,
+        stale = false
+    }: {
+        step?: number;
+        siblings?: boolean;
+        third?: boolean;
+        owner?: boolean;
+        hidden?: boolean;
+        proof?: string | null;
+        older?: boolean;
+        preview?: boolean;
+        stale?: boolean;
+    }) {
+        const credentials = useLocalReadCredentials();
+        useLayoutEffect(() => {
+            if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
+        }, [credentials]);
+        const anchor = (baseEnd + BigInt(step) * duration).toString();
+        const raw = page(anchor).bars;
+        if (older)
+            raw.unshift({
+                ...required(raw[0]),
+                bar_start_ns: (BigInt(required(raw[0]).bar_start_ns) - duration).toString(),
+                bar_end_ns: required(raw[0]).bar_start_ns
+            });
+        const bars = raw.map(projectMarketDataBar);
+        if (owner)
+            return (
+                <ChartStudies context={context} credentials={credentials}>
+                    {({ instances, incarnationKey, onTransientRevalidated }) => (
+                        <TransientStudyPriceChart
+                            context={context}
+                            onTransientRevalidated={onTransientRevalidated}
+                            dataGeneration={proof}
+                            expectedSourceId={initial.source_selection.source_id}
+                            expectedEnvironment={initial.source_selection.environment}
+                            contextKey={context.key}
+                            incarnationKey={incarnationKey}
+                            studies={instances}
+                            bars={bars}
+                            barSemantic={context.barSemantic}
+                        />
+                    )}
+                </ChartStudies>
+            );
+        return (
+            <TransientStudyPriceChart
+                context={context}
+                dataGeneration={proof}
+                expectedSourceId={initial.source_selection.source_id}
+                expectedEnvironment={initial.source_selection.environment}
+                contextKey={context.key}
+                incarnationKey="owner"
+                studies={
+                    siblings
+                        ? [
+                              instance,
+                              {
+                                  ...instance,
+                                  instanceId: "two",
+                                  configuration: {
+                                      ...instance.configuration,
+                                      parameters: {
+                                          ...instance.configuration.parameters,
+                                          period: { type: "INTEGER", value: 20 }
+                                      }
+                                  }
+                              },
+                              ...(third ? [{ ...instance, instanceId: "three" }] : [])
+                          ]
+                        : [
+                              {
+                                  ...instance,
+                                  presentation: { ...instance.presentation, visible: !hidden },
+                                  connectionState: stale
+                                      ? "STALE_CONFIG"
+                                      : "CONFIGURED_NOT_EXECUTED"
+                              }
+                          ]
+                }
+                bars={bars}
+                liveBar={
+                    preview
+                        ? {
+                              ...required(bars.at(-1)),
+                              barStartNs: anchor,
+                              barEndNs: (BigInt(anchor) + duration).toString(),
+                              closed: false
+                          }
+                        : null
+                }
+                barSemantic={context.barSemantic}
+            />
+        );
+    }
+    const tree = (props: Parameters<typeof Query>[0] = {}) => (
+        <AppProviders marketDataClient={market}>
+            <Query {...props} />
+        </AppProviders>
+    );
+    return { traffic, tree, response, queryBars, baseEnd, duration };
+}
+
+it.each([1, 3, 5, 15, 30, 60, 120, 240])(
+    "loads ETH proved native %sm without source capability guessing",
+    async (minutes) => {
+        const test = setup(minutes, "ETHUSDT.BINANCE");
+        render(test.tree());
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+    }
+);
+it("coalesces new closes behind the actual issued response and ignores presentation and duplicate anchors", async () => {
+    const test = setup();
+    test.traffic.hold = true;
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    view.rerender(test.tree({ step: 1 }));
+    view.rerender(test.tree({ step: 2 }));
+    expect(test.traffic.anchors).toHaveLength(1);
+    const first = required(test.traffic.held[0]);
+    await act(async () => {
+        first.resolve(test.response(first.anchor));
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(2);
+    });
+    const latest = required(test.traffic.held[1]);
+    expect(latest.anchor).toBe((test.baseEnd + 2n * test.duration).toString());
+    await act(async () => {
+        latest.resolve(test.response(latest.anchor));
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ step: 2, hidden: true }));
+    expect(test.traffic.anchors).toHaveLength(2);
+});
+it("fails closed when the fresh Study input conflicts with current main-chart closed values", async () => {
+    const test = setup();
+    test.traffic.conflict = true;
+    render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "INVALID"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(0);
+});
+it("preserves successful sibling when evaluation fails and makes Query retry discoverable", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    render(test.tree({ siblings: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    expect(screen.getByTestId("overlays")).not.toHaveTextContent("two");
+    expect(screen.getByRole("button", { name: /重试.*two/ })).toBeEnabled();
+    test.traffic.failSibling = false;
+    fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    expect(test.traffic.anchors).toHaveLength(3);
+});
+it("does not evaluate partial main history even if old closed bars are displayed", async () => {
+    const test = setup();
+    render(test.tree({ proof: null }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "INPUT_INCOMPLETE"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(0);
+});
+
+it("viewport older pages and Preview do not change finite Study initialization", async () => {
+    const test = setup();
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ older: true, preview: true }));
+    expect(test.traffic.anchors).toHaveLength(1);
+    expect(test.queryBars).toHaveBeenCalledTimes(1);
+});
+it("focus-stale intent is revalidated through fresh capability and finite owning history", async () => {
+    const test = setup();
+    render(test.tree({ stale: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(1);
+});
+
+it("proved complete derived 7m stays on the main chart while Study is explicitly unsupported", async () => {
+    const test = setup(7);
+    test.traffic.derived = true;
+    render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "UNSUPPORTED"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(0);
+});
+
+it("retrying one failed Study retains the other failed sibling's retry and valid sibling evidence", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    render(test.tree({ siblings: true, third: true }));
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
+    });
+    test.traffic.failSibling = false;
+    fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
+    expect(test.traffic.anchors).toHaveLength(4);
+});
+
+it("a queued latest closed full batch takes priority over a same-turn sibling retry", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    const view = render(test.tree({ siblings: true, third: true }));
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
+    });
+    test.traffic.failSibling = false;
+    test.traffic.hold = true;
+    fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    // The unrelated failure remains visible while two's issued request is held.
+    const retryThree = screen.getByRole("button", { name: /重试.*three/ });
+    act(() => {
+        fireEvent.click(retryThree);
+        view.rerender(test.tree({ siblings: true, third: true, step: 1 }));
+    });
+    const first = required(test.traffic.held[0]);
+    await act(async () => {
+        first.resolve(test.response(first.anchor));
+        await Promise.resolve();
+    });
+    for (let index = 1; index <= 3; index++) {
+        await waitFor(() => {
+            expect(test.traffic.held).toHaveLength(index + 1);
+        });
+        const pending = required(test.traffic.held[index]);
+        expect(pending.anchor).toBe((test.baseEnd + test.duration).toString());
+        await act(async () => {
+            pending.resolve(test.response(pending.anchor));
+            await Promise.resolve();
+        });
+    }
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+    });
+    expect(test.traffic.anchors).toHaveLength(7);
+});
+
+it("a queued sibling retry sees the prior completion's committed evidence", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    render(test.tree({ siblings: true, third: true }));
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
+    });
+    test.traffic.failSibling = false;
+    test.traffic.hold = true;
+    fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /重试.*three/ }));
+    for (let index = 0; index < 2; index++) {
+        await waitFor(() => {
+            expect(test.traffic.held).toHaveLength(index + 1);
+        });
+        const pending = required(test.traffic.held[index]);
+        await act(async () => {
+            pending.resolve(test.response(pending.anchor));
+            await Promise.resolve();
+        });
+    }
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+    });
+    expect(test.traffic.anchors).toHaveLength(5);
+});
+
+it("focus reproof followed by color-only editor confirmation does not reevaluate", async () => {
+    const test = setup();
+    const user = userEvent.setup();
+    render(test.tree({ owner: true }));
+    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(1);
+    fireEvent.focus(window);
+    await waitFor(() => {
+        expect(test.traffic.anchors).toHaveLength(2);
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    await user.click(screen.getByRole("button", { name: "编辑 SMA" }));
+    await user.click(screen.getByRole("button", { name: "红色" }));
+    await user.click(screen.getByRole("button", { name: "应用" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-instance")).toHaveAttribute(
+            "data-presentation",
+            expect.stringContaining("#c8332a")
+        );
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(2);
+});
+
+it.each([
+    ["MARKET_DATA_REVISION_EVIDENCE_INVALID", 500],
+    ["MARKET_DATA_FACT_STORE_UNAVAILABLE", 503],
+    ["MARKET_DATA_SOURCE_SELECTION_MISMATCH", 400],
+    ["CHART_STUDY_INPUT_UNAVAILABLE", 503],
+    ["CHART_STUDY_INPUT_UNSUPPORTED", 400],
+    ["CHART_STUDY_CAPABILITY_UNAVAILABLE", 503],
+    ["CHART_STUDY_IMPLEMENTATION_UNAVAILABLE", 503],
+    ["CHART_STUDY_DEPENDENCY_UNAVAILABLE", 503],
+    ["LOCAL_READ_FORBIDDEN", 403],
+    ["CHART_STUDY_DATA_CHANGED", 409],
+    ["UNKNOWN_QUERY_PROOF_FAILURE", 503]
+] as const)(
+    "withdraws all sibling values after shared or unclassified proof failure %s",
+    async (code, status) => {
+        const test = setup();
+        test.traffic.failSibling = true;
+        test.traffic.siblingFailure = { code, status };
+        render(test.tree({ siblings: true }));
+        await waitFor(() => {
+            expect(test.traffic.anchors).toHaveLength(2);
+            expect(screen.getByTestId("chart-study-query-status")).not.toHaveAttribute(
+                "data-query-status",
+                "QUERYING"
+            );
+        });
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(screen.getByTestId("chart-study-query-status")).not.toHaveAttribute(
+            "data-query-status",
+            "PARTIALLY_DISPLAYABLE"
+        );
+    }
+);
+
+it.each([
+    ["CHART_STUDY_CAPACITY_UNAVAILABLE", 503],
+    ["CHART_STUDY_CAPACITY_EXCEEDED", 503],
+    ["CHART_STUDY_REQUEST_INVALID", 400],
+    ["CHART_STUDY_OUTPUT_INVALID", 500]
+] as const)("isolates proved per-instance failure %s", async (code, status) => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    test.traffic.siblingFailure = { code, status };
+    render(test.tree({ siblings: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "PARTIALLY_DISPLAYABLE"
+        );
+    });
+    expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    expect(screen.getByTestId("overlays")).not.toHaveTextContent("two");
+    expect(screen.getByRole("button", { name: /重试.*two/ })).toBeEnabled();
+});
+
+it("shared input failure revokes a retained sibling's response admission before explicit recovery", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    render(test.tree({ siblings: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "PARTIALLY_DISPLAYABLE"
+        );
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+    test.traffic.siblingFailure = { code: "MARKET_DATA_REVISION_EVIDENCE_INVALID", status: 500 };
+    fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "INVALID"
+        );
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    test.traffic.failSibling = false;
+    fireEvent.click(screen.getByRole("button", { name: "重新查询指标" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+});

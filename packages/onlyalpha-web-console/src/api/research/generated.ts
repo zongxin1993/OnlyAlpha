@@ -1777,6 +1777,7 @@ export interface components {
              */
             finite_initialization: "PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START";
             implementation: components["schemas"]["ChartStudyManifestDto"];
+            input_support: components["schemas"]["ChartStudyInputSupportDto"];
             invocation: components["schemas"]["ChartStudyManifestDto"];
             limits: components["schemas"]["ChartStudyLimitsDto"];
             numeric_binding: components["schemas"]["ChartStudyNumericBindingDto"];
@@ -2125,6 +2126,39 @@ export interface components {
             revision_evidence: components["schemas"]["MarketDataRevisionEvidenceDto"][];
             /** Target Bar Count */
             target_bar_count: number;
+        };
+        /** ChartStudyInputSupportDto */
+        ChartStudyInputSupportDto: {
+            /**
+             * Alignment
+             * @constant
+             */
+            alignment: "UTC_24X7";
+            /**
+             * Bar Formation
+             * @constant
+             */
+            bar_formation: "FIXED_DURATION";
+            /**
+             * Closed Only
+             * @constant
+             */
+            closed_only: true;
+            /**
+             * Coverage Policy
+             * @constant
+             */
+            coverage_policy: "COMPLETE_VERIFIED_WINDOW";
+            /**
+             * Instrument Policy
+             * @constant
+             */
+            instrument_policy: "EXACT_SOURCE_CATALOG";
+            /**
+             * Resolution Mode
+             * @constant
+             */
+            resolution_mode: "PROVIDER_NATIVE";
         };
         /** ChartStudyIntegerDto */
         ChartStudyIntegerDto: {

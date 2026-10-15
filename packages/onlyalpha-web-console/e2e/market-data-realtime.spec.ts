@@ -694,8 +694,16 @@ for (const width of [1440, 1024, 390]) {
             contentType: "image/png",
             body: await page.screenshot()
         });
+        const retained = page.getByTestId("chart-study-instance");
+        const retainedId = await retained.getAttribute("data-instance-id");
+        const retainedConfig = await retained.getAttribute("data-configuration");
+        const retainedStyle = await retained.getAttribute("data-presentation");
         await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
-        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+        await expect(retained).toHaveCount(1);
+        await expect(retained).toHaveAttribute("data-instance-id", retainedId ?? "");
+        await expect(retained).toHaveAttribute("data-configuration", retainedConfig ?? "");
+        await expect(retained).toHaveAttribute("data-presentation", retainedStyle ?? "");
+        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
         await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 }
