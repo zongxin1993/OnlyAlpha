@@ -1254,3 +1254,35 @@ def test_trade_coverage_requires_contiguous_sequence_semantics(tmp_path: Path, f
     manifest = only_build_coverage(_scope("TRADE"), (segment,), bundle.canonical_facts)
     assert manifest.coverage_status is OnlyCoverageStatus.INCOMPLETE
     assert "provider_sequence_contiguous=false" in manifest.proof
+
+
+def test_in_memory_catalog_batch_contract_preserves_order_and_requires_all_ids(tmp_path):
+    catalog = OnlyInMemoryMarketDataCatalog()
+    store = OnlyInMemoryMarketFactStore()
+    entries = []
+    for index in range(2):
+        wal, segment, _ = _sealed(
+            tmp_path / str(index), lambda: BASE, kind="BAR", close=f"100.{index:08d}", bar_index=index
+        )
+        records = wal.read_sealed(segment.segment_id)
+        store.write_segment(segment, records)
+        scope = replace(
+            _scope("BAR"),
+            start_ns=_scope("BAR").start_ns + index * 60_000_000_000,
+            end_ns=_scope("BAR").end_ns + index * 60_000_000_000,
+        )
+        entries.append(
+            OnlyRevisionCommitService(store, catalog, now=lambda: BASE).commit(
+                segment, scope, {segment.segment_id: records}
+            )
+        )
+    revisions = tuple(row[1].revision_id for row in reversed(entries))
+    manifests = tuple(row[0].manifest_id for row in reversed(entries))
+    assert catalog.load_sealed_revisions(revisions) == tuple((row[1], row[2]) for row in reversed(entries))
+    assert catalog.load_coverage_manifests(manifests) == tuple(row[0] for row in reversed(entries))
+    assert catalog.load_sealed_revisions(()) == catalog.load_coverage_manifests(()) == ()
+    for method, ids in [(catalog.load_sealed_revisions, revisions), (catalog.load_coverage_manifests, manifests)]:
+        with pytest.raises(ValueError, match="MARKET_DATA_METADATA_READ_SET_INVALID"):
+            method((ids[0], ids[0]))
+        with pytest.raises(KeyError):
+            method((ids[0], "missing-metadata"))

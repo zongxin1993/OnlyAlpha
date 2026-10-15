@@ -190,17 +190,16 @@ class OnlyVerifiedMarketDataRangeQuery:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
         segments: dict[str, OnlyIngestSegment] = {}
         evidence: list[OnlyMarketDataRevisionEvidence] = []
-        verified_revisions: list[
-            tuple[OnlyMarketDataRevision, tuple[OnlyIngestSegment, ...], OnlyCoverageManifest, OnlyMarketDataSeal]
-        ] = []
-        for revision in revisions:
-            if not any(
-                revision.scope.start_ns < interval.end_ns and revision.scope.end_ns > interval.start_ns
-                for interval in requested_ranges
-            ):
-                continue
-            revision_segments, manifest, seal = self._verify_revision(family, revision)
-            verified_revisions.append((revision, revision_segments, manifest, seal))
+        relevant = tuple(
+            revision
+            for revision in revisions
+            if any(
+                revision.scope.start_ns < item.end_ns and revision.scope.end_ns > item.start_ns
+                for item in requested_ranges
+            )
+        )
+        verified_revisions = self._verify_revisions(family, relevant)
+        for _, revision_segments, _, _ in verified_revisions:
             for segment in revision_segments:
                 prior = segments.setdefault(segment.segment_id, segment)
                 if prior != segment:
@@ -298,34 +297,55 @@ class OnlyVerifiedMarketDataRangeQuery:
         )
 
     @only_market_data_timed("catalog_revision")
-    def _verify_revision(
-        self, family: OnlyMarketDataRangeFamily, revision: OnlyMarketDataRevision
+    def _verify_revisions(
+        self, family: OnlyMarketDataRangeFamily, revisions: tuple[OnlyMarketDataRevision, ...]
     ) -> tuple[
-        tuple[OnlyIngestSegment, ...],
-        OnlyCoverageManifest,
-        OnlyMarketDataSeal,
+        tuple[OnlyMarketDataRevision, tuple[OnlyIngestSegment, ...], OnlyCoverageManifest, OnlyMarketDataSeal], ...
     ]:
-        if not family.matches(revision.scope):
+        if not revisions:
+            return ()
+        if any(not family.matches(revision.scope) for revision in revisions):
             raise OnlyMarketDataSealError("MARKET_DATA_RANGE_FAMILY_MISMATCH")
+        revision_ids = tuple(dict.fromkeys(item.revision_id for item in revisions))
+        manifest_ids = tuple(dict.fromkeys(item.manifest_id for item in revisions))
         try:
-            stored, seal = self._catalog.load_sealed_revision(revision.revision_id)
-            manifest = self._catalog.load_coverage_manifest(revision.manifest_id)
+            stored = self._catalog.load_sealed_revisions(revision_ids)
+            manifests = self._catalog.load_coverage_manifests(manifest_ids)
+            if (
+                tuple(item.revision_id for item, _ in stored) != revision_ids
+                or tuple(item.manifest_id for item in manifests) != manifest_ids
+            ):
+                raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
         except (KeyError, TypeError, ValueError) as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
         except Exception as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
-        if stored != revision:
-            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-        only_verify_revision_authority(revision, manifest, seal)
+        sealed_by_id = {item.revision_id: (item, seal) for item, seal in stored}
+        manifest_by_id = {item.manifest_id: item for item in manifests}
+        for revision in revisions:
+            observed, seal = sealed_by_id[revision.revision_id]
+            if observed != revision:
+                raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+            only_verify_revision_authority(revision, manifest_by_id[revision.manifest_id], seal)
+        segment_ids = tuple(dict.fromkeys(ref[0] for revision in revisions for ref in revision.segment_refs))
         try:
-            segments = self._catalog.load_durable_segments(tuple(item[0] for item in revision.segment_refs))
+            segments = self._catalog.load_durable_segments(segment_ids)
+            if tuple(item.segment_id for item in segments) != segment_ids:
+                raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
         except (KeyError, TypeError, ValueError) as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID") from exc
         except Exception as exc:
             raise OnlyMarketDataSealError("MARKET_DATA_CATALOG_UNAVAILABLE") from exc
-        if tuple((item.segment_id, item.content_hash) for item in segments) != revision.segment_refs:
-            raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
-        return segments, manifest, seal
+        by_id = {item.segment_id: item for item in segments}
+        result = []
+        for revision in revisions:
+            selected = tuple(by_id[item[0]] for item in revision.segment_refs)
+            if tuple((item.segment_id, item.content_hash) for item in selected) != revision.segment_refs:
+                raise OnlyMarketDataSealError("MARKET_DATA_REVISION_EVIDENCE_INVALID")
+            result.append(
+                (revision, selected, manifest_by_id[revision.manifest_id], sealed_by_id[revision.revision_id][1])
+            )
+        return tuple(result)
 
 
 def only_history_projection_fingerprint(value: object) -> str:

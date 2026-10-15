@@ -383,21 +383,37 @@ class OnlyPostgresMarketDataCatalog:
                 self._insert_manifest(connection, manifest, self._now())
 
     def load_coverage_manifest(self, manifest_id: str) -> OnlyCoverageManifest:
+        return self.load_coverage_manifests((manifest_id,))[0]
+
+    def load_coverage_manifests(self, manifest_ids: tuple[str, ...]) -> tuple[OnlyCoverageManifest, ...]:
+        if len(set(manifest_ids)) != len(manifest_ids):
+            raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
+        if not manifest_ids:
+            return ()
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-            row = connection.execute(
-                "SELECT manifest_fingerprint,scope,coverage_status,proof,issues,gaps "
-                "FROM market_coverage_manifest WHERE manifest_id=%s",
-                (manifest_id,),
-            ).fetchone()
-            refs = connection.execute(
-                "SELECT segment_id,segment_content_hash FROM market_coverage_manifest_segment "
-                "WHERE manifest_id=%s ORDER BY ordinal",
-                (manifest_id,),
+            rows = connection.execute(
+                "SELECT manifest_id,manifest_fingerprint,scope,coverage_status,proof,issues,gaps "
+                "FROM market_coverage_manifest WHERE manifest_id = ANY(%s)",
+                (list(manifest_ids),),
             ).fetchall()
-        if row is None:
+            refs = connection.execute(
+                "SELECT manifest_id,segment_id,segment_content_hash FROM market_coverage_manifest_segment "
+                "WHERE manifest_id = ANY(%s) ORDER BY manifest_id,ordinal",
+                (list(manifest_ids),),
+            ).fetchall()
+        by_id = {str(row["manifest_id"]): row for row in rows}
+        if len(by_id) != len(rows) or set(by_id) != set(manifest_ids):
             raise KeyError("COVERAGE_MANIFEST_NOT_FOUND")
+        references: dict[str, list[tuple[str, str]]] = {item: [] for item in manifest_ids}
+        for row in refs:
+            references[str(row["manifest_id"])].append((str(row["segment_id"]), str(row["segment_content_hash"])))
+        return tuple(self._coverage_manifest(by_id[item], tuple(references[item])) for item in manifest_ids)
+
+    @staticmethod
+    def _coverage_manifest(row: Mapping[str, object], refs: tuple[tuple[str, str], ...]) -> OnlyCoverageManifest:
         gaps = row["gaps"]
-        if not isinstance(gaps, list):
+        proof, issues = _string_tuple(row["proof"]), _string_tuple(row["issues"])
+        if not isinstance(gaps, list) or proof is None or issues is None:
             raise ValueError("POSTGRES_COVERAGE_MANIFEST_INVALID")
         decoded_gaps = tuple(
             OnlyBarCoverageGap(int(item["start_ns"]), int(item["end_ns"]))
@@ -406,12 +422,12 @@ class OnlyPostgresMarketDataCatalog:
             for item in gaps
         )
         return OnlyCoverageManifest(
-            manifest_id,
+            str(row["manifest_id"]),
             _scope(row["scope"]),
-            tuple((str(item["segment_id"]), str(item["segment_content_hash"])) for item in refs),
+            refs,
             OnlyCoverageStatus(str(row["coverage_status"])),
-            tuple(str(item) for item in row["proof"]),
-            tuple(str(item) for item in row["issues"]),
+            proof,
+            issues,
             decoded_gaps,
             str(row["manifest_fingerprint"]),
         )
@@ -524,26 +540,49 @@ class OnlyPostgresMarketDataCatalog:
         return tuple(self._segment(row) for row in rows)
 
     def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
+        return self.load_sealed_revisions((revision_id,))[0]
+
+    def load_sealed_revisions(
+        self, revision_ids: tuple[str, ...]
+    ) -> tuple[tuple[OnlyMarketDataRevision, OnlyMarketDataSeal], ...]:
+        if len(set(revision_ids)) != len(revision_ids):
+            raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
+        if not revision_ids:
+            return ()
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 "SELECT r.*, s.seal_id, s.checks, s.sealed_at, s.revision_fingerprint AS sealed_fingerprint "
-                "FROM market_data_revision r JOIN market_revision_seal s USING(revision_id) WHERE revision_id=%s",
-                (revision_id,),
-            ).fetchone()
-            refs = connection.execute(
-                "SELECT segment_id,segment_content_hash FROM market_revision_segment "
-                "WHERE revision_id=%s ORDER BY ordinal",
-                (revision_id,),
+                "FROM market_data_revision r JOIN market_revision_seal s USING(revision_id) "
+                "WHERE revision_id = ANY(%s)",
+                (list(revision_ids),),
             ).fetchall()
-        if row is None:
+            refs = connection.execute(
+                "SELECT revision_id,segment_id,segment_content_hash FROM market_revision_segment "
+                "WHERE revision_id = ANY(%s) ORDER BY revision_id,ordinal",
+                (list(revision_ids),),
+            ).fetchall()
+        by_id = {str(row["revision_id"]): row for row in rows}
+        if len(by_id) != len(rows) or set(by_id) != set(revision_ids):
             raise KeyError("SEALED_REVISION_NOT_FOUND")
-        scope = _scope(row["scope"])
+        references: dict[str, list[tuple[str, str]]] = {item: [] for item in revision_ids}
+        for row in refs:
+            references[str(row["revision_id"])].append((str(row["segment_id"]), str(row["segment_content_hash"])))
+        return tuple(self._sealed_revision(by_id[item], tuple(references[item])) for item in revision_ids)
+
+    @staticmethod
+    def _sealed_revision(
+        row: Mapping[str, object], refs: tuple[tuple[str, str], ...]
+    ) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
+        normalizers, checks = _pair_tuple(row["normalizers"]), _string_tuple(row["checks"])
+        sealed_at = row["sealed_at"]
+        if normalizers is None or checks is None or not isinstance(sealed_at, datetime):
+            raise ValueError("POSTGRES_SEALED_REVISION_INVALID")
         revision = OnlyMarketDataRevision(
             str(row["revision_id"]),
-            scope,
+            _scope(row["scope"]),
             str(row["manifest_id"]),
-            tuple((str(item["segment_id"]), str(item["segment_content_hash"])) for item in refs),
-            tuple((str(item[0]), str(item[1])) for item in row["normalizers"]),
+            refs,
+            normalizers,
             None if row["parent_revision_id"] is None else str(row["parent_revision_id"]),
             str(row["creation_reason"]),
             str(row["revision_fingerprint"]),
@@ -552,8 +591,8 @@ class OnlyPostgresMarketDataCatalog:
             str(row["seal_id"]),
             revision.revision_id,
             str(row["sealed_fingerprint"]),
-            tuple(str(item) for item in row["checks"]),
-            row["sealed_at"],
+            checks,
+            sealed_at,
         )
         return revision, seal
 
@@ -604,7 +643,7 @@ class OnlyPostgresMarketDataCatalog:
                     start_ns,
                 ),
             ).fetchall()
-        return tuple(self.load_sealed_revision(str(row[0]))[0] for row in rows)
+        return tuple(revision for revision, _ in self.load_sealed_revisions(tuple(str(row[0]) for row in rows)))
 
     @staticmethod
     def _segments_committed(

@@ -89,6 +89,23 @@ The optional standard response header is additive; body schemas are unchanged. R
 OpenAPI and generated TypeScript evolve atomically, with no old-version fallback or persisted-format change.
 The standard header semantics follow [RFC 9110 section 10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3).
 
+### Exact catalog metadata batches
+
+The owning durable Catalog exposes `load_sealed_revisions(ids)` and `load_coverage_manifests(ids)`
+as ordered, all-or-error exact-ID reads. Empty input returns empty without storage IO; duplicate IDs
+are invalid and any missing requested identity fails closed. Singular reads use the same canonical
+batch implementation. These are additive development-unfrozen Python Catalog operations; repository
+implementations and consumers evolve together. They change no HTTP, database schema or stored identity.
+
+Current-range selection retains its exact family/scope filters and selected revision IDs. The range
+reader re-observes those exact IDs in a batch and still compares each stored revision with its selected
+value, verifies its Manifest/Seal binding, and checks every ordered Segment ID/content hash. Only those
+explicit immutable Segment references are deduplicated for the existing bulk storage read; no overlapping
+scope union, latest substitution or cache grants authority. Physical proofs, membership, coverage, native
+calendar/Source pins and final history fingerprints remain independently verified. Metadata round-trip
+counts are bounded by batch families rather than revision count; this does not change the 2000-bar window,
+the 10-second protected query deadline, or establish a wall-clock latency guarantee.
+
 ### Internal numeric admission
 
 The disposable SMA adapter retains the actual registrations from one installed Provider discovery and the Catalog built from

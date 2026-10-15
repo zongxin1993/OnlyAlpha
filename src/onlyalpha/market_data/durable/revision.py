@@ -412,7 +412,12 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         self._manifests.setdefault(manifest.manifest_id, manifest)
 
     def load_coverage_manifest(self, manifest_id: str) -> OnlyCoverageManifest:
-        return self._manifests[manifest_id]
+        return self.load_coverage_manifests((manifest_id,))[0]
+
+    def load_coverage_manifests(self, manifest_ids: tuple[str, ...]) -> tuple[OnlyCoverageManifest, ...]:
+        if len(set(manifest_ids)) != len(manifest_ids):
+            raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
+        return tuple(self._manifests[item] for item in manifest_ids)
 
     def commit_revision(
         self,
@@ -477,8 +482,14 @@ class OnlyInMemoryMarketDataCatalog(OnlyMarketDataCatalog):
         )
 
     def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
-        revision = self._revisions[revision_id]
-        return revision, self._seals[revision_id]
+        return self.load_sealed_revisions((revision_id,))[0]
+
+    def load_sealed_revisions(
+        self, revision_ids: tuple[str, ...]
+    ) -> tuple[tuple[OnlyMarketDataRevision, OnlyMarketDataSeal], ...]:
+        if len(set(revision_ids)) != len(revision_ids):
+            raise ValueError("MARKET_DATA_METADATA_READ_SET_INVALID")
+        return tuple((self._revisions[item], self._seals[item]) for item in revision_ids)
 
     def sealed_revision_for_manifest(
         self, manifest_id: str

@@ -226,11 +226,14 @@ class _FaultyCatalog(OnlyInMemoryMarketDataCatalog):
             raise self._faults.sealed_lookup
         return super().list_current_sealed_revisions_overlapping(family, start_ns, end_ns)
 
-    def load_sealed_revision(self, revision_id: str) -> tuple[OnlyMarketDataRevision, OnlyMarketDataSeal]:
-        revision, seal = super().load_sealed_revision(revision_id)
+    def load_sealed_revisions(self, revision_ids):
+        rows = super().load_sealed_revisions(revision_ids)
         if self._faults.corrupt_seal:
-            return revision, OnlyMarketDataSeal(seal.seal_id, seal.revision_id, "f" * 64, seal.checks, seal.sealed_at)
-        return revision, seal
+            return tuple(
+                (revision, OnlyMarketDataSeal(seal.seal_id, seal.revision_id, "f" * 64, seal.checks, seal.sealed_at))
+                for revision, seal in rows
+            )
+        return rows
 
 
 class _FaultyFactStore(OnlyInMemoryMarketFactStore):
