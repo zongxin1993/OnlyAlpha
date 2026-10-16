@@ -774,3 +774,59 @@ def test_signalled_actual_command_does_not_become_an_ordinary_wrapper_completion
                     os.kill(child_pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+
+
+def test_docker_desktop_may_report_file_binds_without_directory_prefix(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    record = _container(tmp_path)
+    for mount in record["Mounts"]:
+        if mount["Type"] == "bind" and not mount["Destination"].endswith(".tsbuildinfo"):
+            mount["Source"] = "/host_mnt" + mount["Source"]
+    dev_verification.validate_container(record, tmp_path)
+
+
+@pytest.mark.parametrize("mutation", ["wrong-file", "writable-file", "wrong-directory", "linux"])
+def test_desktop_file_bind_representation_preserves_exact_identity(monkeypatch, tmp_path: Path, mutation: str) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    record = _container(tmp_path)
+    for mount in record["Mounts"]:
+        if mount["Type"] == "bind" and not mount["Destination"].endswith(".tsbuildinfo"):
+            mount["Source"] = "/host_mnt" + mount["Source"]
+    file_mount = next(m for m in record["Mounts"] if m["Destination"].endswith(".tsbuildinfo"))
+    if mutation == "wrong-file":
+        file_mount["Source"] += ".other"
+    elif mutation == "writable-file":
+        file_mount["RW"] = False
+    elif mutation == "wrong-directory":
+        record["Mounts"][0]["Source"] += "/other"
+    else:
+        monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(ValueError, match="WORKTREE_OR_DEPENDENCIES_REFUSED"):
+        dev_verification.validate_container(record, tmp_path)
+
+
+@pytest.mark.parametrize("product", [False, True])
+def test_frozen_source_prunes_removed_package_directories(tmp_path: Path, product: bool) -> None:
+    _environment(tmp_path)
+    source = tmp_path / "plugs/retired/src/provider.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1")
+    dev_verification.freeze_source(tmp_path, "before-removal", product=product)
+    source.unlink()
+    source.parent.rmdir()
+    source.parent.parent.rmdir()
+    dev_verification.freeze_source(tmp_path, "after-removal", product=product)
+    cut = tmp_path / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
+    assert not (cut / "plugs/retired").exists()
+    assert (cut / "plugs/example/pyproject.toml").is_file()
+
+
+def test_frozen_source_preserves_an_empty_directory_still_present_in_source(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    source = tmp_path / "plugs/retained/provider.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1")
+    dev_verification.freeze_source(tmp_path, "before-removal", product=True)
+    source.unlink()
+    dev_verification.freeze_source(tmp_path, "after-removal", product=True)
+    assert (tmp_path / ".test-cache/dev-product-source/plugs/retained").is_dir()

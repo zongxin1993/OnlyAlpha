@@ -62,7 +62,8 @@ def test_only_process_and_provider_entrypoints_remain() -> None:
     assert "onlyalpha-client" not in entry_points
     assert entry_points["onlyalpha-http-server"] == "onlyalpha_http_server.main:main"
     assert entry_points["onlyalpha-research-worker"] == "onlyalpha.research.worker_main:main"
-    assert entry_points["onlyalpha-miniqmt"] == "onlyalpha_plugin_miniqmt.doctor:main"
+    assert "onlyalpha-miniqmt" not in entry_points
+    assert not (ROOT / "plugs/onlyalpha-plugin-miniqmt").exists()
     assert entry_points["onlyalpha-tushare"] == "onlyalpha_plugin_tushare.doctor:main"
 
 

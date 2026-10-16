@@ -9,7 +9,6 @@ from onlyalpha_plugin_binance.descriptor import (
 )
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.usdm.data_source import OnlyBinanceUsdmDataSourceFactory
-from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
 from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
 
 from onlyalpha.application.integration_configuration import (
@@ -173,7 +172,6 @@ def test_all_first_party_product_data_sources_declare_unique_types_without_provi
     factories = (
         OnlyBinanceSpotDataSourceFactory(),
         OnlyBinanceUsdmDataSourceFactory(),
-        OnlyMiniQmtDataSourceFactory(),
         OnlyTushareDataSourceFactory(),
     )
     data_sources = OnlyDataSourceFactoryRegistry()
@@ -188,7 +186,6 @@ def test_all_first_party_product_data_sources_declare_unique_types_without_provi
     assert {descriptor.type_id.value for descriptor in descriptors} == {
         "binance.spot.market_data",
         "binance.usdm.market_data",
-        "miniqmt.market_data",
         "tushare.daily.market_data",
     }
     assert len({descriptor.type_id.value for descriptor in descriptors}) == len(descriptors)

@@ -10,6 +10,7 @@ from onlyalpha.core.errors import OnlyLifecycleError
 from onlyalpha.domain.identifiers import OnlyEngineId
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
+from tests.runtime_support.controlled_bars import controlled_engine_services
 
 
 def _sim_config() -> OnlyClusterRunConfig:
@@ -20,7 +21,7 @@ def _sim_config() -> OnlyClusterRunConfig:
     payload["runtime"]["end_time"] = None
     payload["runtime"]["extensions"] = {"execution_capability": "SIMULATED"}
     payload["cluster"]["runtime_type"] = "SIM"
-    payload["data_sources"][0]["plugin"] = "miniqmt"
+    payload["data_sources"][0]["plugin"] = "controlled-bars"
     return OnlyClusterRunConfig.from_mapping(
         payload,
         source_path="test-data/legacy_macd/cluster.json",
@@ -28,7 +29,9 @@ def _sim_config() -> OnlyClusterRunConfig:
 
 
 def _engine(root: Path) -> OnlyEngine:
-    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId("sim-engine-contract"), root))
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId("sim-engine-contract"), root), services=controlled_engine_services()
+    )
     engine.add_cluster(_sim_config())
     return engine
 

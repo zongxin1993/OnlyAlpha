@@ -16,9 +16,6 @@ from typing import cast
 
 import pytest
 from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
-from onlyalpha_plugin_miniqmt.data_source.factory import OnlyMiniQmtDataSourceFactory
-from onlyalpha_plugin_miniqmt.data_source.resource import OnlyMiniQmtDataSource
-from onlyalpha_plugin_miniqmt.historical_worker.client import OnlyMiniQmtHistoricalIsolatedClient
 
 from onlyalpha.account.enums import OnlyAccountReservationState
 from onlyalpha.application import OnlyEngineInspectionService
@@ -59,39 +56,12 @@ from onlyalpha.runtime.streaming.phase import OnlyStreamingPhase
 from onlyalpha.runtime.streaming.phase_controller import OnlyStreamingPhaseSnapshot
 from onlyalpha.strategy_ledger.enums import OnlyStrategyCashReservationState
 from onlyalpha.transaction.enums import OnlyRuntimeOperationKind
+from tests.runtime_support.controlled_bars import ControlledBarFeed, ControlledBarSource, controlled_engine_services
 from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 
 pytestmark = pytest.mark.integration
 
-_HELPER = Path("plugs/onlyalpha-plugin-miniqmt/tests/helpers/historical_worker.py").resolve()
 _INITIAL_TIME = datetime(2026, 8, 4, 1, 36, 17, tzinfo=UTC)
-
-
-class _FakeLiveXtData:
-    def __init__(self) -> None:
-        self.subscriptions: list[int] = []
-        self.callbacks: list[Callable[[object], None]] = []
-
-    def subscribe_quote(self, *args: object, **kwargs: object) -> int:
-        del args
-        self.subscriptions.append(1)
-        self.callbacks.append(cast(Callable[[object], None], kwargs["callback"]))
-        return 1
-
-    def unsubscribe_quote(self, sequence: int) -> None:
-        self.subscriptions.remove(sequence)
-
-    def publish_bar(self, bar_end: datetime) -> None:
-        row = {
-            "time": int(bar_end.timestamp() * 1000),
-            "open": "10.00",
-            "high": "10.10",
-            "low": "9.90",
-            "close": "10.05",
-            "volume": "100",
-        }
-        for callback in self.callbacks:
-            callback({"000001.SZ": row})
 
 
 def _config(
@@ -100,7 +70,7 @@ def _config(
     checkpoint: bool = False,
     reference_trade: bool = False,
 ) -> OnlyClusterRunConfig:
-    baseline = OnlyClusterRunConfig.load("test-data/runtime/miniqmt_sim_acceptance.yaml")
+    baseline = OnlyClusterRunConfig.load("test-data/runtime/controlled_sim_acceptance.yaml")
     payload = json.loads(json.dumps(dict(baseline.normalized_payload)))
     payload["runtime"]["extensions"]["streaming"]["bootstrap_bars"] = 10
     payload["runtime"]["persistence"] = {
@@ -115,9 +85,7 @@ def _config(
             "kind": "LAST_TRADE",
             "fallback": "NONE",
         }
-    userdata = tmp_path / "userdata_mini"
-    userdata.mkdir(parents=True, exist_ok=True)
-    payload["data_sources"][0]["extensions"]["userdata_mini_path"] = str(userdata)
+
     config = only_migrate_cluster_to_strategy(
         OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path),
         tmp_path / "user_data",
@@ -146,32 +114,15 @@ def _engine(
     checkpoint: bool = False,
     reference_trade: bool = False,
     initial_time: datetime = _INITIAL_TIME,
-) -> tuple[OnlyEngine, _FakeLiveXtData, OnlyBacktestClock, Path]:
-    xtdata = _FakeLiveXtData()
+) -> tuple[OnlyEngine, ControlledBarFeed, OnlyBacktestClock, Path]:
+    xtdata = ControlledBarFeed()
     clock = OnlyBacktestClock(initial_time)
 
-    def create(self: OnlyMiniQmtDataSourceFactory, request: object) -> OnlyMiniQmtDataSource:
-        del self
-        return OnlyMiniQmtDataSource(request, request.plugin_config, xtdata)  # type: ignore[arg-type,attr-defined]
-
-    monkeypatch.setattr(OnlyMiniQmtDataSourceFactory, "create", create)
     monkeypatch.setattr("onlyalpha.runtime.sim.factory.OnlyLiveClock", lambda: clock)
-    monkeypatch.setattr(
-        OnlyMiniQmtHistoricalIsolatedClient,
-        "_default_command",
-        staticmethod(
-            lambda request_path: (
-                sys.executable,
-                str(_HELPER),
-                "--request",
-                str(request_path),
-                "--behavior",
-                "opening-boundary",
-            )
-        ),
-    )
     user_data = tmp_path / "user_data"
-    engine = OnlyEngine(OnlyEngineConfig(OnlyEngineId(engine_id), user_data))
+    engine = OnlyEngine(
+        OnlyEngineConfig(OnlyEngineId(engine_id), user_data), services=controlled_engine_services(xtdata)
+    )
     engine.add_cluster(_config(tmp_path, checkpoint=checkpoint, reference_trade=reference_trade))
     return engine, xtdata, clock, user_data
 
@@ -261,24 +212,24 @@ def test_sim_factory_broker_acquisition_failure_releases_source_persistence_and_
     engine_id = "sim-factory-acquisition-rollback"
     closed_sources: list[str] = []
     original_broker_create = OnlyVirtualBrokerFactory.create
-    original_source_close = OnlyMiniQmtDataSource.close
+    original_source_close = ControlledBarSource.close
 
     def fail_broker_create(self: OnlyVirtualBrokerFactory, request: object) -> OnlyBrokerComponent:
         del self, request
         raise RuntimeError("TEST_SIM_BROKER_ACQUISITION_FAILURE")
 
-    def close_source(self: OnlyMiniQmtDataSource) -> None:
+    def close_source(self: ControlledBarSource) -> None:
         closed_sources.append(self.plugin_resource_id)
         original_source_close(self)
 
     monkeypatch.setattr(OnlyVirtualBrokerFactory, "create", fail_broker_create)
-    monkeypatch.setattr(OnlyMiniQmtDataSource, "close", close_source)
+    monkeypatch.setattr(ControlledBarSource, "close", close_source)
     failed, _feed, _clock, _ = _engine(tmp_path, monkeypatch, engine_id=engine_id, checkpoint=True)
 
     with pytest.raises(Exception, match="TEST_SIM_BROKER_ACQUISITION_FAILURE"):
         failed.initialize()
 
-    assert closed_sources == ["miniqmt-live"]
+    assert closed_sources == ["controlled-bars"]
     assert failed.snapshot().resource_reference_counts == ()
 
     monkeypatch.setattr(OnlyVirtualBrokerFactory, "create", original_broker_create)
@@ -511,7 +462,7 @@ def _wait_for_recovery_cycle(
 
 def _publish_and_wait_received(
     runtime: OnlySimRuntime,
-    xtdata: _FakeLiveXtData,
+    xtdata: ControlledBarFeed,
     clock: OnlyBacktestClock,
     minute: int,
 ) -> None:
@@ -817,7 +768,7 @@ def test_bar_root_bootstrap_ignores_independent_live_trade_subscription(
     engine, _, _, _ = _engine(tmp_path, monkeypatch, engine_id="sim-bar-root-live-trade")
     engine.initialize()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     runtime._driver.subscription = replace(  # type: ignore[attr-defined]
         runtime.streaming_subscription,
         data_types=frozenset({OnlyMarketDataType.BAR, OnlyMarketDataType.TRADE}),
@@ -866,7 +817,7 @@ def test_bar_root_reference_trade_disconnect_never_requires_historical_ticks(
     )
     engine.initialize()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     monkeypatch.setattr(
         source,
         "subscribe",
@@ -958,7 +909,7 @@ def test_engine_sim_gap_recovers_history_then_reconciles_trigger_once(
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
     database = _database(user_data, engine_id, runtime)
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
     try:
         _publish_and_wait_received(runtime, xtdata, clock, 37)
@@ -1031,7 +982,7 @@ def test_engine_sim_trade_gap_degrades_only_reference_and_recovery_suffix_keeps_
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     entered = Event()
     release = Event()
 
@@ -1126,7 +1077,7 @@ def test_engine_sim_incomplete_gap_recovery_fails_closed(
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     monkeypatch.setattr(
         source,
         "load_bars",
@@ -1183,7 +1134,7 @@ def test_engine_sim_secondary_gap_during_suffix_reconciliation_fails_closed(
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     entered = Event()
     release = Event()
 
@@ -1236,7 +1187,7 @@ def test_engine_sim_stop_during_blocked_recovery_discards_late_history(
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
     database = _database(user_data, "sim-stop-recovery", runtime)
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     entered = Event()
     release = Event()
 
@@ -1309,7 +1260,7 @@ def test_engine_sim_stop_during_buffered_suffix_catch_up_prevents_late_processin
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
     runtime._stale_after_seconds = 600  # type: ignore[attr-defined]
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     entered = Event()
     release = Event()
     original = runtime._process_buffered_updates  # type: ignore[attr-defined]
@@ -1363,7 +1314,7 @@ def test_engine_sim_disconnect_reconnects_repairs_history_then_restores_live(
     engine.initialize()
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     monkeypatch.setattr(source, "load_bars", lambda request: _recovery_stream(runtime, request))
     try:
         _publish_and_wait_received(runtime, xtdata, clock, 37)
@@ -1407,7 +1358,7 @@ def test_engine_sim_reconnect_failure_is_fail_closed(
     engine.initialize()
     engine.start()
     runtime = cast(OnlySimRuntime, engine.runtimes[0])
-    source = cast(OnlyMiniQmtDataSource, runtime._driver.source)  # type: ignore[attr-defined]
+    source = cast(ControlledBarSource, runtime._driver.source)  # type: ignore[attr-defined]
     source.disconnect()
     monkeypatch.setattr(source, "connect", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
     clock.advance_to(datetime(2026, 8, 4, 1, 42, tzinfo=UTC))

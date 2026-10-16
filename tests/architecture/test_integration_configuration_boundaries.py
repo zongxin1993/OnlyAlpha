@@ -318,7 +318,6 @@ def test_first_party_product_data_source_entry_points_have_permanent_coverage() 
     entry_points: dict[str, str] = {}
     for relative in (
         "plugs/onlyalpha-plugin-binance/pyproject.toml",
-        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
         "plugs/onlyalpha-plugin-tushare/pyproject.toml",
     ):
         project = tomllib.loads((ROOT / relative).read_text(encoding="utf-8"))["project"]
@@ -327,7 +326,6 @@ def test_first_party_product_data_source_entry_points_have_permanent_coverage() 
     assert entry_points == {
         "binance": "onlyalpha_plugin_binance.spot.data_source.factory:factory",
         "binance-usdm": "onlyalpha_plugin_binance.usdm.data_source:factory",
-        "miniqmt": "onlyalpha_plugin_miniqmt.data_source.factory:factory",
         "tushare": "onlyalpha_plugin_tushare.data_source.factory:factory",
     }
 

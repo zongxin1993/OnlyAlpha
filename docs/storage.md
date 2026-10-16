@@ -136,7 +136,7 @@ Manifest 的审计时间和绝对路径不进入内容指纹。Parquet 保存标
 按事件年份分区；写入使用 staging、回读验证和原子替换。Manifest、Hash 或 Parquet 损坏会进入 quarantine，
 不会进入 Replay。`CACHE_ONLY` 禁止 Provider；`PREFER_CACHE` 只请求缺口；`FORCE_REFRESH` 请求整个范围。
 
-MiniQMT 负责供应商字段验证、symbol/exchange 映射和 Asia/Shanghai→UTC 解释；核心不导入 MiniQMT。
+冻结 MiniQMT 历史数据保留原供应商字段、symbol/exchange 映射及 Asia/Shanghai→UTC 解释的 provenance；当前 SDK adapter 已按 ADR 0139 下线。核心不导入该供应商实现。
 
 Manifest 分开记录 `resolved_ranges` 与 `observed_ranges`。前者表示供应商成功确认的完整查询区间，允许包含周末、节假日、停牌或合法空区间，并作为 Cache 完整性判定依据；后者仅表示实际 Bar 的 Session 区间，不得代替 resolved coverage。Tushare 等插件只返回这两类通用语义，不在核心引入供应商 SDK、代码映射或复权字符串。
 

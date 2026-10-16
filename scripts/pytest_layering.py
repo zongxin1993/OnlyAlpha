@@ -6,9 +6,7 @@ import pytest
 
 LAYER_MARKERS = frozenset({"unit", "contract", "architecture", "integration", "scenario"})
 CONCERN_MARKERS = frozenset({"recovery", "sim_recovery", "conformance", "external", "exhaustive", "miniqmt"})
-EXTERNAL_REQUIREMENT_MARKERS = frozenset(
-    {"requires_network", "requires_tushare", "requires_local_qmt", "requires_broker_account"}
-)
+EXTERNAL_REQUIREMENT_MARKERS = frozenset({"requires_network", "requires_tushare", "requires_broker_account"})
 
 
 def path_layer(path: Path) -> str:
@@ -35,8 +33,6 @@ def path_concerns(path: Path) -> frozenset[str]:
         concerns.add("recovery")
     if "/conformance/" in f"/{value}":
         concerns.add("conformance")
-    if "onlyalpha-plugin-miniqmt" in value:
-        concerns.add("miniqmt")
     return frozenset(concerns)
 
 
@@ -56,11 +52,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if markers & EXTERNAL_REQUIREMENT_MARKERS:
             item.add_marker(pytest.mark.external)
             markers.add("external")
-        if "requires_local_qmt" in markers:
-            item.add_marker(pytest.mark.windows)
         if "external" in markers and not markers & EXTERNAL_REQUIREMENT_MARKERS:
             errors.append(f"{item.nodeid}: external test lacks an explicit requirement marker")
-        if "requires_broker_account" in markers and not {"requires_local_qmt", "windows"} <= markers:
-            errors.append(f"{item.nodeid}: broker-account test must also require local QMT and Windows")
     if errors:
         raise pytest.UsageError("illegal test markers:\n" + "\n".join(errors))

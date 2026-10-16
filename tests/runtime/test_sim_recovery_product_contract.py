@@ -8,8 +8,8 @@ import pytest
 
 from onlyalpha.config import OnlyClusterRunConfig
 from onlyalpha.domain.identifiers import OnlyEngineId
-from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
+from tests.runtime_support.controlled_bars import controlled_engine_services as only_default_engine_services
 from tests.runtime_support.market_product import only_generic_market_product
 
 pytestmark = [pytest.mark.contract, pytest.mark.sim_recovery]
@@ -23,7 +23,7 @@ def _plan(change: object | None = None):  # type: ignore[no-untyped-def]
     payload["runtime"]["end_time"] = None
     payload["runtime"]["extensions"] = {"execution_capability": "SIMULATED"}
     payload["cluster"]["runtime_type"] = "SIM"
-    payload["data_sources"][0]["plugin"] = "miniqmt"
+    payload["data_sources"][0]["plugin"] = "controlled-bars"
     if callable(change):
         change(payload)
     config = OnlyClusterRunConfig.from_mapping(payload, source_path=baseline.source_path)

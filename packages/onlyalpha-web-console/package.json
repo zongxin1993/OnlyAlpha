@@ -1,7 +1,7 @@
 {
     "name": "onlyalpha-web-console",
     "private": true,
-    "version": "0.9.14",
+    "version": "0.10.0",
     "type": "module",
     "engines": {
         "node": ">=24 <25"

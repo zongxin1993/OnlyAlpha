@@ -204,7 +204,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare]
     steps:
       - name: Require complete research evaluation shard gate
         env:
@@ -231,7 +231,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [core-full, recovery, sim-recovery, ashare, miniqmt-contract]
+        lane: [core-full, recovery, sim-recovery, ashare]
     steps:
       - name: Require complete research evaluation shard gate
         env:

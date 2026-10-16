@@ -177,7 +177,7 @@ def test_fixture_is_frozen_local_synthetic_data_without_fallback() -> None:
 )
 def test_data_file_tampering_is_rejected(tmp_path: Path, filename: str, original: str, replacement: str) -> None:
     copied = tmp_path / "dataset"
-    shutil.copytree(DATASET, copied)
+    shutil.copytree(DATASET, copied, copy_function=shutil.copyfile)
     target = copied / filename
     payload = target.read_text(encoding="utf-8")
     assert original in payload
@@ -189,7 +189,7 @@ def test_data_file_tampering_is_rejected(tmp_path: Path, filename: str, original
 
 def test_manifest_tampering_is_rejected(tmp_path: Path) -> None:
     copied = tmp_path / "dataset"
-    shutil.copytree(DATASET, copied)
+    shutil.copytree(DATASET, copied, copy_function=shutil.copyfile)
     manifest_path = copied / "manifest.json"
     manifest = _read_object(manifest_path)
     manifest["data_version"] = "tampered-version"

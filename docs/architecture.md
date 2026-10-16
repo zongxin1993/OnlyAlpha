@@ -572,7 +572,7 @@ Concrete DataSource / Broker Plugin
 → Core orchestration
 ```
 
-Virtual Broker、Tushare 和 MiniQMT 位于各自 distribution。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
+Virtual Broker 和 Tushare 位于各自 distribution；当前不可用的 MiniQMT adapter 按 ADR 0139 下线，历史 provenance 和通用交易语义保留。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
 
 缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
 

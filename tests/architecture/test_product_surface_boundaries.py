@@ -48,11 +48,6 @@ EXPECTED_CONSOLE_ENTRY_POINTS = {
     ),
     ("packages/onlyalpha-http-server/pyproject.toml", "onlyalpha-http-server", "onlyalpha_http_server.main:main"),
     (
-        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
-        "onlyalpha-miniqmt",
-        "onlyalpha_plugin_miniqmt.doctor:main",
-    ),
-    (
         "plugs/onlyalpha-plugin-tushare/pyproject.toml",
         "onlyalpha-tushare",
         "onlyalpha_plugin_tushare.doctor:main",

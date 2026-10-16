@@ -190,6 +190,14 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False, resea
         for name in previous["inputs"]:
             if name not in inputs:
                 (cut / name).unlink()
+                directory = (cut / name).parent
+                while (
+                    directory != cut
+                    and not (root / directory.relative_to(cut)).exists()
+                    and not any(directory.iterdir())
+                ):
+                    directory.rmdir()
+                    directory = directory.parent
     cut.mkdir(parents=True, exist_ok=True)
     for name, digest in inputs.items():
         source, target = root / name, cut / name
@@ -302,12 +310,19 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         for mount in mounts
     }
     # Docker Desktop exposes macOS file-sharing binds using one exact VM prefix.
-    # Accept only a coherent translation of every bind, not arbitrary path aliases.
+    # Directory binds are coherent; Desktop may report the two writable file
+    # binds without that prefix. Both representations must match exact roots.
     desktop_expected = {
         target: (kind, "/host_mnt" + source if kind == "bind" else source, writable)
         for target, (kind, source, writable) in expected.items()
     }
-    same_mounts = actual == expected or (sys.platform == "darwin" and actual == desktop_expected)
+    desktop_file_expected = dict(desktop_expected)
+    for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
+        target = f"/workspace/{WEB}/{name}"
+        desktop_file_expected[target] = expected[target]
+    same_mounts = actual == expected or (
+        sys.platform == "darwin" and actual in (desktop_expected, desktop_file_expected)
+    )
     if record.get("Config", {}).get("Image") != IMAGE or len(mounts) != len(expected) or not same_mounts:
         raise ValueError("DEV_VERIFICATION_WORKTREE_OR_DEPENDENCIES_REFUSED")
     declared = record.get("HostConfig", {}).get("Mounts", [])

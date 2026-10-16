@@ -67,8 +67,6 @@ class OnlyTestLane(StrEnum):
     ASHARE = "ashare"
     RECOVERY = "recovery"
     SIM_RECOVERY = "sim-recovery"
-    MINIQMT_CONTRACT = "miniqmt-contract"
-    MINIQMT_LOCAL = "miniqmt-local"
     CORE_FULL = "core-full"
     EXHAUSTIVE = "exhaustive"
     RELEASE = "release"
@@ -327,7 +325,6 @@ LANES = {
             "tests/architecture/test_historical_provider_boundaries.py",
             "plugs/onlyalpha-plugin-tushare/tests/test_provider.py",
             "plugs/onlyalpha-plugin-tushare/tests/test_historical.py",
-            "plugs/onlyalpha-plugin-miniqmt/tests/test_historical.py",
         ),
         "not external",
         "4",
@@ -405,22 +402,9 @@ LANES = {
         "sim_recovery",
         timeout_seconds=900,
     ),
-    OnlyTestLane.MINIQMT_CONTRACT: Lane(
-        ("plugs/onlyalpha-plugin-miniqmt/tests",),
-        "contract and miniqmt and not external",
-        "auto",
-        "worksteal",
-    ),
-    OnlyTestLane.MINIQMT_LOCAL: Lane(
-        ("plugs/onlyalpha-plugin-miniqmt/tests",),
-        "miniqmt and external and requires_local_qmt and windows and not requires_broker_account",
-        "0",
-        "no",
-        timeout_seconds=900,
-    ),
     OnlyTestLane.CORE_FULL: Lane(
         WORKSPACE_TESTS,
-        "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_local_qmt or requires_broker_account or exhaustive or slow)",
+        "not (historical_git or recovery or sim_recovery or conformance or external or postgres or clickhouse or requires_network or requires_tushare or requires_broker_account or exhaustive or slow)",
         "2",
         "loadfile",
         100,
@@ -472,14 +456,6 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "plugs/onlyalpha-plugin-tushare/pyproject.toml",
         "plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare",
     ),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "--config-file",
-        "plugs/onlyalpha-plugin-miniqmt/pyproject.toml",
-        "plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt",
-    ),
     ("uv", "run", "lint-imports"),
     ("uv", "run", "python", "scripts/version_sync.py", "check"),
 )
@@ -512,7 +488,6 @@ RELEASE_LANES = (
     OnlyTestLane.RECOVERY,
     OnlyTestLane.SIM_RECOVERY,
     OnlyTestLane.ASHARE,
-    OnlyTestLane.MINIQMT_CONTRACT,
 )
 
 
@@ -611,18 +586,6 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     dist = args.dist or lane.dist
     if workers != "0" and dist == "no":
         dist = "worksteal"
-    if name is OnlyTestLane.MINIQMT_LOCAL:
-        if sys.platform != "win32":
-            print("miniqmt-local requires Windows", file=sys.stderr)
-            return 2
-        if not os.environ.get("userdata_mini_path") and not os.environ.get("ONLYALPHA_MINIQMT_PATH"):
-            print("miniqmt-local requires userdata_mini_path or ONLYALPHA_MINIQMT_PATH", file=sys.stderr)
-            return 2
-        try:
-            __import__("xtquant")
-        except ImportError:
-            print("miniqmt-local requires an importable xtquant SDK", file=sys.stderr)
-            return 2
     command = [
         "uv",
         "run",

@@ -121,7 +121,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
         deterministic_broker_driver: OnlyDeterministicBrokerDriver | None = None,
         broker_resource: OnlyPluginResource | None = None,
         bootstrap_bars: int = 0,
-        historical_compatibility_profile: str = "miniqmt-history-v2",
+        historical_compatibility_profile: str | None = None,
         historical_protocol_version: int = 2,
         historical_time_semantics_version: int = 2,
         historical_timeout_seconds: int = 30,
@@ -679,11 +679,15 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 key=str,
             )
         )
+        historical_profile = self._historical_compatibility_profile
         if provider_bar_types:
+            if historical_profile is None or not historical_profile.strip():
+                raise OnlyRuntimeError("streaming historical compatibility profile is required for Bar warmup")
             load_warmup = getattr(self._driver.source, "load_warmup", None)
             if not callable(load_warmup):
                 raise OnlyRuntimeError("streaming DataSource does not provide the Historical Warmup Port")
         for bar_type in provider_bar_types:
+            assert historical_profile is not None
             closed_cutoff = OnlyCompletedBarBoundaryResolver().latest_completed_bar_end(
                 calendar=self._selected_calendar,
                 bar_type=bar_type,
@@ -706,7 +710,7 @@ class OnlyStreamingRuntime(OnlyTradingRuntimeFacade):
                 data_version=self._streaming_data_version,
                 adjustment_type=OnlyAdjustmentType.RAW,
                 timeout_seconds=self._historical_timeout_seconds,
-                compatibility_profile_id=self._historical_compatibility_profile,
+                compatibility_profile_id=historical_profile,
             )
             self._acceptance_execution_stage = "HISTORICAL_WORKER"
             assert callable(load_warmup)

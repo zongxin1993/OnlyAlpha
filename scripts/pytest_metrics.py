@@ -39,7 +39,6 @@ _KNOWN_MARKERS = frozenset(
         "miniqmt",
         "requires_network",
         "requires_tushare",
-        "requires_local_qmt",
         "requires_broker_account",
         "windows",
     }

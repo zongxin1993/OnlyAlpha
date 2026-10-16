@@ -1,6 +1,6 @@
 # 测试规范
 
-P8.3 使用 `deploy/run-tests.sh python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
+P8.3 使用 `python scripts/dev_verification.py run -- python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
 architecture boundary；`research-postgres` 串行使用真实 PostgreSQL 验证 migration、唯一约束竞争、CAS、重启与 backup/restore。
 OpenAPI/TypeScript drift 继续由 Web static gate 验证。
 
@@ -9,32 +9,31 @@ OpenAPI/TypeScript drift 继续由 Web static gate 验证。
 Docker，不承担 Python/uv、localhost socket、PostgreSQL 或 ClickHouse 测试环境。不得新增第二套 Compose topology 或 DSN：
 
 ```bash
-deploy/run-tests.sh python scripts/test_suite.py database-acceptance
-deploy/run-tests.sh python -m pytest -q tests/application/test_market_data_product.py
-deploy/run-tests.sh python scripts/verify.py run
+python scripts/dev_verification.py run -- python scripts/test_suite.py database-acceptance
+python scripts/dev_verification.py run -- python -m pytest -q tests/application/test_market_data_product.py
+python scripts/dev_verification.py run -- python scripts/verify.py run
 ```
 
 允许用宿主 `.venv` 做快速、非正式 inner-loop 定位，但不得把宿主环境失败或通过当作正式验收。真实 Provider、公网、
-`miniqmt-local`、真实 Broker Account 等 external lane 是例外，仍在其受控目标环境执行并单独报告。
+真实 Broker Account 等 external lane 是例外，仍在其受控目标环境执行并单独报告。
 
 ## 正式测试分层与统一入口
 
 测试层级为 `unit`、`contract`、`architecture`、`integration`、`scenario`，每个测试必须恰好属于一个层级。
 `recovery`、`conformance`、`external`、`performance`、`exhaustive`、`miniqmt` 是可正交附加的关注点；`slow`、`requires_network`、`requires_tushare`、
-`requires_local_qmt`、`requires_broker_account`、`windows` 是附加属性。根 `conftest.py` 根据明确目录和文件语义
+`requires_broker_account`、`windows` 是附加属性。根 `conftest.py` 根据明确目录和文件语义
 补充缺失的主 Marker，并在收集期拒绝不完整的 External/Broker Account 标记。显式 Marker 始终优先。
 
 统一入口如下：
 
 ```bash
-deploy/run-tests.sh python scripts/test_suite.py fast
-deploy/run-tests.sh python scripts/test_suite.py integration
-deploy/run-tests.sh python scripts/test_suite.py ashare
-deploy/run-tests.sh python scripts/test_suite.py recovery
-deploy/run-tests.sh python scripts/test_suite.py miniqmt-contract
-deploy/run-tests.sh python scripts/test_suite.py core-full
-deploy/run-tests.sh python scripts/test_suite.py exhaustive
-deploy/run-tests.sh python scripts/test_suite.py release
+python scripts/dev_verification.py run -- python scripts/test_suite.py fast
+python scripts/dev_verification.py run -- python scripts/test_suite.py integration
+python scripts/dev_verification.py run -- python scripts/test_suite.py ashare
+python scripts/dev_verification.py run -- python scripts/test_suite.py recovery
+python scripts/dev_verification.py run -- python scripts/test_suite.py core-full
+python scripts/dev_verification.py run -- python scripts/test_suite.py exhaustive
+python scripts/dev_verification.py run -- python scripts/test_suite.py release
 ```
 
 所有通道打印实际 pytest 参数、返回真实退出码，并将计数、耗时、最慢测试、Marker 和路径分布写入
@@ -65,13 +64,12 @@ A 股申报前规则测试必须覆盖 2026-07-06 制度切换、主板/创业�
 停牌/Inactive 分离、科创板最低数量与递增、零股全量清仓、固定 Evaluation 顺序、100 次确定性、Checkpoint 权威变化
 拒绝以及结构化 Artifact。Risk/Order 测试不得另建 Session、Price 或 Quantity Validator。
 
-MiniQMT Contract 使用 Fake XtData/XtTrader，验证原始 SDK 形状到领域对象的转换，不导入真实 `xtquant`；
-Golden Dataset 是只读冻结输入。`miniqmt-local` 仅串行运行，要求 Windows、`userdata_mini_path`（或
-`ONLYALPHA_MINIQMT_PATH`）和可导入的 `xtquant`。真实查询必须显式 opt-in；真实下单还必须具有
-`requires_broker_account`，且永不进入普通 pytest、离线或 `miniqmt-local` 通道。
+当前不可用的 MiniQMT SDK adapter、SDK-only 测试及本机执行工作流已按 ADR 0139 下线。原先借用该 adapter
+提供假行情的 SIM、交易 Authority 和恢复测试改用中立受控 Source；通用断言不删除。冻结 Golden Dataset
+继续作为只读 provenance/conformance 输入，不需要 xtquant 或本机 QMT。
 
-`release` 依次运行 Ruff、Ruff format check、Core/Provider mypy、版本一致性、Core Full、Recovery、A-share、MiniQMT Contract 和包构建。
-日常修改运行最窄的正确通道；执行交易/恢复变更时必须运行 Recovery；发布前运行 Release。外部环境不满足时应记录
+`release` 依次运行 Ruff、Ruff format check、Core/Provider mypy、版本一致性、Core Full、Recovery、A-share和包构建。
+日常修改运行最窄的正确通道；执行交易/恢复变更时执行受影响的 Recovery；发布验证按 AGENTS.md 的真实 Impact Scope 选择。外部环境不满足时应记录
 “未执行”，不得记为通过。性能数据保留为当前运行产物，不提交历史 PASS/基线报告作为 Authority。
 
 ### PostgreSQL cluster-scoped Role isolation
@@ -140,18 +138,12 @@ Golden Evidence 治理（永久规则）：Recovery Baseline、Golden Snapshot�
 
 MiniQMT 冻结数据位于 `test-data/miniqmt/cn_a_share_v1/`。第一版只承诺未复权历史日 Bar；历史 ST、停牌和 effective
 reference 明确缺失。离线 Reader 校验文件指纹后，经标准 MarketData Inbound/Pipeline 进入 `OnlyEngine`，不导入
-`xtquant`、不访问网络。仅在本地 QMT 可用时重新采集：
-
-```powershell
-uv run python scripts/capture_miniqmt_golden.py --userdata-mini "C:\path\userdata_mini" `
-  --instrument 600000.XSHG --bar 1d --start 2025-01-02 --end 2025-01-10 `
-  --adjustment none --output test-data/miniqmt/cn_a_share_v1
-```
+`xtquant`、不访问网络。原采集命令随 SDK adapter 一并下线；不得重采集覆盖既有冻结文件、改变原 provider
+身份或借移除 adapter 删除已存在 Evidence。
 
 PR 的语义 lane 仍由 `scripts/test_suite.py` 负责本地/问题定位，CI 只执行不重复的 impact/capability topology；`research-evaluation` 在 PR 由四个
-duration-aware shards 替代原 semantic matrix entry。Main 只执行一次 `core-full` canonical offline universe，再执行独立的 Recovery、SIM Recovery、A-share、MiniQMT Contract、
-Research Product、数据库、Web 和安全/第三方 gates，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实 MiniQMT 查询仅在自托管 Windows
-Runner 串行运行；真实订单属于独立手动工作流，P0 不自动提交订单。原跨平台 distribution/install Smoke 保留在
+duration-aware shards 替代原 semantic matrix entry。Main 只执行一次 `core-full` canonical offline universe，再执行独立的 Recovery、SIM Recovery、A-share、
+Research Product、数据库、Web 和安全/第三方 gates，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实订单仍受独立人工授权边界约束。原跨平台 distribution/install Smoke 保留在
 `ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
 
 以下旧章节保留为具体组件覆盖要求；如命令或层级描述冲突，以本节为准。

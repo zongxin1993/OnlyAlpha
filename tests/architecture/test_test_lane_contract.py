@@ -177,10 +177,31 @@ def test_lane_expressions_keep_concerns_separate() -> None:
 
 
 def test_every_regular_lane_uses_one_workspace_pytest_session() -> None:
-    for name, lane in LANES.items():
-        if name is OnlyTestLane.MINIQMT_LOCAL:
-            continue
+    for lane in LANES.values():
         assert lane.paths
+
+
+def test_retired_adapter_has_no_active_lanes_or_dangling_quality_consumers() -> None:
+    assert not any("miniqmt" in name.value for name in OnlyTestLane)
+    for lane in LANES.values():
+        assert all(Path(path.split("::", maxsplit=1)[0]).exists() for path in lane.paths)
+        assert not any("onlyalpha-plugin-miniqmt" in path for path in lane.paths)
+    for command in test_suite.RELEASE_STATIC_COMMANDS:
+        assert not any("onlyalpha-plugin-miniqmt" in argument for argument in command)
+    for filename in ("ci.yml", "quality.yml"):
+        text = Path(f".github/workflows/{filename}").read_text(encoding="utf-8")
+        assert "miniqmt" not in text.lower()
+        jobs = yaml.safe_load(text)["jobs"]
+        for job in jobs.values():
+            needs = job.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            assert set(needs) <= jobs.keys()
+    jobs = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+    for job in ("core", "tushare"):
+        assert set(jobs[job]["strategy"]["matrix"]["os"]) == {"ubuntu-latest", "windows-latest", "macos-latest"}
+    assert not Path(".github/workflows/miniqmt-local.yml").exists()
+    assert not Path(".github/workflows/miniqmt-order.yml").exists()
 
 
 def test_architecture_lane_is_the_single_stable_repository_gate() -> None:

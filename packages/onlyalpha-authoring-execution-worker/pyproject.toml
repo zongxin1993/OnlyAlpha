@@ -1,10 +1,10 @@
 [project]
 name = "onlyalpha-authoring-execution-worker"
-version = "0.9.14"
+version = "0.10.0"
 description = "Exact authoring execution-generation composition for OnlyAlpha Research"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.9.14"]
+dependencies = ["onlyalpha==0.10.0"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

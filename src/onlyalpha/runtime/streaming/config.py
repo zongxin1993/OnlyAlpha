@@ -19,7 +19,7 @@ class OnlyStreamingRuntimeConfig:
     bootstrap_bars: int = 50
     inbound_queue_capacity: int = 4096
     stale_after_seconds: int = 10
-    historical_compatibility_profile: str = "miniqmt-history-v2"
+    historical_compatibility_profile: str | None = None
     historical_timeout_seconds: int = 30
     observation_queue_capacity: int = 1024
     execution_reference_profile: OnlyExecutionReferenceProfile | None = None
@@ -32,12 +32,17 @@ class OnlyStreamingRuntimeConfig:
             raise ValueError("runtime.extensions.streaming must be an object")
         raw_bootstrap = raw_streaming.get("bootstrap_bars", 50)
         bootstrap = 50 if raw_bootstrap == "auto" else int(str(raw_bootstrap))
+        historical_profile = raw_streaming.get("historical_compatibility_profile")
+        if historical_profile is not None and (
+            not isinstance(historical_profile, str) or not historical_profile.strip()
+        ):
+            raise ValueError("streaming historical compatibility profile must be a nonblank string")
         result = cls(
             capability,
             bootstrap,
             int(str(raw_streaming.get("inbound_queue_capacity", 4096))),
             int(str(raw_streaming.get("stale_after_seconds", 10))),
-            str(raw_streaming.get("historical_compatibility_profile", "miniqmt-history-v2")),
+            historical_profile,
             int(str(raw_streaming.get("historical_timeout_seconds", 30))),
             cls._observation_capacity(value),
             cls._execution_reference_profile(value, int(str(raw_streaming.get("stale_after_seconds", 10)))),
@@ -48,7 +53,6 @@ class OnlyStreamingRuntimeConfig:
             or result.stale_after_seconds <= 0
             or result.historical_timeout_seconds <= 0
             or result.observation_queue_capacity <= 0
-            or not result.historical_compatibility_profile.strip()
         ):
             raise ValueError("streaming capacities and stale threshold must be positive")
         return result

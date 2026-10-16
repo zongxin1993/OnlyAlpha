@@ -139,7 +139,7 @@ def test_functional_postgres_web_and_broad_lanes_remain_active() -> None:
     assert isinstance(matrix, dict)
     lanes = matrix.get("lane")
     assert isinstance(lanes, list)
-    assert {"core-full", "recovery", "sim-recovery", "ashare", "miniqmt-contract"} <= set(lanes)
+    assert {"core-full", "recovery", "sim-recovery", "ashare"} <= set(lanes)
     assert "research-runtime" not in lanes
     assert "research-dataset" not in lanes
     assert "uv run python scripts/test_suite.py research-product-certification" in _runs(

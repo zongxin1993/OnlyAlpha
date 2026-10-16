@@ -55,7 +55,6 @@ from onlyalpha.plugin.integration import (
 )
 from onlyalpha.plugin.version import ONLYALPHA_PLUGIN_API_VERSION
 from onlyalpha.runtime.backtest.factory import OnlyBacktestRuntimeFactory
-from onlyalpha.runtime.defaults import only_default_engine_services
 from onlyalpha.runtime.factory import OnlyRuntimeBuildRequest, OnlyRuntimeFactoryRegistry
 from onlyalpha.runtime.planning import OnlyRuntimePlanner
 from onlyalpha.runtime.research import only_research_runtime_plan
@@ -63,6 +62,7 @@ from onlyalpha.runtime.sim.factory import OnlySimRuntimeFactory
 from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract
 from onlyalpha.strategy.store import OnlyFrozenStrategyRevisionStore
 from tests.runtime.research.support import workload_case
+from tests.runtime_support.controlled_bars import controlled_engine_services as only_default_engine_services
 from tests.runtime_support.market_product import only_generic_market_product
 from tests.runtime_support.runner import only_migrate_cluster_to_strategy
 from tests.strategy.product_support import publish_frozen_strategy_for_execution_test
@@ -101,7 +101,7 @@ def _sim_plan(
     payload["runtime"]["end_time"] = None
     payload["runtime"]["extensions"] = {"execution_capability": "SIMULATED"}
     payload["cluster"]["runtime_type"] = "SIM"
-    payload["data_sources"][0]["plugin"] = "miniqmt"
+    payload["data_sources"][0]["plugin"] = "controlled-bars"
     if change is not None:
         change(payload)
     config = OnlyClusterRunConfig.from_mapping(payload, source_path="test-data/legacy_macd/cluster.json")
@@ -1456,7 +1456,7 @@ def test_sim_checkpoint_requires_stable_durable_state_root() -> None:
 def test_sim_requires_exactly_one_enabled_data_source(count: int) -> None:
     def change(payload: dict[str, Any]) -> None:
         source = deepcopy(payload["data_sources"][0])
-        source["source_id"] = "miniqmt-secondary"
+        source["source_id"] = "controlled-secondary"
         payload["data_sources"] = [] if count == 0 else [payload["data_sources"][0], source]
 
     build = only_default_engine_services().assembler.validate(_sim_plan(change))
@@ -1609,10 +1609,20 @@ def test_sim_requires_exactly_one_enabled_broker(count: int) -> None:
 
 
 def test_sim_rejects_real_broker_even_when_it_supports_order_operations() -> None:
-    def change(payload: dict[str, Any]) -> None:
-        payload["brokers"][0]["plugin"] = "miniqmt"
+    services = only_default_engine_services()
+    factory = _DescriptorOnlyFactory(
+        _descriptor(
+            "controlled-real-broker",
+            OnlyPluginType.BROKER,
+            OnlyBrokerPluginCapabilities(submit_order=True, cancel_order=True, query_orders=True),
+        )
+    )
+    services.assembler.components.brokers.register(cast(OnlyBrokerGatewayFactory, factory), origin=_test_origin())
 
-    build = only_default_engine_services().assembler.validate(_sim_plan(change))
+    def change(payload: dict[str, Any]) -> None:
+        payload["brokers"][0]["plugin"] = "controlled-real-broker"
+
+    build = services.assembler.validate(_sim_plan(change))
 
     assert build.failure_code == "SIM_SIMULATED_BROKER_REQUIRED"
 

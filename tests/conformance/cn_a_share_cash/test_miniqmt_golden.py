@@ -145,7 +145,7 @@ def test_capture_timestamp_is_not_part_of_content_fingerprint() -> None:
 
 def test_miniqmt_golden_tampering_is_rejected(tmp_path: Path) -> None:
     copied = tmp_path / "dataset"
-    shutil.copytree(DATASET, copied)
+    shutil.copytree(DATASET, copied, copy_function=shutil.copyfile)
     bars = copied / "bars.parquet"
     payload = bytearray(bars.read_bytes())
     payload[-1] ^= 0x01

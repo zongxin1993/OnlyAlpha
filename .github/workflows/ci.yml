@@ -58,7 +58,6 @@ jobs:
               "onlyalpha-plugin-generic-t0-cash",
               "onlyalpha-plugin-cn-ashare",
               "onlyalpha-plugin-tushare",
-              "onlyalpha-plugin-miniqmt",
           }
 
           failures: list[str] = []
@@ -134,8 +133,7 @@ jobs:
           uv run pytest tests -q
           -m "not external
           and not requires_network
-          and not requires_tushare
-          and not requires_local_qmt"
+          and not requires_tushare"
 
   # ---------------------------------------------------------------------------
   # Tushare 是跨平台 DataSource 插件，三个平台都必须验证离线能力。
@@ -258,58 +256,6 @@ jobs:
       - run: uv run pytest plugs/onlyalpha-plugin-cn-ashare/tests -q
 
   # ---------------------------------------------------------------------------
-  # MiniQMT 是 Windows-only 运行插件。
-  # 默认 CI 只验证离线 Unit/Contract，不连接本地 QMT。
-  # ---------------------------------------------------------------------------
-  miniqmt:
-    name: MiniQMT / Windows
-    needs:
-      - metadata
-    runs-on: windows-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Synchronize workspace
-        run: uv sync --frozen --all-packages --all-groups
-
-      - name: Ruff lint MiniQMT
-        run: >-
-          uv run ruff check
-          plugs/onlyalpha-plugin-miniqmt/src
-          plugs/onlyalpha-plugin-miniqmt/tests
-
-      - name: Ruff format MiniQMT
-        run: >-
-          uv run ruff format --check
-          plugs/onlyalpha-plugin-miniqmt/src
-          plugs/onlyalpha-plugin-miniqmt/tests
-
-      - name: Mypy MiniQMT
-        run: >-
-          uv run mypy
-          plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt
-
-      - name: Run offline MiniQMT tests
-        env:
-          ONLYALPHA_MINIQMT_REAL_HISTORY: "0"
-        run: >-
-          uv run pytest
-          plugs/onlyalpha-plugin-miniqmt/tests
-          -q
-          -m "not external
-          and not requires_network
-          and not requires_local_qmt"
-
-  # ---------------------------------------------------------------------------
   # 产品级纵切面。
   #
   # 这里重复运行 integration/scenario 类测试是有意的：
@@ -400,7 +346,6 @@ jobs:
       - core
       - virtual-broker
       - tushare
-      - miniqmt
       - generic-market-product
       - product-gates
     runs-on: ${{ matrix.os }}
@@ -434,11 +379,6 @@ jobs:
             os: ubuntu-latest
             import-name: onlyalpha_plugin_cn_ashare
             entry-points: "onlyalpha.market_products=cn-ashare"
-
-          - distribution: onlyalpha-plugin-miniqmt
-            os: windows-latest
-            import-name: onlyalpha_plugin_miniqmt
-            entry-points: "onlyalpha.data_sources=miniqmt;onlyalpha.brokers=miniqmt;console_scripts=onlyalpha-miniqmt"
 
     steps:
       - name: Checkout repository
@@ -638,7 +578,6 @@ jobs:
       - core
       - virtual-broker
       - tushare
-      - miniqmt
       - product-gates
       - build-smoke
     runs-on: ubuntu-latest
@@ -652,7 +591,6 @@ jobs:
           test "${{ needs.core.result }}" = "success"
           test "${{ needs.virtual-broker.result }}" = "success"
           test "${{ needs.tushare.result }}" = "success"
-          test "${{ needs.miniqmt.result }}" = "success"
           test "${{ needs.product-gates.result }}" = "success"
           test "${{ needs.build-smoke.result }}" = "success"
 

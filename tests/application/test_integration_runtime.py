@@ -612,3 +612,55 @@ def test_secret_rotation_race_never_substitutes_a_new_generation() -> None:
             admitted.result()
 
     assert credentials.reads == [(CREDENTIAL_ID, 3)]
+
+
+@pytest.mark.parametrize("replacement_installed", (False, True))
+def test_retired_provider_history_remains_readable_but_cannot_be_admitted_or_rebound(
+    replacement_installed: bool,
+) -> None:
+    retired = replace(
+        _descriptor(),
+        type_id=OnlyIntegrationTypeId("miniqmt.market_data"),
+        provider_id="miniqmt",
+        implementation_id="miniqmt",
+    )
+    revision, bindings = _revision(retired)
+    integration = OnlyIntegration(
+        INTEGRATION_ID,
+        retired.type_id.value,
+        "Historical MiniQMT Integration",
+        OnlyIntegrationLifecycleState.ACTIVE,
+        revision.revision_fingerprint,
+        NOW,
+        NOW,
+    )
+    state = _State(integration, revision, bindings)
+    credentials = _Credentials()
+    catalog = _Catalog(_descriptor() if replacement_installed else None)
+    resolver = OnlyIntegrationRuntimeResolver(state, credentials, catalog)
+    binding = OnlyIntegrationRuntimeBindingV1.from_revision(revision, OnlyIntegrationCategory.DATA_SOURCE)
+    original_binding = binding.to_dict()
+
+    # Owning historical readers do not depend on an installed provider factory.
+    assert state.load_integration(INTEGRATION_ID) is integration
+    assert state.load_revision(revision.revision_fingerprint) is revision
+    assert state.load_revision_secret_bindings(revision.revision_fingerprint) == bindings
+    assert revision.type_id == "miniqmt.market_data"
+    assert revision.type_descriptor_document["implementation_id"] == "miniqmt"
+
+    with pytest.raises(OnlyIntegrationRuntimeError) as admission:
+        resolver.admit_new(
+            INTEGRATION_ID,
+            revision.revision_fingerprint,
+            expected_category=OnlyIntegrationCategory.DATA_SOURCE,
+        )
+    with pytest.raises(OnlyIntegrationRuntimeError) as recovery:
+        resolver.resolve(binding, expected_category=OnlyIntegrationCategory.DATA_SOURCE)
+
+    assert admission.value.code == "INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE"
+    assert recovery.value.code == "INTEGRATION_RUNTIME_IMPLEMENTATION_UNAVAILABLE"
+    assert state.integration is integration
+    assert state.revision is revision
+    assert state.bindings == bindings
+    assert binding.to_dict() == original_binding
+    assert credentials.reads == []

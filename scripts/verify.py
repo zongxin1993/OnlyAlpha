@@ -533,15 +533,6 @@ IMPACT_RULES = (
         "Generic market product is shared by durable Backtest and SIM paths",
     ),
     VerificationImpactRule(
-        "miniqmt-provider",
-        ("plugs/onlyalpha-plugin-miniqmt/",),
-        (),
-        (OnlyTestLane.MINIQMT_CONTRACT, OnlyTestLane.RESEARCH_DATASET),
-        STATIC,
-        VerificationEscalation.COMPONENT,
-        "MiniQMT contract and historical Dataset admission are affected",
-    ),
-    VerificationImpactRule(
         "tushare-provider",
         ("plugs/onlyalpha-plugin-tushare/",),
         (),

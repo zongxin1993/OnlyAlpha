@@ -74,7 +74,6 @@ def test_release_static_uses_root_mypy_authority_and_package_local_exceptions() 
         "onlyalpha-plugin-generic-t0-cash",
         "onlyalpha-plugin-cn-ashare",
         "onlyalpha-plugin-tushare",
-        "onlyalpha-plugin-miniqmt",
     ):
         assert any("plugs/" in command and package in command for command in joined)
 
@@ -82,7 +81,6 @@ def test_release_static_uses_root_mypy_authority_and_package_local_exceptions() 
 def test_external_and_real_order_tests_are_excluded_from_offline_lanes() -> None:
     for name in (OnlyTestLane.FAST, OnlyTestLane.INTEGRATION, OnlyTestLane.ASHARE, OnlyTestLane.CORE_FULL):
         assert "external" in LANES[name].expression
-    assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression
 
 
 def test_production_sources_have_no_test_performance_switches() -> None:
@@ -138,11 +136,8 @@ def test_release_and_local_runner_boundaries_are_explicit() -> None:
         "OnlyTestLane.CORE_FULL",
         "OnlyTestLane.RECOVERY",
         "OnlyTestLane.ASHARE",
-        "OnlyTestLane.MINIQMT_CONTRACT",
     ):
         assert lane in source
-    assert LANES[OnlyTestLane.MINIQMT_LOCAL].workers == "0"
-    assert "not requires_broker_account" in LANES[OnlyTestLane.MINIQMT_LOCAL].expression
 
 
 def test_positive_marker_lanes_prefilter_before_collection_without_narrowing_general_lanes() -> None:
@@ -156,13 +151,3 @@ def test_positive_marker_lanes_prefilter_before_collection_without_narrowing_gen
 
 def test_release_runs_each_canonical_lane_exactly_once() -> None:
     assert len(RELEASE_LANES) == len(set(RELEASE_LANES))
-
-
-def test_miniqmt_read_only_and_order_workflows_are_separate() -> None:
-    local = (ROOT / ".github/workflows/miniqmt-local.yml").read_text(encoding="utf-8")
-    order = (ROOT / ".github/workflows/miniqmt-order.yml").read_text(encoding="utf-8")
-    assert "verify_miniqmt_local.py" in local
-    assert "test_suite.py miniqmt-local" in local
-    assert "miniqmt-dedicated-test-account" in order
-    assert "I_UNDERSTAND" in order
-    assert "Order execution is intentionally not enabled in the current MiniQMT workflow" in order

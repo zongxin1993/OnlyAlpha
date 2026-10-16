@@ -8,7 +8,6 @@ OpenAPI/HTTPS contract。HTTP 不可用时不得 fallback 到本地 Engine、Run
 ```text
 onlyalpha-http-server              Product HTTP adapter process
 onlyalpha-research-worker  fenced Research execution worker
-onlyalpha-miniqmt          provider-local environment diagnostics
 onlyalpha-tushare          provider-local environment diagnostics
 ```
 

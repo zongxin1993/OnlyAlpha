@@ -66,12 +66,6 @@ MYPY_SCOPES = (
         source_path=("plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare"),
         trigger_paths=("plugs/onlyalpha-plugin-tushare",),
     ),
-    # MypyScope(
-    #     name="MiniQMT",
-    #     config_file=("plugs/onlyalpha-plugin-miniqmt/pyproject.toml"),
-    #     source_path=("plugs/onlyalpha-plugin-miniqmt/src/onlyalpha_plugin_miniqmt"),
-    #     trigger_paths=("plugs/onlyalpha-plugin-miniqmt",),
-    # ),
 )
 
 

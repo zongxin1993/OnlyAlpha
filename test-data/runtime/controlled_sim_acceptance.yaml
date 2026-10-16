@@ -8,14 +8,14 @@ market:
   config: {}
 
 cluster:
-  cluster_id: miniqmt-sim-acceptance
+  cluster_id: controlled-sim
   account_id: sim-virtual-account
   enabled: true
   runtime_type: SIM
   risk_profile_id: cn-equity-default
 
 runtime:
-  runtime_id: miniqmt-sim-acceptance-runtime
+  runtime_id: controlled-sim-runtime
   base_currency: CNY
   persistence:
     backend: MEMORY
@@ -25,7 +25,7 @@ runtime:
     execution_capability: SIMULATED
     streaming:
       bootstrap_bars: 50
-      historical_compatibility_profile: miniqmt-history-v2
+      historical_compatibility_profile: controlled-bars-v1
       historical_timeout_seconds: 30
       inbound_queue_capacity: 4096
       stale_after_seconds: 10
@@ -68,16 +68,15 @@ universes:
     instruments: [000001.XSHE]
 
 data_sources:
-  - source_id: miniqmt-live
-    plugin: miniqmt
+  - source_id: controlled-bars
+    plugin: controlled-bars
     enabled: true
-    data_version: miniqmt-live
+    data_version: controlled-bars
     batch_size: 128
     coverage:
       universe_ids: [sim-acceptance-universe]
     extensions:
-      userdata_mini_path: 'C:\国金证券QMT交易端\userdata_mini'
-      cache_policy: force_refresh
+      fixture: controlled-bars-v1
 
 accounts:
   - account_id: sim-virtual-account
