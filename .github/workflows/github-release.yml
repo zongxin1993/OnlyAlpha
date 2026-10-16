@@ -1,0 +1,49 @@
+name: Publish GitHub Release
+
+on:
+    push:
+        branches: [master]
+
+permissions:
+    contents: read
+
+jobs:
+    publish:
+        if: github.event.deleted == false
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        concurrency:
+            group: github-release-${{ github.sha }}
+            cancel-in-progress: false
+        steps:
+            - name: Checkout exact pushed mainline
+              uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.after }}
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Set up uv and Python
+              uses: astral-sh/setup-uv@v7
+              with:
+                  version: "0.10.5"
+                  python-version: "3.12"
+            - name: Validate release graph and plan each version transition
+              env:
+                  BEFORE_SHA: ${{ github.event.before }}
+                  AFTER_SHA: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  uv lock --check
+                  uv run --frozen python scripts/version_sync.py check
+                  python scripts/github_release_plan.py "$BEFORE_SHA" "$AFTER_SHA" \
+                    > "$RUNNER_TEMP/onlyalpha-release-plan.json"
+            - name: Publish exact version tags and Releases
+              uses: actions/github-script@v8
+              with:
+                  script: |
+                      const fs = require('node:fs');
+                      const path = require('node:path');
+                      const plan = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'onlyalpha-release-plan.json'), 'utf8'));
+                      await require('./scripts/publish_github_release.cjs')({github, context, core, plan});

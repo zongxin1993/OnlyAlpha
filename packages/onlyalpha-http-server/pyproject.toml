@@ -1,14 +1,14 @@
 [project]
 name = "onlyalpha-http-server"
-version = "0.9.12"
+version = "0.9.13"
 description = "OnlyAlpha Product Research HTTP API"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.9.12",
-    "onlyalpha-runtime-generation-manager==0.9.12",
-    "onlyalpha-authoring-execution-worker==0.9.12",
-    "onlyalpha-agent-orchestrator==0.9.12",
+    "onlyalpha==0.9.13",
+    "onlyalpha-runtime-generation-manager==0.9.13",
+    "onlyalpha-authoring-execution-worker==0.9.13",
+    "onlyalpha-agent-orchestrator==0.9.13",
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "uvicorn>=0.35,<1",

@@ -41,9 +41,25 @@ ambiguous historical proof is an explicit failure, while the actual old → new 
 It exposes invalid numbering instead of repairing history. For rebase merges the final commit must carry the complete version
 increment; use squash/merge unless that condition is deliberately maintained.
 
-The check and merged notification print old → new in Actions logs and job summaries. No bot
-commit, automatic tag, package publication, deployment, PR comment or auto-merge is performed.
-The workflow must be on the main branch before normal future merge notifications can run.
+The check and merged notification print old → new in Actions logs and job summaries. The
+separate `Publish GitHub Release` workflow runs on trusted `master` pushes, including direct
+fast-forward pushes and PR merges. It reads the root release number from exact first-parent
+commits and publishes each valid version increment in that push as `vX.Y.Z`, with generated
+release notes. A push without a version change creates no Release. It rejects missing push
+boundaries, noncanonical numbers, downgrades and skipped increments.
+
+Only the mainline publisher job has `contents: write`; PR validation remains read-only. Tags
+are bound to the actual mainline commit carrying each increment. Repeated runs verify and
+reuse an already published matching Release. Conflicting tags, drafts and prereleases fail
+closed; tags and Releases are never moved, replaced or edited. A tag created before a failed
+Release request is retained, allowing a later run to finish the same publication. Only a 404
+means absence; permission and transport errors remain failures. Concurrent creation conflicts
+are reconciled by reading and validating the exact existing object.
+
+This creates GitHub source Releases only. No bot commit, binary/package upload, deployment,
+PR comment or auto-merge is performed. The workflows must be on the main branch before their
+normal future events can run. Publication failure is visible in Actions; rerun that exact push
+workflow after resolving the cause rather than changing the tag or release number.
 
 ```bash
 # Read-only suggestion. Run these through the canonical dev verification service locally.
@@ -95,7 +111,7 @@ does not make a destructive downgrade safe. Reverts are new patch PRs, not reuse
 compatibility promises and forbids rewriting released content. OnlyAlpha retains exact
 content identities; it rejects using release ordering as Provider admission or fail-forward.
 [GitHub Actions security guidance](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
-documents script-injection and privileged untrusted-checkout failure patterns. The release
+documents script-injection and privileged untrusted-checkout failure patterns. The PR transition
 workflow uses read-only permissions, no secrets and no `pull_request_target`; the latest base
 is read via GitHub's authenticated branch API and its exact SHA is passed through an environment
 variable, without persisted Git credentials. Regressions cover invalid increments, stale/duplicate

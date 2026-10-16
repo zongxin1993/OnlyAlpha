@@ -35,7 +35,7 @@ def test_official_indicator_provider_versions_content_without_changing_semantic_
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
     assert provider.manifest.provider_version == "9"
-    assert provider.manifest.source.distribution_version == "0.9.12"
+    assert provider.manifest.source.distribution_version == "0.9.13"
 
 
 def _bar(index: int, close: str) -> OnlyBar:

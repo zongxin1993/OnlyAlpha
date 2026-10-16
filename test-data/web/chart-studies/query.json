@@ -4,7 +4,7 @@
     "capability_projection": {
       "authority": "DISPLAY_ONLY",
       "backend": "RESEARCH",
-      "catalog_generation_fingerprint": "c5e6bd16997c110411f4ced2727981a7fec4709e6c9136b9a30cde417efa2d3c",
+      "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
       "descriptor": {
         "execution_shape": "TIME_SERIES",
         "factor_kind": null,
@@ -82,8 +82,8 @@
           "type_id": "onlyalpha.indicator.sma"
         },
         "entrypoint_identity": "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-        "implementation_bundle_fingerprint": "076847db0f90c3e55535e8ce59a7ad364ca1cd5efeeb6c74464657868ec81832",
-        "implementation_fingerprint": "ae37dea15e4fd5f2a74077e8574fc3393438d0be64b9f38afd95af65925e21dd",
+        "implementation_bundle_fingerprint": "bf738b87a6715f22b7b8c65c492bf81918bab118d7bee03df190a5efbabb05fc",
+        "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
         "resources": [
           {
             "byte_sha256": "3ebd4300b81b7e5c61ab60751ac484e45c723e30081121e71ee3376e404154ef",
@@ -98,7 +98,7 @@
             "relative_path": "financial_semantics.py"
           },
           {
-            "byte_sha256": "7e076112477ffe53c1bb1d390e80b12219f5c6d6bbefdb8a51f35b1dee410969",
+            "byte_sha256": "c60e10f63f40c727092bdc603dc989af054c697b3e748a47f786b9d665e1125a",
             "relative_path": "provider.py"
           },
           {
@@ -294,7 +294,7 @@
           }
         ]
       },
-      "provider_content_fingerprint": "d1eaae7749ba772fb4ff20cec6f85d922633286a44500fa192cc960b8619438c",
+      "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
       "provider_manifest": {
         "kind": "INDICATOR",
         "provider_id": "onlyalpha.indicator.library",
@@ -302,7 +302,7 @@
         "schema_version": 1,
         "source": {
           "distribution_name": "onlyalpha-plugin-indicators",
-          "distribution_version": "0.9.12",
+          "distribution_version": "0.9.13",
           "kind": "DISTRIBUTION"
         }
       },
@@ -314,8 +314,8 @@
       "source_kind": "CHART_STUDY_TRANSIENT",
       "supported_shape": "TIME_SERIES/BAR_FIELDS"
     },
-    "capability_projection_fingerprint": "5d038371f3a36d66b0147e9d14166f4a1b2f7cc59265c22a710fa9b3a18924e5",
-    "catalog_generation_fingerprint": "c5e6bd16997c110411f4ced2727981a7fec4709e6c9136b9a30cde417efa2d3c",
+    "capability_projection_fingerprint": "f3d91fd4185241d646a724d3ab43681315e4125ce965db7585a751f455085a0a",
+    "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
     "descriptor": {
       "execution_shape": "TIME_SERIES",
       "factor_kind": null,
@@ -385,7 +385,7 @@
     },
     "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
     "execution_shape": "TIME_SERIES",
-    "implementation_fingerprint": "ae37dea15e4fd5f2a74077e8574fc3393438d0be64b9f38afd95af65925e21dd",
+    "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
     "invocation_implementation_fingerprint": "69c78d8666a07e85063a3c2fcdd17dbddf0146a53df6fce9bdfe23d67efc201c",
     "kind": "INDICATOR",
     "limits": {
@@ -444,7 +444,7 @@
         }
       ]
     },
-    "provider_content_fingerprint": "d1eaae7749ba772fb4ff20cec6f85d922633286a44500fa192cc960b8619438c",
+    "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
     "provider_id": "onlyalpha.indicator.library",
     "provider_version": "9",
     "readiness_contract_version": 1,
@@ -467,11 +467,11 @@
     },
     "calculation": {
       "backend": "RESEARCH",
-      "capability_projection_fingerprint": "5d038371f3a36d66b0147e9d14166f4a1b2f7cc59265c22a710fa9b3a18924e5",
-      "catalog_generation_fingerprint": "c5e6bd16997c110411f4ced2727981a7fec4709e6c9136b9a30cde417efa2d3c",
+      "capability_projection_fingerprint": "f3d91fd4185241d646a724d3ab43681315e4125ce965db7585a751f455085a0a",
+      "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
       "definition_fingerprint": "f21db1be2434426ef9fbf6e7ae806268bb866cf3bae005db4950891685e8d49e",
       "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
-      "implementation_fingerprint": "ae37dea15e4fd5f2a74077e8574fc3393438d0be64b9f38afd95af65925e21dd",
+      "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
       "invocation_implementation_fingerprint": "69c78d8666a07e85063a3c2fcdd17dbddf0146a53df6fce9bdfe23d67efc201c",
       "kind": "INDICATOR",
       "normalized_definition": {
@@ -581,7 +581,7 @@
           "unit": "PRICE"
         }
       ],
-      "provider_content_fingerprint": "d1eaae7749ba772fb4ff20cec6f85d922633286a44500fa192cc960b8619438c",
+      "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
       "provider_id": "onlyalpha.indicator.library",
       "provider_version": "9",
       "semantic_version": "1",
