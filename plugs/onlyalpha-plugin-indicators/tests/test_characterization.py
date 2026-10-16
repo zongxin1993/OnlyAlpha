@@ -1,5 +1,7 @@
+import tomllib
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from onlyalpha_plugin_indicators.provider import quant_asset_provider
@@ -34,8 +36,10 @@ BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixe
 def test_official_indicator_provider_versions_content_without_changing_semantic_types() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "9"
-    assert provider.manifest.source.distribution_version == "0.9.13"
+    assert provider.manifest.provider_version == "10"
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]
+    assert provider.manifest.source.distribution_name == project["name"]
+    assert provider.manifest.source.distribution_version == project["version"]
 
 
 def _bar(index: int, close: str) -> OnlyBar:

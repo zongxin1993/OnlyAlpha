@@ -146,6 +146,9 @@ MACD.golden_cross == true
 Close > MA20
 ```
 
+The internal Boolean Predicate truth tables and portable test corpus are defined in
+[Predicate semantics](predicate-semantics.md); these calculations do not themselves authorize execution.
+
 ### 4.2 Factor → Primary Score
 
 第一阶段 Factor 的正式策略消费接口优先保持简单：每个 Factor 提供一个明确 primary score，并可以拥有其他可观察 Feature/Snapshot。
