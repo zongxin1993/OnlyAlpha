@@ -657,3 +657,94 @@ it("does not offer a descriptor numeric output excluded by the transient capabil
     expect(screen.getByRole("checkbox", { name: "输出 value" })).toBeChecked();
     expect(screen.queryByRole("checkbox", { name: "输出 normalized_atr" })).not.toBeInTheDocument();
 });
+
+it("keeps the registered MACD warmup default advanced and preserves its edited typed submission", async () => {
+    const traffic = transport();
+    traffic.registration.type_reference = {
+        kind: "INDICATOR",
+        type_id: "onlyalpha.indicator.macd",
+        semantic_version: "2"
+    };
+    // The installed MACD descriptor declares these five parameters/defaults.
+    // This is navigation metadata, never a backend execution witness.
+    traffic.registration.parameters = [
+        ...[
+            ["fast_period", 12],
+            ["slow_period", 26],
+            ["signal_period", 9],
+            ["warmup_bars", 34]
+        ].map(([name, value]): RegisteredCalculation["parameters"][number] => ({
+            name: String(name),
+            type: "INTEGER",
+            required: false,
+            default: { type: "INTEGER", value: Number(value) },
+            minimum: { type: "INTEGER", value: 1 },
+            maximum: null,
+            enum_values: [],
+            uppercase: false
+        })),
+        {
+            name: "price_field",
+            type: "STRING",
+            required: false,
+            default: { type: "STRING", value: "CLOSE" },
+            minimum: null,
+            maximum: null,
+            enum_values: [{ type: "STRING", value: "CLOSE" }],
+            uppercase: true
+        }
+    ];
+    const port = traffic.registration.outputs[0];
+    if (port === undefined) throw new Error("Missing output port");
+    traffic.registration.outputs = [
+        ...["dif", "dea", "histogram"].map((name) => ({ ...port, name, nullable: false })),
+        { ...port, name: "cross_state", nullable: false, data_type: "STRING" }
+    ];
+    const user = userEvent.setup();
+    render(<ChartStudies context={context} />);
+    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(await screen.findByRole("button", { name: "选择 MACD · 配置草稿" }));
+    for (const name of ["fast_period", "slow_period", "signal_period"])
+        expect(screen.getByLabelText(name)).toBeVisible();
+    const warmup = screen.getByLabelText("warmup_bars");
+    expect(warmup).toHaveValue("34");
+    expect(warmup).not.toBeVisible();
+    await user.click(screen.getByText("高级选项", { exact: true }));
+    expect(warmup).toBeVisible();
+    await user.clear(warmup);
+    await user.type(warmup, "40");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    const instance = await screen.findByTestId("chart-study-instance");
+    expect(within(instance).getByRole("button", { name: "选择 MACD" })).toHaveTextContent(
+        "MACD(12, 26, 9, 40, CLOSE)"
+    );
+    expect(JSON.parse(instance.getAttribute("data-configuration") ?? "null")).toEqual({
+        parameters: {
+            fast_period: { type: "INTEGER", value: 12 },
+            slow_period: { type: "INTEGER", value: 26 },
+            signal_period: { type: "INTEGER", value: 9 },
+            warmup_bars: { type: "INTEGER", value: 40 },
+            price_field: { type: "STRING", value: "CLOSE" }
+        },
+        outputNames: ["dif", "dea", "histogram"]
+    });
+});
+
+it("keeps a required warmup without a default discoverable in the primary draft form", async () => {
+    const traffic = transport();
+    traffic.registration.parameters.push({
+        name: "warmup_bars",
+        type: "INTEGER",
+        required: true,
+        default: { type: "NULL", value: null },
+        minimum: { type: "INTEGER", value: 1 },
+        maximum: null,
+        enum_values: [],
+        uppercase: false
+    });
+    const user = userEvent.setup();
+    render(<ChartStudies context={context} />);
+    await select(user);
+    expect(screen.getByLabelText("warmup_bars")).toBeVisible();
+    expect(screen.getByRole("button", { name: "添加" })).toBeDisabled();
+});

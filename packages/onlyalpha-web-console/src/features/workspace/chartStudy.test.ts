@@ -9,6 +9,7 @@ import {
     parameterTextInput,
     studyDescriptor,
     studyName,
+    studyDisplayLabel,
     validPresentation,
     type StudyParameter,
     type StudyScalar
@@ -278,4 +279,49 @@ it("keeps explicit semantic-variant labels on configured indicator instances", a
     expect(studyName({ source: "CHART_STUDY_TRANSIENT", capability })).toBe(
         `${capability.presentation.display_name} · 语义版本 ${capability.semantic_version}`
     );
+});
+
+it("omits only transient technical warmup from the compact MACD label", async () => {
+    const { default: sample } =
+        await import("../../../../../test-data/web/chart-studies/query.json");
+    const { ChartStudyCapabilitiesSchema } = await import("../../api/chartStudies/http.generated");
+    const { studySeriesFixture } = await import("../../test/studySeries");
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 2,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Missing capability");
+    const period = capability.descriptor.parameters.find(
+        (parameter) => parameter.name === "period"
+    );
+    const price = capability.descriptor.parameters.find(
+        (parameter) => parameter.name === "price_field"
+    );
+    if (period === undefined || price === undefined)
+        throw new Error("Missing descriptor parameters");
+    const values = { fast_period: 12, slow_period: 26, signal_period: 9, warmup_bars: 34 };
+    capability.descriptor.parameters = [
+        ...Object.entries(values).map(([name, value]) => ({ ...period, name, default: value })),
+        price
+    ];
+    capability.presentation.display_name = "MACD";
+    const { instance } = studySeriesFixture();
+    expect(
+        studyDisplayLabel({
+            ...instance,
+            selection: { source: "CHART_STUDY_TRANSIENT", capability },
+            configuration: {
+                parameters: {
+                    ...Object.fromEntries(
+                        Object.entries(values).map(([name, value]) => [
+                            name,
+                            { type: "INTEGER" as const, value }
+                        ])
+                    ),
+                    price_field: { type: "STRING", value: "CLOSE" }
+                },
+                outputNames: ["value"]
+            }
+        })
+    ).toBe("MACD(12, 26, 9)");
 });

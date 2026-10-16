@@ -67,8 +67,9 @@ export function studyDisplayLabel(instance: ChartStudyInstance): string {
             (parameter) =>
                 !(
                     instance.selection.source === "CHART_STUDY_TRANSIENT" &&
-                    parameter.name === "price_field" &&
-                    instance.configuration.parameters.price_field?.value === "CLOSE"
+                    (parameter.name === "warmup_bars" ||
+                        (parameter.name === "price_field" &&
+                            instance.configuration.parameters.price_field?.value === "CLOSE"))
                 )
         )
         .map((parameter) =>

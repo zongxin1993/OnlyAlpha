@@ -735,6 +735,8 @@ test("all fourteen active indicator families configure and display their backend
                 );
                 await page.getByRole("button", { name: "添加", exact: true }).click();
                 const response = await evaluated;
+                if (!response.ok())
+                    console.error("Indicator evaluation rejected", step, await response.text());
                 expect(response.status()).toBe(200);
                 const values = (await response.json()) as {
                     series: { output_name: string; points: { value: string | null }[] }[];

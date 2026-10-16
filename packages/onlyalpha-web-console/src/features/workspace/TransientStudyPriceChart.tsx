@@ -112,20 +112,26 @@ export function TransientStudyPriceChart({
         running: boolean;
         pending: boolean;
         retryId: string | null;
+        immediate: boolean;
         controller: AbortController | null;
         timer: ReturnType<typeof setTimeout> | null;
+        timerKind: "CLOSED_WINDOW" | "PREVIEW_COOLDOWN" | null;
         deferred: boolean;
     }>({
         running: false,
         pending: false,
         retryId: null,
+        immediate: false,
         controller: null,
         timer: null,
+        timerKind: null,
         deferred: false
     });
     useLayoutEffect(() => {
         if (work.current.timer !== null) clearTimeout(work.current.timer);
         work.current.timer = null;
+        work.current.timerKind = null;
+        work.current.immediate = false;
         work.current.deferred = false;
         live.current = { key, generation: live.current.generation + 1, mounted: true };
     }, [key]);
@@ -136,6 +142,7 @@ export function TransientStudyPriceChart({
             work.current.pending = false;
             if (work.current.timer !== null) clearTimeout(work.current.timer);
             work.current.timer = null;
+            work.current.timerKind = null;
             work.current.controller?.abort();
         },
         []
@@ -467,11 +474,13 @@ export function TransientStudyPriceChart({
                         )
                             return;
                         work.current.timer = null;
+                        work.current.timerKind = null;
                         work.current.pending = true;
                         work.current.retryId = null;
                         setSettled((previous) => previous + 1);
                     }, error.retryAfterSeconds * 1000);
                     work.current.timer = timer;
+                    work.current.timerKind = "CLOSED_WINDOW";
                     return;
                 }
                 update(
@@ -487,9 +496,18 @@ export function TransientStudyPriceChart({
         }
     );
     const pump = useEffectEvent(async () => {
-        if (work.current.running || !work.current.pending || !live.current.mounted) return;
+        if (
+            work.current.running ||
+            !work.current.pending ||
+            !live.current.mounted ||
+            work.current.timer !== null
+        )
+            return;
+        // Key changes replace this object, including an A→B→A occurrence.
+        const owner = live.current;
         work.current.running = true;
         work.current.pending = false;
+        work.current.immediate = false;
         const retryId = work.current.retryId;
         work.current.retryId = null;
         const controller = new AbortController();
@@ -499,6 +517,29 @@ export function TransientStudyPriceChart({
         } finally {
             work.current.running = false;
             work.current.controller = null;
+            // A completed preview batch yields resources before its latest pending refresh.
+            // Configuration/safety work and explicit retries keep their immediate priority.
+            const completed = work.current;
+            if (
+                live.current === owner &&
+                owner.mounted &&
+                previewStreamId !== null &&
+                completed.timer === null &&
+                !completed.immediate &&
+                (chart.studies ?? []).some(
+                    (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
+                )
+            ) {
+                const timer = setTimeout(() => {
+                    if (work.current.timer !== timer || live.current !== owner || !owner.mounted)
+                        return;
+                    work.current.timer = null;
+                    work.current.timerKind = null;
+                    setSettled((previous) => previous + 1);
+                }, 5000);
+                work.current.timer = timer;
+                work.current.timerKind = "PREVIEW_COOLDOWN";
+            }
             // Do not abort/reissue on intent changes: disconnected HTTP work may
             // still hold a server slot. Wait for issued completion, then latest only.
             // React must commit this completion before a queued instance retry
@@ -507,15 +548,23 @@ export function TransientStudyPriceChart({
         }
     });
     useEffect(() => {
-        if (work.current.timer !== null) return;
+        if (work.current.timerKind === "CLOSED_WINDOW") return;
         work.current.pending = true;
         work.current.retryId = null;
         void pump();
     }, [key, previewRevision]);
     useEffect(() => {
-        if (retry === null || (work.current.pending && work.current.retryId === null)) return;
-        work.current.pending = true;
-        work.current.retryId = retry.id;
+        if (retry === null) return;
+        work.current.immediate = true;
+        if (work.current.timerKind === "PREVIEW_COOLDOWN") {
+            if (work.current.timer !== null) clearTimeout(work.current.timer);
+            work.current.timer = null;
+            work.current.timerKind = null;
+        }
+        if (!(work.current.pending && work.current.retryId === null)) {
+            work.current.pending = true;
+            work.current.retryId = retry.id;
+        }
         void pump();
     }, [retry]);
     useEffect(() => {

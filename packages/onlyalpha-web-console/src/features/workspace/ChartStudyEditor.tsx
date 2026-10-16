@@ -371,6 +371,11 @@ export function ChartStudyEditor({
                     {source.descriptor?.parameters
                         .filter(
                             (parameter) =>
+                                parameter.name !== "warmup_bars" ||
+                                parameter.default.type === "NULL"
+                        )
+                        .filter(
+                            (parameter) =>
                                 selection.source !== "CHART_STUDY_TRANSIENT" ||
                                 parameter.type !== "STRING" ||
                                 parameter.enumValues.length !== 1
@@ -407,6 +412,26 @@ export function ChartStudyEditor({
                     }}
                 >
                     <summary>高级选项</summary>
+                    {source.descriptor?.parameters.some(
+                        (parameter) =>
+                            parameter.name === "warmup_bars" && parameter.default.type !== "NULL"
+                    ) ? (
+                        <fieldset disabled={status !== "editing" || metadataError !== null}>
+                            <legend>高级计算参数</legend>
+                            {source.descriptor.parameters
+                                .filter(
+                                    (parameter) =>
+                                        parameter.name === "warmup_bars" &&
+                                        parameter.default.type !== "NULL"
+                                )
+                                .map((parameter) => (
+                                    <label key={parameter.name}>
+                                        <span>预热 K 线数</span>
+                                        {parameterField(parameter)}
+                                    </label>
+                                ))}
+                        </fieldset>
+                    ) : null}
                     <fieldset disabled={status !== "editing"}>
                         <legend>显示样式</legend>
                         <fieldset>

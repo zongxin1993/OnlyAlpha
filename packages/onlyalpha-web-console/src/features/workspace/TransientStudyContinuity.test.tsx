@@ -215,6 +215,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
     );
     const market = marketDataClient({ queryBars });
     let activeCredentials: LocalReadCredentials | undefined;
+    let initializedCredential = false;
     function Query({
         step = 0,
         siblings = false,
@@ -224,6 +225,9 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         proof = "verified",
         older = false,
         preview = false,
+        previewSequence = 0,
+        stream = false,
+        incarnation = "owner",
         stale = false
     }: {
         step?: number;
@@ -234,12 +238,18 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         proof?: string | null;
         older?: boolean;
         preview?: boolean;
+        previewSequence?: number;
+        stream?: boolean;
+        incarnation?: string;
         stale?: boolean;
     }) {
         const credentials = useLocalReadCredentials();
         activeCredentials = credentials;
         useLayoutEffect(() => {
-            if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
+            if (!initializedCredential) {
+                initializedCredential = true;
+                if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
+            }
         }, [credentials]);
         const anchor = (baseEnd + BigInt(step) * duration).toString();
         const raw = page(anchor).bars;
@@ -276,7 +286,8 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
                 expectedSourceId={initial.source_selection.source_id}
                 expectedEnvironment={initial.source_selection.environment}
                 contextKey={context.key}
-                incarnationKey="owner"
+                incarnationKey={incarnation}
+                previewStreamId={stream ? "a".repeat(32) : null}
                 studies={
                     siblings
                         ? [
@@ -311,7 +322,12 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
                               ...required(bars.at(-1)),
                               barStartNs: anchor,
                               barEndNs: (BigInt(anchor) + duration).toString(),
-                              closed: false
+                              closed: false,
+                              close: String(105 + previewSequence),
+                              numeric: {
+                                  ...required(bars.at(-1)).numeric,
+                                  close: 105 + previewSequence
+                              }
                           }
                         : null
                 }
@@ -1051,4 +1067,177 @@ it("ignores queued stale timer callbacks without disturbing the latest intent ti
     });
     expect(test.queryBars).toHaveBeenCalledTimes(3);
     spy.mockRestore();
+});
+
+it("coalesces continuous preview bursts while each completed batch has five seconds of idle and retains closed evidence", async () => {
+    const test = setup();
+    vi.useFakeTimers();
+    const view = render(test.tree({ siblings: true, preview: true, stream: true }));
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    expect(test.traffic.anchors).toHaveLength(2);
+    for (let previewSequence = 1; previewSequence <= 20; previewSequence++) {
+        view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence }));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+        });
+    }
+    expect(test.traffic.anchors).toHaveLength(2);
+    expect(test.queryBars).toHaveBeenCalledTimes(1);
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+    expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+    });
+    await vi.waitFor(() => {
+        expect(test.traffic.anchors).toHaveLength(4);
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence: 21 }));
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(test.traffic.anchors).toHaveLength(4);
+    view.unmount();
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(test.traffic.anchors).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each(["closed-anchor", "incarnation", "configuration", "credential", "context"])(
+    "does not delay %s behind preview cooldown",
+    async (change) => {
+        const test = setup();
+        vi.useFakeTimers();
+        const view = render(test.tree({ siblings: true, preview: true, stream: true }));
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        const started = Date.now();
+        view.rerender(
+            test.tree({ siblings: true, preview: true, stream: true, previewSequence: 1 })
+        );
+        const active = change === "context" ? setup(1) : test;
+        if (change === "context")
+            view.rerender(active.tree({ siblings: true, preview: true, stream: true }));
+        else if (change === "credential")
+            act(() => {
+                test.recoverSession("ff".repeat(32));
+            });
+        else
+            view.rerender(
+                test.tree({
+                    siblings: true,
+                    preview: true,
+                    stream: true,
+                    previewSequence: 1,
+                    ...(change === "closed-anchor"
+                        ? { step: 1 }
+                        : change === "incarnation"
+                          ? { incarnation: "replacement" }
+                          : { third: true })
+                })
+            );
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent(
+                change === "configuration" ? "one,two,three" : "one,two"
+            );
+        });
+        expect(Date.now() - started).toBeLessThan(5000);
+        expect(active.traffic.anchors).toHaveLength(
+            change === "context" ? 2 : change === "configuration" ? 5 : 4
+        );
+        view.unmount();
+        expect(vi.getTimerCount()).toBe(0);
+    }
+);
+
+it("withdraws closed evidence immediately on credential revocation during preview cooldown", async () => {
+    const test = setup();
+    vi.useFakeTimers();
+    const view = render(test.tree({ siblings: true, preview: true, stream: true }));
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence: 1 }));
+    act(() => {
+        test.recoverSession(null);
+    });
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "UNAUTHORIZED"
+        );
+    });
+    expect(test.traffic.anchors).toHaveLength(2);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+});
+
+it("lets an explicit retry bypass preview cooldown even with a latest preview batch pending", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    vi.useFakeTimers();
+    const view = render(test.tree({ siblings: true, preview: true, stream: true }));
+    await vi.waitFor(() => {
+        expect(screen.getByRole("button", { name: "重试指标 two" })).toBeVisible();
+    });
+    const started = Date.now();
+    view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence: 1 }));
+    test.traffic.failSibling = false;
+    fireEvent.click(screen.getByRole("button", { name: "重试指标 two" }));
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+    });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(test.traffic.anchors).toHaveLength(4);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+});
+
+it("does not insert preview idle ahead of an explicit sibling retry queued during another retry", async () => {
+    const test = setup();
+    test.traffic.failSibling = true;
+    vi.useFakeTimers();
+    const view = render(test.tree({ siblings: true, third: true, preview: true, stream: true }));
+    await vi.waitFor(() => {
+        expect(screen.getByRole("button", { name: "重试指标 two" })).toBeVisible();
+    });
+    test.traffic.failSibling = false;
+    test.traffic.hold = true;
+    fireEvent.click(screen.getByRole("button", { name: "重试指标 two" }));
+    await vi.waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    const started = Date.now();
+    fireEvent.click(screen.getByRole("button", { name: "重试指标 three" }));
+    test.traffic.hold = false;
+    await act(async () => {
+        const pending = required(test.traffic.held[0]);
+        pending.resolve(test.response(pending.anchor));
+        await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+    });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(test.traffic.anchors).toHaveLength(5);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
 });
