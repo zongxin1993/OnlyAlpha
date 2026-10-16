@@ -24,7 +24,7 @@ import {
 } from "./chartStudy";
 import "./chartStudy.css";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
-import { readChartStudyCapability } from "../../api/chartStudies/client";
+import { ChartStudyWebError, readChartStudyCapability } from "../../api/chartStudies/client";
 
 function metadata(
     selection: ChartCalculationDraft
@@ -179,9 +179,15 @@ export function ChartStudyEditor({
         } catch (failure) {
             if (controller.signal.aborted || request.current !== controller) return;
             setStatus("stale");
-            setError(
-                `配置未提交：${failure instanceof ChartCatalogError ? failure.code : "INVALID"}；元数据不可验证，请取消并重新选择。`
-            );
+            const code =
+                failure instanceof ChartCatalogError || failure instanceof ChartStudyWebError
+                    ? failure.code
+                    : "INVALID";
+            const httpStatus =
+                failure instanceof ChartStudyWebError && failure.status !== undefined
+                    ? ` (HTTP ${String(failure.status)})`
+                    : "";
+            setError(`配置未提交：${code}${httpStatus}；元数据不可验证，请取消并重新选择。`);
             onStale();
         }
     }

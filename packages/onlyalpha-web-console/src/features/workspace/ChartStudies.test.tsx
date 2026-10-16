@@ -555,6 +555,59 @@ it("keeps transient SMA focused on period and submits official defaults through 
     });
 });
 
+it.each([
+    [503, "CHART_STUDY_QUERY_BUSY"],
+    [403, "SOURCE_ACCESS_DENIED"]
+])("preserves capability revalidation failure %s %s without submitting", async (status, code) => {
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 2,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Expected installed capability");
+    const credentials = new LocalReadCredentials();
+    credentials.replace("ee".repeat(32));
+    const onConfirm = vi.fn();
+    const onStale = vi.fn();
+    const onCancel = vi.fn();
+    vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        schema_version: 1,
+                        error: { phase: "QUERY", code, detail: code }
+                    }),
+                    { status }
+                )
+            )
+        )
+    );
+    render(
+        <ChartStudyEditor
+            selection={{ source: "CHART_STUDY_TRANSIENT", capability }}
+            instance={null}
+            credentials={credentials}
+            hasContext={true}
+            returnFocus={null}
+            onCancel={onCancel}
+            onStale={onStale}
+            onConfirm={onConfirm}
+        />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(`配置未提交：${code} (HTTP ${String(status)})`);
+    expect(alert).not.toHaveTextContent("INVALID");
+    expect(alert).toHaveTextContent("请取消并重新选择");
+    expect(onStale).toHaveBeenCalledOnce();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "添加" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+});
+
 it("preserves instance presentation and parameters while rotating each context occurrence", async () => {
     transport();
     const user = userEvent.setup();
