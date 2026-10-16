@@ -99,6 +99,10 @@ version = {fixture_version!r}
 dependencies = [{fixture_dependency!r}]
 """,
     )
+    _write(
+        tmp_path / "test-data/runtime_factor_provider/pyproject.toml",
+        '[project]\nname = "onlyalpha-test-factor-provider"\nversion = "0.9.9"\ndependencies = ["onlyalpha==0.3.7", "onlyalpha-market-a==0.3.7"]\n',
+    )
     return tmp_path
 
 
@@ -595,3 +599,20 @@ def test_merge_report_requires_exact_git_occurrence_for_historical_selection(
         assert "different merge" in output.err
     else:
         assert "0.3.6 -> 0.3.7 (patch)" in output.out
+
+
+def test_runtime_factor_fixture_internal_dependencies_follow_release(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    rewrite_workspace(root, "0.3.8")
+    document = parse((root / "test-data/runtime_factor_provider/pyproject.toml").read_text())
+    assert document["project"]["version"] == "0.9.9"
+    assert document["project"]["dependencies"] == ["onlyalpha==0.3.8", "onlyalpha-market-a==0.3.8"]
+    check_versions(root)
+
+
+def test_stale_runtime_factor_fixture_dependency_is_rejected(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    path = root / "test-data/runtime_factor_provider/pyproject.toml"
+    path.write_text(path.read_text().replace("onlyalpha==0.3.7", "onlyalpha==0.3.6"))
+    with pytest.raises(VersionSyncError, match="onlyalpha"):
+        check_versions(root)

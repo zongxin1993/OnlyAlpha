@@ -122,6 +122,24 @@ Infrastructure 建设围绕 node identity、versioned interfaces、compatibility
 failure domains 和 lifecycle。具体 Docker/Kubernetes/database 技术不成为产品 Identity 或 Trading Authority。跨节点通信使用明确协议，
 Database 不是默认 integration API。
 
+## Rust Kernel migration and current QMT adapter retirement
+
+[ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md) defines the owner-approved Linux-first Rust target and retirement
+of the current unavailable MiniQMT adapter. This withdraws the current implementation and its dedicated SDK checks, not universal
+market/reference semantics or historical facts. Shared SIM/Authority/recovery tests migrate to a neutral controlled Source.
+
+The [Rust Kernel migration work program](rust-kernel-migration-work-program.md) decomposes the dependencies:
+
+```text
+Current MiniQMT retirement → stable Python semantic slices/vectors → Linux Rust modules
+→ isolated equivalence comparison and Python worker boundaries
+→ Backtest → SIM → human-authorized LIVE → maintained Python Kernel retirement
+```
+
+Indicators/factors remain Python-oriented; plugins choose language by SDK/platform needs. Rust migration correctness and complete
+K-line/indicator latency are independent workstreams. Initial Linux-only Rust scope does not remove existing non-QMT Python
+platform checks or certify Windows/macOS Rust. The program records no task completion, quality status or next-task authority.
+
 ## Roadmap constraints
 
 - Roadmap 不授权修改 Constitution、Architecture 或 public Contract。

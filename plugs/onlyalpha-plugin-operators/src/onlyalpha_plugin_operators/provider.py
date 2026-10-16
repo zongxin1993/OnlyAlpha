@@ -17,7 +17,7 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
             kind=OnlyQuantAssetKind.OPERATOR,
             source=OnlyDistributionProviderSource(
                 distribution_name="onlyalpha-plugin-operators",
-                distribution_version="0.9.13",
+                distribution_version="0.9.14",
             ),
         ),
         calculation_registrations=registrations(),
