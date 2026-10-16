@@ -1,19 +1,22 @@
 import { LocalReadCredentials } from "../marketData/localReadCredentials";
 import { FetchWatchlistApiClient, WatchlistWebError, watchlistBookSchema } from "./client";
 
-const empty = { schema_version: 1, version: 0, lists: [] };
-const list = {
-    list_id: "0926c6a2-0cb8-47a5-8d94-cdb89b336182",
-    name: "日常",
+const empty = { schema_version: 2, version: 0, lists: [] };
+const member = {
     source: {
         integration_id: "source",
         integration_revision_fingerprint: "a".repeat(64),
         expected_type_id: "test.market_data"
     },
-    instrument_ids: ["BTCUSDT.TEST"]
+    instrument_id: "BTCUSDT.TEST"
+};
+const list = {
+    list_id: "0926c6a2-0cb8-47a5-8d94-cdb89b336182",
+    name: "日常",
+    members: [member]
 };
 const intent = {
-    schema_version: 1 as const,
+    schema_version: 2 as const,
     command_id: "d21599a3-abcd-41bf-989b-ce44a1b4dc44",
     expected_version: 0,
     lists: [list]
@@ -112,14 +115,42 @@ it("rejects malformed JSON and a withdrawn authentication generation", async () 
 it.each([
     { version: 0, lists: [list] },
     { version: 1, lists: [list, list] },
-    { version: 1, lists: [{ ...list, instrument_ids: ["BTCUSDT.TEST", "BTCUSDT.TEST"] }] },
+    { version: 1, lists: [{ ...list, members: [member, member] }] },
     { version: 1, lists: [{ ...list, name: " 日常 " }] },
     {
         version: 1,
         lists: [
-            { ...list, source: { ...list.source, integration_revision_fingerprint: "invalid" } }
+            {
+                ...list,
+                members: [
+                    {
+                        ...member,
+                        source: {
+                            ...member.source,
+                            integration_revision_fingerprint: "invalid"
+                        }
+                    }
+                ]
+            }
         ]
     }
 ])("refuses malformed or competing response identities: %j", (body) => {
-    expect(watchlistBookSchema.safeParse({ schema_version: 1, ...body }).success).toBe(false);
+    expect(watchlistBookSchema.safeParse({ schema_version: 2, ...body }).success).toBe(false);
+});
+
+it("allows the same canonical instrument from different exact Sources", () => {
+    const other = {
+        ...member,
+        source: { ...member.source, integration_revision_fingerprint: "b".repeat(64) }
+    };
+    expect(
+        watchlistBookSchema.parse({
+            schema_version: 2,
+            version: 1,
+            lists: [{ ...list, members: [member, other] }]
+        }).lists[0]?.members
+    ).toHaveLength(2);
+    expect(
+        watchlistBookSchema.safeParse({ schema_version: 1, version: 0, lists: [] }).success
+    ).toBe(false);
 });

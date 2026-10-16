@@ -500,3 +500,68 @@ def test_future_window_readiness_is_exact_retry_after_http_contract():
     header = document["paths"]["/api/v2/market-data/bars"]["get"]["responses"]["503"]["headers"]["Retry-After"]
     assert header["schema"]["pattern"] == "^[1-9][0-9]*$"
     assert "headers" not in document["paths"]["/api/v2/market-data/sources"]["get"]["responses"]["503"]
+
+
+def test_search_route_passes_types_and_projects_explicit_partial_outcomes(monkeypatch) -> None:
+    from onlyalpha_http_server.market_data import routes
+
+    from onlyalpha.application.market_data_discovery import (
+        OnlyMarketDataSearchProjectionV1,
+        OnlyMarketDataSearchSourceV1,
+    )
+
+    class Discovery:
+        def __init__(self, service: object) -> None:
+            pass
+
+        def search(self, **kwargs: object) -> OnlyMarketDataSearchProjectionV1:
+            assert kwargs["instrument_types"] == ("FUTURE", "CRYPTO_FUTURE")
+            return OnlyMarketDataSearchProjectionV1(
+                (), (OnlyMarketDataSearchSourceV1(_selection(), "TIMEOUT", ("CRYPTOCURRENCY",)),), False
+            )
+
+    monkeypatch.setattr(routes, "OnlyMarketDataDiscoveryService", Discovery)
+    response = _client(_Service()).get(
+        "/api/v2/market/instruments/search",
+        params={
+            "query": "BTC",
+            "instrument_types": ["FUTURE", "CRYPTO_FUTURE"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["sources"][0]["status"] == "TIMEOUT"
+    assert response.json()["results"] == []
+
+
+def test_quote_route_keeps_exact_decimal_and_nanosecond_strings(monkeypatch) -> None:
+    from onlyalpha_http_server.market_data import routes
+
+    from onlyalpha.application.market_data_discovery import (
+        OnlyMarketDataQuoteListProjectionV1,
+        OnlyMarketDataQuoteProjectionV1,
+    )
+
+    class Discovery:
+        def __init__(self, service: object) -> None:
+            pass
+
+        def quotes(self, reference: object, **kwargs: object) -> OnlyMarketDataQuoteListProjectionV1:
+            assert kwargs["instrument_ids"] == (INSTRUMENT_ID,)
+            return OnlyMarketDataQuoteListProjectionV1(
+                _selection(),
+                (
+                    OnlyMarketDataQuoteProjectionV1(
+                        INSTRUMENT_ID, "AVAILABLE", "0.00000001", "-0.25", "ROLLING_24H", START_NS
+                    ),
+                ),
+                "COMPLETE",
+            )
+
+    monkeypatch.setattr(routes, "OnlyMarketDataDiscoveryService", Discovery)
+    response = _client(_Service()).get(
+        "/api/v2/market-data/quotes", params=_selection_params(instrument_ids=[INSTRUMENT_ID])
+    )
+    assert response.status_code == 200, response.text
+    quote = response.json()["quotes"][0]
+    assert quote["last_price"] == "0.00000001" and quote["change_pct"] == "-0.25"
+    assert quote["ts_event_ns"] == START_NS_TEXT

@@ -12,9 +12,12 @@ from onlyalpha.market_data.resolution import OnlyBarCapability
 from onlyalpha.plugin.capabilities import OnlyPluginValidationIssue
 from onlyalpha.plugin.data_source import (
     OnlyDataSourceCreateRequest,
+    OnlyDataSourceDiscoveryCapabilitiesV1,
     OnlyDataSourceInstrumentCatalogRequestV1,
     OnlyDataSourceInstrumentV1,
     OnlyDataSourceMarketIdentityV1,
+    OnlyDataSourceQuoteRequestV1,
+    OnlyDataSourceQuoteV1,
 )
 from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeRequest, OnlyIntegrationProbeResult
 
@@ -31,10 +34,10 @@ from .config import OnlyBinanceMarketEnvironment, OnlyBinanceSpotDataSourceConfi
 from .historical import OnlyBinanceSpotHistoricalClient
 from .instrument_catalog import (
     MARKET,
-    REFERENCE_SYMBOLS,
     VENUE,
     OnlyBinanceSpotInstrumentCatalog,
     only_binance_raw_symbol,
+    only_binance_spot_quotes,
 )
 from .intervals import NATIVE_INTERVALS
 from .probe import OnlyBinanceSpotProbe
@@ -60,8 +63,7 @@ class OnlyBinanceSpotDataSourceFactory:
 
     def bar_capabilities(self, plugin_config: object, instrument_id: OnlyInstrumentId) -> tuple[OnlyBarCapability, ...]:
         self.market_identity(plugin_config)
-        if only_binance_raw_symbol(str(instrument_id)) not in REFERENCE_SYMBOLS:
-            return ()
+        only_binance_raw_symbol(str(instrument_id))
         alignment_id = only_canonical_fingerprint(self.time_bar_calendar(plugin_config).to_dict())
         return tuple(
             OnlyBarCapability(
@@ -89,6 +91,13 @@ class OnlyBinanceSpotDataSourceFactory:
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
     ) -> tuple[OnlyDataSourceInstrumentV1, ...]:
         return OnlyBinanceSpotInstrumentCatalog().list_instruments(request)
+
+    def discovery_capabilities(self, plugin_config: object) -> OnlyDataSourceDiscoveryCapabilitiesV1:
+        self.market_identity(plugin_config)
+        return OnlyDataSourceDiscoveryCapabilitiesV1(("CRYPTOCURRENCY",), catalogue_snapshot=True, quotes=True)
+
+    def quotes(self, request: OnlyDataSourceQuoteRequestV1) -> tuple[OnlyDataSourceQuoteV1, ...]:
+        return only_binance_spot_quotes(request)
 
     def market_identity(self, plugin_config: object) -> OnlyDataSourceMarketIdentityV1:
         if not isinstance(plugin_config, OnlyBinanceSpotDataSourceConfig):

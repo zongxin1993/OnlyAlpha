@@ -84,9 +84,30 @@ async function provision(page: Page, name: string): Promise<string> {
     return createdPayload.integration_id;
 }
 
+async function sourceControl(page: Page) {
+    const control = page.getByRole("combobox", { name: "数据源" });
+    if (!(await control.isVisible())) await page.getByText("行情设置", { exact: true }).click();
+    return control;
+}
+
+async function selectBtcFromSearch(page: Page) {
+    const selected = await page
+        .getByRole("combobox", { name: "数据源" })
+        .locator("option:checked")
+        .textContent();
+    const displayName = selected?.split(" · ").slice(0, -1).join(" · ");
+    if (!displayName) throw new Error("Expected an explicitly selected Source");
+    await page.getByRole("button", { name: "搜索商品", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "商品搜索" });
+    await dialog.getByRole("searchbox", { name: "商品代码或名称" }).fill("BTCUSDT");
+    await dialog
+        .getByRole("button", { name: `查看 BTCUSDT · BINANCE · ${displayName}`, exact: true })
+        .click();
+}
+
 async function openBtc(page: Page, integrationId: string): Promise<void> {
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     // Explicit source choice resolves BTC through the same Product query as auto bootstrap.
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时", {
         timeout: 45_000
@@ -524,11 +545,9 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     expect(matchingStreams()).toHaveLength(1);
     expect(matchingStreams()[0].closed).toBe(false);
     // Explicit re-selection must not create a second chart incarnation or consumer.
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     expect(counts()).toEqual(before);
     expect(matchingStreams()).toHaveLength(1);
     expect(matchingStreams()[0].closed).toBe(false);
@@ -608,6 +627,7 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
         const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
         await expect(editor.getByRole("textbox", { name: "period" })).toHaveValue("20");
         await expect(editor.getByRole("combobox", { name: "price_field" })).toHaveValue("CLOSE");
+        await editor.getByText("高级选项", { exact: true }).click();
         await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
         await editor.getByRole("button", { name: "添加", exact: true }).click();
         await expect(editor).toHaveCount(0);
@@ -634,7 +654,8 @@ test("real Browser uses one native 15m resolution across HTTP and stream", async
     await first.getByRole("button", { name: "显示 SMA" }).click();
     await expect(chart).toHaveAttribute("data-pane-count", "4");
     await first.getByRole("button", { name: "编辑 SMA" }).click();
-    await page.getByRole("textbox", { name: "颜色" }).fill("#c8332a");
+    await page.getByText("高级选项", { exact: true }).click();
+    await page.getByRole("button", { name: "红色", exact: true }).click();
     await page.getByRole("button", { name: "应用", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(first).toHaveAttribute("data-instance-id", firstId ?? "");

@@ -1,8 +1,11 @@
 """Small bounded public JSON transport with no credential surface."""
 
+import gzip
+import io
 import json
 import math
 import time
+import zlib
 from collections.abc import Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -39,7 +42,9 @@ class OnlyBinancePublicHttpClient:
 
     def get_json(self, path: str, parameters: Mapping[str, str] | None = None) -> bytes:
         query = "" if not parameters else "?" + urlencode(parameters)
-        request = Request(self._base_url + path + query, headers={"Accept": "application/json"})
+        request = Request(
+            self._base_url + path + query, headers={"Accept": "application/json", "Accept-Encoding": "gzip"}
+        )
         try:
             with urlopen(  # noqa: S310 -- URL is constructor-validated HTTPS
                 request, timeout=self._remaining_timeout()
@@ -52,6 +57,9 @@ class OnlyBinancePublicHttpClient:
                     media_type.startswith("application/") and media_type.endswith("+json")
                 ):
                     raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_MEDIA_TYPE_INVALID")
+                encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+                if encoding not in ("identity", "gzip"):
+                    raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_ENCODING_UNSUPPORTED")
                 content_length = response.headers.get("Content-Length")
                 if content_length is not None:
                     try:
@@ -67,6 +75,14 @@ class OnlyBinancePublicHttpClient:
                     raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_TOO_LARGE")
         except (HTTPError, URLError, TimeoutError) as exc:
             raise OnlyBinanceError(f"BINANCE_PUBLIC_REQUEST_FAILED: {type(exc).__name__}") from exc
+        if encoding == "gzip":
+            try:
+                with gzip.GzipFile(fileobj=io.BytesIO(payload)) as compressed:
+                    payload = compressed.read(self._max_response_bytes + 1)
+            except (gzip.BadGzipFile, EOFError, zlib.error) as exc:
+                raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_ENCODING_INVALID") from exc
+            if len(payload) > self._max_response_bytes:
+                raise OnlyBinanceError("BINANCE_PUBLIC_RESPONSE_TOO_LARGE")
         self._response_observer(path, parameters or {}, payload)
         try:
             parsed = json.loads(payload)

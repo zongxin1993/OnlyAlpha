@@ -11,7 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from onlyalpha.application.market_data_product import OnlyMarketDataSourceReferenceV1
 from onlyalpha.application.source_read_access import OnlySourceReadAccessError, OnlySourceReadSession
-from onlyalpha.application.watchlists import OnlyWatchlist, OnlyWatchlistBook, OnlyWatchlistError, OnlyWatchlistService
+from onlyalpha.application.watchlists import (
+    OnlyWatchlist,
+    OnlyWatchlistBook,
+    OnlyWatchlistError,
+    OnlyWatchlistMember,
+    OnlyWatchlistService,
+)
 
 
 class WatchlistSourceDto(BaseModel):
@@ -21,22 +27,32 @@ class WatchlistSourceDto(BaseModel):
     expected_type_id: str = Field(min_length=1, max_length=256)
 
 
+class WatchlistMemberDto(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    source: WatchlistSourceDto
+    instrument_id: str = Field(min_length=1, max_length=256)
+
+
 class WatchlistDto(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     list_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
     name: str = Field(min_length=1, max_length=64)
-    source: WatchlistSourceDto
-    instrument_ids: tuple[str, ...] = Field(max_length=100, strict=False)
+    members: tuple[WatchlistMemberDto, ...] = Field(max_length=100, strict=False)
 
     def to_model(self) -> OnlyWatchlist:
         return OnlyWatchlist(
-            self.list_id, self.name, OnlyMarketDataSourceReferenceV1(**self.source.model_dump()), self.instrument_ids
+            self.list_id,
+            self.name,
+            tuple(
+                OnlyWatchlistMember(OnlyMarketDataSourceReferenceV1(**member.source.model_dump()), member.instrument_id)
+                for member in self.members
+            ),
         )
 
 
 class WatchlistBookDto(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     version: int = Field(ge=0)
     lists: tuple[WatchlistDto, ...] = Field(max_length=20, strict=False)
 
@@ -47,7 +63,7 @@ class WatchlistBookDto(BaseModel):
 
 class SaveWatchlistsDto(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     command_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
     expected_version: int = Field(ge=0)
     lists: tuple[WatchlistDto, ...] = Field(max_length=20, strict=False)

@@ -3,74 +3,181 @@
     gap: 8px;
     min-width: 0;
 }
-.watchlists fieldset {
-    display: grid;
-    gap: 10px;
-    border: 0;
-    padding: 0;
+.watchlists__header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
 }
-.watchlists form {
+.watchlists__header > select {
+    min-width: 0;
+    width: 0;
+    flex: 1;
+    border: 0;
+    font-weight: 600;
+}
+.watchlists__header > strong {
+    flex: 1;
+}
+.watchlists__icon {
+    background: transparent;
+    color: var(--text);
+    border: 0;
+    padding: 6px 8px;
+    font-size: 20px;
+}
+.watchlists__manage {
+    position: relative;
+}
+.watchlists__manage > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 6px 10px;
+    font-size: 20px;
+}
+.watchlists__menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 10;
+    width: 240px;
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: 0 8px 24px #0002;
+    border-radius: 6px;
+}
+.watchlists__menu form,
+.watchlists__menu label {
     display: grid;
     gap: 6px;
 }
-.watchlists label {
-    display: grid;
-    gap: 4px;
-}
-.watchlists input,
-.watchlists select {
+.watchlists__menu input {
     min-width: 0;
-    max-width: 100%;
-}
-.watchlists small {
-    display: block;
-    color: var(--muted);
+    width: 100%;
 }
 .watchlists__rows {
-    max-height: 45vh;
-    overflow: auto;
+    min-width: 0;
 }
-.watchlists__rows button {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-}
-.watchlists__status {
-    overflow-wrap: anywhere;
-}
-
 .watchlists__rows table {
     width: 100%;
     table-layout: fixed;
 }
-.watchlists__rows caption {
-    white-space: normal;
-    text-align: left;
-    overflow-wrap: anywhere;
-}
 .watchlists__rows th,
 .watchlists__rows td {
-    white-space: normal;
+    padding: 10px 6px;
+    vertical-align: middle;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
-    vertical-align: top;
 }
-.watchlists__rows th:first-child {
+.watchlists__rows th:first-child,
+.watchlists__rows td:first-child {
     width: 44%;
+    text-align: left;
+    position: relative;
+    padding-right: 16px;
 }
-.watchlists__rows button {
+.watchlists__rows th {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 12px;
+}
+.watchlists__rows td {
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+}
+.watchlists__rows small {
     display: block;
-    width: 100%;
-    min-width: 0;
-    padding: 5px;
-    margin-top: 4px;
-    white-space: normal;
-    font-size: 11px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
 }
-.watchlists__member-actions {
-    display: flex;
-    gap: 3px;
+.watchlists__symbol {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0 0 3px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: left;
 }
-.watchlists__member-actions button {
-    width: auto;
-    flex: 1;
+.watchlists__row-menu {
+    position: absolute;
+    right: 0;
+    top: 10px;
+}
+.watchlists__row-menu summary {
+    list-style: none;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 0 2px;
+}
+.watchlists__row-menu > div {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    z-index: 9;
+    padding: 8px;
+    display: grid;
+    gap: 6px;
+    white-space: nowrap;
+}
+.watchlists__row-menu button {
+    padding: 4px 8px;
+}
+.watchlists__up {
+    color: var(--up);
+}
+.watchlists__down {
+    color: var(--down);
+}
+.watchlists__status {
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    margin: 0;
+}
+.chart-region__symbol-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: var(--text);
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    font-weight: 600;
+    white-space: nowrap;
+}
+.chart-region__symbol-search:hover {
+    background: var(--surface-2);
+}
+.chart-region__settings {
+    position: relative;
+    font-size: 12px;
+    color: var(--muted);
+}
+.chart-region__settings summary {
+    cursor: pointer;
+    padding: 6px;
+}
+.chart-region__settings[open] .chart-region__source {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 12;
+    background: var(--surface);
+    padding: 12px;
+    border: 1px solid var(--line);
+    min-width: 230px;
+}
+
+.watchlists__rows td:first-child > small {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

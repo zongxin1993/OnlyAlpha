@@ -111,6 +111,7 @@ from onlyalpha.market_data.durable.range_query import (
 from onlyalpha.market_data.resolution import OnlyBarCapability
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import (
+    OnlyDataSourceDiscoveryCapabilitiesV1,
     OnlyDataSourceInstrumentCatalogRequestV1,
     OnlyDataSourceInstrumentV1,
     OnlyDataSourceMarketIdentityV1,
@@ -496,6 +497,10 @@ class _FakeFactory:
             for minutes in self.native_minutes
         )
 
+    def discovery_capabilities(self, plugin_config: object) -> OnlyDataSourceDiscoveryCapabilitiesV1:
+        self.market_identity(plugin_config)
+        return OnlyDataSourceDiscoveryCapabilitiesV1(("CRYPTOCURRENCY",), catalogue_snapshot=True, quotes=False)
+
     def list_instruments(
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
     ) -> tuple[OnlyDataSourceInstrumentV1, ...]:
@@ -602,6 +607,7 @@ def _service(
     faults: _Faults | None = None,
     native_minutes: tuple[int, ...] = (1,),
     page_minutes: int | None = None,
+    factory_type: type[_FakeFactory] = _FakeFactory,
 ) -> _Harness:
     descriptor = _descriptor()
     faults = faults or _Faults()
@@ -623,7 +629,7 @@ def _service(
     )
     provider = _ProviderCalls(faults)
     provider.page_minutes = page_minutes
-    factory = _FakeFactory(descriptor, provider, faults)
+    factory = factory_type(descriptor, provider, faults)
     factory.native_minutes = native_minutes
     registry = OnlyDataSourceFactoryRegistry()
     registry.register(factory)

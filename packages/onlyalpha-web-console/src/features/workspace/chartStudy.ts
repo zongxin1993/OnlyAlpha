@@ -52,6 +52,25 @@ export interface ChartStudyInstance {
     readonly connectionState: "CONFIGURED_NOT_EXECUTED" | "STALE_CONFIG";
 }
 
+/** Compact presentation only; transient admission fixes CLOSE independently of editable metadata. */
+export function studyDisplayLabel(instance: ChartStudyInstance): string {
+    const descriptor = studyDescriptor(instance.selection);
+    const values = descriptor.parameters
+        .filter(
+            (parameter) =>
+                !(
+                    instance.selection.source === "CHART_STUDY_TRANSIENT" &&
+                    parameter.name === "price_field" &&
+                    instance.configuration.parameters.price_field?.value === "CLOSE"
+                )
+        )
+        .map((parameter) =>
+            String(instance.configuration.parameters[parameter.name]?.value ?? "—")
+        );
+    const name = descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId;
+    return values.length === 0 ? name : `${name}(${values.join(", ")})`;
+}
+
 // Exact Catalog encodes untagged scalars. This adapter tags by transport representation;
 // numeric STRING defaults remain STRING, not a browser-normalized Calculation definition.
 function scalar(

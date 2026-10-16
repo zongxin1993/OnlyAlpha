@@ -34,6 +34,8 @@ _READ_PATHS = frozenset(
     {
         "/api/v2/market-data/sources",
         "/api/v2/market/instruments",
+        "/api/v2/market/instruments/search",
+        "/api/v2/market-data/quotes",
         "/api/v2/market-data/bars",
         "/api/v2/market-data/latest-bar",
     }

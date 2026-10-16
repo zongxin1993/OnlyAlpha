@@ -162,3 +162,34 @@ Chart presentation admission 在 Ledger 变更前校验时间与有限数值；O
 OHLCV 字符串及 closed/preview 状态，renderer number 仅是显式有损投影。图表类型是浏览器展示偏好，不参与 Product query、
 chart context 或 Stream identity。十字线只选择当前 context 内的精确 Bar identity，读数始终从当前 projection 派生，
 不得把 renderer `seriesData` 当作行情事实；没有真实 Bar 时显示 unavailable，不用 synthetic 数值补齐。
+
+
+## 商品发现与自选报价
+
+统一搜索 `GET /api/v2/market/instruments/search` 仅查询当前 ACTIVE、有发布 Revision、通过当前 runtime admission 的配置来源，
+并在返回前重新检查 exact Source read grant。插件通过 `OnlyDataSourceDiscoveryCapabilitiesV1` 声明可搜索资产范围。
+Application 不包含 provider 分支；`asset_class` 与 `instrument_types` 直接使用 canonical 枚举值，过滤必须先于结果截断。
+每条结果携带 exact Source selection 和 Instrument projection，不按相似 ticker 合并商品或静默替换来源。
+
+Provider 调用位于独立、可终止的轻量子进程，不重新执行 Web/Application 服务入口。Factory 必须由可导入模块定义并可序列化，不能使用服务 `__main__` 或局部类。所有请求共用最多四个 provider process，搜索与报价单来源截止八秒，搜索整体截止十秒，Web 等待上限十二秒。
+该预算包含冷启动与网络：完整公开目录在 dev 容器实测约 4.2 秒，其中冷启动约 1 秒；五秒预算在真实 UI 首搜出现超时，不能仅凭单次网络成功认定可用。上述上限保留网络波动余量，不授权自动重试或无界等待。
+截止也包含等待 process slot 的时间；超时进程 kill 并 reap，不以取消 Python Future 假装终止 Provider。
+来源分别返回 COMPLETE、TIMEOUT、UNAVAILABLE 或 UNSUPPORTED，只有 COMPLETE 且无匹配才表示该来源没有结果。
+部分结果可展示，但不得把失败来源、目录上限或结果截断包装成完整的无匹配证明。
+
+声明 `catalogue_snapshot` 的插件提供最多 10001 条投影（10000 条容量加一个截断哨兵），并授权按展示代码或完整 Instrument ID
+做 literal substring 搜索。snapshot 是可丢弃的 reference projection；父侧内存缓存最多 32 个 exact Integration Revision / binding，
+有效期 60 秒。每次使用仍先解析 owning runtime / grant，不从缓存重建权限或 availability 证明。它不是 Market Fact、交易或
+Research Evidence Authority，也不授权从 catalogue 响应获取行情历史。
+
+`GET /api/v2/market-data/quotes` 是独立的 operational read，要求 REALTIME_PREVIEW 权限，最多请求同一来源 25 个 Instrument。
+插件通过 `OnlyDataSourceQuotes` 提供当前成交价、涨跌幅、明确的 ROLLING_24H / PREVIOUS_CLOSE 基准及事件时间。
+缺少某一 Instrument 的报价返回该行 UNAVAILABLE 与 null，不用 K 线收盘价补位。decimal 值和纳秒时间通过字符串传输；
+Web 不重算涨跌幅、不合并来源、不将 operational quote 用作 sealed history 或 execution reference。
+Binance Spot 使用正式 `/api/v3/exchangeInfo?permissions=SPOT&showPermissionSets=false` 目录和 `/api/v3/ticker/24hr` 报价，其涨跌幅口径为 ROLLING_24H。
+
+Binance 公共 HTTP 协商 gzip，压缩 wire 与解压 JSON 分别受同一配置的响应大小上限约束；不支持或损坏的编码 fail closed。
+Provider evidence observer 收到解码后的原始 JSON bytes；JSON 无效时仍记录该 payload 并报告解析失败，不把它当空目录。
+目录查询按 [Binance 官方 REST Contract](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md?plain=1)
+省略未消费的 permissionSets，不改变商品、市场状态、价格步长或数量规则。单来源预算包含轻量进程启动、
+Provider 网络往返、解码和投影，仍服从搜索整体截止；Web transport deadline 不授予服务端额外时间。

@@ -1,76 +1,65 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
-import { MarketDataWebError } from "../../api/marketData/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { type MarketQuote } from "../../api/marketData/discovery";
+import type { MarketDataSource, MarketDataSourceReference } from "../../api/marketData/model";
+import type { WatchlistMember } from "../../api/watchlists/client";
+import type { MarketDataApiClient } from "../../api/marketData/client";
 import { createUuidV4 } from "../../api/integrations/submissionIntent";
-import {
-    marketDataBarSemanticSchema,
-    type MarketDataInstrument,
-    type MarketDataSource,
-    type MarketDataSourceReference
-} from "../../api/marketData/model";
-import {
-    FetchWatchlistApiClient,
-    WatchlistWebError,
-    type Watchlist,
-    type WatchlistBook,
-    type WatchlistSave
-} from "../../api/watchlists/client";
-import { onlyMarketDataSourceReference } from "./useMarketDataChart";
-import { onlyAssertMarketDataBarsAuthority } from "./marketDataBarsAuthority";
+import { watchlistMemberKey, type WatchlistController } from "./useWatchlists";
 import "./watchlists.css";
 
-let quoteReads: Promise<unknown> = Promise.resolve();
-const PENDING = "onlyalpha.watchlist.pending-command";
-function readPending(): string | null {
-    try {
-        return sessionStorage.getItem(PENDING);
-    } catch {
-        return null;
-    }
+const sourceFor = (sources: readonly MarketDataSource[], member: WatchlistMember) =>
+    sources.find(
+        (source) =>
+            source.integration_id === member.source.integration_id &&
+            source.integration_revision_fingerprint ===
+                member.source.integration_revision_fingerprint &&
+            source.type_id === member.source.expected_type_id
+    );
+/** Display exact decimals without rounding or altering the provider observation. */
+function quoteDisplay(value: string): string {
+    const match = /^(-?\d+)(?:\.(\d+))?$/.exec(value);
+    if (match?.[1] === undefined) return value;
+    return `${match[1]}.${(match[2] ?? "").replace(/0+$/, "").padEnd(2, "0")}`;
 }
-function forgetPending(): void {
-    try {
-        sessionStorage.removeItem(PENDING);
-    } catch {
-        /* A retained ID remains queryable after storage recovers. */
-    }
+
+interface Price {
+    quote: MarketQuote | null;
+    status: string;
 }
-const errorCopy = (error: unknown, submitting = false): string =>
-    error instanceof WatchlistWebError
-        ? error.code === "WATCHLIST_VERSION_CONFLICT"
-            ? "其他窗口已修改自选，请重新加载后再编辑。"
-            : error.code === "WATCHLIST_INVALID"
-              ? "未保存：请检查名称是否重复，或列表、成员数量是否超过上限。"
-              : error.code === "WATCHLIST_OWNER_REQUIRED" ||
-                  /FORBIDDEN|UNAUTHORIZED/.test(error.code)
-                ? "自选管理需要 Owner 授权；行情只读凭据不能修改列表。"
-                : error.definitive
-                  ? `未保存：${error.code}`
-                  : submitting
-                    ? "提交结果未知，请核对提交结果；不会自动重试。"
-                    : "自选服务暂不可用，请重新加载。"
-        : "服务响应不可用，请重新加载；提交操作需先核对结果。";
 
 export function WatchlistPanel({
+    controller,
+    market,
     sources,
     enabled,
     onSelect,
-    onPrepare,
-    onRefreshSources
+    onSearch
 }: {
+    readonly controller: WatchlistController;
+    readonly market: Pick<MarketDataApiClient, "queryQuotes">;
     readonly sources: readonly MarketDataSource[];
     readonly enabled: boolean;
-    readonly onRefreshSources?: () => void;
     readonly onSelect: (
         source: MarketDataSourceReference,
         instrumentId: string
-    ) => Promise<void> | void;
-    readonly onPrepare: (
-        source: MarketDataSourceReference,
-        instrumentId: string
-    ) => Promise<void> | void;
+    ) => void | Promise<void>;
+    readonly onSearch: () => void;
 }) {
+    const { book, active, busy, pending, message, save } = controller;
+    const [name, setName] = useState("");
+    const [rename, setRename] = useState("");
     const [pageVisible, setPageVisible] = useState(document.visibilityState !== "hidden");
+    const [visible, setVisible] = useState<ReadonlySet<string>>(() => new Set());
+    const [prices, setPrices] = useState<ReadonlyMap<string, Price>>(() => new Map());
+    const onVisibility = useCallback((key: string, shown: boolean) => {
+        setVisible((current) => {
+            if (current.has(key) === shown) return current;
+            const next = new Set(current);
+            if (shown) next.add(key);
+            else next.delete(key);
+            return next;
+        });
+    }, []);
     useEffect(() => {
         const changed = () => {
             setPageVisible(document.visibilityState !== "hidden");
@@ -80,678 +69,414 @@ export function WatchlistPanel({
             document.removeEventListener("visibilitychange", changed);
         };
     }, []);
-    const credentials = useLocalReadCredentials();
-    const api = useMemo(() => new FetchWatchlistApiClient(credentials), [credentials]);
-    const market = useMarketDataApi();
-    const [book, setBook] = useState<WatchlistBook | null>(null);
-    const [selected, setSelected] = useState("");
-    const [name, setName] = useState("");
-    const [sourceId, setSourceId] = useState("");
-    const [rename, setRename] = useState("");
-    const [query, setQuery] = useState("");
-    const [results, setResults] = useState<readonly MarketDataInstrument[]>([]);
-    const [resultsOwner, setResultsOwner] = useState("");
-    const [message, setMessage] = useState<string | null>(null);
-    const [busy, setBusy] = useState(false);
-    const writing = useRef(false);
-    const searchGeneration = useRef(0);
-    const [pending, setPending] = useState<string | null>(readPending);
-    const bookGeneration = useRef(0);
-    const active = book?.lists.find((item) => item.list_id === selected) ?? book?.lists[0];
-    const source = sources.find(
-        (item) =>
-            item.integration_id === active?.source.integration_id &&
-            item.integration_revision_fingerprint ===
-                active.source.integration_revision_fingerprint &&
-            item.type_id === active.source.expected_type_id
-    );
-    const contextKey = active === undefined ? "" : active.list_id + JSON.stringify(active.source);
-    const reload = useCallback(async () => {
-        const generation = ++bookGeneration.current;
-        try {
-            const value = await api.read();
-            if (generation === bookGeneration.current) {
-                setBook(value);
-                setMessage(null);
-            }
-        } catch (error) {
-            if (generation === bookGeneration.current) setMessage(errorCopy(error));
-        }
-    }, [api]);
     useEffect(() => {
-        const controller = new AbortController();
-        const generation = ++bookGeneration.current;
-        void api
-            .read(controller.signal)
-            .then((value) => {
-                if (!controller.signal.aborted && generation === bookGeneration.current)
-                    setBook(value);
-            })
-            .catch((error: unknown) => {
-                if (!controller.signal.aborted && generation === bookGeneration.current)
-                    setMessage(errorCopy(error));
-            });
-        return () => {
-            controller.abort();
-        };
-    }, [api]);
-    const save = async (lists: readonly Watchlist[]) => {
-        if (book === null || writing.current || pending !== null) return false;
-        writing.current = true;
-        setBusy(true);
-        setMessage(null);
-        const intent: WatchlistSave = {
-            schema_version: 1,
-            command_id: createUuidV4(),
-            expected_version: book.version,
-            lists
-        };
-        try {
-            sessionStorage.setItem(PENDING, intent.command_id);
-        } catch {
-            setMessage("无法保存本次提交标识，本次未提交；请检查站点会话存储权限。");
-            writing.current = false;
-            setBusy(false);
-            return false;
-        }
-        ++bookGeneration.current;
-        setPending(intent.command_id);
-        try {
-            const saved = await api.save(intent);
-            setBook(saved);
-            setPending(null);
-            forgetPending();
-            setMessage("已保存");
-            return true;
-        } catch (error) {
-            setMessage(errorCopy(error, true));
-            if (error instanceof WatchlistWebError && error.definitive) {
-                setPending(null);
-                forgetPending();
-            }
-            return false;
-        } finally {
-            writing.current = false;
-            setBusy(false);
-        }
-    };
-    const replace = (value: Watchlist) =>
-        save(book?.lists.map((item) => (item.list_id === value.list_id ? value : item)) ?? []);
-    const search = async () => {
-        if (active === undefined || source === undefined) return;
-        const generation = ++searchGeneration.current;
-        setResults([]);
-        setMessage("正在搜索标的…");
-        try {
-            const found = await market.listInstruments(active.source, query);
-            if (generation === searchGeneration.current) {
-                setResultsOwner(contextKey);
-                setResults(found);
-                setMessage(found.length === 0 ? "未找到匹配标的" : null);
-            }
-        } catch {
-            if (generation === searchGeneration.current) setMessage("标的搜索失败，请重试。");
-        }
-    };
-    return (
-        <section className="watchlists" aria-label="自选列表管理">
-            <div
-                className="watchlists__status"
-                role={message !== null && message !== "已保存" ? "alert" : "status"}
-            >
-                {message ?? (book === null ? "正在加载自选…" : "列表保存在服务端")}
-            </div>
-            <button type="button" disabled={busy} onClick={() => void reload()}>
-                重新加载自选
-            </button>
-            {pending !== null ? (
-                <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                        setBusy(true);
-                        void api
-                            .command(pending)
-                            .then(async (result) => {
-                                const latest = await api.read();
-                                setBook(latest);
-                                setPending(null);
-                                forgetPending();
-                                setMessage(
-                                    result === null
-                                        ? "命令未提交，已重新读取服务端列表。"
-                                        : "提交结果已确认，已重新读取服务端列表。"
-                                );
-                            })
-                            .catch((error: unknown) => {
-                                setMessage(errorCopy(error));
-                            })
-                            .finally(() => {
-                                setBusy(false);
-                            });
-                    }}
-                >
-                    核对提交结果
-                </button>
-            ) : null}
-            {book === null ? null : (
-                <fieldset disabled={busy || pending !== null}>
-                    <legend>管理自选列表</legend>
-                    {onRefreshSources !== undefined && (
-                        <button type="button" onClick={onRefreshSources}>
-                            刷新行情来源
-                        </button>
-                    )}
-                    <form
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            const target = sources.find((item) => item.integration_id === sourceId);
-                            if (target === undefined || !name.trim()) return;
-                            const list: Watchlist = {
-                                list_id: createUuidV4(),
-                                name: name.trim(),
-                                source: {
-                                    ...onlyMarketDataSourceReference(target),
-                                    expected_type_id: target.type_id
-                                },
-                                instrument_ids: []
-                            };
-                            void save([...book.lists, list]).then((saved) => {
-                                if (saved) {
-                                    setSelected(list.list_id);
-                                    setName("");
-                                }
-                            });
-                        }}
-                    >
-                        <label>
-                            新列表名称
-                            <input
-                                value={name}
-                                maxLength={64}
-                                onChange={(event) => {
-                                    setName(event.target.value);
-                                }}
-                            />
-                        </label>
-                        <label>
-                            列表行情来源
-                            <select
-                                value={sourceId}
-                                onChange={(event) => {
-                                    setSourceId(event.target.value);
-                                }}
-                            >
-                                <option value="">选择数据源</option>
-                                {sources.map((item) => (
-                                    <option key={item.integration_id} value={item.integration_id}>
-                                        {item.display_name}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <button
-                            type="submit"
-                            disabled={!name.trim() || sourceId === "" || book.lists.length >= 20}
-                        >
-                            创建列表
-                        </button>
-                    </form>
-                    {book.lists.length === 0 ? <p>还没有自选列表，请先创建。</p> : null}
-                    {active === undefined ? null : (
-                        <>
-                            <label>
-                                自选列表
-                                <select
-                                    value={active.list_id}
-                                    onChange={(event) => {
-                                        searchGeneration.current++;
-                                        setSelected(event.target.value);
-                                        setResults([]);
-                                        setQuery("");
-                                        setRename("");
-                                        setMessage(null);
-                                    }}
-                                >
-                                    {book.lists.map((item) => (
-                                        <option key={item.list_id} value={item.list_id}>
-                                            {item.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <form
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    if (rename.trim())
-                                        void replace({ ...active, name: rename.trim() });
-                                }}
-                            >
-                                <label>
-                                    列表新名称
-                                    <input
-                                        value={rename}
-                                        maxLength={64}
-                                        placeholder={active.name}
-                                        onChange={(event) => {
-                                            setRename(event.target.value);
-                                        }}
-                                    />
-                                </label>
-                                <button type="submit" disabled={!rename.trim()}>
-                                    重命名列表
-                                </button>
-                            </form>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (
-                                        window.confirm(`删除列表“${active.name}”？行情历史将保留。`)
-                                    )
-                                        void save(
-                                            book.lists.filter(
-                                                (item) => item.list_id !== active.list_id
-                                            )
-                                        );
-                                }}
-                            >
-                                删除列表
-                            </button>
-                            <p>数据源：{source?.display_name ?? "原数据源不可用，列表已保留"}</p>
-                            {source === undefined ? (
-                                <label>
-                                    重新选择行情来源
-                                    <select
-                                        value=""
-                                        onChange={(event) => {
-                                            const target = sources.find(
-                                                (item) => item.integration_id === event.target.value
-                                            );
-                                            if (
-                                                target !== undefined &&
-                                                window.confirm(
-                                                    "明确改用所选数据源？服务器将验证全部成员。"
-                                                )
-                                            )
-                                                void replace({
-                                                    ...active,
-                                                    source: {
-                                                        ...onlyMarketDataSourceReference(target),
-                                                        expected_type_id: target.type_id
-                                                    }
-                                                });
-                                        }}
-                                    >
-                                        <option value="">选择可用数据源</option>
-                                        {sources.map((item) => (
-                                            <option
-                                                key={item.integration_id}
-                                                value={item.integration_id}
-                                            >
-                                                {item.display_name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                            ) : null}
-                            <form
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void search();
-                                }}
-                            >
-                                <label>
-                                    搜索自选标的
-                                    <input
-                                        value={query}
-                                        onChange={(event) => {
-                                            setQuery(event.target.value);
-                                        }}
-                                        disabled={source === undefined}
-                                    />
-                                </label>
-                                <button
-                                    type="submit"
-                                    disabled={!query.trim() || source === undefined}
-                                >
-                                    查找标的
-                                </button>
-                            </form>
-                            <ul aria-label="自选标的搜索结果">
-                                {(resultsOwner === contextKey ? results : []).map((item) => (
-                                    <li key={item.instrument_id}>
-                                        {item.display_symbol} · {item.venue}
-                                        <button
-                                            type="button"
-                                            disabled={
-                                                active.instrument_ids.includes(
-                                                    item.instrument_id
-                                                ) || active.instrument_ids.length >= 100
-                                            }
-                                            onClick={() =>
-                                                void replace({
-                                                    ...active,
-                                                    instrument_ids: [
-                                                        ...active.instrument_ids,
-                                                        item.instrument_id
-                                                    ]
-                                                })
-                                            }
-                                        >
-                                            {active.instrument_ids.includes(item.instrument_id)
-                                                ? "已加入"
-                                                : `加入 ${item.display_symbol}`}
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                            <div className="watchlists__rows">
-                                <table className="data-table">
-                                    <caption>{active.name} · 原生 K 线收盘价</caption>
-                                    <thead>
-                                        <tr>
-                                            <th>标的 / 管理</th>
-                                            <th>价格 / 状态 / 数据时间</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {active.instrument_ids.map((id, index) => (
-                                            <WatchlistRow
-                                                key={`${active.list_id}:${id}:${active.source.integration_revision_fingerprint}`}
-                                                instrumentId={id}
-                                                source={source}
-                                                enabled={enabled && pageVisible}
-                                                onSelect={() => onSelect(active.source, id)}
-                                                onPrepare={() => onPrepare(active.source, id)}
-                                                onRemove={() =>
-                                                    void replace({
-                                                        ...active,
-                                                        instrument_ids:
-                                                            active.instrument_ids.filter(
-                                                                (value) => value !== id
-                                                            )
-                                                    })
-                                                }
-                                                onMove={(delta) => {
-                                                    const members = [...active.instrument_ids];
-                                                    const target = index + delta;
-                                                    if (target < 0 || target >= members.length)
-                                                        return;
-                                                    members.splice(index, 1);
-                                                    members.splice(target, 0, id);
-                                                    void replace({
-                                                        ...active,
-                                                        instrument_ids: members
-                                                    });
-                                                }}
-                                                first={index === 0}
-                                                last={index === active.instrument_ids.length - 1}
-                                            />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {active.instrument_ids.length === 0 ? (
-                                <p>列表为空，搜索标的后加入。</p>
-                            ) : null}
-                        </>
-                    )}
-                </fieldset>
-            )}
-        </section>
-    );
-}
-
-function WatchlistRow({
-    instrumentId,
-    source,
-    enabled,
-    onSelect,
-    onPrepare,
-    onRemove,
-    onMove,
-    first,
-    last
-}: {
-    readonly instrumentId: string;
-    readonly source: MarketDataSource | undefined;
-    readonly enabled: boolean;
-    readonly onSelect: () => void | Promise<void>;
-    readonly onPrepare: () => void | Promise<void>;
-    readonly onRemove: () => void;
-    readonly onMove: (delta: number) => void;
-    readonly first: boolean;
-    readonly last: boolean;
-}) {
-    const market = useMarketDataApi();
-    const row = useRef<HTMLTableRowElement>(null);
-    const [visible, setVisible] = useState(false);
-    const [quote, setQuote] = useState<{ price: string; time: string } | null>(null);
-    const [state, setState] = useState("尚未读取");
-    const preparing = useRef(false);
-    const [nativePreparing, setNativePreparing] = useState(false);
-    const [nativeMessage, setNativeMessage] = useState<string | null>(null);
-    const [refreshGeneration, setRefreshGeneration] = useState(0);
-    const prepareNative = async () => {
-        if (source === undefined || preparing.current) return;
-        preparing.current = true;
-        setNativePreparing(true);
-        setNativeMessage("正在检查原生历史覆盖…");
-        try {
-            const reference = onlyMarketDataSourceReference(source);
-            const semantic = source.time_bar_capability.provider_base_semantic;
-            const result = await market.queryBars(reference, {
-                instrument_id: instrumentId,
-                anchor_kind: "LATEST_CLOSED",
-                target_bar_count: 1,
-                bar_semantic: semantic
-            });
-            onlyAssertMarketDataBarsAuthority(
-                {
-                    reference,
-                    expectedSourceId: source.source_id,
-                    instrumentId,
-                    barSemantic: semantic,
-                    anchorKind: "LATEST_CLOSED",
-                    targetBarCount: 1
-                },
-                result
-            );
-            const ranges = result.coverage.planned_acquisition_ranges;
-            if (result.coverage.status === "COMPLETE") {
-                if (result.bars.length !== 1 || ranges.length !== 0)
-                    throw new MarketDataWebError("CONTRACT_ERROR", "原生历史证明不一致");
-            } else if (result.coverage.status !== "INCOMPLETE" || ranges.length === 0) {
-                throw new MarketDataWebError(
-                    "MARKET_DATA_RANGE_EVIDENCE_UNAVAILABLE",
-                    "没有可受理的准备范围"
-                );
-            }
-            if (
-                ranges.some(
-                    (range) =>
-                        BigInt(range.start_ns) >= BigInt(range.end_ns) ||
-                        BigInt(range.start_ns) < BigInt(result.resolved_start_ns) ||
-                        BigInt(range.end_ns) > BigInt(result.resolved_end_ns)
-                )
-            )
-                throw new MarketDataWebError("CONTRACT_ERROR", "原生准备范围超出已证明窗口");
-            let pending = false;
-            for (const range of result.coverage.planned_acquisition_ranges) {
-                const acquired = await market.createAcquisition(reference, {
-                    instrument_id: instrumentId,
-                    start_ns: range.start_ns,
-                    end_ns: range.end_ns,
-                    bar_semantic: semantic
-                });
-                if (
-                    acquired.source_id !== source.source_id ||
-                    acquired.instrument_id !== instrumentId ||
-                    acquired.start_ns !== range.start_ns ||
-                    acquired.end_ns !== range.end_ns ||
-                    JSON.stringify(marketDataBarSemanticSchema.parse(acquired.bar_semantic)) !==
-                        JSON.stringify(marketDataBarSemanticSchema.parse(semantic))
-                )
-                    throw new MarketDataWebError("CONTRACT_ERROR", "准备结果不匹配原生请求");
-                if (acquired.status === "FAILED")
-                    throw new MarketDataWebError(
-                        "MARKET_DATA_ACQUISITION_FAILED",
-                        acquired.failure_detail ?? "原生准备失败"
-                    );
-                pending ||= acquired.status !== "COMPLETE";
-            }
-            setNativeMessage(
-                pending
-                    ? "原生准备尚未完成，可稍后核对或明确准备；价格以已存历史为准。"
-                    : "原生准备请求已处理；价格以已存历史为准。"
-            );
-            setRefreshGeneration((current) => current + 1);
-        } catch (error) {
-            setNativeMessage(
-                `原生行情准备未确认：${error instanceof MarketDataWebError ? error.code : "UNAVAILABLE"}；不会自动重交。`
-            );
-        } finally {
-            preparing.current = false;
-            setNativePreparing(false);
-        }
-    };
-    useEffect(() => {
-        const element = row.current;
-        if (element === null) return;
-        const observer = new IntersectionObserver(([entry]) => {
-            setVisible(entry?.isIntersecting ?? false);
-        });
-        observer.observe(element);
-        return () => {
-            observer.disconnect();
-        };
-    }, []);
-    useEffect(() => {
-        if (!enabled || !visible || source === undefined) return;
+        if (!enabled || !pageVisible || active === undefined) return;
         const controller = new AbortController();
         let timer: number | undefined;
+        const cancelled = () => controller.signal.aborted;
+        const membership = new Set(active.members.map(watchlistMemberKey));
+        // A single serialized cycle batches visible members by exact Source (25 per Query).
         const refresh = async () => {
-            setState("读取中 / 上次价格可能已过期");
-            try {
-                const reference = onlyMarketDataSourceReference(source);
-                const semantic = source.time_bar_capability.provider_base_semantic;
-                const read = quoteReads.then(() => {
-                    if (controller.signal.aborted)
-                        throw new DOMException("Cancelled", "AbortError");
-                    return market.queryLatestBar(
-                        reference,
-                        instrumentId,
-                        semantic,
-                        controller.signal
-                    );
-                });
-                quoteReads = read.catch(() => undefined);
-                const result = await read;
-                if (controller.signal.aborted) return;
-                if (result === null) {
-                    setQuote(null);
-                    setState("暂无已存历史");
-                } else {
-                    onlyAssertMarketDataBarsAuthority(
-                        {
-                            reference,
-                            expectedSourceId: source.source_id,
-                            instrumentId,
-                            barSemantic: semantic,
-                            anchorKind: "BEFORE_TIME",
-                            beforeNs: result.requested_before_ns ?? "",
-                            targetBarCount: 1
-                        },
-                        result
-                    );
-                    const bar =
-                        result.coverage.status === "COMPLETE" ? result.bars.at(-1) : undefined;
-                    setQuote(
-                        bar === undefined
-                            ? null
-                            : {
-                                  price: bar.close,
-                                  time: new Date(
-                                      Number(BigInt(bar.bar_end_ns) / 1_000_000n)
-                                  ).toISOString()
-                              }
-                    );
-                    setState(bar === undefined ? "历史证明不可用" : "已收盘历史 / 非实时成交价");
-                }
-            } catch {
-                if (!controller.signal.aborted) setState("行情不可用 / 上次价格已过期");
+            const groups = new Map<MarketDataSource, WatchlistMember[]>();
+            for (const member of active.members) {
+                if (!visible.has(watchlistMemberKey(member))) continue;
+                const source = sourceFor(sources, member);
+                if (source !== undefined)
+                    groups.set(source, [...(groups.get(source) ?? []), member]);
             }
-            if (!controller.signal.aborted) timer = window.setTimeout(() => void refresh(), 15_000);
+            for (const [source, members] of groups)
+                for (let offset = 0; offset < members.length; offset += 25) {
+                    if (cancelled()) return;
+                    const batch = members.slice(offset, offset + 25);
+                    setPrices((previous) => {
+                        const next = new Map([...previous].filter(([key]) => membership.has(key)));
+                        for (const member of batch)
+                            next.set(watchlistMemberKey(member), {
+                                quote: previous.get(watchlistMemberKey(member))?.quote ?? null,
+                                status: "正在更新，显示上次报价"
+                            });
+                        return next;
+                    });
+                    try {
+                        const result = await market.queryQuotes(
+                            source,
+                            batch.map((member) => member.instrument_id),
+                            AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)])
+                        );
+                        if (cancelled()) return;
+                        setPrices((previous) => {
+                            const next = new Map(
+                                [...previous].filter(([key]) => membership.has(key))
+                            );
+                            for (const member of batch) {
+                                const quote =
+                                    result.quotes.find(
+                                        (item) => item.instrument_id === member.instrument_id
+                                    ) ?? null;
+                                next.set(watchlistMemberKey(member), {
+                                    quote,
+                                    status:
+                                        quote?.status === "AVAILABLE"
+                                            ? ""
+                                            : result.status === "TIMEOUT"
+                                              ? "报价超时"
+                                              : result.status === "UNSUPPORTED"
+                                                ? "此来源不支持报价"
+                                                : result.status === "UNAVAILABLE"
+                                                  ? "行情来源暂不可用"
+                                                  : "暂无报价"
+                                });
+                            }
+                            return next;
+                        });
+                    } catch {
+                        if (cancelled()) return;
+                        setPrices((previous) => {
+                            const next = new Map(
+                                [...previous].filter(([key]) => membership.has(key))
+                            );
+                            for (const member of batch)
+                                next.set(watchlistMemberKey(member), {
+                                    quote: previous.get(watchlistMemberKey(member))?.quote ?? null,
+                                    status: "更新失败，报价可能已过期"
+                                });
+                            return next;
+                        });
+                    }
+                }
+            if (!cancelled()) timer = window.setTimeout(() => void refresh(), 15_000);
         };
         void refresh();
         return () => {
             controller.abort();
             window.clearTimeout(timer);
         };
-    }, [market, source, instrumentId, enabled, visible, refreshGeneration]);
+    }, [active, market, enabled, pageVisible, sources, visible]);
+    const blocked = busy || pending !== null || book === null;
     return (
-        <tr ref={row}>
+        <section className="watchlists" aria-label="自选行情">
+            <header className="watchlists__header">
+                {active === undefined ? (
+                    <strong>自选</strong>
+                ) : (
+                    <select
+                        aria-label="自选列表"
+                        value={active.list_id}
+                        onChange={(event) => {
+                            controller.setSelected(event.target.value);
+                        }}
+                    >
+                        {book?.lists.map((list) => (
+                            <option key={list.list_id} value={list.list_id}>
+                                {list.name}
+                            </option>
+                        ))}
+                    </select>
+                )}
+                <button
+                    type="button"
+                    className="watchlists__icon"
+                    aria-label="搜索并添加商品"
+                    onClick={onSearch}
+                >
+                    ＋
+                </button>
+                <details className="watchlists__manage">
+                    <summary aria-label="管理自选列表">⋯</summary>
+                    <div className="watchlists__menu">
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void controller.reload()}
+                        >
+                            重新加载自选
+                        </button>
+                        <form
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                if (book !== null && name.trim())
+                                    void save([
+                                        ...book.lists,
+                                        { list_id: createUuidV4(), name: name.trim(), members: [] }
+                                    ]).then((saved) => {
+                                        if (saved) setName("");
+                                    });
+                            }}
+                        >
+                            <label>
+                                新列表名称
+                                <input
+                                    value={name}
+                                    maxLength={64}
+                                    onChange={(event) => {
+                                        setName(event.target.value);
+                                    }}
+                                    disabled={blocked}
+                                />
+                            </label>
+                            <button type="submit" disabled={blocked || !name.trim()}>
+                                创建列表
+                            </button>
+                        </form>
+                        {active === undefined ? null : (
+                            <>
+                                <form
+                                    onSubmit={(event) => {
+                                        event.preventDefault();
+                                        if (book !== null && rename.trim())
+                                            void save(
+                                                book.lists.map((list) =>
+                                                    list.list_id === active.list_id
+                                                        ? { ...list, name: rename.trim() }
+                                                        : list
+                                                )
+                                            ).then((saved) => {
+                                                if (saved) setRename("");
+                                            });
+                                    }}
+                                >
+                                    <label>
+                                        列表新名称
+                                        <input
+                                            value={rename}
+                                            maxLength={64}
+                                            placeholder={active.name}
+                                            disabled={blocked}
+                                            onChange={(event) => {
+                                                setRename(event.target.value);
+                                            }}
+                                        />
+                                    </label>
+                                    <button type="submit" disabled={blocked || !rename.trim()}>
+                                        重命名列表
+                                    </button>
+                                </form>
+                                <button
+                                    type="button"
+                                    disabled={blocked}
+                                    onClick={() => {
+                                        if (
+                                            book !== null &&
+                                            window.confirm(
+                                                `删除列表“${active.name}”？行情历史将保留。`
+                                            )
+                                        )
+                                            void save(
+                                                book.lists.filter(
+                                                    (list) => list.list_id !== active.list_id
+                                                )
+                                            );
+                                    }}
+                                >
+                                    删除列表
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </details>
+            </header>
+            {message === null ? (
+                book === null ? (
+                    <p role="status">正在加载自选…</p>
+                ) : null
+            ) : (
+                <p className="watchlists__status" role={message === "已保存" ? "status" : "alert"}>
+                    {message}
+                </p>
+            )}
+            {pending === null ? null : (
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void controller.resolvePending()}
+                >
+                    核对提交结果
+                </button>
+            )}
+            {active === undefined ? (
+                <p className="panel-note">还没有自选，在搜索结果中点 ☆ 添加。</p>
+            ) : (
+                <div className="watchlists__rows">
+                    <table className="data-table">
+                        <caption className="visually-hidden">{active.name}</caption>
+                        <thead>
+                            <tr>
+                                <th>商品</th>
+                                <th>最新价</th>
+                                <th title="股票等较上一交易日收盘；加密现货为24小时变动。具体以行详情为准。">
+                                    涨跌幅
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {active.members.map((member, index) => {
+                                const key = watchlistMemberKey(member);
+                                return (
+                                    <WatchlistRow
+                                        key={key}
+                                        member={member}
+                                        source={sourceFor(sources, member)}
+                                        price={prices.get(key)}
+                                        current={enabled && pageVisible && visible.has(key)}
+                                        onVisibility={onVisibility}
+                                        onSelect={() =>
+                                            onSelect(member.source, member.instrument_id)
+                                        }
+                                        blocked={blocked}
+                                        onRemove={() => void controller.toggle(member)}
+                                        onMove={(delta) => {
+                                            if (book === null) return;
+                                            const target = index + delta;
+                                            if (target < 0 || target >= active.members.length)
+                                                return;
+                                            const members = [...active.members];
+                                            members.splice(index, 1);
+                                            members.splice(target, 0, member);
+                                            void save(
+                                                book.lists.map((list) =>
+                                                    list.list_id === active.list_id
+                                                        ? { ...list, members }
+                                                        : list
+                                                )
+                                            );
+                                        }}
+                                        first={index === 0}
+                                        last={index === active.members.length - 1}
+                                    />
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    {active.members.length === 0 ? (
+                        <p className="panel-note">列表为空，在搜索结果中点 ☆ 添加。</p>
+                    ) : null}
+                </div>
+            )}
+        </section>
+    );
+}
+
+function WatchlistRow({
+    member,
+    source,
+    price,
+    current,
+    onVisibility,
+    onSelect,
+    onRemove,
+    onMove,
+    blocked,
+    first,
+    last
+}: {
+    readonly member: WatchlistMember;
+    readonly source: MarketDataSource | undefined;
+    readonly price: Price | undefined;
+    readonly current: boolean;
+    readonly onVisibility: (key: string, visible: boolean) => void;
+    readonly onSelect: () => void | Promise<void>;
+    readonly onRemove: () => void;
+    readonly onMove: (delta: number) => void;
+    readonly blocked: boolean;
+    readonly first: boolean;
+    readonly last: boolean;
+}) {
+    const element = useRef<HTMLTableRowElement>(null);
+    const key = watchlistMemberKey(member);
+    useEffect(() => {
+        const node = element.current;
+        if (node === null) return;
+        if (typeof IntersectionObserver === "undefined") {
+            onVisibility(key, true);
+            return () => {
+                onVisibility(key, false);
+            };
+        }
+        const observer = new IntersectionObserver(([entry]) => {
+            onVisibility(key, entry?.isIntersecting ?? false);
+        });
+        observer.observe(node);
+        return () => {
+            observer.disconnect();
+            onVisibility(key, false);
+        };
+    }, [key, onVisibility]);
+    const quote = price?.quote;
+    const time =
+        quote?.ts_event_ns == null
+            ? null
+            : new Date(Number(BigInt(quote.ts_event_ns) / 1_000_000n));
+    const timeCopy =
+        time === null || !Number.isFinite(time.getTime()) ? "无报价时间" : time.toISOString();
+    const status =
+        source === undefined
+            ? "来源不可用"
+            : !current
+              ? "未更新，报价可能已过期"
+              : (price?.status ?? "正在读取报价…");
+    const basis =
+        quote?.change_basis === "ROLLING_24H"
+            ? "24小时变动"
+            : quote?.change_basis === "PREVIOUS_CLOSE"
+              ? "较上一交易日收盘"
+              : "暂无变动基准";
+    const symbol = member.instrument_id.slice(0, member.instrument_id.lastIndexOf("."));
+    return (
+        <tr
+            ref={element}
+            data-testid="watchlist-row"
+            title={`${member.instrument_id} · ${source?.display_name ?? "来源不可用"} · ${timeCopy} · ${basis} · 原始报价 ${quote?.last_price ?? "—"}`}
+        >
             <td>
                 <button
                     type="button"
+                    className="watchlists__symbol"
                     disabled={source === undefined}
                     onClick={() => void onSelect()}
                 >
-                    {instrumentId}
+                    {symbol}
                 </button>
-                <div className="watchlists__member-actions">
-                    <button
-                        type="button"
-                        aria-label={`上移 ${instrumentId}`}
-                        disabled={first}
-                        onClick={() => {
-                            onMove(-1);
-                        }}
-                    >
-                        ↑
-                    </button>
-                    <button
-                        type="button"
-                        aria-label={`下移 ${instrumentId}`}
-                        disabled={last}
-                        onClick={() => {
-                            onMove(1);
-                        }}
-                    >
-                        ↓
-                    </button>
-                    <button type="button" aria-label={`移除 ${instrumentId}`} onClick={onRemove}>
-                        移除
-                    </button>
-                </div>
-                <button
-                    type="button"
-                    aria-label={`准备 ${instrumentId} 图表行情`}
-                    disabled={source === undefined}
-                    onClick={() => void onPrepare()}
-                >
-                    准备图表行情
-                </button>
+                <small>{source?.display_name ?? "来源不可用"}</small>
+                <details className="watchlists__row-menu">
+                    <summary aria-label={`管理 ${member.instrument_id}`}>⋯</summary>
+                    <div>
+                        <button
+                            type="button"
+                            disabled={blocked || first}
+                            onClick={() => {
+                                onMove(-1);
+                            }}
+                        >
+                            上移
+                        </button>
+                        <button
+                            type="button"
+                            disabled={blocked || last}
+                            onClick={() => {
+                                onMove(1);
+                            }}
+                        >
+                            下移
+                        </button>
+                        <button type="button" disabled={blocked} onClick={onRemove}>
+                            移出自选
+                        </button>
+                    </div>
+                </details>
             </td>
             <td>
-                <span className="value">{quote?.price ?? "—"}</span>
-                <small>
-                    {source === undefined
-                        ? "数据源不可用"
-                        : !enabled || !visible
-                          ? "未更新 / 上次价格可能已过期"
-                          : state}
-                </small>
-                <small>{quote?.time ?? "无数据时间"}</small>
-                <button
-                    type="button"
-                    aria-label={`准备 ${instrumentId} 原生行情`}
-                    disabled={source === undefined || nativePreparing}
-                    onClick={() => void prepareNative()}
-                >
-                    准备原生行情
-                </button>
-                {nativeMessage === null ? null : <small role="status">{nativeMessage}</small>}
+                <span className="value">
+                    {quote?.last_price == null ? "—" : quoteDisplay(quote.last_price)}
+                </span>
+                {status ? <small role="status">{status}</small> : null}
+            </td>
+            <td
+                title={basis}
+                className={
+                    quote?.change_pct?.startsWith("-") ? "watchlists__down" : "watchlists__up"
+                }
+            >
+                {quote?.change_pct == null ? "—" : `${quote.change_pct}%`}
             </td>
         </tr>
     );

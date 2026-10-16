@@ -89,7 +89,7 @@ def test_exact_instrument_lookup_projects_canonical_precision(catalog: OnlyBinan
     assert json.loads(_FakeHttp.calls[0][1]["symbols"]) == ["BTCUSDT", "ETHUSDT"]
 
 
-def test_symbol_search_is_bounded_to_the_w1_reference_universe_and_never_dumps_the_catalogue(
+def test_symbol_search_includes_the_provider_catalogue_and_filters_before_limit(
     catalog: OnlyBinanceSpotInstrumentCatalog,
 ) -> None:
     config = OnlyBinanceSpotDataSourceConfig()
@@ -99,18 +99,18 @@ def test_symbol_search_is_bounded_to_the_w1_reference_universe_and_never_dumps_t
     found = catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="eth"))
     assert [str(item.instrument.instrument_id) for item in found] == ["ETHUSDT.BINANCE"]
     assert found[0].instrument.status.value == "ACTIVE"
+    assert _FakeHttp.calls[-1][1]["showPermissionSets"] == "false"
 
-    # A symbol outside the approved W1 universe neither appears in search nor silently
-    # expands the admitted instrument scope when it is requested by exact identity.
-    assert catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="halted")) == ()
+    found = catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="halted"))
+    assert [str(item.instrument.instrument_id) for item in found] == ["HALTEDUSDT.BINANCE"]
+    exact = catalog.list_instruments(
+        OnlyDataSourceInstrumentCatalogRequestV1(config, instrument_ids=("HALTEDUSDT.BINANCE",))
+    )
+    assert len(exact) == 1
     assert (
-        catalog.list_instruments(
-            OnlyDataSourceInstrumentCatalogRequestV1(config, instrument_ids=("HALTEDUSDT.BINANCE",))
-        )
+        catalog.list_instruments(OnlyDataSourceInstrumentCatalogRequestV1(config, query="eth", asset_class="EQUITY"))
         == ()
     )
-    for _endpoint, params in _FakeHttp.calls:
-        assert set(json.loads(params["symbols"])) <= {"BTCUSDT", "ETHUSDT"}
 
 
 def test_approved_symbol_status_is_projected(
@@ -308,3 +308,53 @@ def test_only_binance_raw_symbol_rejects_foreign_venues() -> None:
     assert only_binance_raw_symbol("btcusdt.BINANCE") == "BTCUSDT"
     with pytest.raises(Exception, match="BINANCE_INSTRUMENT_ID_INVALID"):
         only_binance_raw_symbol("600519.SH")
+
+
+def test_quotes_are_provider_tickers_with_explicit_rolling_basis(monkeypatch: pytest.MonkeyPatch) -> None:
+    from onlyalpha_plugin_binance.spot.data_source import instrument_catalog as module
+
+    from onlyalpha.plugin.data_source import OnlyDataSourceQuoteRequestV1
+
+    class TickerHttp:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def get_json(self, path: str, params: dict[str, str]) -> bytes:
+            assert path == "/api/v3/ticker/24hr"
+            return json.dumps(
+                [{"symbol": "BTCUSDT", "lastPrice": "123.45", "priceChangePercent": "1.25", "closeTime": 1700000000000}]
+            ).encode()
+
+    monkeypatch.setattr(module, "OnlyBinancePublicHttpClient", TickerHttp)
+    factory = OnlyBinanceSpotDataSourceFactory()
+    assert factory.discovery_capabilities(OnlyBinanceSpotDataSourceConfig()).asset_classes == ("CRYPTOCURRENCY",)
+    quotes = factory.quotes(
+        OnlyDataSourceQuoteRequestV1(OnlyBinanceSpotDataSourceConfig(), ("BTCUSDT.BINANCE",), 12345.0)
+    )
+    assert quotes[0].last_price == "123.45"
+    assert quotes[0].change_pct == "1.25"
+    assert quotes[0].change_basis == "ROLLING_24H"
+    assert quotes[0].ts_event_ns == 1700000000000000000
+
+
+@pytest.mark.parametrize("symbol,base,quote", [("AUSDT", "A", "USDT"), ("BTCU", "BTC", "U")])
+def test_catalogue_preserves_single_character_base_and_quote_currency(
+    catalog: OnlyBinanceSpotInstrumentCatalog,
+    monkeypatch: pytest.MonkeyPatch,
+    symbol: str,
+    base: str,
+    quote: str,
+) -> None:
+    raw = _symbol(symbol, tick="0.01000000", step="0.00001000", base=base)
+    raw["quoteAsset"] = quote
+    monkeypatch.setattr(_FakeHttp, "payload", {"timezone": "UTC", "exchangeFilters": [], "symbols": [raw]})
+    found = catalog.list_instruments(
+        OnlyDataSourceInstrumentCatalogRequestV1(
+            OnlyBinanceSpotDataSourceConfig(),
+            instrument_ids=(f"{symbol}.BINANCE",),
+        )
+    )
+    assert len(found) == 1
+    assert found[0].instrument.base_currency.code == base
+    assert found[0].instrument.quote_currency.code == quote
+    assert str(found[0].instrument.instrument_id) == f"{symbol}.BINANCE"

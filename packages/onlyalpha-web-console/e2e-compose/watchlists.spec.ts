@@ -1,162 +1,369 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
-// Operates the actual Shipping UI and existing dev Authority; no API mocks/seeding.
+// Actual Shipping UI and existing dev Authority; no API mocks, seeding or data resets.
+const savedName = "W4验收 已排序20261015";
+const temporaryNames = ["W4验收 日常20261015", "W4验收 趋势20261015"];
+const panelFor = (page: Page) => page.getByRole("region", { name: "自选行情" });
+const rowFor = (page: Page, symbol: string) =>
+    panelFor(page)
+        .locator("tbody tr")
+        .filter({
+            has: page.getByRole("button", { name: symbol, exact: true })
+        });
+
+async function sourceControl(page: Page) {
+    const control = page.getByRole("combobox", { name: "数据源", exact: true });
+    if (!(await control.isVisible())) await page.getByText("行情设置", { exact: true }).click();
+    return control;
+}
+
+async function listMenu(panel: Locator, open = true) {
+    const menu = panel.locator("details.watchlists__manage");
+    if (((await menu.getAttribute("open")) !== null) !== open)
+        await menu.getByLabel("管理自选列表", { exact: true }).click();
+}
+
+async function rowAction(page: Page, symbol: string, action: string) {
+    const row = rowFor(page, symbol);
+    const control = row.getByRole("button", { name: action, exact: true });
+    if (!(await control.isVisible()))
+        await row.getByLabel(`管理 ${symbol}.BINANCE`, { exact: true }).click();
+    await control.click();
+    if (action !== "移出自选")
+        await row.getByLabel(`管理 ${symbol}.BINANCE`, { exact: true }).click();
+}
+
+async function star(page: Page, symbol: string, sourceName: string) {
+    await panelFor(page).getByRole("button", { name: "搜索并添加商品", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "商品搜索" });
+    await dialog.getByRole("searchbox", { name: "商品代码或名称" }).fill(symbol);
+    const result = dialog.getByRole("listitem").filter({
+        has: page.getByRole("button", {
+            name: `查看 ${symbol} · BINANCE · ${sourceName}`,
+            exact: true
+        })
+    });
+    await result.getByRole("button", { name: `加入自选 ${symbol}`, exact: true }).click();
+    await expect(
+        result.getByRole("button", { name: `移出自选 ${symbol}`, exact: true })
+    ).toHaveAttribute("aria-pressed", "true");
+    await dialog.getByRole("button", { name: "关闭商品搜索", exact: true }).click();
+}
+
+async function openInspector(page: Page) {
+    await page
+        .getByRole("toolbar", { name: "工作区面板" })
+        .getByRole("button", { name: "检查器", exact: true })
+        .click();
+    return page.getByRole("table", { name: "行情检查器" });
+}
+
+async function openWatchlist(page: Page) {
+    await page
+        .getByRole("complementary", { name: "上下文面板" })
+        .getByRole("button", { name: "自选", exact: true })
+        .click();
+    await panelFor(page).getByLabel("自选列表", { exact: true }).selectOption({ label: savedName });
+}
+
+// The named lists are created only by this case. Existing names cause an explicit
+// precondition failure; they are never silently adopted, overwritten or deleted.
 test("Owner manages shared ordered Watchlists through Shipping UI", async ({
     page,
     browser
 }, testInfo) => {
     await page.goto("/");
-    const panel = page.getByRole("region", { name: "自选列表管理" });
-    await expect(panel.getByLabel("新列表名称")).toBeVisible();
-    // Explicitly stop the main chart while testing read-only list membership.
-    await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("");
-    const source = panel.getByLabel("列表行情来源");
+    const panel = panelFor(page);
+    await listMenu(panel);
+    await expect(panel.getByLabel("新列表名称")).toBeEnabled();
+    for (const name of [...temporaryNames, savedName])
+        await expect(panel.getByRole("option", { name, exact: true })).toHaveCount(0);
+    const source = await sourceControl(page);
     const option = source.getByRole("option").filter({ hasText: "Binance Spot" });
     await expect(option).toHaveCount(1);
     const sourceLabel = await option.innerText();
-    const names = ["W4验收 日常20261015", "W4验收 趋势20261015"];
+    const sourceName = sourceLabel.split(" · ").slice(0, -1).join(" · ");
+    expect(sourceName).not.toBe("");
+    // Stop the main chart before observing that stars/quotes acquire no K-line history.
+    await source.selectOption("");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "0"
+    );
     let acquisitions = 0;
     page.on("request", (request) => {
         if (request.method() === "POST" && request.url().includes("/market-data/acquisitions"))
             acquisitions++;
     });
-    for (const name of names) {
+    for (const name of temporaryNames) {
         await panel.getByLabel("新列表名称").fill(name);
-        await source.selectOption({ label: sourceLabel });
         await panel.getByRole("button", { name: "创建列表", exact: true }).click();
         await expect(
             panel.getByLabel("自选列表").getByRole("option", { name, exact: true })
         ).toBeAttached();
     }
+    await listMenu(panel, false);
     const selected = panel.getByLabel("自选列表");
-    await selected.selectOption({ label: names[0] });
-    for (const symbol of ["BTCUSDT", "ETHUSDT"]) {
-        await panel.getByLabel("搜索自选标的").fill(symbol);
-        await panel.getByRole("button", { name: "查找标的", exact: true }).click();
-        await panel.getByRole("button", { name: `加入 ${symbol}`, exact: true }).click();
-        await expect(panel.getByRole("button", { name: "已加入", exact: true })).toBeDisabled();
-    }
-    await expect(panel.getByRole("row").filter({ hasText: "BTCUSDT.BINANCE" })).toHaveCount(1);
-    await panel.getByRole("button", { name: "上移 ETHUSDT.BINANCE", exact: true }).click();
-    await expect(panel.locator("tbody tr").first()).toContainText("ETHUSDT.BINANCE");
-    await panel.getByLabel("列表新名称").fill("W4验收 已排序20261015");
-    await panel.getByRole("button", { name: "重命名列表", exact: true }).click();
+    await selected.selectOption({ label: temporaryNames[0] });
+    for (const symbol of ["BTCUSDT", "ETHUSDT"]) await star(page, symbol, sourceName);
+    await expect(rowFor(page, "BTCUSDT")).toHaveCount(1);
+    await rowAction(page, "ETHUSDT", "上移");
     await expect(
-        selected.getByRole("option", { name: "W4验收 已排序20261015", exact: true })
-    ).toBeAttached();
-    // Removing our own membership and deleting our empty acceptance list uses the normal controls.
-    await panel.getByRole("button", { name: "移除 BTCUSDT.BINANCE", exact: true }).click();
+        panel.locator("tbody tr").first().getByRole("button", { name: "ETHUSDT", exact: true })
+    ).toBeVisible();
+    await listMenu(panel);
+    await panel.getByLabel("列表新名称").fill(savedName);
+    await panel.getByRole("button", { name: "重命名列表", exact: true }).click();
+    await expect(selected.getByRole("option", { name: savedName, exact: true })).toBeAttached();
+    await listMenu(panel, false);
+    await rowAction(page, "BTCUSDT", "移出自选");
     await expect(panel.locator("tbody tr")).toHaveCount(1);
-    await panel.getByLabel("搜索自选标的").fill("BTCUSDT");
-    await panel.getByRole("button", { name: "查找标的", exact: true }).click();
-    await panel.getByRole("button", { name: "加入 BTCUSDT", exact: true }).click();
+    await star(page, "BTCUSDT", sourceName);
     await expect(panel.locator("tbody tr")).toHaveCount(2);
-    await selected.selectOption({ label: names[1] });
+    await selected.selectOption({ label: temporaryNames[1] });
+    await listMenu(panel);
     page.once("dialog", (dialog) => void dialog.accept());
     await panel.getByRole("button", { name: "删除列表", exact: true }).click();
-    await expect(selected.getByRole("option", { name: names[1], exact: true })).toHaveCount(0);
-    await selected.selectOption({ label: "W4验收 已排序20261015" });
+    await expect(
+        selected.getByRole("option", { name: temporaryNames[1], exact: true })
+    ).toHaveCount(0);
+    await selected.selectOption({ label: savedName });
+    await listMenu(panel, false);
     expect(acquisitions).toBe(0);
-    // A second authorized page reads the same committed server configuration.
+    await expect(panel.getByRole("columnheader")).toHaveText(["商品", "最新价", "涨跌幅"]);
     const otherContext = await browser.newContext();
-    const other = await otherContext.newPage();
-    await other.goto("/");
-    const shared = other.getByRole("region", { name: "自选列表管理" });
-    await shared.getByLabel("自选列表").selectOption({ label: "W4验收 已排序20261015" });
-    await expect(shared.locator("tbody tr").first()).toContainText("ETHUSDT.BINANCE");
-    await expect(shared.locator("tbody tr")).toHaveCount(2);
-    await otherContext.close();
-    await panel.locator("tbody tr").first().scrollIntoViewIfNeeded();
-    await expect(panel.getByText(/已收盘历史|暂无已存历史|行情不可用/).first()).toBeVisible();
+    try {
+        const other = await otherContext.newPage();
+        await other.goto("/");
+        const shared = panelFor(other);
+        await shared.getByLabel("自选列表").selectOption({ label: savedName });
+        await expect(
+            shared.locator("tbody tr").first().getByRole("button", { name: "ETHUSDT", exact: true })
+        ).toBeVisible();
+        await expect(shared.locator("tbody tr")).toHaveCount(2);
+    } finally {
+        await otherContext.close();
+    }
     await page.screenshot({ path: testInfo.outputPath("watchlists-shipping.png"), fullPage: true });
 });
 
-test("saved Watchlists and existing market history survive a real service restart", async ({
+test("saved Watchlists and existing history remain readable after an externally performed service restart", async ({
     page
 }, testInfo) => {
-    // Precondition: the preceding Shipping UI case created this book, then the operator
-    // stopped and started the same dev service while retaining its existing stores.
+    // Required external precondition: the prior case saved this exact list, then
+    // the operator stopped/started the same dev services retaining their stores.
+    // This browser case proves the reader; it cannot alone certify that restart.
+    let acquisitions = 0;
+    page.on("request", (request) => {
+        if (request.method() === "POST" && request.url().includes("/market-data/acquisitions"))
+            acquisitions++;
+    });
+    const existingHistory = page.waitForResponse(
+        (response) =>
+            new URL(response.url()).pathname === "/api/v2/market-data/bars" &&
+            response.request().method() === "GET"
+    );
     await page.goto("/");
-    const panel = page.getByRole("region", { name: "自选列表管理" });
-    await panel.getByLabel("自选列表").selectOption({ label: "W4验收 已排序20261015" });
-    await expect(panel.locator("tbody tr")).toHaveCount(2);
-    await expect(panel.locator("tbody tr").first()).toContainText("ETHUSDT.BINANCE");
-    await expect(panel.locator("tbody tr").last()).toContainText("BTCUSDT.BINANCE");
-    // Real dev trace: Source discovery + Instrument lookup + owning history proof take ~5 s.
-    // Use the existing 10 s interaction budget for this sequential first-load pipeline.
-    await expect(page.getByText(/历史投影 [0-9a-f]{12}/)).toBeVisible({ timeout: 10_000 });
-    await panel.locator("tbody tr").first().scrollIntoViewIfNeeded();
-    await expect(panel.getByText(/已收盘历史|暂无已存历史|行情不可用/).first()).toBeVisible();
+    await panelFor(page).getByLabel("自选列表").selectOption({ label: savedName });
+    await expect(panelFor(page).locator("tbody tr")).toHaveCount(2);
+    await expect(
+        panelFor(page)
+            .locator("tbody tr")
+            .first()
+            .getByRole("button", { name: "ETHUSDT", exact: true })
+    ).toBeVisible();
+    await expect(
+        panelFor(page)
+            .locator("tbody tr")
+            .last()
+            .getByRole("button", { name: "BTCUSDT", exact: true })
+    ).toBeVisible();
+    const response = await existingHistory;
+    expect(response.ok()).toBe(true);
+    const history = (await response.json()) as {
+        coverage: { status: string };
+        bars: unknown[];
+        revision_evidence: unknown[];
+        history_projection_fingerprint: string;
+    };
+    expect(history.coverage.status).toBe("COMPLETE");
+    expect(history.bars.length).toBeGreaterThan(0);
+    expect(history.revision_evidence.length).toBeGreaterThan(0);
+    expect(acquisitions).toBe(0);
+    const inspector = await openInspector(page);
+    await expect(
+        inspector.getByRole("cell", { name: history.history_projection_fingerprint, exact: true })
+    ).toBeVisible({ timeout: 10_000 });
+    await testInfo.attach("existing-owning-history-after-restart", {
+        contentType: "application/json",
+        body: JSON.stringify(history)
+    });
     await page.screenshot({
         path: testInfo.outputPath("watchlists-after-restart.png"),
         fullPage: true
     });
 });
 
-test("native Watchlist preparation preserves chart settings", async ({ page }, testInfo) => {
-    await page.goto("/");
-    const panel = page.getByRole("region", { name: "自选列表管理" });
-    await panel.getByLabel("自选列表").selectOption({ label: "W4验收 已排序20261015" });
-    // Real dev trace: Source discovery + Instrument lookup + owning history proof take ~5 s.
-    // Use the existing 10 s interaction budget for this sequential first-load pipeline.
-    await expect(page.getByText(/历史投影 [0-9a-f]{12}/)).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("combobox", { name: "图表类型", exact: true }).selectOption("LINE");
-    const ether = panel.locator("tbody tr").filter({ hasText: "ETHUSDT.BINANCE" });
-    await ether.getByRole("button", { name: "准备 ETHUSDT.BINANCE 原生行情", exact: true }).click();
-    // Measured real one-Bar acquisition takes 6.1 s; await its visible command outcome
-    // under the existing 10 s interaction budget before asserting the read projection.
-    await expect(
-        ether.getByRole("button", { name: "准备 ETHUSDT.BINANCE 原生行情", exact: true })
-    ).toBeEnabled({ timeout: 10_000 });
-    await expect(ether).toContainText("原生准备请求已处理");
-    await expect(ether).toContainText("已收盘历史 / 非实时成交价");
-    await expect(ether.locator(".value")).not.toHaveText("—");
-    await expect(page.getByRole("combobox", { name: "时间周期", exact: true })).toHaveValue("15");
-    await expect(page.getByRole("combobox", { name: "图表类型", exact: true })).toHaveValue("LINE");
-    await panel.getByRole("button", { name: "上移 BTCUSDT.BINANCE", exact: true }).click();
-    await expect(panel.locator("tbody tr").first()).toContainText("BTCUSDT.BINANCE");
-    await ether.getByRole("button", { name: "上移 ETHUSDT.BINANCE", exact: true }).click();
-    await expect(panel.locator("tbody tr").first()).toContainText("ETHUSDT.BINANCE");
-    await ether.scrollIntoViewIfNeeded();
-    await page.screenshot({
-        path: testInfo.outputPath("watchlists-native-preparation.png"),
-        fullPage: true
-    });
-});
-
-test("chart preparation remains explicit when a priced Watchlist member lacks chart history", async ({
+test("visible Watchlist quotes are read-only and row selection preserves chart settings", async ({
     page
 }, testInfo) => {
-    // Measured preparation: exact lookup 2.3 s + planning 2.4 s + acquisition 8.4 s
-    // + owning projection ~3 s. This is the real external acquisition interaction budget.
-    test.setTimeout(40_000);
     await page.goto("/");
-    const panel = page.getByRole("region", { name: "自选列表管理" });
-    await panel.getByLabel("自选列表").selectOption({ label: "W4验收 已排序20261015" });
-    await page.getByRole("combobox", { name: "图表类型", exact: true }).selectOption("LINE");
-    const ether = panel.locator("tbody tr").filter({ hasText: "ETHUSDT.BINANCE" });
+    await (await sourceControl(page)).selectOption("");
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "0"
+    );
     let acquisitions = 0;
     page.on("request", (request) => {
         if (request.method() === "POST" && request.url().includes("/market-data/acquisitions"))
             acquisitions++;
     });
-    await ether.getByRole("button", { name: "ETHUSDT.BINANCE", exact: true }).click();
-    // The previous preparation now durably covers 15m. A normal period change after
-    // read-only row selection establishes a new missing 30m chart window through UI.
-    await expect(page.getByText("ETHUSDT · 15m", { exact: true })).toBeVisible();
-    await page.getByRole("combobox", { name: "时间周期", exact: true }).selectOption("30");
-    await expect(
-        page.getByText("行情覆盖不足；请明确选择准备行情，本次选择不会自动采集").first()
-    ).toBeVisible();
+    await openInspector(page);
+    const quoteReply = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+            url.pathname === "/api/v2/market-data/quotes" &&
+            url.searchParams.getAll("instrument_ids").includes("ETHUSDT.BINANCE")
+        );
+    });
+    await openWatchlist(page);
+    const ether = rowFor(page, "ETHUSDT");
+    await ether.scrollIntoViewIfNeeded();
+    const response = await quoteReply;
+    expect(response.ok()).toBe(true);
+    const quotes = (await response.json()) as {
+        quotes: {
+            instrument_id: string;
+            status: string;
+            last_price: string | null;
+            change_pct: string | null;
+            change_basis: string | null;
+        }[];
+    };
+    const quote = quotes.quotes.find((item) => item.instrument_id === "ETHUSDT.BINANCE");
+    if (quote === undefined) throw new Error("Missing exact ETHUSDT quote");
+    expect(quote.status).toBe("AVAILABLE");
+    expect(quote.last_price).not.toBeNull();
+    expect(quote.change_basis).toBe("ROLLING_24H");
+    await expect(ether.locator(".value")).not.toHaveText("—");
+    expect(await ether.getAttribute("title")).toContain(
+        `原始报价 ${quote.last_price ?? "missing"}`
+    );
+    const displayed = await ether.locator(".value").innerText();
+    if (quote.last_price === null) throw new Error("Missing exact quote price");
+    if (/[eE]/.test(quote.last_price)) expect(displayed).toBe(quote.last_price);
+    else {
+        expect(displayed).toMatch(/^-?\d+\.\d{2,}$/);
+        const [integer, fraction = ""] = quote.last_price.split(".");
+        const [shownInteger, shownFraction = ""] = displayed.split(".");
+        expect(shownInteger).toBe(integer);
+        const precision = Math.max(fraction.length, shownFraction.length);
+        expect(shownFraction.padEnd(precision, "0")).toBe(fraction.padEnd(precision, "0"));
+    }
+    if (quote.change_pct === null) throw new Error("Missing Binance 24h change percentage");
+    await expect(ether.getByRole("cell").last()).toHaveText(`${quote.change_pct}%`);
+    await expect(ether).toHaveAttribute("title", /24小时变动/);
     expect(acquisitions).toBe(0);
-    await ether.getByRole("button", { name: "准备 ETHUSDT.BINANCE 图表行情", exact: true }).click();
-    // The measured explicit preparation pipeline is ~16 s, including owning reproof.
-    await expect(page.getByText(/历史投影 [0-9a-f]{12}/)).toBeVisible({ timeout: 20_000 });
+    await expect(ether.getByRole("cell")).toHaveCount(3);
+    await page.getByRole("combobox", { name: "图表类型", exact: true }).selectOption("LINE");
+    await ether.getByRole("button", { name: "ETHUSDT", exact: true }).click();
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready", {
+        timeout: 20_000
+    });
+    await expect(page.getByRole("combobox", { name: "时间周期", exact: true })).toHaveValue("15");
+    await expect(page.getByRole("combobox", { name: "图表类型", exact: true })).toHaveValue("LINE");
+    await rowAction(page, "BTCUSDT", "上移");
+    await expect(
+        panelFor(page)
+            .locator("tbody tr")
+            .first()
+            .getByRole("button", { name: "BTCUSDT", exact: true })
+    ).toBeVisible();
+    await rowAction(page, "ETHUSDT", "上移");
+    await expect(
+        panelFor(page)
+            .locator("tbody tr")
+            .first()
+            .getByRole("button", { name: "ETHUSDT", exact: true })
+    ).toBeVisible();
+    await page.screenshot({
+        path: testInfo.outputPath("watchlists-quotes-and-chart.png"),
+        fullPage: true
+    });
+});
+
+test("Watchlist row and period selection automatically load history without preparation controls", async ({
+    page
+}, testInfo) => {
+    test.setTimeout(40_000);
+    await page.goto("/");
+    await openWatchlist(page);
+    await page.getByRole("combobox", { name: "图表类型", exact: true }).selectOption("LINE");
+    await rowFor(page, "ETHUSDT").getByRole("button", { name: "ETHUSDT", exact: true }).click();
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready", {
+        timeout: 20_000
+    });
+    const acquisitionRequests: {
+        instrument_id: string;
+        start_ns: string;
+        end_ns: string;
+        bar_semantic: unknown;
+    }[] = [];
+    page.on("request", (request) => {
+        if (
+            request.method() === "POST" &&
+            new URL(request.url()).pathname === "/api/v2/market-data/acquisitions"
+        )
+            acquisitionRequests.push(
+                request.postDataJSON() as (typeof acquisitionRequests)[number]
+            );
+    });
+    const initialWindow = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        const raw = url.searchParams.get("bar_semantic");
+        return (
+            url.pathname === "/api/v2/market-data/bars" &&
+            raw !== null &&
+            (JSON.parse(raw) as { formation: { window_minutes: number } }).formation
+                .window_minutes === 30
+        );
+    });
+    await page.getByRole("combobox", { name: "时间周期", exact: true }).selectOption("30");
+    const response = await initialWindow;
+    expect(response.ok()).toBe(true);
+    const planned = (await response.json()) as {
+        bar_semantic: unknown;
+        coverage: {
+            status: string;
+            planned_acquisition_ranges: { start_ns: string; end_ns: string }[];
+        };
+    };
+    await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready", {
+        timeout: 20_000
+    });
+    if (planned.coverage.status === "INCOMPLETE") {
+        expect(planned.coverage.planned_acquisition_ranges.length).toBeGreaterThan(0);
+        expect(acquisitionRequests.map(({ start_ns, end_ns }) => ({ start_ns, end_ns }))).toEqual(
+            planned.coverage.planned_acquisition_ranges
+        );
+        for (const request of acquisitionRequests) {
+            expect(request.instrument_id).toBe("ETHUSDT.BINANCE");
+            expect(request.bar_semantic).toEqual(planned.bar_semantic);
+        }
+    } else {
+        // Existing dev data may already cover 30m; do not clear history to force a gap.
+        expect(planned.coverage.status).toBe("COMPLETE");
+        expect(acquisitionRequests).toHaveLength(0);
+    }
+    await expect(page.getByRole("button", { name: /准备 .*行情/ })).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "时间周期", exact: true })).toHaveValue("30");
     await expect(page.getByRole("combobox", { name: "图表类型", exact: true })).toHaveValue("LINE");
-    expect(acquisitions).toBeGreaterThan(0);
+    await testInfo.attach("automatic-chart-loading-existing-or-missing-history", {
+        contentType: "application/json",
+        body: JSON.stringify({ initialCoverage: planned.coverage, acquisitionRequests })
+    });
     await page.screenshot({
-        path: testInfo.outputPath("watchlists-explicit-chart.png"),
+        path: testInfo.outputPath("watchlists-automatic-chart.png"),
         fullPage: true
     });
 });

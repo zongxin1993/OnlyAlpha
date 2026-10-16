@@ -79,7 +79,7 @@ classDiagram
 
 | 对象 | 字段 | 约束 |
 |---|---|---|
-| `OnlyCurrency` | code, precision, currency_type | code 2–12 位大写字母数字；precision 0–18 |
+| `OnlyCurrency` | code, precision, currency_type | code 1–12 位大写字母数字；precision 0–18 |
 | `OnlyPrice` | value, precision | Decimal、有限、允许负值以覆盖价差/特殊市场；不含 tick |
 | `OnlyQuantity` | value, precision | Decimal、有限、非负；不含 step |
 | `OnlyMoney` | amount, currency | Decimal 精度不超过 Currency；加减必须同 Currency |
@@ -88,6 +88,9 @@ classDiagram
 | `OnlyMultiplier` | value, precision | 严格正数，用于合约/换算 |
 
 值构造拒绝 float、NaN 和 Infinity。Price 不等于 Money，Quantity 不等于 Price。Quantity 负结果被拒绝。Money 跨币种运算抛出 `OnlyCurrencyMismatchError`。
+
+Currency code 是市场无关的非空资产代码，不限定为 ISO 法币代码长度；单字符代码保持原值，不补位或映射别名。
+该输入范围扩展不改变已有 Currency 的 identity、schema version 或序列化结果；Provider 原生代码仍由插件准确投影。
 
 ## 5. 强类型 ID
 

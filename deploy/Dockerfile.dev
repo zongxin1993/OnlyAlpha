@@ -8,7 +8,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_CACHE_DIR=/tmp/uv-cache \
     UV_LINK_MODE=copy
 
-RUN apt-get update \
+RUN test -s /etc/ssl/certs/ca-certificates.crt \
+    && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates curl gnupg \
     && install -d -m 0755 /usr/share/postgresql-common/pgdg \
     && curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -68,7 +70,9 @@ EXPOSE 5173
 
 FROM web AS playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx playwright install --with-deps chromium
+COPY --from=runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && npx playwright install --with-deps chromium
 
 # Owner-authorized opt-in loopback Browser/API acceptance, same canonical test service.
 # The default Python test and all production targets remain unchanged.

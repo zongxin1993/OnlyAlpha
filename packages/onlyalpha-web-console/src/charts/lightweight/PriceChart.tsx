@@ -15,6 +15,7 @@ import type {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     studyDescriptor,
+    studyDisplayLabel,
     validPresentation,
     type ChartStudyInstance
 } from "../../features/workspace/chartStudy";
@@ -485,7 +486,7 @@ export function PriceChart({
         <div className="price-chart-surface">
             <div className="study-hover" aria-label="指标悬浮信息">
                 <span aria-label="成交量悬浮信息">
-                    Volume · 正式 Market Data Bars ·{" "}
+                    成交量{" "}
                     {hover.context === contextKey &&
                     hover.incarnation === incarnationKey &&
                     hover.time !== null
@@ -505,29 +506,50 @@ export function PriceChart({
                     .map((instance) => {
                         const view = views.get(instance.instanceId);
                         if (view === undefined) return null;
+                        const time =
+                            hover.context === contextKey && hover.incarnation === incarnationKey
+                                ? hover.time
+                                : null;
+                        const point =
+                            view.status === "PROJECTED" && time !== null
+                                ? view.projection.pointsByTime.get(time)
+                                : undefined;
+                        const value =
+                            view.status !== "PROJECTED"
+                                ? view.detail
+                                : time === null
+                                  ? "—"
+                                  : point === undefined
+                                    ? "此时间无对应结果"
+                                    : `${point.value ?? "暂无数值"}${point.readiness === "PARTIAL" ? " · 部分可用" : point.readiness === "PRE_READY" ? " · 预热中" : ""}`;
                         return (
-                            <span
+                            <div
                                 key={instance.instanceId}
                                 data-testid="study-hover"
                                 data-instance-id={instance.instanceId}
                                 data-selected={selectedStudyId === instance.instanceId}
                             >
-                                {studyDescriptor(instance.selection).typeId} ·{" "}
-                                {instance.configuration.outputName} ·{" "}
-                                {view.status === "PROJECTED"
-                                    ? view.projection.outputUnit === "PRICE"
-                                        ? "PRICE"
-                                        : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
-                                    : "无有效结果"}{" "}
-                                ·{" "}
-                                {studyHover(
-                                    view,
-                                    hover.context === contextKey &&
-                                        hover.incarnation === incarnationKey
-                                        ? hover.time
-                                        : null
-                                )}
-                            </span>
+                                <span>
+                                    {studyDisplayLabel(instance)} · {value}
+                                </span>
+                                <details className="study-hover__details">
+                                    <summary
+                                        aria-label={`指标点详情 ${studyDescriptor(instance.selection).typeId.split(".").at(-1)?.toUpperCase() ?? studyDescriptor(instance.selection).typeId}`}
+                                    >
+                                        详情
+                                    </summary>
+                                    <span>
+                                        {studyDescriptor(instance.selection).typeId} ·{" "}
+                                        {instance.configuration.outputName} ·{" "}
+                                        {view.status === "PROJECTED"
+                                            ? view.projection.outputUnit === "PRICE"
+                                                ? "PRICE"
+                                                : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
+                                            : "无有效结果"}{" "}
+                                        · {studyHover(view, time)}
+                                    </span>
+                                </details>
+                            </div>
                         );
                     })}
             </div>

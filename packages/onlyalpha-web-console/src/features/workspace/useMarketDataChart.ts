@@ -809,9 +809,9 @@ export function useMarketDataChart(): MarketDataChartState {
                 else {
                     selectSource("");
                     setMessage(
-                        matches.length === 0
-                            ? "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
-                            : "请选择 Binance Spot 公共行情数据源（GLOBAL）"
+                        found.length === 0
+                            ? "尚未配置可用的行情来源，请先添加行情来源。"
+                            : "请在左上角搜索并选择商品。"
                     );
                 }
             })
@@ -952,7 +952,10 @@ export function useMarketDataChart(): MarketDataChartState {
     );
 
     const selectWatchlistInstrument = useCallback(
-        async (active: MarketDataSourceReference, instrumentId: string, prepare = false) => {
+        async (active: MarketDataSourceReference, instrumentId: string, prepare = true) => {
+            // Every user selection supersedes pending lookups, including a healthy A→A no-op.
+            const search = ++searchGeneration.current;
+            const history = historyGeneration.current;
             const source = sources.find(
                 (item) =>
                     item.integration_id === active.integration_id &&
@@ -964,6 +967,16 @@ export function useMarketDataChart(): MarketDataChartState {
                 setMessage("自选绑定的数据源不可用；请明确重新绑定，不会自动换源");
                 return;
             }
+            if (
+                reference?.integration_id === active.integration_id &&
+                reference.integration_revision_fingerprint ===
+                    active.integration_revision_fingerprint &&
+                reference.expected_type_id === active.expected_type_id &&
+                instrument?.instrument_id === instrumentId &&
+                status === "ready" &&
+                realtimeStatus !== "failed"
+            )
+                return;
             const minutes =
                 barSemantic.formation.kind === "FIXED_DURATION"
                     ? barSemantic.formation.window_minutes
@@ -975,8 +988,6 @@ export function useMarketDataChart(): MarketDataChartState {
                 setMessage("该数据源不支持当前图表周期；请先明确修改周期");
                 return;
             }
-            const search = ++searchGeneration.current;
-            const history = historyGeneration.current;
             try {
                 const found = await client.listInstruments(active, "", undefined, [instrumentId]);
                 if (search !== searchGeneration.current || history !== historyGeneration.current)
@@ -1001,7 +1012,18 @@ export function useMarketDataChart(): MarketDataChartState {
                 if (search === searchGeneration.current) apply(error);
             }
         },
-        [apply, barSemantic, client, load, selectSource, sources]
+        [
+            apply,
+            barSemantic,
+            client,
+            instrument,
+            load,
+            realtimeStatus,
+            reference,
+            selectSource,
+            sources,
+            status
+        ]
     );
 
     const selectBarDuration = useCallback(

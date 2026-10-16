@@ -170,6 +170,9 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
                 "onlyalpha.application.integration_probe",
                 "onlyalpha.application.integration_type_catalog",
                 "onlyalpha.application.market_data_product",
+                # Bounded operational Query; the dedicated test below forbids
+                # store dependencies and calls to the owning mutation surface.
+                "onlyalpha.application.market_data_discovery",
                 "onlyalpha.application.private_asset_product",
                 "onlyalpha.application.product_boundary",
                 "onlyalpha.application.product_command_receipt",
@@ -185,6 +188,30 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
     run_source = (API_SOURCE / "research/run_routes.py").read_text(encoding="utf-8")
     assert run_source.count("product.commands.dispatch(") == 2
     assert run_source.count("product.queries.dispatch(") == 3
+
+
+def test_market_discovery_queries_have_no_mutation_or_store_dependency() -> None:
+    permitted = {
+        "onlyalpha.application.market_data_product",
+        "onlyalpha.application.source_read_access",
+        "onlyalpha.domain.enums",
+        "onlyalpha.domain.instrument",
+        "onlyalpha.plugin.data_source",
+    }
+    owning_calls: set[str] = set()
+    for module in ("market_data_discovery", "market_data_discovery_worker"):
+        path = ROOT / f"src/onlyalpha/application/{module}.py"
+        assert {name for name in _imports(path) if name.startswith("onlyalpha")} <= permitted
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Attribute)
+                and node.func.value.attr == "_market_data"
+            ):
+                owning_calls.add(node.func.attr)
+    assert owning_calls == {"list_sources", "resolve_read_runtime"}
 
 
 def test_product_space_has_zero_direct_engine_or_runtime_constructor_owner() -> None:

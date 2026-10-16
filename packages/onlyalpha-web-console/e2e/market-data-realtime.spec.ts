@@ -52,6 +52,28 @@ const instrument = {
 const json = (route: Route, body: unknown) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
 
+async function sourceControl(page: Page) {
+    const control = page.getByRole("combobox", { name: "数据源" });
+    if (!(await control.isVisible())) await page.getByText("行情设置", { exact: true }).click();
+    return control;
+}
+
+async function selectBtcFromSearch(page: Page) {
+    await page.getByRole("button", { name: "搜索商品", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "商品搜索" });
+    await dialog.getByRole("searchbox", { name: "商品代码或名称" }).fill("BTCUSDT");
+    await dialog
+        .getByRole("button", { name: "查看 BTCUSDT · BINANCE · Binance Spot US", exact: true })
+        .click();
+}
+
+async function openInspector(page: Page) {
+    await page
+        .getByRole("toolbar", { name: "工作区面板" })
+        .getByRole("button", { name: "检查器", exact: true })
+        .click();
+}
+
 async function controlledRealtime(
     page: Page,
     holdRecovery = false,
@@ -77,6 +99,28 @@ async function controlledRealtime(
         const url = new URL(route.request().url());
         if (url.pathname === "/api/v2/market-data/sources")
             return json(route, { schema_version: 1, sources: [{ ...source, environment }] });
+        if (url.pathname === "/api/v2/market/instruments/search") {
+            const selection = {
+                integration_id: integrationId,
+                integration_revision_fingerprint: integrationRevision,
+                type_id: source.type_id,
+                source_id: sourceId,
+                environment
+            };
+            return json(route, {
+                schema_version: 1,
+                truncated: false,
+                sources: [
+                    {
+                        source_selection: selection,
+                        status: "COMPLETE",
+                        asset_classes: ["CRYPTOCURRENCY"],
+                        truncated: false
+                    }
+                ],
+                results: [{ source_selection: selection, instrument }]
+            });
+        }
         if (url.pathname === "/api/v2/market/instruments")
             return json(route, {
                 schema_version: 1,
@@ -392,9 +436,14 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         },
         bar_semantic: semantic(15)
     });
-    const latency = page.locator('[aria-label="行情延迟"]');
-    await expect(latency).toContainText("接收延迟：1 ms");
-    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    await openInspector(page);
+    const latency = page.getByRole("table", { name: "行情检查器" });
+    await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText(
+        "1 ms"
+    );
+    await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
+        "2 ms"
+    );
     await expect(latency).toContainText("当前连接样本");
     const observation = page.getByTestId("market-data-observation");
     await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
@@ -403,11 +452,17 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         "3"
     );
     fixture.emitPreview();
-    await expect(latency).toContainText("接收延迟：-0.000001 ms（时钟偏差）");
-    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText(
+        "-0.000001 ms（时钟偏差）"
+    );
+    await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
+        "2 ms"
+    );
     fixture.emitPreview(true);
-    await expect(latency).toContainText("接收延迟：—");
-    await expect(latency).toContainText("最近收盘到达延迟：2 ms");
+    await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText("—");
+    await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
+        "2 ms"
+    );
     await expect(latency).toContainText("当前连接样本");
     await expect(observation).toHaveAttribute("data-observation-mode", "preview");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
@@ -492,6 +547,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(trigger).toBeFocused();
         await page.keyboard.press("Enter");
         await dialog.getByRole("button", { name: "选择 SMA · RESEARCH" }).click();
+        await page.getByText("参数说明与技术详情", { exact: true }).click();
         const handoff = page.getByTestId("calculation-handoff");
         await expect(handoff).toHaveAttribute("data-runtime-generation", fixture.runtime);
         await expect(handoff).toHaveAttribute("data-catalog-generation", fixture.catalog);
@@ -553,6 +609,7 @@ test("registered discovery selection without Runtime preserves BTCUSDT history a
     };
     await page.getByRole("button", { name: "指标", exact: true }).click();
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    await page.getByText("参数说明与技术详情", { exact: true }).click();
     const handoff = page.getByTestId("calculation-handoff");
     await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
     await expect(handoff).toContainText("尚未计算");
@@ -622,11 +679,12 @@ for (const width of [1440, 1024, 390]) {
         const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
         await expect(editor).toBeVisible();
         const cancel = editor.getByRole("button", { name: "取消配置" });
-        await expect(cancel).toBeFocused();
+        const periodInput = editor.getByRole("textbox", { name: "period" });
+        await expect(periodInput).toBeFocused();
         await page.getByRole("combobox", { name: "时间周期" }).evaluate((element) => {
             (element as HTMLElement).focus();
         });
-        await expect(cancel).toBeFocused();
+        await expect(periodInput).toBeFocused();
         await cancel.focus();
         await page.keyboard.press("Shift+Tab");
         await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeFocused();
@@ -649,6 +707,7 @@ for (const width of [1440, 1024, 390]) {
             configuration = await first.getAttribute("data-configuration");
         const edit = first.getByRole("button", { name: "编辑 SMA" });
         await edit.click();
+        await editor.getByText("高级选项", { exact: true }).click();
         await editor.getByRole("button", { name: "红色", exact: true }).click();
         await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
         await editor.getByRole("spinbutton", { name: "透明度" }).fill("0.5");
@@ -799,11 +858,9 @@ test("exact Study confirmation rejects paired schema changes without creating a 
 test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     const observation = page.getByTestId("market-data-observation");
     await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
@@ -836,11 +893,9 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
 }) => {
     const fixture = await controlledRealtime(page, true);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.olderRequests).toHaveLength(0);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute(
@@ -848,7 +903,8 @@ test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_
         "idle"
     );
 
-    const latency = page.locator('[aria-label="行情延迟"]');
+    await openInspector(page);
+    const latency = page.getByRole("table", { name: "行情检查器" });
     await expect(latency).toContainText("当前连接样本");
     await fixture.disconnect();
     await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
@@ -869,11 +925,9 @@ test("explicit history acquisition, typed realtime and exact reconnect — CONTR
 }) => {
     const fixture = await controlledRealtime(page, true, true);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
     expect(fixture.acquisitions()).toBe(1);
@@ -900,11 +954,9 @@ test("preset and custom periods subscribe to matching derived realtime bars — 
 }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
@@ -925,9 +977,20 @@ test("preset and custom periods subscribe to matching derived realtime bars — 
     await page.getByRole("button", { name: "应用" }).click();
     await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(37);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("接收延迟：—");
-    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("最近收盘到达延迟：—");
-    await expect(page.locator('[aria-label="行情延迟"]')).toContainText("暂无实时样本");
+    await openInspector(page);
+    await expect(
+        page
+            .getByRole("table", { name: "行情检查器" })
+            .getByRole("row", { name: /^接收延迟/ })
+            .getByRole("cell")
+    ).toHaveText("—");
+    await expect(
+        page
+            .getByRole("table", { name: "行情检查器" })
+            .getByRole("row", { name: /^收盘到达延迟/ })
+            .getByRole("cell")
+    ).toHaveText("—");
+    await expect(page.getByRole("table", { name: "行情检查器" })).toContainText("暂无实时样本");
     expect(fixture.steps).toEqual([1, 15, 60, 7, 37]);
 });
 
@@ -936,11 +999,9 @@ test("native 15m and derived 7m use target acquisition and Product resume metada
 }) => {
     const fixture = await controlledRealtime(page, false, true);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
@@ -960,11 +1021,9 @@ test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDEN
 }) => {
     const fixture = await controlledRealtime(page);
     await page.goto("/");
-    await page.getByRole("combobox", { name: "数据源" }).selectOption(integrationId);
+    await (await sourceControl(page)).selectOption(integrationId);
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await page.getByRole("searchbox", { name: "搜索标的" }).fill("BTCUSDT");
-    await page.getByRole("searchbox", { name: "搜索标的" }).press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT\.BINANCE/ }).click();
+    await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
 
     fixture.emitStalePreview();

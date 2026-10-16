@@ -1,8 +1,10 @@
 import { WatchlistPanel } from "./WatchlistPanel";
 import { formatMarketDataDelay } from "./marketDataTiming";
 import { useState } from "react";
+import { SymbolSearch } from "./SymbolSearch";
+import { useWatchlists } from "./useWatchlists";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
-import { useLocalReadCredentials } from "../../app/providers";
+import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
 import type {
     FinancialChartType,
     MarketDataChartSelection
@@ -22,8 +24,7 @@ import {
 } from "../../api/marketData/model";
 
 const realBarPresets = [1, 3, 5, 15, 30, 60, 120, 240] as const;
-const CATALOG_NOTE =
-    "指标/因子仅选择正式目录；尚未执行计算。SMA 需受权 closed native 历史；DISPLAY_ONLY，不是 Research Result";
+const CATALOG_NOTE = "图表指标仅供观察，不是正式研究结果";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -40,18 +41,27 @@ export function WorkspacePage() {
     const [toolsCollapsed, setToolsCollapsed] = useState(false);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [panelTab, setPanelTab] = useState<"watchlist" | "inspector">("watchlist");
-    const [panelOpen, setPanelOpen] = useState(false);
+    const [panelOpen, setPanelOpen] = useState(true);
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
-    const [bottomCollapsed, setBottomCollapsed] = useState(false);
+    const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
     const [selection, setSelection] = useState<MarketDataChartSelection | null>(null);
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
-    const [symbolQuery, setSymbolQuery] = useState("");
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchReturnFocus, setSearchReturnFocus] = useState<HTMLElement | null>(null);
+    const openSearch = () => {
+        setSearchReturnFocus(
+            document.activeElement instanceof HTMLElement ? document.activeElement : null
+        );
+        setSearchOpen(true);
+    };
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
     const marketData = useMarketDataChart();
     const credentials = useLocalReadCredentials();
+    const market = useMarketDataApi();
+    const watchlists = useWatchlists(credentials);
     const realInstrument = marketData.instrument;
     const studyContext =
         marketData.reference === null || realInstrument === null
@@ -97,7 +107,7 @@ export function WorkspacePage() {
     const statusCopy =
         marketData.message ??
         (marketData.status === "ready"
-            ? `${marketData.resolvedSourceId ?? "真实数据源"} · 历史投影 ${marketData.historyProjectionFingerprint?.slice(0, 12) ?? "—"} · ${
+            ? `行情已加载 · ${
                   marketData.realtimeStatus === "ready"
                       ? "● 实时"
                       : marketData.realtimeStatus === "recovering"
@@ -130,7 +140,25 @@ export function WorkspacePage() {
                       label: "History projection",
                       value: marketData.historyProjectionFingerprint ?? "尚未验证"
                   },
-                  { label: "Realtime", value: marketData.realtimeStatus }
+                  { label: "Realtime", value: marketData.realtimeStatus },
+                  {
+                      label: "延迟样本",
+                      value:
+                          marketData.timing === null
+                              ? "暂无实时样本"
+                              : marketData.realtimeStatus === "ready" &&
+                                  marketData.timing.currentConnection
+                                ? "当前连接样本"
+                                : "最后样本 · 非当前"
+                  },
+                  {
+                      label: "接收延迟",
+                      value: formatMarketDataDelay(marketData.timing?.receiveDelayNs ?? null)
+                  },
+                  {
+                      label: "收盘到达延迟",
+                      value: formatMarketDataDelay(marketData.timing?.closedArrivalDelayNs ?? null)
+                  }
               ];
 
     return (
@@ -182,54 +210,18 @@ export function WorkspacePage() {
                             <LocalReadAccess />
                         </details>
                     ) : null}
-                    <span className="chart-region__title" title={realInstrument?.instrument_id}>
-                        {realInstrument?.display_symbol ?? "行情工作区"} ·{" "}
-                        {formatBarSemantic(marketData.barSemantic)}
-                    </span>
+                    <button
+                        type="button"
+                        className="chart-region__symbol-search"
+                        aria-label="搜索商品"
+                        title={realInstrument?.instrument_id}
+                        onClick={openSearch}
+                    >
+                        <span aria-hidden="true">⌕</span>{" "}
+                        {realInstrument?.display_symbol ?? "搜索商品"}
+                    </button>
                     <div className="chart-region__controls">
-                        <label className="chart-region__source">
-                            <span className="visually-hidden">数据源</span>
-                            <select
-                                aria-label="数据源"
-                                value={marketData.sourceId}
-                                onChange={(event) => {
-                                    marketData.selectSource(event.target.value);
-                                }}
-                            >
-                                <option value="">未选择数据源</option>
-                                {marketData.selectableSources.map((item) => (
-                                    <option key={item.integration_id} value={item.integration_id}>
-                                        {item.display_name} · {item.type_id}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
                         <div className="chart-region__search">
-                            <input
-                                type="search"
-                                placeholder="搜索服务器标的"
-                                aria-label="搜索标的"
-                                value={symbolQuery}
-                                disabled={marketData.reference === null}
-                                onChange={(event) => {
-                                    setSymbolQuery(event.target.value);
-                                }}
-                                onKeyDown={(event) => {
-                                    if (event.key === "Enter")
-                                        void marketData.searchInstruments(symbolQuery);
-                                }}
-                            />
-                            <button
-                                type="button"
-                                disabled={
-                                    marketData.reference === null || symbolQuery.trim() === ""
-                                }
-                                onClick={() => {
-                                    void marketData.searchInstruments(symbolQuery);
-                                }}
-                            >
-                                搜索标的
-                            </button>
                             <select
                                 className="chart-region__timeframe"
                                 aria-label="时间周期"
@@ -308,28 +300,31 @@ export function WorkspacePage() {
                             <option value="CANDLESTICK">蜡烛图</option>
                             <option value="LINE">收盘线</option>
                         </select>
-                        {symbolQuery.trim() === "" || marketData.instruments.length === 0 ? null : (
-                            <ul className="chart-region__suggestions">
-                                {marketData.instruments.map((item) => (
-                                    <li key={item.instrument_id}>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                void marketData.selectInstrument(item);
-                                                setSymbolQuery("");
-                                            }}
-                                        >
-                                            <span className="value">{item.instrument_id}</span>
-                                            <span>
-                                                {item.display_symbol} · {item.market}
-                                            </span>
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
                     </div>
                     <span className="chart-region__spacer">
+                        <details className="chart-region__settings">
+                            <summary>行情设置</summary>
+                            <label className="chart-region__source">
+                                <span className="visually-hidden">数据源</span>
+                                <select
+                                    aria-label="数据源"
+                                    value={marketData.sourceId}
+                                    onChange={(event) => {
+                                        marketData.selectSource(event.target.value);
+                                    }}
+                                >
+                                    <option value="">未选择数据源</option>
+                                    {marketData.selectableSources.map((item) => (
+                                        <option
+                                            key={item.integration_id}
+                                            value={item.integration_id}
+                                        >
+                                            {item.display_name} · {item.type_id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </details>
                         <DataSourceEntry
                             overview={dataSources}
                             onManage={() => {
@@ -362,20 +357,22 @@ export function WorkspacePage() {
                 >
                     {({ instances, selectedId, incarnationKey, onTransientRevalidated }) => (
                         <>
-                            <p
-                                className="chart-region__overlay-note"
-                                data-testid="real-overlay-note"
-                            >
-                                {instances.length === 0
-                                    ? CATALOG_NOTE
-                                    : instances.some(
-                                            (instance) =>
-                                                instance.selection.source ===
-                                                "CHART_STUDY_TRANSIENT"
-                                        )
-                                      ? "SMA 只读查询 · DISPLAY_ONLY · 不是 Research Result"
-                                      : "配置实例仅保存输入与显示偏好；尚未执行计算。"}
-                            </p>
+                            {instances.length === 0 ? null : (
+                                <p
+                                    className="chart-region__overlay-note"
+                                    data-testid="real-overlay-note"
+                                >
+                                    {instances.length === 0
+                                        ? CATALOG_NOTE
+                                        : instances.some(
+                                                (instance) =>
+                                                    instance.selection.source ===
+                                                    "CHART_STUDY_TRANSIENT"
+                                            )
+                                          ? "图表指标 · 仅供观察，不是正式研究结果"
+                                          : "指标尚未接入计算"}
+                                </p>
+                            )}
                             <p
                                 className="chart-region__status"
                                 role="status"
@@ -444,28 +441,6 @@ export function WorkspacePage() {
                                           : observationMode === "latest-closed"
                                             ? "最新已关闭"
                                             : "不可用"}
-                                </span>
-                            </div>
-                            <div className="chart-observation" aria-label="行情延迟">
-                                <span>
-                                    接收延迟：
-                                    {formatMarketDataDelay(
-                                        marketData.timing?.receiveDelayNs ?? null
-                                    )}
-                                </span>
-                                <span>
-                                    最近收盘到达延迟：
-                                    {formatMarketDataDelay(
-                                        marketData.timing?.closedArrivalDelayNs ?? null
-                                    )}
-                                </span>
-                                <span>
-                                    {marketData.timing === null
-                                        ? "暂无实时样本"
-                                        : marketData.realtimeStatus === "ready" &&
-                                            marketData.timing.currentConnection
-                                          ? "当前连接样本"
-                                          : "最后样本 · 非当前"}
                                 </span>
                             </div>
                             <div className="chart-region__body">
@@ -538,13 +513,12 @@ export function WorkspacePage() {
                 <div className="panel-scroll">
                     {panelTab === "watchlist" ? (
                         <WatchlistPanel
+                            controller={watchlists}
+                            market={market}
                             sources={marketData.selectableSources}
-                            onRefreshSources={marketData.refreshSources}
-                            enabled={true}
+                            enabled={panelOpen}
                             onSelect={marketData.selectWatchlistInstrument}
-                            onPrepare={(source, instrumentId) =>
-                                marketData.selectWatchlistInstrument(source, instrumentId, true)
-                            }
+                            onSearch={openSearch}
                         />
                     ) : inspector.length === 0 ? (
                         <p className="panel-note">尚未选择行情上下文</p>
@@ -562,7 +536,6 @@ export function WorkspacePage() {
                         </table>
                     )}
                 </div>
-                <p className="panel-note">行情来自服务端 Product API；不推导交易或研究事实。</p>
             </aside>
             <div
                 className="workspace-tray"
@@ -668,6 +641,18 @@ export function WorkspacePage() {
                     </p>
                 </div>
             </section>
+            {searchOpen ? (
+                <SymbolSearch
+                    market={market}
+                    controller={watchlists}
+                    sources={marketData.selectableSources}
+                    returnFocus={searchReturnFocus}
+                    onClose={() => {
+                        setSearchOpen(false);
+                    }}
+                    onSelect={marketData.selectWatchlistInstrument}
+                />
+            ) : null}
             {managerOpen ? (
                 <DataSourceManager
                     variant="modal"

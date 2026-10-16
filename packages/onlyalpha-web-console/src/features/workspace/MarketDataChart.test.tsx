@@ -191,20 +191,29 @@ function renderWorkspace(client: MarketDataApiClient) {
     );
 }
 
+async function sourceControl(user: ReturnType<typeof userEvent.setup>) {
+    const summary = screen.getByText("行情设置", { exact: true });
+    if (!(summary.parentElement as HTMLDetailsElement).open) await user.click(summary);
+    return screen.getByRole("combobox", { name: "数据源" });
+}
+
+async function searchInput(user: ReturnType<typeof userEvent.setup>) {
+    if (screen.queryByRole("dialog", { name: "商品搜索" }) === null)
+        await user.click(screen.getByRole("button", { name: "搜索商品" }));
+    return screen.getByRole("searchbox", { name: "商品代码或名称" });
+}
+
 async function selectSource(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByRole("option", { name: /Fixture Source/ });
-    await user.selectOptions(
-        screen.getByRole("combobox", { name: "数据源" }),
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    );
+    await user.selectOptions(await sourceControl(user), "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     // These existing manual-context regressions explicitly request their 1m fixture.
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "1");
 }
 
 async function selectBtcInstrument(user: ReturnType<typeof userEvent.setup>) {
-    const search = screen.getByRole("searchbox", { name: "搜索标的" });
+    const search = await searchInput(user);
     await user.type(search, "BTC{Enter}");
-    await user.click(await screen.findByRole("button", { name: /BTCUSDT\.TEST/ }));
+    await user.click(await screen.findByRole("button", { name: /查看 BTCUSDT/ }));
 }
 
 const dialogDescriptors = {
@@ -286,10 +295,10 @@ it("refreshes chart sources after returning from management without restarting t
                 )
         })
     );
-    await screen.findByText("未配置可用的 Binance Spot 公共行情数据源（GLOBAL）", {
+    await screen.findByText("尚未配置可用的行情来源，请先添加行情来源。", {
         selector: "p[role=status]"
     });
-    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "搜索商品" })).toBeEnabled();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "管理数据源" }));
     available = [source];
@@ -301,7 +310,7 @@ it("refreshes chart sources after returning from management without restarting t
     await waitFor(() => {
         expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
     });
-    expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "搜索商品" })).toBeEnabled();
     expect(listSources).toHaveBeenCalledTimes(2);
 });
 
@@ -313,8 +322,9 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
         display_symbol: "ETH/USDT",
         venue: "BINANCE"
     });
-    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
-        Promise.resolve(query === "ETH" ? [eth] : [btc])
+    const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(
+        (_ref, query, _signal, ids) =>
+            Promise.resolve(query === "ETH" || ids?.includes(eth.instrument_id) ? [eth] : [btc])
     );
     const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
         Promise.resolve(
@@ -332,9 +342,8 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
         expect(streams.requests).toHaveLength(1);
     });
     const user = userEvent.setup();
-    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
-    await user.click(screen.getByRole("button", { name: "搜索标的" }));
-    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await user.type(await searchInput(user), "ETH");
+    await user.click(await screen.findByRole("button", { name: /查看 ETH.?USDT/ }));
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(2);
     });
@@ -348,11 +357,11 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
     expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
     expect(queryBars).toHaveBeenCalledTimes(2);
     expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
-    expect(listInstruments).toHaveBeenCalledTimes(2);
+    expect(listInstruments).toHaveBeenCalledTimes(3);
 });
 
 it.each(["name", "revision"])(
-    "preserves selected symbol and period when source %s changes",
+    "preserves period and requires explicit reselection when the exact source %s changes",
     async (change) => {
         let source = binanceSource();
         const btc = binanceInstrument();
@@ -361,8 +370,9 @@ it.each(["name", "revision"])(
             display_symbol: "ETH/USDT",
             venue: "BINANCE"
         });
-        const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>((_ref, query) =>
-            Promise.resolve(query === "ETH" ? [eth] : [btc])
+        const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(
+            (_ref, query, _signal, ids) =>
+                Promise.resolve(query === "ETH" || ids?.includes(eth.instrument_id) ? [eth] : [btc])
         );
         const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_ref, query) =>
             Promise.resolve(
@@ -380,9 +390,8 @@ it.each(["name", "revision"])(
             expect(streams.requests).toHaveLength(1);
         });
         const user = userEvent.setup();
-        await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
-        await user.click(screen.getByRole("button", { name: "搜索标的" }));
-        await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+        await user.type(await searchInput(user), "ETH");
+        await user.click(await screen.findByRole("button", { name: /查看 ETH.?USDT/ }));
         await waitFor(() => {
             expect(queryBars).toHaveBeenCalledTimes(2);
         });
@@ -390,6 +399,7 @@ it.each(["name", "revision"])(
         await waitFor(() => {
             expect(queryBars).toHaveBeenCalledTimes(3);
         });
+        const oldStream = streams.callbacks.at(-1);
         source = {
             ...source,
             display_name: "Updated source",
@@ -402,19 +412,53 @@ it.each(["name", "revision"])(
                 name: "关闭"
             })
         );
-        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
-        await waitFor(() => {
-            expect(queryBars).toHaveBeenCalledTimes(change === "revision" ? 4 : 3);
-        });
         expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("5");
+        expect(queryBars).toHaveBeenCalledTimes(3);
         const last = queryBars.mock.calls.at(-1);
-        if (last === undefined) throw new Error("No revised Source query");
+        if (last === undefined) throw new Error("No exact Source query");
         expect(fixedDurationMinutes(last[1].bar_semantic)).toBe(5);
-        expect(queryBars.mock.calls.at(-1)?.[0].integration_revision_fingerprint).toBe(
-            source.integration_revision_fingerprint
-        );
-        expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
-        expect(listInstruments).toHaveBeenCalledTimes(2);
+        expect(last[0].integration_revision_fingerprint).toBe("b".repeat(64));
+        expect(last[1].instrument_id).toBe(eth.instrument_id);
+        if (change === "revision") {
+            expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("");
+            expect(screen.getByTestId("market-data-status")).toHaveTextContent("不会自动换源");
+            expect(renderedPrices()).toEqual([]);
+            const lateBar = marketDataBars().bars[1];
+            if (lateBar === undefined) throw new Error("Missing Bar fixture");
+            act(() =>
+                oldStream?.({
+                    schema_version: 2,
+                    event: "BAR_PREVIEW",
+                    timing: null,
+                    source_id: source.source_id,
+                    instrument_id: eth.instrument_id,
+                    bar_semantic: marketDataBarSemantic(5),
+                    bar: { ...lateBar, closed: false }
+                })
+            );
+            expect(renderedPrices()).toEqual([]);
+            expect(
+                queryBars.mock.calls.some(
+                    ([reference]) => reference.integration_revision_fingerprint === "c".repeat(64)
+                )
+            ).toBe(false);
+            expect(
+                (
+                    streams.requests as {
+                        source_reference: { integration_revision_fingerprint: string };
+                    }[]
+                ).some(
+                    (request) =>
+                        request.source_reference.integration_revision_fingerprint === "c".repeat(64)
+                )
+            ).toBe(false);
+        } else {
+            expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
+                source.integration_id
+            );
+            expect(renderedPrices()).toEqual([101, 102.5]);
+        }
+        expect(listInstruments).toHaveBeenCalledTimes(3);
     }
 );
 
@@ -433,18 +477,20 @@ it("does not replace newer symbol search results with an older response", async 
     );
     const user = userEvent.setup();
     await selectSource(user);
-    const search = screen.getByRole("searchbox", { name: "搜索标的" });
-    await user.type(search, "BTC{Enter}");
+    const search = await searchInput(user);
+    await user.type(search, "BTC");
+    await waitFor(() => {
+        expect(completeOlder).toBeTypeOf("function");
+    });
     await user.clear(search);
     await user.type(search, "ETH");
-    await user.click(screen.getByRole("button", { name: "搜索标的" }));
-    await screen.findByRole("button", { name: /ETHUSDT\.TEST/ });
+    await screen.findByRole("button", { name: /查看 ETH.?USDT/ });
     await act(() => {
         completeOlder?.([marketDataInstrument()]);
         return Promise.resolve();
     });
-    expect(screen.queryByRole("button", { name: /BTCUSDT\.TEST/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ETHUSDT\.TEST/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /查看 BTCUSDT/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /查看 ETH.?USDT/ })).toBeInTheDocument();
 });
 
 it("does not let a delayed default instrument replace a user's completed manual search", async () => {
@@ -473,12 +519,11 @@ it("does not let a delayed default instrument replace a user's completed manual 
         })
     );
     await waitFor(() => {
-        expect(screen.getByRole("searchbox", { name: "搜索标的" })).toBeEnabled();
+        expect(screen.getByRole("button", { name: "搜索商品" })).toBeEnabled();
     });
     const user = userEvent.setup();
-    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
-    await user.click(screen.getByRole("button", { name: "搜索标的" }));
-    await user.click(await screen.findByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+    await user.type(await searchInput(user), "ETH");
+    await user.click(await screen.findByRole("button", { name: /查看 ETH.?USDT/ }));
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(1);
     });
@@ -517,6 +562,7 @@ it("preserves configuration-only discovery in Shipping Workspace without a local
     await selectBtcInstrument(user);
     await user.click(screen.getByRole("button", { name: "指标" }));
     await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
+    await user.click(screen.getByText("高级选项"));
     // jsdom does not load the Shipping accent CSS custom property.
     expect(screen.queryByRole("textbox", { name: "颜色" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "颜色" })).getAllByRole("button")).toHaveLength(
@@ -528,7 +574,7 @@ it("preserves configuration-only discovery in Shipping Workspace without a local
     const instance = await screen.findByTestId("chart-study-instance");
     expect(instance).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
     expect(instance).toHaveTextContent("已配置，尚未接入后端计算");
-    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未执行计算");
+    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("指标尚未接入计算");
     expect(screen.queryByTestId("chart-study-query-status")).not.toBeInTheDocument();
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
     expect(reads).toEqual([
@@ -608,13 +654,10 @@ it("keeps the default chart incarnation when reselecting its source, instrument 
     const user = userEvent.setup();
     const observation = screen.getByTestId("market-data-observation");
     const context = observation.getAttribute("data-chart-context-key");
-    await user.selectOptions(
-        screen.getByRole("combobox", { name: "数据源" }),
-        source.integration_id
-    );
+    await user.selectOptions(await sourceControl(user), source.integration_id);
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "15");
-    await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "BTCUSDT{Enter}");
-    await user.click(screen.getByRole("button", { name: /BTCUSDT\.BINANCE/ }));
+    await user.type(await searchInput(user), "BTCUSDT{Enter}");
+    await user.click(await screen.findByRole("button", { name: /查看 BTCUSDT/ }));
     expect(queryBars).toHaveBeenCalledTimes(1);
     expect(streams.requests).toHaveLength(1);
     expect(observation).toHaveAttribute("data-chart-context-key", context);
@@ -644,7 +687,9 @@ it.each([
         );
         await waitFor(() => {
             expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-                "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
+                sources.length === 0
+                    ? "尚未配置可用的行情来源，请先添加行情来源。"
+                    : "请在左上角搜索并选择商品。"
             );
         });
         expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("");
@@ -685,13 +730,13 @@ it("defaults to explicit source choice for multiple GLOBAL sources, then bootstr
     );
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "请选择 Binance Spot 公共行情数据源（GLOBAL）"
+            "请在左上角搜索并选择商品。"
         );
     });
     expect(queryBars).not.toHaveBeenCalled();
     expect(listInstruments).not.toHaveBeenCalled();
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "second-source");
+    await user.selectOptions(await sourceControl(user), "second-source");
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(1);
     });
@@ -784,7 +829,7 @@ it("defaults discard a delayed bootstrap response after an explicit source chang
         expect(listInstruments).toHaveBeenCalledTimes(1);
     });
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "other-source");
+    await user.selectOptions(await sourceControl(user), "other-source");
     await act(async () => {
         release([binanceInstrument()]);
         await Promise.resolve();
@@ -855,7 +900,12 @@ it.each(["timeframe", "instrument"] as const)(
         renderWorkspace(
             marketDataClient({
                 listSources: () => Promise.resolve([source]),
-                listInstruments: () => Promise.resolve([initial, next]),
+                listInstruments: (_ref, _query, _signal, ids) =>
+                    Promise.resolve(
+                        ids === undefined
+                            ? [initial, next]
+                            : [initial, next].filter((item) => ids.includes(item.instrument_id))
+                    ),
                 queryBars
             })
         );
@@ -877,9 +927,9 @@ it.each(["timeframe", "instrument"] as const)(
         if (variant === "timeframe")
             await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
         else {
-            await user.type(screen.getByRole("searchbox", { name: "搜索标的" }), "ETH");
+            await user.type(await searchInput(user), "ETH");
             await user.keyboard("{Enter}");
-            await user.click(screen.getByRole("button", { name: /ETHUSDT\.BINANCE/ }));
+            await user.click(await screen.findByRole("button", { name: /查看 ETH.?USDT/ }));
         }
         await waitFor(() => {
             expect(queryBars).toHaveBeenCalledTimes(2);
@@ -1135,7 +1185,7 @@ it("derives selected preview updates from identity and falls back on mouse leave
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
-    await user.selectOptions(screen.getByRole("combobox", { name: "数据源" }), "");
+    await user.selectOptions(await sourceControl(user), "");
     const unavailableObservation = screen.getByTestId("market-data-observation");
     expect(observation).toBe(unavailableObservation);
     act(() => {
@@ -1506,9 +1556,9 @@ it("renders no invented candles in an unconfigured workspace", async () => {
         expect(renderedPrices()).toEqual([]);
     });
     expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
+        "尚未配置可用的行情来源，请先添加行情来源。"
     );
-    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("尚未执行计算");
+    expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
 });
 
 it("never renders a synthetic price once a real market data source is selected", async () => {
@@ -1577,15 +1627,19 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     });
     expect(renderedPrices()).toEqual([101, 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
-    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent(
-        "指标/因子仅选择正式目录；尚未执行计算"
-    );
+    expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /指标/ })).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.getByRole("button", { name: /因子/ })).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
-    expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        /test\.market_data\.live · 历史投影 888888888888 · ● 连接中/
+    expect(screen.getByTestId("market-data-status")).toHaveTextContent("● 连接中");
+    await user.click(
+        within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
+            name: "检查器"
+        })
     );
+    const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+    expect(inspector.getByText("test.market_data.live")).toBeVisible();
+    expect(inspector.getByText("8".repeat(64))).toBeVisible();
     expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-loaded-bar-count", "2");
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(
         "data-older-history-status",

@@ -154,7 +154,7 @@ def test_reader_schema_reference_is_explicit_and_checksum_verified(postgres_dsn,
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     root = tmp_path / "reference"
     root.mkdir()
-    copy_migrations_through(root, "0051_watchlist_configuration")
+    copy_migrations_through(root, "0052_watchlist_member_sources")
     with psycopg.connect(postgres_dsn) as connection:
         before = connection.execute("SELECT * FROM public.onlyalpha_schema_migration ORDER BY migration_id").fetchall()
     originals = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob("*.sql")}

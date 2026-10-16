@@ -48,8 +48,8 @@ class OnlyCurrency(OnlyDomainModel):
 
     def __post_init__(self) -> None:
         code = self.code.strip().upper()
-        if not 2 <= len(code) <= 12 or not code.isalnum():
-            raise OnlyValidationError("currency code must contain 2 to 12 alphanumeric characters")
+        if not 1 <= len(code) <= 12 or not code.isalnum():
+            raise OnlyValidationError("currency code must contain 1 to 12 alphanumeric characters")
         if not 0 <= self.precision <= ONLY_MAX_PRECISION:
             raise OnlyValidationError("currency precision is outside the supported range")
         object.__setattr__(self, "code", code)

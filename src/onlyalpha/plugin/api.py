@@ -169,6 +169,30 @@ from onlyalpha.plugin.capabilities import (
     OnlyPluginValidationIssue,
 )
 from onlyalpha.plugin.data_source import OnlyDataSource, OnlyDataSourceCreateRequest, OnlyDataSourceFactory
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceDiscovery as OnlyDataSourceDiscovery,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceDiscoveryCapabilitiesV1 as OnlyDataSourceDiscoveryCapabilitiesV1,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceInstrumentCatalog as OnlyDataSourceInstrumentCatalog,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceInstrumentCatalogRequestV1 as OnlyDataSourceInstrumentCatalogRequestV1,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceInstrumentV1 as OnlyDataSourceInstrumentV1,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceQuoteRequestV1 as OnlyDataSourceQuoteRequestV1,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceQuotes as OnlyDataSourceQuotes,
+)
+from onlyalpha.plugin.data_source import (
+    OnlyDataSourceQuoteV1 as OnlyDataSourceQuoteV1,
+)
 from onlyalpha.plugin.descriptor import (
     OnlyPluginDescriptor,
     OnlyPluginOrigin,

@@ -85,6 +85,7 @@ export function ChartStudyEditor({
     const [error, setError] = useState<string | null>(null);
     const dialog = useRef<HTMLDialogElement>(null);
     const request = useRef<AbortController | null>(null);
+    const advanced = useRef<HTMLDetailsElement>(null);
     const metadataError = source.error;
     const errors = [
         ...(source.descriptor === null
@@ -103,13 +104,24 @@ export function ChartStudyEditor({
     useEffect(() => {
         const node = dialog.current;
         node?.showModal();
-        node?.querySelector<HTMLElement>("input, select, button")?.focus();
+        (
+            node?.querySelector<HTMLElement>("form > fieldset input, form > fieldset select") ??
+            node?.querySelector<HTMLElement>("button")
+        )?.focus();
         return () => {
             request.current?.abort();
             node?.close();
             if (returnFocus?.isConnected) returnFocus.focus();
         };
     }, [returnFocus]);
+
+    useEffect(() => {
+        const node = advanced.current;
+        if (!validPresentation(presentation) && node !== null && !node.open) {
+            node.open = true;
+            node.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+        }
+    }, [presentation]);
 
     async function confirm() {
         if (!canConfirm) return;
@@ -266,24 +278,51 @@ export function ChartStudyEditor({
                     取消
                 </button>
             </header>
-            <CalculationSelectionSummary draft={selection} />
-            <p>仅 UI 输入形状校验；不是 Core normalization、执行准入或数值 READY。</p>
-            {selection.source === "EXACT_CATALOG" ? (
-                <details>
-                    <summary>精确元数据身份（不是计算结果）</summary>
-                    <p>Runtime：{selection.catalog.runtimeGenerationFingerprint}</p>
-                    <p>Catalog：{selection.catalog.catalogGenerationFingerprint}</p>
-                    <p>Implementation：{selection.entry.capability.implementation_fingerprint}</p>
-                    <p>Readiness capability：{selection.entry.readiness?.capability_fingerprint}</p>
-                </details>
-            ) : selection.source === "CHART_STUDY_TRANSIENT" ? (
-                <p>
-                    CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result · 当前图表查询仅支持
-                    CLOSE，period 1–{selection.capability.capability_projection.limits.max_period}
-                </p>
-            ) : (
-                <p>REGISTERED_DISCOVERY · 已登记 / 执行未连接</p>
-            )}
+            <p className="chart-study-editor__name">
+                {source.descriptor?.typeId.split(".").at(-1)?.toUpperCase()}
+            </p>
+            <p>仅供图表观察，不是正式研究结果。</p>
+            <details className="chart-study-editor__details">
+                <summary>参数说明与技术详情</summary>
+                <CalculationSelectionSummary draft={selection} />
+                {selection.source === "EXACT_CATALOG" ? (
+                    <>
+                        <p>Runtime：{selection.catalog.runtimeGenerationFingerprint}</p>
+                        <p>Catalog：{selection.catalog.catalogGenerationFingerprint}</p>
+                        <p>
+                            Implementation：{selection.entry.capability.implementation_fingerprint}
+                        </p>
+                        <p>
+                            Readiness capability：
+                            {selection.entry.readiness?.capability_fingerprint}
+                        </p>
+                    </>
+                ) : selection.source === "CHART_STUDY_TRANSIENT" ? (
+                    <p>
+                        CHART_STUDY_TRANSIENT · DISPLAY_ONLY · period 1–
+                        {selection.capability.capability_projection.limits.max_period}
+                    </p>
+                ) : (
+                    <p>已登记，尚未接入后端计算。</p>
+                )}
+                {source.descriptor?.parameters.map((parameter) => (
+                    <p key={parameter.name}>
+                        {parameter.name} · {parameter.type}
+                        {parameter.required ? " · 必填" : ""}
+                        {" · 默认 "}
+                        {parameter.default.type === "NULL"
+                            ? "无默认值"
+                            : String(parameter.default.value)}
+                        {parameter.minimum === null
+                            ? ""
+                            : ` · minimum ${String(parameter.minimum.value)}`}
+                        {parameter.maximum === null
+                            ? ""
+                            : ` · maximum ${String(parameter.maximum.value)}`}
+                        {parameter.uppercase ? " · uppercase" : ""}
+                    </p>
+                ))}
+            </details>
             {metadataError === null ? null : (
                 <p role="alert">Descriptor 不可配置：{metadataError}</p>
             )}
@@ -295,152 +334,195 @@ export function ChartStudyEditor({
                 }}
             >
                 <fieldset disabled={status !== "editing" || metadataError !== null}>
-                    <legend>计算输入意图</legend>
-                    {source.descriptor?.parameters.map((parameter) => (
-                        <label key={parameter.name}>
-                            <span>
-                                {parameter.name} · {parameter.type}
-                                {parameter.required ? " · 必填" : ""}
-                            </span>
-                            {parameterField(parameter)}
-                            <small>
-                                默认{" "}
-                                {parameter.default.type === "NULL"
-                                    ? "无默认值"
-                                    : String(parameter.default.value)}
-                                {parameter.minimum === null
-                                    ? ""
-                                    : ` · minimum ${String(parameter.minimum.value)}`}
-                                {parameter.maximum === null
-                                    ? ""
-                                    : ` · maximum ${String(parameter.maximum.value)}`}
-                                {parameter.uppercase
-                                    ? " · uppercase（Core 元数据；不在浏览器归一化）"
-                                    : ""}
-                            </small>
+                    <legend>参数</legend>
+                    {source.descriptor?.parameters.map((parameter) =>
+                        selection.source === "CHART_STUDY_TRANSIENT" &&
+                        parameter.name === "price_field" &&
+                        configuration.parameters.price_field?.type === "STRING" &&
+                        configuration.parameters.price_field.value === "CLOSE" ? (
+                            <p key={parameter.name}>按收盘价计算</p>
+                        ) : (
+                            <label key={parameter.name}>
+                                <span>{parameter.name === "period" ? "周期" : parameter.name}</span>
+                                {parameterField(parameter)}
+                                {parameter.required && parameter.default.type === "NULL" ? (
+                                    <small>必填，无默认值</small>
+                                ) : null}
+                            </label>
+                        )
+                    )}
+                    {source.descriptor?.outputs.length !== 1 ||
+                    configuration.outputName !== source.descriptor.outputs[0]?.name ? (
+                        <label>
+                            <span>输出</span>
+                            <select
+                                aria-label="输出"
+                                value={configuration.outputName}
+                                onChange={(event) => {
+                                    setConfiguration((previous) => ({
+                                        ...previous,
+                                        outputName: event.target.value
+                                    }));
+                                }}
+                            >
+                                <option value="">请选择官方 output</option>
+                                {source.descriptor?.outputs.map((output) => (
+                                    <option key={output.name} value={output.name}>
+                                        {output.name} · {output.semantic_type}
+                                    </option>
+                                ))}
+                            </select>
                         </label>
-                    ))}
-                    <label>
-                        <span>输出</span>
-                        <select
-                            aria-label="输出"
-                            value={configuration.outputName}
-                            onChange={(event) => {
-                                setConfiguration((previous) => ({
-                                    ...previous,
-                                    outputName: event.target.value
-                                }));
-                            }}
-                        >
-                            <option value="">请选择官方 output</option>
-                            {source.descriptor?.outputs.map((output) => (
-                                <option key={output.name} value={output.name}>
-                                    {output.name} · {output.semantic_type}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                    ) : null}
                 </fieldset>
-                <fieldset disabled={status !== "editing"}>
-                    <legend>显示偏好（尚不绘制）</legend>
-                    <label>
-                        <span>位置</span>
-                        <select
-                            aria-label="位置"
-                            value={presentation.placement}
-                            onChange={(event) => {
-                                const placement = event.target.value;
-                                if (placement === "PRICE_OVERLAY" || placement === "SEPARATE_PANE")
-                                    setPresentation((previous) => ({ ...previous, placement }));
-                            }}
+                <details
+                    ref={advanced}
+                    className="chart-study-editor__advanced"
+                    onToggle={(event) => {
+                        if (!event.currentTarget.open && !validPresentation(presentation)) {
+                            event.currentTarget.open = true;
+                            event.currentTarget
+                                .querySelector<HTMLElement>('[aria-invalid="true"]')
+                                ?.focus();
+                        }
+                    }}
+                >
+                    <summary>高级选项</summary>
+                    <fieldset disabled={status !== "editing"}>
+                        <legend>显示样式</legend>
+                        <label>
+                            <span>位置</span>
+                            <select
+                                aria-label="位置"
+                                aria-invalid={
+                                    !["PRICE_OVERLAY", "SEPARATE_PANE"].includes(
+                                        presentation.placement
+                                    )
+                                }
+                                value={presentation.placement}
+                                onChange={(event) => {
+                                    const placement = event.target.value;
+                                    if (
+                                        placement === "PRICE_OVERLAY" ||
+                                        placement === "SEPARATE_PANE"
+                                    )
+                                        setPresentation((previous) => ({ ...previous, placement }));
+                                }}
+                            >
+                                <option value="PRICE_OVERLAY">主图</option>
+                                <option value="SEPARATE_PANE">独立窗格</option>
+                            </select>
+                        </label>
+                        <div
+                            className="study-color-picker"
+                            role="group"
+                            aria-label="颜色"
+                            tabIndex={-1}
+                            aria-invalid={!/^#[0-9a-fA-F]{6}$/.test(presentation.color)}
                         >
-                            <option value="PRICE_OVERLAY">主图 Overlay</option>
-                            <option value="SEPARATE_PANE">独立 Pane</option>
-                        </select>
-                    </label>
-                    <div className="study-color-picker" role="group" aria-label="颜色">
-                        <span>颜色 · {studyColorName(presentation.color)}</span>
-                        <div className="study-color-options">
-                            {studyColors.map((choice) => (
-                                <button
-                                    key={choice.value}
-                                    type="button"
-                                    aria-label={choice.name}
-                                    title={choice.name}
-                                    aria-pressed={presentation.color.toLowerCase() === choice.value}
-                                    style={{ backgroundColor: choice.value }}
-                                    onClick={() => {
-                                        setPresentation((previous) => ({
-                                            ...previous,
-                                            color: choice.value
-                                        }));
-                                    }}
-                                >
-                                    {presentation.color.toLowerCase() === choice.value ? "✓" : ""}
-                                </button>
-                            ))}
+                            <span>颜色 · {studyColorName(presentation.color)}</span>
+                            <div className="study-color-options">
+                                {studyColors.map((choice) => (
+                                    <button
+                                        key={choice.value}
+                                        type="button"
+                                        aria-label={choice.name}
+                                        title={choice.name}
+                                        aria-pressed={
+                                            presentation.color.toLowerCase() === choice.value
+                                        }
+                                        style={{ backgroundColor: choice.value }}
+                                        onClick={() => {
+                                            setPresentation((previous) => ({
+                                                ...previous,
+                                                color: choice.value
+                                            }));
+                                        }}
+                                    >
+                                        {presentation.color.toLowerCase() === choice.value
+                                            ? "✓"
+                                            : ""}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                    <label>
-                        <span>线宽（1–5）</span>
-                        <input
-                            aria-label="线宽"
-                            type="number"
-                            min="1"
-                            max="5"
-                            step="0.5"
-                            value={
-                                Number.isNaN(presentation.lineWidth) ? "" : presentation.lineWidth
-                            }
-                            onChange={(event) => {
-                                setPresentation((previous) => ({
-                                    ...previous,
-                                    lineWidth:
-                                        event.target.value === "" ? NaN : Number(event.target.value)
-                                }));
-                            }}
-                        />
-                    </label>
-                    <label>
-                        <span>透明度（0–1）</span>
-                        <input
-                            aria-label="透明度"
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={Number.isNaN(presentation.opacity) ? "" : presentation.opacity}
-                            onChange={(event) => {
-                                setPresentation((previous) => ({
-                                    ...previous,
-                                    opacity:
-                                        event.target.value === "" ? NaN : Number(event.target.value)
-                                }));
-                            }}
-                        />
-                    </label>
-                    <label className="study-visible">
-                        <input
-                            aria-label="显示"
-                            type="checkbox"
-                            checked={presentation.visible}
-                            onChange={(event) => {
-                                setPresentation((previous) => ({
-                                    ...previous,
-                                    visible: event.target.checked
-                                }));
-                            }}
-                        />
-                        显示（配置偏好）
-                    </label>
-                </fieldset>
+                        <label>
+                            <span>线宽（1–5）</span>
+                            <input
+                                aria-label="线宽"
+                                aria-invalid={
+                                    !Number.isFinite(presentation.lineWidth) ||
+                                    presentation.lineWidth < 1 ||
+                                    presentation.lineWidth > 5
+                                }
+                                type="number"
+                                min="1"
+                                max="5"
+                                step="0.5"
+                                value={
+                                    Number.isNaN(presentation.lineWidth)
+                                        ? ""
+                                        : presentation.lineWidth
+                                }
+                                onChange={(event) => {
+                                    setPresentation((previous) => ({
+                                        ...previous,
+                                        lineWidth:
+                                            event.target.value === ""
+                                                ? NaN
+                                                : Number(event.target.value)
+                                    }));
+                                }}
+                            />
+                        </label>
+                        <label>
+                            <span>透明度（0–1）</span>
+                            <input
+                                aria-label="透明度"
+                                aria-invalid={
+                                    !Number.isFinite(presentation.opacity) ||
+                                    presentation.opacity < 0 ||
+                                    presentation.opacity > 1
+                                }
+                                type="number"
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={
+                                    Number.isNaN(presentation.opacity) ? "" : presentation.opacity
+                                }
+                                onChange={(event) => {
+                                    setPresentation((previous) => ({
+                                        ...previous,
+                                        opacity:
+                                            event.target.value === ""
+                                                ? NaN
+                                                : Number(event.target.value)
+                                    }));
+                                }}
+                            />
+                        </label>
+                        <label className="study-visible">
+                            <input
+                                aria-label="显示"
+                                type="checkbox"
+                                checked={presentation.visible}
+                                onChange={(event) => {
+                                    setPresentation((previous) => ({
+                                        ...previous,
+                                        visible: event.target.checked
+                                    }));
+                                }}
+                            />
+                            显示
+                        </label>
+                    </fieldset>
+                </details>
                 {errors.length === 0 ? null : <p role="alert">{errors.join("；")}</p>}
                 {validPresentation(presentation) ? null : (
                     <p role="alert">显示偏好无效：请选择颜色，线宽 1–5、透明度 0–1。</p>
                 )}
-                {hasContext ? null : (
-                    <p role="alert">请先选择正式数据源、标的与 BarSemantic；当前不可添加。</p>
-                )}
+                {hasContext ? null : <p role="alert">请先选择商品与周期，再添加指标。</p>}
                 {error === null ? null : <p role="alert">{error}</p>}
                 {status === "checking" ? <p role="status">正在重新验证元数据…</p> : null}
                 <footer>

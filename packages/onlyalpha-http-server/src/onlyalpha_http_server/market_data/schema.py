@@ -447,3 +447,38 @@ WINDOW_NOT_CLOSED_HEADERS = {
         "schema": {"type": "string", "pattern": "^[1-9][0-9]*$"},
     }
 }
+
+
+class MarketDataSearchResultDto(_Dto):
+    source_selection: MarketDataSourceSelectionDto
+    instrument: MarketDataInstrumentDto
+
+
+class MarketDataSearchSourceDto(_Dto):
+    source_selection: MarketDataSourceSelectionDto
+    status: Literal["COMPLETE", "TIMEOUT", "UNAVAILABLE", "UNSUPPORTED"]
+    asset_classes: tuple[str, ...]
+    truncated: bool
+
+
+class MarketDataSearchDto(_Dto):
+    schema_version: Literal[1]
+    results: tuple[MarketDataSearchResultDto, ...]
+    sources: tuple[MarketDataSearchSourceDto, ...]
+    truncated: bool
+
+
+class MarketDataQuoteDto(_Dto):
+    instrument_id: str
+    status: Literal["AVAILABLE", "UNAVAILABLE"]
+    last_price: str | None
+    change_pct: str | None
+    change_basis: Literal["ROLLING_24H", "PREVIOUS_CLOSE"] | None
+    ts_event_ns: str | None
+
+
+class MarketDataQuoteListDto(_Dto):
+    schema_version: Literal[1]
+    source_selection: MarketDataSourceSelectionDto
+    quotes: tuple[MarketDataQuoteDto, ...]
+    status: Literal["COMPLETE", "TIMEOUT", "UNAVAILABLE", "UNSUPPORTED"]

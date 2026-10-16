@@ -20,6 +20,8 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.data_source import (
     OnlyDataSourceInstrumentCatalogRequestV1,
     OnlyDataSourceInstrumentV1,
+    OnlyDataSourceQuoteRequestV1,
+    OnlyDataSourceQuoteV1,
 )
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
@@ -30,11 +32,6 @@ from .config import OnlyBinanceSpotDataSourceConfig
 MARKET = "SPOT"
 VENUE = "BINANCE"
 MARKET_DATA_CAPABILITIES = ("BAR_1M_EXTERNAL_RAW",)
-# W1 historical closure intentionally bounds the first reference universe instead of
-# downloading the full Spot catalogue for every text query. Expanding it is a later
-# product slice, not an implicit side effect of a search.
-REFERENCE_SYMBOLS = ("BTCUSDT", "ETHUSDT")
-
 _STATUS = {
     "TRADING": OnlySecurityStatus.ACTIVE,
     "HALT": OnlySecurityStatus.HALTED,
@@ -84,11 +81,7 @@ def only_binance_spot_instrument(raw: Mapping[str, object]) -> OnlyInstrument:
 
 @dataclass(frozen=True, slots=True)
 class OnlyBinanceSpotInstrumentCatalog:
-    """Bounded provider reference lookup; the venue remains the symbol authority.
-
-    Lookups are confined to `REFERENCE_SYMBOLS`, so an unapproved symbol can never
-    silently expand the admitted W1 instrument universe.
-    """
+    """Provider reference lookup; exchangeInfo owns the complete Spot catalogue."""
 
     def list_instruments(
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
@@ -96,33 +89,83 @@ class OnlyBinanceSpotInstrumentCatalog:
         config = request.plugin_config
         if not isinstance(config, OnlyBinanceSpotDataSourceConfig):
             raise OnlyBinanceError("BINANCE_PLUGIN_CONFIG_INVALID")
+        if request.asset_class not in (None, "CRYPTOCURRENCY") or (
+            request.instrument_types and "CRYPTO_SPOT" not in request.instrument_types
+        ):
+            return ()
         http = OnlyBinancePublicHttpClient(
             config.endpoints.rest_base_url,
             timeout_seconds=config.timeout_seconds,
             max_response_bytes=config.max_response_bytes,
+            deadline_monotonic=request.deadline_monotonic,
         )
         if request.instrument_ids:
             requested = {only_binance_raw_symbol(item) for item in request.instrument_ids}
-            symbols = tuple(sorted(requested & set(REFERENCE_SYMBOLS)))
+            symbols = tuple(sorted(requested))
             if not symbols:
                 return ()
-            payload = http.get_json("/api/v3/exchangeInfo", {"symbols": _symbols_parameter(symbols)})
+            payload = http.get_json(
+                "/api/v3/exchangeInfo", {"symbols": _symbols_parameter(symbols), "showPermissionSets": "false"}
+            )
             projected = tuple(only_binance_spot_projection(item) for item in _symbols(payload))
             return tuple(sorted(projected, key=lambda item: str(item.instrument.instrument_id))[: request.limit])
         query = request.query.strip().upper()
-        if not query:
-            # No search criteria: the provider catalogue is never dumped implicitly.
+        if not query and not request.snapshot:
             return ()
-        symbols = tuple(item for item in REFERENCE_SYMBOLS if query in item)
-        if not symbols:
-            return ()
-        payload = http.get_json("/api/v3/exchangeInfo", {"symbols": _symbols_parameter(symbols)})
+        payload = http.get_json("/api/v3/exchangeInfo", {"permissions": "SPOT", "showPermissionSets": "false"})
         return tuple(
             sorted(
-                (only_binance_spot_projection(item) for item in _symbols(payload)),
+                (
+                    only_binance_spot_projection(item)
+                    for item in _symbols(payload)
+                    if (not query or query in str(item.get("symbol", "")).upper())
+                ),
                 key=lambda item: str(item.instrument.instrument_id),
             )[: request.limit]
         )
+
+
+def only_binance_spot_quotes(request: OnlyDataSourceQuoteRequestV1) -> tuple[OnlyDataSourceQuoteV1, ...]:
+    config = request.plugin_config
+    if not isinstance(config, OnlyBinanceSpotDataSourceConfig):
+        raise OnlyBinanceError("BINANCE_PLUGIN_CONFIG_INVALID")
+    symbols = tuple(only_binance_raw_symbol(item) for item in request.instrument_ids)
+    http = OnlyBinancePublicHttpClient(
+        config.endpoints.rest_base_url,
+        timeout_seconds=config.timeout_seconds,
+        max_response_bytes=config.max_response_bytes,
+        deadline_monotonic=request.deadline_monotonic,
+    )
+    payload = json.loads(http.get_json("/api/v3/ticker/24hr", {"symbols": _symbols_parameter(symbols)}))
+    if not isinstance(payload, list):
+        raise OnlyBinanceError("BINANCE_TICKER_RESPONSE_INVALID")
+    result = []
+    for row in payload:
+        if not isinstance(row, dict) or row.get("symbol") not in symbols:
+            raise OnlyBinanceError("BINANCE_TICKER_RESPONSE_INVALID")
+        price = _decimal(row.get("lastPrice"), "LAST_PRICE")
+        change = row.get("priceChangePercent")
+        close_time = row.get("closeTime")
+        if (
+            not isinstance(change, str)
+            or not Decimal(change).is_finite()
+            or type(close_time) is not int
+            or close_time <= 0
+            or not price.is_finite()
+        ):
+            raise OnlyBinanceError("BINANCE_TICKER_RESPONSE_INVALID")
+        result.append(
+            OnlyDataSourceQuoteV1(
+                f"{row['symbol']}.{VENUE}",
+                str(price),
+                change,
+                "ROLLING_24H",
+                close_time * 1_000_000,
+            )
+        )
+    if len({row.instrument_id for row in result}) != len(result):
+        raise OnlyBinanceError("BINANCE_TICKER_RESPONSE_INVALID")
+    return tuple(result)
 
 
 def only_binance_raw_symbol(instrument_id: str) -> str:
@@ -191,7 +234,6 @@ def _quantize(value: Decimal, precision: int) -> Decimal:
 __all__ = [
     "MARKET",
     "MARKET_DATA_CAPABILITIES",
-    "REFERENCE_SYMBOLS",
     "VENUE",
     "OnlyBinanceSpotInstrumentCatalog",
     "only_binance_raw_symbol",

@@ -1,8 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { MarketDataApiClient } from "../../api/marketData/client";
 import { AppProviders } from "../../app/providers";
 import { marketDataBarSemantic } from "../../api/marketData/model";
 import {
+    marketDataAcquisition,
     marketDataBarsForQuery,
     marketDataClient,
     marketDataInstrument,
@@ -13,13 +15,60 @@ import { onlyMarketDataSourceReference, useMarketDataChart } from "./useMarketDa
 
 vi.mock("../../api/marketData/stream", () => ({ openMarketDataStream: () => () => undefined }));
 
-it("switches exact Watchlist sources while retaining the period and requires explicit preparation for gaps", async () => {
+it("keeps the last A selection when a pending B lookup completes after an A no-op", async () => {
+    let finishB: ((items: ReturnType<typeof marketDataInstrument>[]) => void) | undefined;
+    const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
+        Promise.resolve(marketDataBarsForQuery(query))
+    );
+    const createAcquisition = vi.fn<MarketDataApiClient["createAcquisition"]>();
+    const client = marketDataClient({
+        listInstruments: (_reference, _query, _signal, ids) =>
+            ids?.[0] === "ETHUSDT.TEST"
+                ? new Promise((resolve) => {
+                      finishB = resolve;
+                  })
+                : Promise.resolve([marketDataInstrument()]),
+        queryBars,
+        createAcquisition
+    });
+    const wrapper = ({ children }: { readonly children: ReactNode }) => (
+        <AppProviders marketDataClient={client}>{children}</AppProviders>
+    );
+    const { result } = renderHook(() => useMarketDataChart(), { wrapper });
+    await waitFor(() => {
+        expect(result.current.selectableSources).toHaveLength(1);
+    });
+    const source = onlyMarketDataSourceReference(marketDataSource());
+    await act(() => result.current.selectWatchlistInstrument(source, "BTCUSDT.TEST"));
+    const context = result.current.chartContextKey;
+    let pending: Promise<void> | undefined;
+    act(() => {
+        pending = result.current.selectWatchlistInstrument(source, "ETHUSDT.TEST");
+    });
+    await act(() => result.current.selectWatchlistInstrument(source, "BTCUSDT.TEST"));
+    await act(async () => {
+        finishB?.([marketDataInstrument({ instrument_id: "ETHUSDT.TEST" })]);
+        await pending;
+    });
+    expect(result.current.instrument?.instrument_id).toBe("BTCUSDT.TEST");
+    expect(result.current.chartContextKey).toBe(context);
+    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(createAcquisition).not.toHaveBeenCalled();
+});
+
+it("switches exact Watchlist sources while retaining the period and automatically prepares proven gaps", async () => {
     const first = marketDataSource();
     const second = marketDataSource({
         integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         integration_revision_fingerprint: "b".repeat(64)
     });
-    const createAcquisition = vi.fn();
+    let prepared = false;
+    const createAcquisition = vi.fn<MarketDataApiClient["createAcquisition"]>(
+        (_reference, query) => {
+            prepared = true;
+            return Promise.resolve(marketDataAcquisition({ ...query }));
+        }
+    );
     const client = marketDataClient({
         listSources: () => Promise.resolve([first, second]),
         listInstruments: (_reference, _query, _signal, ids) =>
@@ -33,7 +82,7 @@ it("switches exact Watchlist sources while retaining the period and requires exp
                 }
             });
             return Promise.resolve(
-                reference.integration_id === second.integration_id
+                reference.integration_id === second.integration_id && !prepared
                     ? {
                           ...result,
                           bars: [],
@@ -80,8 +129,8 @@ it("switches exact Watchlist sources while retaining the period and requires exp
     expect(result.current.sourceId).toBe(second.integration_id);
     expect(result.current.instrument?.instrument_id).toBe("ETHUSDT.TEST");
     expect(result.current.barSemantic).toEqual(marketDataBarSemantic(7));
-    expect(result.current.message).toContain("不会自动采集");
-    expect(createAcquisition).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("ready");
+    expect(createAcquisition).toHaveBeenCalledTimes(1);
     await act(() =>
         result.current.selectWatchlistInstrument(
             {

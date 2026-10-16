@@ -78,3 +78,17 @@
         font-size: 1rem;
     }
 }
+
+.study-hover > div {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+.study-hover summary {
+    cursor: pointer;
+    color: var(--muted);
+}
+.study-hover:has(details[open]) {
+    max-height: 8rem;
+}

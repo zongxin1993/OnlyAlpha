@@ -1,20 +1,22 @@
 # Watchlist Product Contract
 
-Watchlists are durable Owner presentation configuration. They own list names, ordered membership and an exact Source reference.
+Watchlists are durable Owner presentation configuration. They own list names, ordered membership with an exact Source reference per member.
 They own no Market Data, Research, Runtime, permission, execution or trading facts. The existing authorities remain unchanged.
 
 ## Configuration and ownership
 
 One book belongs to the verified deployment semantic-store namespace and its single Owner. Authorized browsers share that book.
-A list has a canonical UUID4, a nonempty name, one exact Integration Revision/type reference and ordered canonical Instrument IDs.
-Names and list IDs are unique within a book; members are unique within a list. Source is a read context, never Instrument identity.
+A list has a canonical UUID4, a nonempty name and ordered members. Each member binds one exact Integration Revision/type reference
+to one canonical Instrument ID. Names and list IDs are unique within a book; members are unique by the full exact Source reference
+and Instrument ID within a list. Lists may mix markets and Sources; the same Instrument ID from different Sources remains distinct.
+Source is a read context, never Instrument identity.
 Current bounds are 20 lists, 100 members per list, 200 total members and 64 characters per name. These are admission/resource bounds.
 
 `GET /api/v2/watchlists` reads the current configuration. Version zero means that this namespace has no configuration revisions.
 Missing head with existing history, a stale head, a history gap, malformed data or inconsistent fingerprints/receipts is corruption,
 not an empty book. No reader guesses a replacement head. Names/order may evolve; previous committed revisions remain immutable.
 
-`PUT /api/v2/watchlists` submits schema version 1, one global Product Command UUID4, expected book version and the intended lists.
+`PUT /api/v2/watchlists` submits schema version 2 (list `members` each contain `source` and `instrument_id`), one global Product Command UUID4, expected book version and the intended lists.
 The owning transaction verifies the current head/history, inserts the immutable revision, updates the head, and commits the existing
 global Product Command Admission/Receipt together. Failed validation/version checks commit no effect. Reusing a Command ID for a
 changed intent or another family is a conflict. Exact replay returns the original revision, even after later edits.
@@ -25,7 +27,7 @@ A normal UI action retains its pending Command ID until the owning Query and a r
 Concurrent browser edits require expected-version checks; the losing browser reloads explicitly instead of overwriting another edit.
 
 New Sources/members are verified through existing Source/reference authorities. Unavailable existing references remain retained and
-can still be renamed or removed. Rebinding requires an explicit UI action and validation of all retained members; no automatic
+can still be renamed or removed. Changing a member Source creates a different member and requires explicit UI intent and validation; no automatic
 latest Revision, alternate Source, first instrument or cross-market substitution is permitted.
 
 ## Authorization and HTTP lifecycle
@@ -39,23 +41,37 @@ behind its existing disconnect/withdrawal fence. A detached response does not ro
 is at most 128 KiB and shares existing bounded read/work capacity; the body handshake remains five seconds. This is not a new
 production authentication system and grants no Research, acquisition, trading or LIVE authority.
 
-## Price Query and presentation
+## Search stars and ordinary presentation
 
-`GET /api/v2/market-data/latest-bar` is a read-only, protected Market Data Query over an exact Source, Instrument and native Bar semantic.
-It selects the most recent sealed scope in the exact range family, then uses the existing owning range reader for Revision/Manifest/
-Seal, segment and physical-proof admission. It returns a normal one-Bar `BEFORE_TIME` projection with explicit resolved time and
-history evidence. Null means no sealed history for that exact family, not certified absence of external facts. Corrupt or unavailable
-proof is an error; it never falls back to an older revision. Querying never starts acquisition or a stream.
+The top-left symbol search is the discovery and membership entry. Each result has a star bound to the exact Instrument and Source.
+Starring changes only the current list's membership; it does not select a chart or acquire historical Bars. The first star in an
+empty book creates the ordinary default list named `自选` in the same owning Command. With multiple lists, the active list is explicit.
+The sidebar normally displays symbol, latest operational price and change percentage; Source identity and quote basis/time remain
+available in the row details. List creation, rename, deletion and ordering are available through normal menus, not mandatory setup.
 
-List prices preserve exact decimal strings and show Bar end time, history/availability state and explicit stale/unobserved status.
-A historical close is never labeled a latest trade or a certified live quote. The semantic is Source-native and independent of the
-main chart period. Only visible rows in the active panel/document reobserve; one serialized read bounds list query concurrency.
-The next observation is scheduled 15 seconds after completion, not a market-freshness or end-to-end latency guarantee. Hiding a row,
-panel or document aborts its request and stops its scheduling; retained values are visibly unrefreshed.
+## Operational quotes and chart selection
 
-Adding a member never acquires data. Selecting a member preserves chart period/type and Study parameters and loads through the
-existing chart reader. Missing history is visible; a separate normal UI preparation action explicitly authorizes the existing
-acquisition path. A separate explicit native-price preparation action queries a one-Bar native window and submits only its server-planned missing ranges through the existing acquisition API. It does not alter the chart or acquire on adding/selecting a member. Submitted/incomplete/failed observations remain distinct; no automatic acquisition retry is introduced. Unsupported periods fail visibly instead of silently changing the user's configuration.
+`GET /api/v2/market-data/quotes` is a protected read-only operational Quote projection over an exact Source and at most 25 Instruments.
+REALTIME_PREVIEW permission is required independently of CLOSED_HISTORY. A plugin owns its supported quote capability, exact decimal
+price, change percentage, basis and event time. The Application validates response membership and finite numeric strings. The Web does
+not calculate changes, infer market sessions or substitute historical Bar closes for latest prices. Missing values are `—`; timeout,
+unsupported capability, unavailable Source and stale/unobserved values remain distinct from a successful observation.
+`ROLLING_24H` identifies the crypto 24-hour basis; `PREVIOUS_CLOSE` identifies the previous trading-session close basis. A plugin must
+provide the actual basis rather than the browser assigning it from an asset name. Operational quotes are not sealed Market Data facts,
+Research Evidence, certified absence or an execution permission.
+
+Visible rows in the active panel/document are grouped by exact Source, in serialized batches of at most 25. The next cycle begins
+15 seconds after completion, not a freshness guarantee. Hiding a row, panel or document cancels observation; retained values are visibly
+unrefreshed. Transport failure retains any previous value only with a stale warning and its original event time.
+The existing `GET /api/v2/market-data/latest-bar` remains a sealed historical-Bar reader; it is not the sidebar latest-price source.
+
+Selecting a search result or sidebar member preserves chart period/type and Study parameters, then uses the existing chart reader.
+The selection itself authorizes automatic preparation of the bounded server-planned missing history through the existing acquisition
+API. No additional preparation button or confirmation is required. Quote observation and adding a member never acquire historical Bars.
+Unsupported periods and stale Source bindings fail visibly without changing period, substituting latest Revision or switching Source.
+Already selected healthy exact chart contexts remain unchanged. Replaced contexts fence every late response, including A→B→A.
+Command uncertainty is resolved through the owning identity rather than a blind new-effect retry. Loading, partial coverage and failed
+observations remain visible; automatic preparation does not certify completion without the owning history proof.
 
 ## Persistence evolution
 
@@ -63,3 +79,16 @@ Migration 0051 requires the exact prior migration prefix. Additive DDL and its c
 migration and a restart uses the existing checksummed ledger. Existing application/market facts are not transformed or deleted.
 Older binaries may not write this family. Once revisions exist, rollback requires stopping writers and retaining a current owning
 reader or forward-fixing; dropping history or reinitializing a deployment is not rollback. Current repository consumers evolve together.
+
+
+Migration 0052 requires the exact prefix through 0051 and introduces explicit `representation_version` metadata. Existing rows are
+marked representation 1 without changing their payload, fingerprint, Command admission or receipt; new writes explicitly use
+representation 2. The column has no write default, so old writers cannot silently append old-format revisions after upgrade.
+The current owning reader validates original payload structure, bounds, exact Source, original book fingerprint and original Command
+intent/receipt before deterministically projecting an old list Source onto each ordered member. This is the required reader for
+immutable historical facts and exact replay, not an old API or old binary compatibility path. The external API rejects schema 1.
+An exact committed replay returns the projected original outcome and retains its original receipt, even after later edits.
+For outcome-less old admissions, UNKNOWN is retained only when the original fingerprint can be proved from the submitted intent;
+missing historical Source on an empty old list cannot be reconstructed and must never be guessed. Such a resubmission conflicts;
+the Command Query continues to report UNKNOWN. No resubmission creates a second effect. Migration DDL/checksum are transactional;
+restart follows the ledger. Stop writers before upgrading; preserve history/current readers or forward-fix instead of clearing data.

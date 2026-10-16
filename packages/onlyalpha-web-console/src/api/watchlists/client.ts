@@ -2,6 +2,14 @@ import { z } from "zod";
 import type { components } from "../research/generated";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
 
+export const watchlistMemberSchema = z.strictObject({
+    source: z.strictObject({
+        integration_id: z.string().min(1),
+        integration_revision_fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+        expected_type_id: z.string().min(1)
+    }),
+    instrument_id: z.string().min(1)
+});
 export const watchlistSchema = z.strictObject({
     list_id: z
         .string()
@@ -11,16 +19,18 @@ export const watchlistSchema = z.strictObject({
         .min(1)
         .max(64)
         .refine((value) => value === value.trim()),
-    source: z.strictObject({
-        integration_id: z.string().min(1),
-        integration_revision_fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
-        expected_type_id: z.string().min(1)
-    }),
-    instrument_ids: z.array(z.string().min(1)).max(100)
+    members: z.array(watchlistMemberSchema).max(100)
 });
+const memberIdentity = (member: z.infer<typeof watchlistMemberSchema>): string =>
+    JSON.stringify([
+        member.source.integration_id,
+        member.source.integration_revision_fingerprint,
+        member.source.expected_type_id,
+        member.instrument_id
+    ]);
 export const watchlistBookSchema = z
     .strictObject({
-        schema_version: z.literal(1),
+        schema_version: z.literal(2),
         version: z.number().int().nonnegative(),
         lists: z.array(watchlistSchema).max(20)
     })
@@ -30,15 +40,16 @@ export const watchlistBookSchema = z
             new Set(book.lists.map((item) => item.list_id)).size === book.lists.length &&
             new Set(book.lists.map((item) => item.name)).size === book.lists.length &&
             book.lists.every(
-                (item) => new Set(item.instrument_ids).size === item.instrument_ids.length
+                (item) => new Set(item.members.map(memberIdentity)).size === item.members.length
             ) &&
-            book.lists.reduce((count, item) => count + item.instrument_ids.length, 0) <= 200
+            book.lists.reduce((count, item) => count + item.members.length, 0) <= 200
     );
 
+export type WatchlistMember = components["schemas"]["WatchlistMemberDto"];
 export type Watchlist = components["schemas"]["WatchlistDto"];
 export type WatchlistBook = components["schemas"]["WatchlistBookDto"];
 export interface WatchlistSave {
-    readonly schema_version: 1;
+    readonly schema_version: 2;
     readonly command_id: string;
     readonly expected_version: number;
     readonly lists: readonly Watchlist[];

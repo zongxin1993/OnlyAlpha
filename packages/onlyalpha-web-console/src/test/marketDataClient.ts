@@ -176,15 +176,72 @@ export function marketDataBarsForQuery(
 export function marketDataClient(
     overrides: Partial<MarketDataApiClient> = {}
 ): MarketDataApiClient {
-    return {
-        listSources: () => Promise.resolve([marketDataSource()]),
+    let sources: readonly MarketDataSource[] = [marketDataSource()];
+    const client: MarketDataApiClient = {
+        listSources: async (signal) => {
+            sources = await (overrides.listSources?.(signal) ??
+                Promise.resolve([marketDataSource()]));
+            return sources;
+        },
+        discoverInstruments: async (query, assetClass, signal, instrumentTypes = []) => {
+            const responses = await Promise.all(
+                sources.map(async (source) => ({
+                    source,
+                    instruments: await client.listInstruments(
+                        {
+                            integration_id: source.integration_id,
+                            integration_revision_fingerprint:
+                                source.integration_revision_fingerprint,
+                            expected_type_id: source.type_id
+                        },
+                        query,
+                        signal
+                    )
+                }))
+            );
+            const selection = (source: MarketDataSource) => ({
+                integration_id: source.integration_id,
+                integration_revision_fingerprint: source.integration_revision_fingerprint,
+                type_id: source.type_id,
+                source_id: source.source_id,
+                environment: source.environment
+            });
+            return {
+                schema_version: 1,
+                truncated: false,
+                sources: responses.map(({ source }) => ({
+                    source_selection: selection(source),
+                    status: "COMPLETE",
+                    asset_classes: ["CRYPTOCURRENCY"],
+                    truncated: false
+                })),
+                results: responses.flatMap(({ source, instruments }) =>
+                    instruments
+                        .filter(
+                            (item) =>
+                                (!assetClass || item.asset_class === assetClass) &&
+                                (instrumentTypes.length === 0 ||
+                                    instrumentTypes.includes(item.instrument_type))
+                        )
+                        .map((instrument) => ({ source_selection: selection(source), instrument }))
+                )
+            };
+        },
+        queryQuotes: () =>
+            Promise.resolve({
+                schema_version: 1,
+                source_selection: FIXTURE_SELECTION,
+                quotes: [],
+                status: "UNSUPPORTED"
+            }),
         listInstruments: () => Promise.resolve([]),
         queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query)),
         queryLatestBar: () => Promise.resolve(null),
         createAcquisition: () => Promise.resolve(marketDataAcquisition()),
         getAcquisition: unused,
-        ...overrides
+        ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "listSources"))
     };
+    return client;
 }
 
 export function incompleteBars(overrides: Partial<MarketDataBars> = {}): MarketDataBars {

@@ -24,11 +24,28 @@ class OnlyWatchlistError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyWatchlistMember:
+    source: OnlyMarketDataSourceReferenceV1
+    instrument_id: str
+
+    def __post_init__(self) -> None:
+        try:
+            if not isinstance(self.source, OnlyMarketDataSourceReferenceV1) or self.source.expected_type_id is None:
+                raise ValueError
+            if (
+                not isinstance(self.instrument_id, str)
+                or str(OnlyInstrumentId.parse(self.instrument_id)) != self.instrument_id
+            ):
+                raise ValueError
+        except (TypeError, ValueError, OnlyValidationError) as error:
+            raise OnlyWatchlistError("WATCHLIST_INVALID") from error
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyWatchlist:
     list_id: str
     name: str
-    source: OnlyMarketDataSourceReferenceV1
-    instrument_ids: tuple[str, ...]
+    members: tuple[OnlyWatchlistMember, ...]
 
     def __post_init__(self) -> None:
         try:
@@ -39,15 +56,12 @@ class OnlyWatchlist:
                 raise ValueError
             if self.name != self.name.strip() or any(ord(char) < 32 for char in self.name):
                 raise ValueError
-            if not isinstance(self.source, OnlyMarketDataSourceReferenceV1) or self.source.expected_type_id is None:
+            if not isinstance(self.members, tuple) or len(self.members) > MAX_WATCHLIST_MEMBERS:
                 raise ValueError
-            if not isinstance(self.instrument_ids, tuple) or len(self.instrument_ids) > MAX_WATCHLIST_MEMBERS:
+            if any(not isinstance(member, OnlyWatchlistMember) for member in self.members):
                 raise ValueError
-            if len(set(self.instrument_ids)) != len(self.instrument_ids):
+            if len(set(self.members)) != len(self.members):
                 raise ValueError
-            for instrument in self.instrument_ids:
-                if not isinstance(instrument, str) or str(OnlyInstrumentId.parse(instrument)) != instrument:
-                    raise ValueError
         except (TypeError, ValueError, OnlyValidationError) as error:
             raise OnlyWatchlistError("WATCHLIST_INVALID") from error
 
@@ -66,7 +80,7 @@ class OnlyWatchlistBook:
             or any(not isinstance(item, OnlyWatchlist) for item in self.lists)
             or len({item.list_id for item in self.lists}) != len(self.lists)
             or len({item.name for item in self.lists}) != len(self.lists)
-            or sum(len(item.instrument_ids) for item in self.lists) > MAX_TOTAL_WATCHLIST_MEMBERS
+            or sum(len(item.members) for item in self.lists) > MAX_TOTAL_WATCHLIST_MEMBERS
         ):
             raise OnlyWatchlistError("WATCHLIST_INVALID")
 
@@ -113,17 +127,15 @@ class OnlyWatchlistService:
         previous = {item.list_id: item for item in current.lists}
         for item in lists:
             old = previous.get(item.list_id)
-            # Existing unavailable Source references remain editable/removable.
-            if old is not None and old.source == item.source:
-                added = tuple(value for value in item.instrument_ids if value not in old.instrument_ids)
-                if not added:
-                    continue
-            else:
-                added = item.instrument_ids
-                self._market_data.resolve_read_runtime(item.source, read_session=session)
-            if added:
+            # Existing unavailable exact references remain editable/removable.
+            previous_members = () if old is None else old.members
+            added_by_source: dict[OnlyMarketDataSourceReferenceV1, list[str]] = {}
+            for member in item.members:
+                if member not in previous_members:
+                    added_by_source.setdefault(member.source, []).append(member.instrument_id)
+            for source, instruments in added_by_source.items():
                 self._market_data.list_instruments(
-                    item.source, instrument_ids=added, limit=len(added), read_session=session
+                    source, instrument_ids=tuple(instruments), limit=len(instruments), read_session=session
                 )
         session.check_active()
         return self._store.save(command_id, expected_version, lists)

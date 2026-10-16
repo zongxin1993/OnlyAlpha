@@ -136,3 +136,104 @@ def test_websocket_connect_and_receive_use_only_remaining_probe_deadline(monkeyp
 
     assert connect_timeouts == [5.0]
     assert connection.timeouts == [1.5]
+
+
+def test_gzip_is_negotiated_and_observer_receives_decoded_json(monkeypatch) -> None:
+    import gzip
+
+    decoded = b'{"ok":true}'
+    compressed = gzip.compress(decoded)
+    response = _Response(
+        compressed,
+        {"Content-Type": "application/json", "Content-Encoding": "gzip", "Content-Length": str(len(compressed))},
+    )
+
+    def open_request(request, **kwargs):
+        assert request.get_header("Accept-encoding") == "gzip"
+        return response
+
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", open_request)
+    observed = []
+    client = OnlyBinancePublicHttpClient(
+        "https://api.binance.com", max_response_bytes=64, response_observer=lambda *args: observed.append(args)
+    )
+    assert client.get_json("/api/v3/ping") == decoded
+    assert observed[0][2] == decoded
+
+
+def test_gzip_expansion_is_bounded_independently_of_wire_size(monkeypatch) -> None:
+    import gzip
+
+    compressed = gzip.compress(b'{"padding":"' + b"a" * 1024 + b'"}')
+    assert len(compressed) < 64
+    response = _Response(compressed, {"Content-Type": "application/json", "Content-Encoding": "gzip"})
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    client = OnlyBinancePublicHttpClient("https://api.binance.com", max_response_bytes=64)
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_TOO_LARGE"):
+        client.get_json("/api/v3/exchangeInfo")
+
+
+@pytest.mark.parametrize(
+    "encoding,payload,code",
+    [
+        ("br", b"{}", "ENCODING_UNSUPPORTED"),
+        ("gzip", b"not gzip", "ENCODING_INVALID"),
+    ],
+)
+def test_unsupported_or_malformed_encoding_fails_closed(monkeypatch, encoding, payload, code) -> None:
+    response = _Response(payload, {"Content-Type": "application/json", "Content-Encoding": encoding})
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_" + code):
+        OnlyBinancePublicHttpClient("https://api.binance.com").get_json("/api/v3/ping")
+
+
+def test_gzip_invalid_json_is_still_observed_then_rejected(monkeypatch) -> None:
+    import gzip
+
+    response = _Response(gzip.compress(b"{invalid"), {"Content-Type": "application/json", "Content-Encoding": "gzip"})
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    observed = []
+    client = OnlyBinancePublicHttpClient(
+        "https://api.binance.com", response_observer=lambda *args: observed.append(args)
+    )
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_NOT_JSON"):
+        client.get_json("/api/v3/ping")
+    assert observed[0][2] == b"{invalid"
+
+
+def test_gzip_wire_limit_is_independent_of_decoded_size(monkeypatch) -> None:
+    import gzip
+
+    decoded = b'{"random":"ab9D1wxy4"}'
+    compressed = gzip.compress(decoded)
+    assert len(decoded) < 32 < len(compressed)
+    response = _Response(
+        compressed,
+        {"Content-Type": "application/json", "Content-Encoding": "gzip", "Content-Length": str(len(compressed))},
+    )
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_TOO_LARGE"):
+        OnlyBinancePublicHttpClient("https://api.binance.com", max_response_bytes=32).get_json("/api/v3/ping")
+    assert response.read_limit is None
+
+
+@pytest.mark.parametrize("corruption", ["truncated", "checksum", "trailing"])
+def test_corrupt_gzip_fails_without_observing_a_partial_json(monkeypatch, corruption) -> None:
+    import gzip
+
+    payload = gzip.compress(b'{"ok":true}')
+    if corruption == "truncated":
+        payload = payload[:-1]
+    elif corruption == "checksum":
+        payload = payload[:-8] + bytes([payload[-8] ^ 1]) + payload[-7:]
+    else:
+        payload += b"garbage"
+    response = _Response(payload, {"Content-Type": "application/json", "Content-Encoding": "gzip"})
+    monkeypatch.setattr("onlyalpha_plugin_binance.common.http.urlopen", lambda *args, **kwargs: response)
+    observed = []
+    client = OnlyBinancePublicHttpClient(
+        "https://api.binance.com", response_observer=lambda *args: observed.append(args)
+    )
+    with pytest.raises(OnlyBinanceError, match="BINANCE_PUBLIC_RESPONSE_ENCODING_INVALID"):
+        client.get_json("/api/v3/ping")
+    assert observed == []

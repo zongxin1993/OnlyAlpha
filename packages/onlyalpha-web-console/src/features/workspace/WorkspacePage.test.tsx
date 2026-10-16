@@ -33,7 +33,10 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
     expect(screen.getByRole("toolbar", { name: "图表工具" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "主图" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "上下文面板" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "研究面板" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开下方面板" })).toHaveAttribute(
+        "aria-expanded",
+        "false"
+    );
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
     expect(container.querySelector(".chart-workspace")).toHaveAttribute(
         "data-tools-collapsed",
@@ -41,7 +44,7 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
     );
     expect(container.querySelector(".chart-workspace")).toHaveAttribute(
         "data-bottom-collapsed",
-        "false"
+        "true"
     );
 });
 
@@ -55,6 +58,8 @@ it("collapses the tool rail and the bottom panel without losing the chart", asyn
         "aria-expanded",
         "false"
     );
+    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
+    expect(workspace).toHaveAttribute("data-bottom-collapsed", "false");
     await user.click(screen.getByRole("button", { name: "收起下方面板" }));
     expect(workspace).toHaveAttribute("data-bottom-collapsed", "true");
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
@@ -64,9 +69,10 @@ it("exposes honest unconnected watchlist, inspector, runs, results and backtest 
     const user = userEvent.setup();
     renderWorkspace();
     const contextPanel = screen.getByRole("complementary", { name: "上下文面板" });
-    expect(within(contextPanel).getByRole("region", { name: "自选列表管理" })).toBeInTheDocument();
+    expect(within(contextPanel).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
     await user.click(within(contextPanel).getByRole("button", { name: "检查器" }));
     expect(within(contextPanel).getByText("尚未选择行情上下文")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });
     await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
     expect(within(bottomPanel).getByText("研究结果尚未接入工作区")).toBeInTheDocument();
@@ -81,7 +87,7 @@ it("never presents absent API proof as synthetic business facts or success", asy
     renderWorkspace();
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
+            "尚未配置可用的行情来源，请先添加行情来源。"
         );
     });
     expect(screen.getByTestId("market-data-observation")).toHaveAttribute(

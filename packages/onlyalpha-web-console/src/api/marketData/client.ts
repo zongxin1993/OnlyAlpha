@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { LocalReadCredentials } from "./localReadCredentials";
+import { FetchMarketDiscoveryClient, type InstrumentSearch, type MarketQuotes } from "./discovery";
 import {
     marketDataAcquisitionSchema,
     marketDataBarsSchema,
@@ -60,6 +61,17 @@ export interface MarketDataAcquisitionQuery {
 export type { MarketDataSource, MarketDataSourceReference };
 
 export interface MarketDataApiClient {
+    discoverInstruments(
+        query: string,
+        assetClass: string,
+        signal?: AbortSignal,
+        instrumentTypes?: readonly string[]
+    ): Promise<InstrumentSearch>;
+    queryQuotes(
+        source: MarketDataSource,
+        instrumentIds: readonly string[],
+        signal?: AbortSignal
+    ): Promise<MarketQuotes>;
     listSources(signal?: AbortSignal): Promise<readonly MarketDataSource[]>;
     listInstruments(
         reference: MarketDataSourceReference,
@@ -134,7 +146,7 @@ async function request<T>(schema: z.ZodType<T>, url: string, init: RequestInit =
     return admitted.data;
 }
 
-async function protectedRead<T>(
+export async function protectedRead<T>(
     credentials: LocalReadCredentials,
     schema: z.ZodType<T>,
     url: string,
@@ -180,6 +192,27 @@ const read = (signal?: AbortSignal): RequestInit => (signal === undefined ? {} :
 
 export class FetchMarketDataApiClient implements MarketDataApiClient {
     constructor(private readonly credentials = new LocalReadCredentials()) {}
+
+    discoverInstruments(
+        query: string,
+        assetClass: string,
+        signal?: AbortSignal,
+        instrumentTypes?: readonly string[]
+    ) {
+        return new FetchMarketDiscoveryClient(this.credentials).search(
+            query,
+            assetClass,
+            signal,
+            instrumentTypes
+        );
+    }
+    queryQuotes(source: MarketDataSource, instrumentIds: readonly string[], signal?: AbortSignal) {
+        return new FetchMarketDiscoveryClient(this.credentials).quotes(
+            source,
+            instrumentIds,
+            signal
+        );
+    }
 
     async listSources(signal?: AbortSignal) {
         const value = await protectedRead(

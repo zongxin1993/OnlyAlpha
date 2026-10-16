@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { AppProviders, useLocalReadCredentials } from "../../app/providers";
 import { marketDataClient } from "../../test/marketDataClient";
@@ -290,6 +290,10 @@ it.each(["none", "period", "price", "stale"])(
             "data-query-status",
             sibling === "none" ? "DISPLAYABLE" : "PARTIALLY_DISPLAYABLE"
         );
+        expect(screen.getByText(/DISPLAY_ONLY/)).not.toBeVisible();
+        if (sibling !== "none") expect(screen.getByText(/部分可用/)).toBeVisible();
+        fireEvent.click(screen.getByText("指标查询详情"));
+        expect(screen.getByText(/DISPLAY_ONLY/)).toBeVisible();
         if (sibling !== "none")
             expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent("invalid:");
         block = true;

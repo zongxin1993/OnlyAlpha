@@ -8,6 +8,7 @@ writes precede the browser interval; queries use actual owning readers.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import inspect
@@ -15,19 +16,17 @@ import json
 import logging
 import os
 import resource
-from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 from unittest.mock import create_autospec, patch
-from urllib.request import Request
 
 import uvicorn
 from onlyalpha_http_server.app import create_product_app
 from onlyalpha_http_server.composition import only_configure_product_registries
 from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
 from onlyalpha_http_server.local_read_access import only_load_local_read_configuration
+from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.spot.data_source.resource import OnlyBinanceSpotDataSource
 from starlette.types import Receive, Scope, Send
 
@@ -52,6 +51,7 @@ from onlyalpha.application.strategy_product import (
     OnlyStrategyPromotionProductService,
     OnlyStrategyQueryService,
 )
+from onlyalpha.application.watchlists import OnlyWatchlistService
 from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
@@ -67,6 +67,7 @@ from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
+from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.clickhouse import OnlyClickHouseMarketFactStore, OnlyClickHouseMigrationAuthority
 from onlyalpha.persistence.postgres import (
     OnlyPostgresCredentialAuthority,
@@ -76,79 +77,49 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.integration_probe_store import OnlyPostgresIntegrationProbeStore
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from onlyalpha.persistence.postgres.research_deployment_store import OnlyPostgresResearchDeploymentStore
+from onlyalpha.persistence.postgres.watchlist_store import OnlyPostgresWatchlistStore
+from onlyalpha.plugin.data_source import OnlyDataSourceFactory
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
+from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
 from onlyalpha.research.operations.readiness import (
     OnlyResearchReadiness,
     OnlyResearchReadinessCheck,
     OnlyResearchReadinessStatus,
 )
 from onlyalpha.research.query import OnlyResearchArtifactReader
+from scripts.database import _initialize_deployment
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
-from tests.runtime_support.binance_spot_probe_fixture import _kline
+from tests.runtime_support.binance_market_wire import (
+    NOW,
+    _recorded_wire,
+    _watchlist_wire,
+    _WatchlistWireFactory,
+    _wire,
+)
 from tests.runtime_support.local_read_browser import _inventory
 from tests.support.browser_database import reset_dev_browser_test_namespace
 
-NOW = datetime(2026, 1, 25, tzinfo=UTC)
 INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT.BINANCE")
 ORIGIN = "http://127.0.0.1:4173"
 TOKEN = "ee" * 32  # Synthetic acceptance credential only.
 
 
-class _PublicWireResponse:
-    status = 200
-
-    def __init__(self, document: object) -> None:
-        self._body = json.dumps(document, separators=(",", ":")).encode()
-        self.headers = {"Content-Type": "application/json", "Content-Length": str(len(self._body))}
-
-    def read(self, maximum: int) -> bytes:
-        return self._body[:maximum]
-
-    def __enter__(self) -> _PublicWireResponse:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-
-def _wire(request: Request, *, timeout: float) -> _PublicWireResponse:
-    from urllib.parse import parse_qs, urlsplit
-
-    del timeout
-    parsed = urlsplit(request.full_url)
-    query = parse_qs(parsed.query)
-    if parsed.path == "/api/v3/exchangeInfo":
-        return _PublicWireResponse(
-            {
-                "timezone": "UTC",
-                "exchangeFilters": [],
-                "symbols": [
-                    {
-                        "symbol": symbol,
-                        "status": "TRADING",
-                        "baseAsset": symbol.removesuffix("USDT"),
-                        "quoteAsset": "USDT",
-                        "filters": [
-                            {"filterType": "PRICE_FILTER", "tickSize": "0.01000000"},
-                            {"filterType": "LOT_SIZE", "stepSize": "0.00001000", "minQty": "0.00001000"},
-                        ],
-                    }
-                    for symbol in json.loads(query.get("symbols", ['["BTCUSDT"]'])[0])
-                ],
-            }
-        )
-    if parsed.path == "/api/v3/klines":
-        assert query["symbol"] == ["BTCUSDT"]
-        stride = {"1m": 60_000, "15m": 900_000}[query["interval"][0]]
-        return _PublicWireResponse(
-            [
-                _kline(value, stride)
-                for value in range(int(query["startTime"][0]), int(query["endTime"][0]) + 1, stride)
-            ][: int(query["limit"][0])]
-        )
-    if parsed.path == "/api/v3/time":
-        return _PublicWireResponse({"serverTime": int(NOW.timestamp() * 1000)})
-    raise AssertionError("Unexpected external request: " + parsed.path)
+def _assert_slice_inventory(before: dict[str, Any], after: dict[str, Any]) -> None:
+    """Only market ingestion and Watchlist Commands belong to this UI journey."""
+    allowed = ("postgres:market_", "postgres:watchlist_", "clickhouse:market_")
+    commands = {"postgres:product_command_admission", "postgres:product_command_receipt"}
+    assert set(before["database"]) == set(after["database"])
+    for name, value in before["database"].items():
+        if not name.startswith(allowed) and name not in commands:
+            assert after["database"][name] == value, name
+    protected_before = {
+        name: value for name, value in before["files"].items() if not name.startswith(("history/", "live/"))
+    }
+    protected_after = {
+        name: value for name, value in after["files"].items() if not name.startswith(("history/", "live/"))
+    }
+    assert protected_after == protected_before
 
 
 def _files(root: Path) -> dict[str, str]:
@@ -157,54 +128,6 @@ def _files(root: Path) -> dict[str, str]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
-
-
-def _recorded_wire(path: Path) -> tuple[Callable[..., _PublicWireResponse], str, str]:
-    """Acceptance-only recorded venue input; missing/changed capture fails closed."""
-    from urllib.parse import parse_qs, urlsplit
-
-    raw = path.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    assert digest == path.with_suffix(".sha256").read_text().strip()
-    recording = json.loads(raw)
-    assert recording["source_kind"] == "CAPTURED_REAL_BINANCE_PUBLIC_HISTORY"
-    assert recording["before_ns"] == str(int(NOW.timestamp()) * 1_000_000_000)
-    captured_bars: dict[str, list[object]] = {}
-    captured_info = None
-    for item in recording["requests"]:
-        assert item["status"] == 200
-        parsed = urlsplit(item["url"])
-        assert parsed.scheme == "https" and parsed.hostname == "data-api.binance.vision"
-        body = (path.parent / item["path"]).read_bytes()
-        assert hashlib.sha256(body).hexdigest() == item["body_sha256"]
-        query = parse_qs(parsed.query)
-        if parsed.path == "/api/v3/exchangeInfo":
-            assert captured_info is None and json.loads(query["symbols"][0]) == ["BTCUSDT"]
-            captured_info = json.loads(body)
-        else:
-            assert parsed.path == "/api/v3/klines" and query["symbol"] == ["BTCUSDT"]
-            captured_bars.setdefault(query["interval"][0], []).extend(json.loads(body))
-    assert captured_info == recording["exchange_info"] and captured_bars == recording["bars"]
-
-    def replay(request: Request, *, timeout: float) -> _PublicWireResponse:
-        del timeout
-        parsed = urlsplit(request.full_url)
-        query = parse_qs(parsed.query)
-        assert parsed.scheme == "https" and parsed.hostname == "data-api.binance.vision"
-        if parsed.path == "/api/v3/exchangeInfo":
-            assert json.loads(query.get("symbols", ['["BTCUSDT"]'])[0]) == ["BTCUSDT"]
-            return _PublicWireResponse(recording["exchange_info"])
-        assert parsed.path == "/api/v3/klines" and query["symbol"] == ["BTCUSDT"]
-        interval = query["interval"][0]
-        left, right = int(query["startTime"][0]), int(query["endTime"][0])
-        limit = int(query["limit"][0])
-        rows = recording["bars"][interval]
-        assert rows[0][0] <= left <= right <= rows[-1][6]
-        selected = [row for row in rows if left <= row[0] <= right][:limit]
-        assert selected
-        return _PublicWireResponse(selected)
-
-    return replay, digest, str(recording["bars"]["15m"][-1][4])
 
 
 def _denied_authority(kind: type[object]) -> Any:
@@ -219,7 +142,7 @@ def _denied_authority(kind: type[object]) -> Any:
     return authority
 
 
-def main() -> None:
+def main(*, watchlist_slice: bool = False) -> None:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     only_assert_postgres_test_database(dsn)
     clickhouse = _clickhouse("onlyalpha_test_chart_study_browser")
@@ -227,11 +150,15 @@ def main() -> None:
         reset_dev_browser_test_namespace(dsn, clickhouse)
     OnlyPostgresMigrationAuthority(dsn).migrate()
     OnlyClickHouseMigrationAuthority(clickhouse).migrate()
-    artifacts = Path("test-results/chart-study-browser")
+    artifacts = Path("test-results/symbol-search-browser" if watchlist_slice else "test-results/chart-study-browser")
     artifacts.mkdir(parents=True, exist_ok=True)
     recording_path = os.environ.get("ONLYALPHA_CHART_STUDY_RECORDED_WIRE")
+    if watchlist_slice and recording_path:
+        raise ValueError("SYMBOL_SLICE_REQUIRES_DECLARED_SYNTHETIC_WIRE")
     external_wire, capture_digest, preview_price = (
-        _recorded_wire(Path(recording_path)) if recording_path else (_wire, None, "105.00")
+        _recorded_wire(Path(recording_path))
+        if recording_path
+        else (_watchlist_wire if watchlist_slice else _wire, None, "105.00")
     )
     with (
         TemporaryDirectory(prefix="onlyalpha-chart-study-browser-") as raw,
@@ -247,6 +174,17 @@ def main() -> None:
             calculations, data_sources, brokers, OnlyBrokerFeeContractRegistry(), OnlyMarketProductFactoryRegistry()
         )
         assert composition.chart_study is not None
+        controlled = OnlyDataSourceFactoryRegistry()
+        for record in data_sources.records():
+            factory = (
+                _WatchlistWireFactory(quotes_enabled=watchlist_slice, recording_path=recording_path)
+                if isinstance(record.factory, OnlyBinanceSpotDataSourceFactory)
+                else record.factory
+            )
+            controlled.register(cast(OnlyDataSourceFactory, factory), origin=record.origin)
+        data_sources = controlled
+        if watchlist_slice:
+            _initialize_deployment(dsn, root)
         types = OnlyIntegrationTypeCatalog(data_sources, brokers)
         store = OnlyPostgresIntegrationProductStore(dsn, b"k" * 32)
         commands = OnlyIntegrationCommandService(types, store, b"k" * 32)
@@ -275,6 +213,26 @@ def main() -> None:
         revision = integration.current_revision_fingerprint
         assert revision is not None
         reference = OnlyMarketDataSourceReferenceV1(str(integration_id), revision, "binance.spot.market_data")
+        if watchlist_slice:
+            second = OnlyIntegrationId("00000000-0000-4000-8000-000000000704")
+            commands.create_integration(
+                OnlyCreateIntegration(command(704), second, "binance.spot.market_data", "Other Binance Spot")
+            )
+            second_draft = store.load_draft(second)
+            commands.publish_integration_revision(
+                OnlyPublishIntegrationRevision(command(705), second, second_draft.draft_version)
+            )
+            second_integration = store.load_integration(second)
+            if second_integration.lifecycle_state is not OnlyIntegrationLifecycleState.ACTIVE:
+                commands.set_integration_lifecycle(
+                    OnlySetIntegrationLifecycle(
+                        command(706),
+                        second,
+                        store.load_integration(second).lifecycle_state,
+                        OnlyIntegrationLifecycleState.ACTIVE,
+                    )
+                )
+
         integration_queries = OnlyIntegrationQueryService(store)
         credentials = OnlyPostgresCredentialAuthority(dsn, b"k" * 32)
         probe_catalog = OnlyIntegrationProbeCatalog(data_sources, brokers)
@@ -298,20 +256,21 @@ def main() -> None:
         )
         resolved = product.resolve_runtime(reference)
         end = clock.timestamp_ns()
-        # Respect the existing acquisition bound. No acquisition occurs after inventory.
-        for left in range(0, 2000, 500):
+        if not watchlist_slice:
+            # Respect the existing acquisition bound. No acquisition occurs after inventory.
+            for left in range(0, 2000, 500):
+                acquired = product.acquire_bars(
+                    reference,
+                    instrument_id=str(INSTRUMENT),
+                    start_ns=end - (2000 - left) * 900_000_000_000,
+                    end_ns=end - (1500 - left) * 900_000_000_000,
+                    bar_semantic=OnlyBarSemantic.fixed_duration(15),
+                )
+                assert acquired.status == "COMPLETE", acquired
             acquired = product.acquire_bars(
-                reference,
-                instrument_id=str(INSTRUMENT),
-                start_ns=end - (2000 - left) * 900_000_000_000,
-                end_ns=end - (1500 - left) * 900_000_000_000,
-                bar_semantic=OnlyBarSemantic.fixed_duration(15),
+                reference, instrument_id=str(INSTRUMENT), start_ns=end - 2000 * 60_000_000_000, end_ns=end
             )
             assert acquired.status == "COMPLETE", acquired
-        acquired = product.acquire_bars(
-            reference, instrument_id=str(INSTRUMENT), start_ns=end - 2000 * 60_000_000_000, end_ns=end
-        )
-        assert acquired.status == "COMPLETE", acquired
         stream = OnlyMarketDataStreamProductService(
             historical=product,
             catalog=catalog,
@@ -367,11 +326,11 @@ def main() -> None:
             )
         )
         config_path.chmod(0o600)
-        before = dict(database=_inventory(dsn, clickhouse), files=_files(root))
+        before: dict[str, Any] = dict(database=_inventory(dsn, clickhouse), files=_files(root))
 
         def inspect_fixture() -> OnlyResearchReadiness:
             ingress = getattr(app.state, "local_read_ingress", None)
-            if ingress is None or ingress._work or stream._sessions:
+            if (ingress is None and not watchlist_slice) or (ingress is not None and ingress._work) or stream._sessions:
                 return OnlyResearchReadiness(
                     OnlyResearchReadinessStatus.NOT_READY,
                     (OnlyResearchReadinessCheck("fixture_inventory", "WORK_PENDING"),),
@@ -390,7 +349,10 @@ def main() -> None:
                     indent=2,
                 )
             )
-            assert after == before, "Chart Query changed durable business inventory"
+            if watchlist_slice:
+                _assert_slice_inventory(before, after)
+            else:
+                assert after == before, "Chart Query changed durable business inventory"
             return OnlyResearchReadiness(
                 OnlyResearchReadinessStatus.READY, (OnlyResearchReadinessCheck("fixture_inventory", "UNCHANGED"),), None
             )
@@ -399,6 +361,20 @@ def main() -> None:
         definition_resolver.universe_resolver = None
         readiness_probe = create_autospec(OnlyKernelResearchReadinessProjection, instance=True)
         readiness_probe.inspect.side_effect = inspect_fixture
+        dev_configuration = None
+        dev_credential = None
+        watchlists = None
+        if watchlist_slice:
+            from onlyalpha_http_server.dev_web import only_dev_web_configuration
+
+            dev_configuration, dev_credential = only_dev_web_configuration(
+                "http://127.0.0.1:5173", product.list_sources()
+            )
+            identity = OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(root).research_root).load_verified()
+            assert OnlyPostgresResearchDeploymentStore(dsn).load_semantic_store_id() == identity
+            watchlists = OnlyWatchlistService(OnlyPostgresWatchlistStore(dsn, identity), product)
+            assert watchlists.read().version == 0
+            assert before["database"]["postgres:market_data_revision"]["count"] == 0
         app = create_product_app(
             reader=_denied_authority(OnlyResearchArtifactReader),
             product_boundary=_denied_authority(OnlyResearchProductBoundary),
@@ -419,9 +395,16 @@ def main() -> None:
             integration_operational_queries=operational_queries,
             market_data=product,
             market_data_stream=stream,
-            local_read_configuration=only_load_local_read_configuration(config_path),
+            local_read_configuration=None if watchlist_slice else only_load_local_read_configuration(config_path),
+            dev_web_configuration=dev_configuration,
+            watchlists=watchlists,
             calculation_composition=composition,
         )
+        if watchlist_slice:
+            from onlyalpha_http_server.dev_web import only_mount_dev_web
+
+            assert dev_credential is not None
+            only_mount_dev_web(app, Path("packages/onlyalpha-web-console/dist"), dev_credential)
         (artifacts / "before.json").write_text(json.dumps(before, indent=2))
         (artifacts / "source.json").write_text(
             json.dumps(
@@ -459,7 +442,7 @@ def main() -> None:
                 uvicorn.run(
                     observe_quiescent_health,
                     host="127.0.0.1",
-                    port=8000,
+                    port=5173 if watchlist_slice else 8000,
                     ws_max_size=4096,
                     ws_per_message_deflate=False,
                     proxy_headers=False,
@@ -469,8 +452,14 @@ def main() -> None:
             stream.close()
             after = dict(database=_inventory(dsn, clickhouse), files=_files(root))
             (artifacts / "after.json").write_text(json.dumps(after, indent=2))
-            assert after == before, "Chart Query changed durable business inventory"
+            if watchlist_slice:
+                _assert_slice_inventory(before, after)
+            else:
+                assert after == before, "Chart Query changed durable business inventory"
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--watchlist-slice", action="store_true")
+    arguments = parser.parse_args()
+    main(watchlist_slice=arguments.watchlist_slice)

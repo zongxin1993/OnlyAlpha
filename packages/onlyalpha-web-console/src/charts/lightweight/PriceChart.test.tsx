@@ -6,7 +6,7 @@ import { ChartStudyCapabilitiesSchema } from "../../api/chartStudies/http.genera
 import { TransientStudyPriceChart } from "../../features/workspace/TransientStudyPriceChart";
 import { projectMarketDataBar } from "./marketDataChartProjection";
 import sample from "../../../../../test-data/web/chart-studies/query.json";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PriceChart } from "./PriceChart";
 import { studySeriesFixture } from "../../test/studySeries";
 
@@ -228,6 +228,9 @@ it("hover uses exact timestamp/identity, never a previous point; stale/context c
     act(() => {
         callback?.({ point: { x: 1, y: 2 }, time: bars[40]?.time });
     });
+    expect(screen.getByText(/UTC ns/)).not.toBeVisible();
+    fireEvent.click(within(screen.getByTestId("study-hover")).getByLabelText("指标点详情 SMA"));
+    expect(screen.getByText(/UTC ns/)).toBeVisible();
     expect(screen.getByTestId("study-hover")).toHaveTextContent(
         "PRE_READY · controlled missing value"
     );

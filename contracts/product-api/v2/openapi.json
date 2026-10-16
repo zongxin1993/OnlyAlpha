@@ -4964,6 +4964,119 @@
         "title": "MarketDataInstrumentListDto",
         "type": "object"
       },
+      "MarketDataQuoteDto": {
+        "additionalProperties": false,
+        "properties": {
+          "change_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ROLLING_24H",
+                  "PREVIOUS_CLOSE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Basis"
+          },
+          "change_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Pct"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "last_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Price"
+          },
+          "status": {
+            "enum": [
+              "AVAILABLE",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "ts_event_ns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts Event Ns"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "status",
+          "last_price",
+          "change_pct",
+          "change_basis",
+          "ts_event_ns"
+        ],
+        "title": "MarketDataQuoteDto",
+        "type": "object"
+      },
+      "MarketDataQuoteListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "quotes": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataQuoteDto"
+            },
+            "title": "Quotes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_selection": {
+            "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
+          },
+          "status": {
+            "enum": [
+              "COMPLETE",
+              "TIMEOUT",
+              "UNAVAILABLE",
+              "UNSUPPORTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_selection",
+          "quotes",
+          "status"
+        ],
+        "title": "MarketDataQuoteListDto",
+        "type": "object"
+      },
       "MarketDataRevisionEvidenceDto": {
         "additionalProperties": false,
         "properties": {
@@ -5013,6 +5126,96 @@
           "covered_end_ns"
         ],
         "title": "MarketDataRevisionEvidenceDto",
+        "type": "object"
+      },
+      "MarketDataSearchDto": {
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataSearchResultDto"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataSearchSourceDto"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schema_version",
+          "results",
+          "sources",
+          "truncated"
+        ],
+        "title": "MarketDataSearchDto",
+        "type": "object"
+      },
+      "MarketDataSearchResultDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instrument": {
+            "$ref": "#/components/schemas/MarketDataInstrumentDto"
+          },
+          "source_selection": {
+            "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
+          }
+        },
+        "required": [
+          "source_selection",
+          "instrument"
+        ],
+        "title": "MarketDataSearchResultDto",
+        "type": "object"
+      },
+      "MarketDataSearchSourceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Asset Classes",
+            "type": "array"
+          },
+          "source_selection": {
+            "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
+          },
+          "status": {
+            "enum": [
+              "COMPLETE",
+              "TIMEOUT",
+              "UNAVAILABLE",
+              "UNSUPPORTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_selection",
+          "status",
+          "asset_classes",
+          "truncated"
+        ],
+        "title": "MarketDataSearchSourceDto",
         "type": "object"
       },
       "MarketDataSourceListDto": {
@@ -9590,7 +9793,7 @@
             "type": "array"
           },
           "schema_version": {
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
             "type": "integer"
           }
@@ -10383,8 +10586,8 @@
             "type": "array"
           },
           "schema_version": {
-            "const": 1,
-            "default": 1,
+            "const": 2,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -10404,34 +10607,30 @@
       "WatchlistDto": {
         "additionalProperties": false,
         "properties": {
-          "instrument_ids": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 100,
-            "title": "Instrument Ids",
-            "type": "array"
-          },
           "list_id": {
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "title": "List Id",
             "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/WatchlistMemberDto"
+            },
+            "maxItems": 100,
+            "title": "Members",
+            "type": "array"
           },
           "name": {
             "maxLength": 64,
             "minLength": 1,
             "title": "Name",
             "type": "string"
-          },
-          "source": {
-            "$ref": "#/components/schemas/WatchlistSourceDto"
           }
         },
         "required": [
           "list_id",
           "name",
-          "source",
-          "instrument_ids"
+          "members"
         ],
         "title": "WatchlistDto",
         "type": "object"
@@ -10459,6 +10658,26 @@
           "error"
         ],
         "title": "WatchlistErrorEnvelopeDto",
+        "type": "object"
+      },
+      "WatchlistMemberDto": {
+        "additionalProperties": false,
+        "properties": {
+          "instrument_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/WatchlistSourceDto"
+          }
+        },
+        "required": [
+          "source",
+          "instrument_id"
+        ],
+        "title": "WatchlistMemberDto",
         "type": "object"
       },
       "WatchlistSourceDto": {
@@ -13516,6 +13735,172 @@
         ]
       }
     },
+    "/api/v2/market-data/quotes": {
+      "get": {
+        "operationId": "quotes_api_v2_market_data_quotes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "title": "Integration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "integration_revision_fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Integration Revision Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_ids",
+            "required": true,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 25,
+              "minItems": 1,
+              "title": "Instrument Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_type_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Type Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataQuoteListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "LocalSourceReadBearer": []
+          }
+        ],
+        "summary": "Quotes",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
     "/api/v2/market-data/sources": {
       "get": {
         "operationId": "list_sources_api_v2_market_data_sources_get",
@@ -13811,6 +14196,183 @@
           }
         ],
         "summary": "List Instruments",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/api/v2/market/instruments/search": {
+      "get": {
+        "operationId": "search_instruments_api_v2_market_instruments_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_class",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Class"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_types",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Instrument Types"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataSearchDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataErrorEnvelopeDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "LocalSourceReadBearer": []
+          }
+        ],
+        "summary": "Search Instruments",
         "tags": [
           "market-data"
         ]

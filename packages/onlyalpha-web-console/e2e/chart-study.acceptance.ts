@@ -27,6 +27,12 @@ function nativeBarsReply(page: Page): Promise<Response> {
     });
 }
 
+async function sourceControl(page: Page) {
+    const control = page.getByLabel("数据源");
+    if (!(await control.isVisible())) await page.getByText("行情设置", { exact: true }).click();
+    return control;
+}
+
 async function connectNativeChart(page: Page): Promise<void> {
     await page.goto("/");
     await page.getByText("本地只读访问", { exact: true }).click();
@@ -34,7 +40,7 @@ async function connectNativeChart(page: Page): Promise<void> {
     const bars = nativeBarsReply(page);
     await page.getByRole("button", { name: "连接只读行情" }).click();
     await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
-    await page.getByLabel("数据源").selectOption({ index: 1 });
+    await (await sourceControl(page)).selectOption({ index: 1 });
     await expect(page.getByLabel("时间周期")).toBeEnabled();
     await page.getByLabel("时间周期").selectOption("15");
     expect((await bars).status()).toBe(200);
@@ -58,7 +64,10 @@ async function addSma(page: Page, period: number, color?: string): Promise<void>
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
     await expect(page.getByLabel("period", { exact: true })).toHaveValue("20");
     if (period !== 20) await page.getByLabel("period", { exact: true }).fill(String(period));
-    if (color !== undefined) await page.getByRole("button", { name: color, exact: true }).click();
+    if (color !== undefined) {
+        await page.getByText("高级选项", { exact: true }).click();
+        await page.getByRole("button", { name: color, exact: true }).click();
+    }
     await page.getByRole("button", { name: "添加", exact: true }).click();
 }
 
@@ -122,6 +131,7 @@ test("different periods of the same SMA retain independent colors, edits and vis
         await page.getByRole("button", { name: "指标", exact: true }).click();
         await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
         await page.getByLabel("period", { exact: true }).fill(String(period));
+        await page.getByText("高级选项", { exact: true }).click();
         await page
             .getByRole("button", { name: color === "#c8332a" ? "红色" : "蓝色", exact: true })
             .click();
@@ -159,6 +169,7 @@ test("different periods of the same SMA retain independent colors, edits and vis
     const chart = page.getByTestId("price-chart");
     await expect(chart).toHaveAttribute("data-study-series-count", "2");
     await expect(page.getByTestId("study-hover")).toHaveCount(2);
+    await page.getByRole("button", { name: "展开下方面板" }).click();
     await page.getByRole("button", { name: "收起下方面板" }).click();
     expect((await chart.boundingBox())?.height).toBeGreaterThanOrEqual(220);
     await chart.screenshot({ path: testInfo.outputPath("sma20-and-sma30.png") });
@@ -239,7 +250,7 @@ for (const change of ["timeframe", "source"] as const)
                 "1"
             );
         } else {
-            await page.getByLabel("数据源").selectOption("");
+            await (await sourceControl(page)).selectOption("");
             await expect(page.getByTestId("price-chart")).toHaveAttribute(
                 "data-study-series-count",
                 "0"
@@ -249,7 +260,7 @@ for (const change of ["timeframe", "source"] as const)
         const restoredBars = nativeBarsReply(page);
         const restored = evaluationReply(page, 20);
         if (change === "timeframe") await page.getByLabel("时间周期").selectOption("15");
-        else await page.getByLabel("数据源").selectOption({ index: 1 });
+        else await (await sourceControl(page)).selectOption({ index: 1 });
         expect((await restoredBars).status()).toBe(200);
         expect((await restored).status()).toBe(200);
         await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
@@ -321,7 +332,7 @@ test("late genuine HTTP reply cannot revive an abandoned Study after logout and 
     const restoredBars = nativeBarsReply(page);
     await page.getByRole("button", { name: "连接只读行情" }).click();
     await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
-    await page.getByLabel("数据源").selectOption({ index: 1 });
+    await (await sourceControl(page)).selectOption({ index: 1 });
     expect((await restoredBars).status()).toBe(200);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     release();
@@ -375,9 +386,10 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
     });
     expect((await request.get("/api/v2/chart/studies/capabilities")).status()).toBe(401);
     await connectNativeChart(page);
-    await page.getByLabel("搜索标的").fill("BTCUSDT");
-    await page.getByLabel("搜索标的").press("Enter");
-    await page.getByRole("button", { name: /BTCUSDT.*BINANCE/ }).click();
+    await page.getByRole("button", { name: "搜索商品", exact: true }).click();
+    const search = page.getByRole("dialog", { name: "商品搜索" });
+    await search.getByRole("searchbox", { name: "商品代码或名称" }).fill("BTCUSDT");
+    await search.getByRole("button", { name: /查看 BTCUSDT · BINANCE ·/ }).click();
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     await page.getByRole("button", { name: "指标", exact: true }).click();
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
@@ -427,6 +439,7 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
         "DISPLAYABLE"
     );
     await expect(page.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "1");
+    await page.getByTestId("study-hover").getByLabel("指标点详情 SMA").click();
     const statusBounds = await page.getByTestId("chart-study-query-status").boundingBox();
     const plot = await page.getByTestId("price-chart").boundingBox();
     if (plot === null || statusBounds === null)
@@ -447,6 +460,7 @@ test("protected Shipping SMA20→30 uses owning PG/CH history and the registered
     expect(evaluations).toHaveLength(1);
     // Style-only confirmation rereads capability but never reevaluates values.
     await page.getByRole("button", { name: "编辑 SMA", exact: true }).click();
+    await page.getByText("高级选项", { exact: true }).click();
     await page.getByRole("button", { name: "青绿色", exact: true }).click();
     await page.getByRole("button", { name: "应用", exact: true }).click();
     await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
@@ -533,6 +547,7 @@ test("two SMA instances preserve parameters and colors across native 15m to 1m t
         );
     const original = await intent();
     expect(original).toHaveLength(2);
+    await page.getByRole("button", { name: "展开下方面板" }).click();
     await page.getByRole("button", { name: "收起下方面板" }).click();
     const plot = await chart.locator("canvas").first().boundingBox();
     if (plot === null) throw new Error("Missing native price canvas");
@@ -596,7 +611,7 @@ for (const collapsed of [false, true]) {
             "data-query-status",
             "DISPLAYABLE"
         );
-        if (collapsed) await page.getByRole("button", { name: "收起下方面板" }).click();
+        if (!collapsed) await page.getByRole("button", { name: "展开下方面板" }).click();
         const main = page.getByRole("region", { name: "主图", exact: true });
         // Scroll the existing owning region from its text surface. Wheel input on
         // the financial canvas intentionally zooms; it is not a page-scroll path.

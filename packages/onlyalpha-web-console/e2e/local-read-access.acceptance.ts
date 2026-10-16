@@ -46,11 +46,15 @@ test("shipping workspace uses authenticated Source history and AUTH-first native
     await page.getByRole("button", { name: "连接只读行情" }).click();
     await sourceResponse;
     await expect(page.getByLabel("数据源").locator("option")).toHaveCount(2);
+    await page.getByText("行情设置", { exact: true }).click();
     await page.getByLabel("数据源").selectOption({ index: 1 });
     await expect(page.getByLabel("时间周期")).toBeEnabled();
     await page.getByLabel("时间周期").selectOption("1");
-    await page.getByLabel("搜索标的").fill("BTCUSDT");
-    await page.getByLabel("搜索标的").press("Enter");
+    await page.getByRole("button", { name: "搜索商品", exact: true }).click();
+    await page
+        .getByRole("dialog", { name: "商品搜索" })
+        .getByRole("searchbox", { name: "商品代码或名称" })
+        .fill("BTCUSDT");
     const historyResponse = page.waitForResponse((response) => {
         const semantic = new URL(response.url()).searchParams.get("bar_semantic");
         return (
@@ -61,7 +65,7 @@ test("shipping workspace uses authenticated Source history and AUTH-first native
                 .window_minutes === 1
         );
     });
-    await page.getByRole("button", { name: /BTCUSDT.*TEST/ }).click();
+    await page.getByRole("button", { name: /查看 BTCUSDT · TEST ·/ }).click();
     const history = (await (await historyResponse).json()) as {
         coverage: { status: string };
         bars: unknown[];

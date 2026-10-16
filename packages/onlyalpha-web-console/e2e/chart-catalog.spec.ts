@@ -85,6 +85,7 @@ test("Catalog selection detects a later active switch and clears previous handof
     const trigger = page.getByRole("button", { name: "指标", exact: true });
     await trigger.click();
     await page.getByRole("button", { name: /选择 SMA/ }).click();
+    await page.getByText("参数说明与技术详情", { exact: true }).click();
     await expect(page.getByTestId("calculation-handoff")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
@@ -151,6 +152,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(trigger).toBeFocused();
         await trigger.click();
         await choose.click();
+        await page.getByText("参数说明与技术详情", { exact: true }).click();
         const handoff = page.getByTestId("calculation-handoff");
         await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
         await expect(handoff).toHaveAttribute("data-type-id", "onlyalpha.indicator.sma");

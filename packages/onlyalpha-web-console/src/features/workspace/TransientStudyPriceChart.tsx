@@ -495,28 +495,54 @@ export function TransientStudyPriceChart({
     const hasTransient = (chart.studies ?? []).some(
         (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
     );
+    const partial =
+        active.status === "PARTIALLY_DISPLAYABLE" ||
+        active.evidence.some((row) => row.points.some((point) => point.readiness === "PARTIAL"));
+    const statusCopy: Record<string, string> = {
+        NOT_CONNECTED: "尚未连接指标",
+        QUERYING: "正在加载指标…",
+        DISPLAYABLE: partial ? "部分可用" : "指标已就绪",
+        PARTIALLY_DISPLAYABLE: "部分可用",
+        REJECTED_CONFIG: "指标配置不可用",
+        INPUT_INCOMPLETE: "缺少已完成历史 K 线",
+        WAITING_FOR_CLOSED_WINDOW: "等待 K 线时间窗口就绪 · 将自动重新查询一次",
+        STALE: "指标已过期，请重新查询",
+        UNAVAILABLE: "指标暂不可用",
+        INVALID: "指标结果无效",
+        UNAUTHORIZED: "请重新验证访问凭据",
+        FORBIDDEN: "无权访问指标",
+        UNSUPPORTED: "当前图表不支持此指标"
+    };
     return (
         <div className="transient-study-chart">
             {hasTransient ? (
                 <div className="transient-study-chart__status">
-                    <p
+                    <div
                         role="status"
                         data-testid="chart-study-query-status"
                         data-query-status={active.status}
                     >
-                        {active.status === "INPUT_INCOMPLETE"
-                            ? "缺少已完成历史 K 线"
-                            : active.status === "WAITING_FOR_CLOSED_WINDOW"
-                              ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
-                              : active.status}{" "}
-                        · DISPLAY_ONLY · 不是 Research Result
-                        {active.rejected.length === 0 ? null : ` · ${active.rejected.join("；")}`}
-                        {active.evidence.some((row) =>
-                            row.points.some((point) => point.readiness === "PARTIAL")
-                        )
-                            ? " · PARTIAL · 有限历史初始化窗口"
-                            : null}
-                    </p>
+                        <span>{statusCopy[active.status] ?? "指标暂不可用"} · 仅供图表观察</span>
+                        <details className="transient-study-chart__details">
+                            <summary>指标查询详情</summary>
+                            <p>
+                                {active.status === "INPUT_INCOMPLETE"
+                                    ? "缺少已完成历史 K 线"
+                                    : active.status === "WAITING_FOR_CLOSED_WINDOW"
+                                      ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
+                                      : active.status}{" "}
+                                · DISPLAY_ONLY · 不是 Research Result
+                                {active.rejected.length === 0
+                                    ? null
+                                    : ` · ${active.rejected.join("；")}`}
+                                {active.evidence.some((row) =>
+                                    row.points.some((point) => point.readiness === "PARTIAL")
+                                )
+                                    ? " · PARTIAL · 有限历史初始化窗口"
+                                    : null}
+                            </p>
+                        </details>
+                    </div>
                     {["UNAVAILABLE", "INVALID", "STALE", "INPUT_INCOMPLETE"].includes(
                         active.status
                     ) ? (

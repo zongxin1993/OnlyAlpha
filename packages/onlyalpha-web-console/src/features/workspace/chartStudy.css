@@ -130,3 +130,27 @@
     outline: 2px solid var(--accent-solid);
     outline-offset: 2px;
 }
+
+.chart-study-editor {
+    width: min(30rem, calc(100vw - 2rem));
+}
+.chart-study-editor__name {
+    font-weight: 600;
+}
+.chart-study-editor__details,
+.chart-study-editor__advanced {
+    margin: 0.75rem 0;
+}
+.chart-study-editor summary {
+    cursor: pointer;
+}
+.chart-study-editor__details {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.chart-studies__details summary,
+.transient-study-chart__details summary {
+    cursor: pointer;
+    color: var(--muted);
+}

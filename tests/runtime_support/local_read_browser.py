@@ -18,6 +18,7 @@ from tempfile import TemporaryDirectory
 import psycopg
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from onlyalpha_http_server.local_read_access import OnlyLocalReadIngress, only_load_local_read_configuration
 from onlyalpha_http_server.market_data import (
     create_market_data_router,
@@ -30,9 +31,6 @@ from onlyalpha.application.market_data_product import OnlyMarketDataProductError
 from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
 from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.data.enums import OnlyMarketDataRequestStatus
-from onlyalpha.data.models import OnlyMarketDataSubscriptionResult, OnlyRealtimeBarPreviewV1
-from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseClient,
     OnlyClickHouseMarketFactStore,
@@ -40,8 +38,15 @@ from onlyalpha.persistence.clickhouse import (
 )
 from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog, only_assert_postgres_test_database
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from tests.application.test_market_data_product import BASE, INSTRUMENT, MINUTE_NS, _FakeSource, _reference, _service
+from tests.application.test_market_data_product import (
+    BASE,
+    INSTRUMENT,
+    MINUTE_NS,
+    _reference,
+    _service,
+)
 from tests.market_data_durable.test_real_database_acceptance import _clickhouse
+from tests.runtime_support.local_read_provider import _ReadBrowserFactory
 from tests.support.browser_database import reset_dev_browser_test_namespace
 
 
@@ -90,7 +95,7 @@ def main() -> None:
     artifacts.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="onlyalpha-read-browser-") as raw:
         root = Path(raw)
-        harness = _service(root)
+        harness = _service(root, factory_type=_ReadBrowserFactory)
         catalog = OnlyPostgresMarketDataCatalog(dsn, now=lambda: BASE + timedelta(hours=1))
         facts = OnlyClickHouseMarketFactStore(client)
         product = OnlyMarketDataProductService(
@@ -114,30 +119,9 @@ def main() -> None:
         before = _inventory(dsn, client)
         (artifacts / "before.json").write_text(json.dumps(before, indent=2))
 
-        class PreviewSource(_FakeSource):
-            def subscribe(self, request):
-                self._request.market_data_preview_sink(
-                    OnlyRealtimeBarPreviewV1(
-                        self._request.source_id,
-                        INSTRUMENT,
-                        OnlyBarType(INSTRUMENT, OnlyBarSemantic.fixed_duration(1)),
-                        end,
-                        end + MINUTE_NS,
-                        "100.00",
-                        "102.00",
-                        "99.00",
-                        "101.00",
-                        "2.00000",
-                        end,
-                        end,
-                    )
-                )
-                return OnlyMarketDataSubscriptionResult(OnlyMarketDataRequestStatus.ACCEPTED, "preview")
-
-            def unsubscribe(self, request):
-                return None
-
-        harness.factory.create = lambda request: PreviewSource(request, provider=harness.provider)
+        # The setup callback observes in-memory precondition ingestion only. No
+        # callback, mutable Store or lambda enters a Provider search subprocess.
+        harness.provider.canonical_writes = None
         stream = OnlyMarketDataStreamProductService(
             historical=product,
             catalog=catalog,
@@ -173,20 +157,18 @@ def main() -> None:
         app.include_router(create_market_data_stream_router(stream))
 
         @app.exception_handler(OnlyMarketDataProductError)
-        async def market_error(request: Request, error: OnlyMarketDataProductError):
+        async def market_error(request: Request, error: OnlyMarketDataProductError) -> JSONResponse:
             return market_data_error_response(error)
 
         @app.exception_handler(OnlySourceReadAccessError)
-        async def access_error(request: Request, error: OnlySourceReadAccessError):
-            from fastapi.responses import JSONResponse
-
+        async def access_error(request: Request, error: OnlySourceReadAccessError) -> JSONResponse:
             return JSONResponse(
                 {"schema_version": 1, "error": {"phase": "QUERY", "code": error.code, "detail": error.code}},
                 status_code=401 if error.code == "LOCAL_READ_UNAUTHORIZED" else 403,
             )
 
         @app.get("/health/ready")
-        async def health():
+        async def health() -> dict[str, bool]:
             ingress = app.state.local_read_ingress
             # A real completion barrier: cleanup owns its work, not browser canvas state.
             await wait_for_read_cleanup(ingress)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from logging import Logger
@@ -22,6 +23,7 @@ from onlyalpha.data.ports import (
     OnlyReferenceDataSource,
 )
 from onlyalpha.domain.calendar import OnlyTradingCalendar
+from onlyalpha.domain.enums import OnlyAssetClass
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyRuntimeId
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
@@ -68,11 +70,19 @@ class OnlyDataSourceInstrumentCatalogRequestV1:
     instrument_ids: tuple[str, ...] = ()
     query: str = ""
     limit: int = 25
+    asset_class: str | None = None
+    instrument_types: tuple[str, ...] = ()
+    deadline_monotonic: float | None = None
+    snapshot: bool = False
 
     def __post_init__(self) -> None:
-        if self.limit <= 0 or len(self.instrument_ids) > self.limit:
+        if not 1 <= self.limit <= 10001 or len(self.instrument_ids) > self.limit:
             raise ValueError("DATA_SOURCE_INSTRUMENT_CATALOG_REQUEST_INVALID")
-        if bool(self.instrument_ids) and self.query.strip():
+        if self.deadline_monotonic is not None and (
+            not math.isfinite(self.deadline_monotonic) or self.deadline_monotonic <= 0
+        ):
+            raise ValueError("DATA_SOURCE_INSTRUMENT_CATALOG_REQUEST_INVALID")
+        if bool(self.instrument_ids) and (self.query.strip() or self.snapshot):
             raise ValueError("DATA_SOURCE_INSTRUMENT_CATALOG_REQUEST_AMBIGUOUS")
 
 
@@ -121,6 +131,61 @@ class OnlyDataSourceInstrumentCatalog(Protocol):
     def list_instruments(
         self, request: OnlyDataSourceInstrumentCatalogRequestV1
     ) -> tuple[OnlyDataSourceInstrumentV1, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyDataSourceDiscoveryCapabilitiesV1:
+    """Provider-declared searchable asset scope; snapshot matching uses literal symbols."""
+
+    asset_classes: tuple[str, ...]
+    catalogue_snapshot: bool = False
+    quotes: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.catalogue_snapshot) is not bool
+            or type(self.quotes) is not bool
+            or not isinstance(self.asset_classes, tuple)
+            or not self.asset_classes
+            or len(set(self.asset_classes)) != len(self.asset_classes)
+            or any(item not in {kind.value for kind in OnlyAssetClass} for item in self.asset_classes)
+        ):
+            raise ValueError("DATA_SOURCE_DISCOVERY_CAPABILITIES_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyDataSourceQuoteRequestV1:
+    plugin_config: object
+    instrument_ids: tuple[str, ...]
+    deadline_monotonic: float
+
+    def __post_init__(self) -> None:
+        if (
+            not 1 <= len(self.instrument_ids) <= 25
+            or len(set(self.instrument_ids)) != len(self.instrument_ids)
+            or not math.isfinite(self.deadline_monotonic)
+            or self.deadline_monotonic <= 0
+        ):
+            raise ValueError("DATA_SOURCE_QUOTE_REQUEST_INVALID")
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyDataSourceQuoteV1:
+    instrument_id: str
+    last_price: str
+    change_pct: str | None
+    change_basis: str | None
+    ts_event_ns: int
+
+
+@runtime_checkable
+class OnlyDataSourceDiscovery(Protocol):
+    def discovery_capabilities(self, plugin_config: object) -> OnlyDataSourceDiscoveryCapabilitiesV1: ...
+
+
+@runtime_checkable
+class OnlyDataSourceQuotes(Protocol):
+    def quotes(self, request: OnlyDataSourceQuoteRequestV1) -> tuple[OnlyDataSourceQuoteV1, ...]: ...
 
 
 @runtime_checkable

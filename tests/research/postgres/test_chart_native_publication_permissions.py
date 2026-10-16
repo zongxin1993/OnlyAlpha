@@ -30,7 +30,12 @@ from tests.runtime_support.chart_execution_host import materialize_exact_host_en
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 _PREVIOUS = "0048_chart_calculation_run_admission"
 _MIGRATION = "0049_chart_native_publication_permissions"
-_FORWARD = (_MIGRATION, "0050_chart_native_execution_entry", "0051_watchlist_configuration")
+_FORWARD = (
+    _MIGRATION,
+    "0050_chart_native_execution_entry",
+    "0051_watchlist_configuration",
+    "0052_watchlist_member_sources",
+)
 _GROUPS = ("onlyalpha_chart_input_reader", "onlyalpha_chart_execution_controller")
 _UNSAFE_ROLE_MUTATIONS = {
     "login": ("ALTER ROLE {role} LOGIN", "ALTER ROLE {role} NOLOGIN"),

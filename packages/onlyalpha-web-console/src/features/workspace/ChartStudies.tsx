@@ -4,7 +4,12 @@ import { createUuidV4 } from "../../api/integrations/submissionIntent";
 import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
 import { CalculationPicker } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
-import { studyDescriptor, type ChartStudyContext, type ChartStudyInstance } from "./chartStudy";
+import {
+    studyDescriptor,
+    studyDisplayLabel,
+    type ChartStudyContext,
+    type ChartStudyInstance
+} from "./chartStudy";
 import "./chartStudy.css";
 import type { ChartStudyCapability } from "../../api/chartStudies/client";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
@@ -98,17 +103,8 @@ export function ChartStudies({
                         onDraftChange={changeDraft}
                         {...(credentials === undefined ? {} : { credentials })}
                     />
-                    <span>
-                        {instances.some(
-                            (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
-                        )
-                            ? "会话内配置 · 临时只读查询"
-                            : "会话内配置 · 尚未接入计算结果"}
-                    </span>
                 </div>
-                {instances.length === 0 ? (
-                    <p className="chart-studies__empty">尚未添加配置实例</p>
-                ) : (
+                {instances.length === 0 ? null : (
                     <ul className="chart-studies__list">
                         {instances.map((instance) => {
                             const descriptor = studyDescriptor(instance.selection);
@@ -135,24 +131,13 @@ export function ChartStudies({
                                     <button
                                         type="button"
                                         aria-pressed={selectedId === instance.instanceId}
+                                        aria-label={`选择 ${descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId}`}
                                         onClick={() => {
                                             setSelectedId(instance.instanceId);
                                         }}
                                     >
-                                        选择 {descriptor.typeId.split(".").at(-1)?.toUpperCase()}
+                                        {studyDisplayLabel(instance)}
                                     </button>
-                                    <strong>
-                                        {descriptor.typeId.split(".").at(-1)?.toUpperCase()} ·{" "}
-                                        {descriptor.semanticVersion}
-                                    </strong>
-                                    <span>
-                                        {Object.entries(instance.configuration.parameters)
-                                            .map(
-                                                ([name, value]) => `${name}=${String(value.value)}`
-                                            )
-                                            .join(" · ")}{" "}
-                                        → {instance.configuration.outputName}
-                                    </span>
                                     <button
                                         type="button"
                                         aria-pressed={instance.presentation.visible}
@@ -175,24 +160,46 @@ export function ChartStudies({
                                         {instance.presentation.visible ? "隐藏" : "显示"}{" "}
                                         {descriptor.typeId.split(".").at(-1)?.toUpperCase()}
                                     </button>
-                                    <span>
-                                        {instance.connectionState === "STALE_CONFIG"
-                                            ? instance.selection.source === "CHART_STUDY_TRANSIENT"
-                                                ? "配置已过期；正在重新验证，查询状态见图表"
-                                                : "配置已过期；需重新验证"
-                                            : instance.selection.source === "CHART_STUDY_TRANSIENT"
-                                              ? "已配置 · 查询状态见图表"
-                                              : "已配置，尚未接入后端计算"}
-                                    </span>
-                                    <span>
-                                        {instance.presentation.placement === "PRICE_OVERLAY"
-                                            ? "主图 Overlay"
-                                            : "独立 Pane"}{" "}
-                                        · {studyColorName(instance.presentation.color)} ·{" "}
-                                        {instance.presentation.lineWidth}px ·{" "}
-                                        {instance.presentation.opacity} ·{" "}
-                                        {instance.presentation.visible ? "显示偏好" : "隐藏偏好"}
-                                    </span>
+                                    {instance.connectionState === "STALE_CONFIG" ? (
+                                        <span>
+                                            配置已过期；
+                                            {instance.selection.source === "CHART_STUDY_TRANSIENT"
+                                                ? "正在重新验证"
+                                                : "需重新验证"}
+                                        </span>
+                                    ) : instance.selection.source !== "CHART_STUDY_TRANSIENT" ? (
+                                        <span>已配置，尚未接入后端计算</span>
+                                    ) : null}
+                                    <details className="chart-studies__details">
+                                        <summary
+                                            aria-label={`配置详情 ${descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId}`}
+                                        >
+                                            详情
+                                        </summary>
+                                        <p>
+                                            {descriptor.typeId} · {descriptor.semanticVersion}
+                                        </p>
+                                        <p>
+                                            {Object.entries(instance.configuration.parameters)
+                                                .map(
+                                                    ([name, value]) =>
+                                                        `${name}=${String(value.value)}`
+                                                )
+                                                .join(" · ")}{" "}
+                                            → {instance.configuration.outputName}
+                                        </p>
+                                        <p>
+                                            {instance.presentation.placement === "PRICE_OVERLAY"
+                                                ? "主图 Overlay"
+                                                : "独立 Pane"}{" "}
+                                            · {studyColorName(instance.presentation.color)} ·{" "}
+                                            {instance.presentation.lineWidth}px ·{" "}
+                                            {instance.presentation.opacity} ·{" "}
+                                            {instance.presentation.visible
+                                                ? "显示偏好"
+                                                : "隐藏偏好"}
+                                        </p>
+                                    </details>
                                     <button
                                         type="button"
                                         onClick={(event) => {

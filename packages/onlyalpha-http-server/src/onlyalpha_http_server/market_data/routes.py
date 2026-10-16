@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 
+from onlyalpha.application.market_data_discovery import OnlyMarketDataDiscoveryService
 from onlyalpha.application.market_data_product import (
     MAX_TARGET_BAR_COUNT,
     OnlyMarketDataProductError,
@@ -27,9 +28,16 @@ from .schema import (
     MarketDataBarWindowDto,
     MarketDataErrorDto,
     MarketDataErrorEnvelopeDto,
+    MarketDataInstrumentDto,
     MarketDataInstrumentListDto,
+    MarketDataQuoteDto,
+    MarketDataQuoteListDto,
+    MarketDataSearchDto,
+    MarketDataSearchResultDto,
+    MarketDataSearchSourceDto,
     MarketDataSourceListDto,
     MarketDataSourceProjectionDto,
+    MarketDataSourceSelectionDto,
 )
 
 MARKET_DATA_ROUTE_TAG = "market-data"
@@ -51,6 +59,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
 
 def create_market_data_router(service: OnlyMarketDataProductService) -> APIRouter:
     router = APIRouter(tags=[MARKET_DATA_ROUTE_TAG])
+    discovery = OnlyMarketDataDiscoveryService(service)
     read_credentials = [Depends(HTTPBearer(auto_error=False, scheme_name="LocalSourceReadBearer"))]
 
     @router.get(
@@ -91,6 +100,82 @@ def create_market_data_router(service: OnlyMarketDataProductService) -> APIRoute
                 limit=limit,
                 read_session=only_request_read_session(request.scope),
             )
+        )
+
+    @router.get(
+        "/api/v2/market/instruments/search",
+        response_model=MarketDataSearchDto,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
+    def search_instruments(
+        request: Request,
+        query: str = Query(min_length=1, max_length=128),
+        asset_class: str | None = None,
+        limit: int = Query(default=25, ge=1, le=25),
+        instrument_types: Annotated[list[str] | None, Query(max_length=8)] = None,
+    ) -> MarketDataSearchDto:
+        projection = discovery.search(
+            query=query,
+            asset_class=asset_class,
+            instrument_types=tuple(instrument_types or ()),
+            limit=limit,
+            read_session=only_request_read_session(request.scope),
+        )
+        return MarketDataSearchDto(
+            schema_version=1,
+            results=tuple(
+                MarketDataSearchResultDto(
+                    source_selection=MarketDataSourceSelectionDto.from_model(item.source_selection),
+                    instrument=MarketDataInstrumentDto.from_model(item.instrument),
+                )
+                for item in projection.results
+            ),
+            sources=tuple(
+                MarketDataSearchSourceDto(
+                    source_selection=MarketDataSourceSelectionDto.from_model(item.source_selection),
+                    status=item.status,
+                    asset_classes=item.asset_classes,
+                    truncated=item.truncated,
+                )
+                for item in projection.sources
+            ),
+            truncated=projection.truncated,
+        )
+
+    @router.get(
+        "/api/v2/market-data/quotes",
+        response_model=MarketDataQuoteListDto,
+        responses=_ERROR_RESPONSES,
+        dependencies=read_credentials,
+    )
+    def quotes(
+        request: Request,
+        integration_id: str,
+        integration_revision_fingerprint: str,
+        instrument_ids: Annotated[list[str], Query(min_length=1, max_length=25)],
+        expected_type_id: str | None = None,
+    ) -> MarketDataQuoteListDto:
+        projection = discovery.quotes(
+            _reference(integration_id, integration_revision_fingerprint, expected_type_id),
+            instrument_ids=tuple(instrument_ids),
+            read_session=only_request_read_session(request.scope),
+        )
+        return MarketDataQuoteListDto(
+            schema_version=1,
+            source_selection=MarketDataSourceSelectionDto.from_model(projection.source_selection),
+            status=projection.status,
+            quotes=tuple(
+                MarketDataQuoteDto(
+                    instrument_id=item.instrument_id,
+                    status=item.status,
+                    last_price=item.last_price,
+                    change_pct=item.change_pct,
+                    change_basis=item.change_basis,
+                    ts_event_ns=None if item.ts_event_ns is None else str(item.ts_event_ns),
+                )
+                for item in projection.quotes
+            ),
         )
 
     @router.get(

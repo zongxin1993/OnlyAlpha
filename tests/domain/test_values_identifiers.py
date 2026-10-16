@@ -50,3 +50,27 @@ def test_strong_identifiers_parse_and_do_not_cross_compare() -> None:
     assert OnlyOrderId("same") != instrument_id
     with pytest.raises(OnlyValidationError):
         OnlyInstrumentId.parse("missing-venue")
+
+
+@pytest.mark.parametrize("code", ["A", "U", "a", "USD1", "ABCDEFGHIJKL"])
+def test_currency_preserves_nonempty_market_independent_codes(code: str) -> None:
+    currency = OnlyCurrency(code, 8, OnlyCurrencyType.CRYPTO)
+    assert currency.code == code.upper()
+    assert OnlyCurrency.from_json(currency.to_json()) == currency
+    money = OnlyMoney(Decimal("1.00000000"), currency)
+    assert OnlyMoney.from_json(money.to_json()) == money
+    with pytest.raises(OnlyCurrencyMismatchError):
+        money + OnlyMoney(Decimal("1"), OnlyCurrency("OTHER", 8, OnlyCurrencyType.CRYPTO))
+
+
+@pytest.mark.parametrize("code", ["", " ", "A-B", "A B", "ABCDEFGHIJKLM"])
+def test_currency_still_rejects_empty_non_alphanumeric_and_oversize_codes(code: str) -> None:
+    with pytest.raises(OnlyValidationError):
+        OnlyCurrency(code, 8, OnlyCurrencyType.CRYPTO)
+
+
+def test_existing_currency_serialization_and_identity_stay_exact() -> None:
+    payload = '{"code":"USD","currency_type":"FIAT","precision":2,"schema_version":1}'
+    currency = OnlyCurrency.from_json(payload)
+    assert currency == OnlyCurrency("USD", 2, OnlyCurrencyType.FIAT)
+    assert currency.to_json() == payload

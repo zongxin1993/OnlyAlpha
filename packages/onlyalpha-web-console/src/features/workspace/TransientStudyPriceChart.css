@@ -1,7 +1,16 @@
-.transient-study-chart {
+.chart-region__body:has(> .transient-study-chart) {
+    display: flex;
+    flex-direction: column;
+    min-height: min-content;
+}
+.chart-region__body:has(> .transient-study-chart) > .chart-region__empty {
     position: absolute;
     inset: 0;
-    min-height: 0;
+}
+.transient-study-chart {
+    position: relative;
+    flex: 1;
+    min-height: min-content;
     display: flex;
     flex-direction: column;
 }
@@ -17,10 +26,19 @@
 }
 .transient-study-chart__plot {
     position: relative;
+    display: flex;
+    flex-direction: column;
     flex: 1;
-    min-height: 0;
+    min-height: min-content;
+}
+.transient-study-chart__plot > .price-chart-surface {
+    position: relative;
+    inset: auto;
+    flex: 1;
+    min-height: min-content;
 }
 
 .transient-study-chart__plot .chart-region__canvas {
+    contain: size;
     min-height: 220px;
 }

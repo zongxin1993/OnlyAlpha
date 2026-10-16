@@ -125,6 +125,12 @@ it("confirms independent instances; cancel/edit has a single state source and st
     await select(user);
     await user.click(screen.getByRole("button", { name: "添加" }));
     const first = await screen.findByTestId("chart-study-instance");
+    expect(within(first).getByRole("button", { name: "选择 SMA" })).toHaveTextContent(
+        "SMA(20, CLOSE)"
+    );
+    expect(within(first).getByText(/period=20/)).not.toBeVisible();
+    await user.click(within(first).getByLabelText("配置详情 SMA"));
+    expect(within(first).getByText(/period=20/)).toBeVisible();
     const id = first.getAttribute("data-instance-id"),
         original = first.getAttribute("data-configuration");
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -134,6 +140,8 @@ it("confirms independent instances; cancel/edit has a single state source and st
     await user.click(screen.getByRole("button", { name: "取消配置" }));
     expect(first).toHaveAttribute("data-configuration", original);
     await user.click(within(first).getByRole("button", { name: "编辑 SMA" }));
+    expect(screen.getByRole("combobox", { name: "位置", hidden: true })).not.toBeVisible();
+    await user.click(screen.getByText("高级选项"));
     expect(screen.queryByRole("textbox", { name: "颜色" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "颜色" })).getAllByRole("button")).toHaveLength(
         16
@@ -350,6 +358,7 @@ it("blocks unsafe input, missing chart context and invalid style without any con
     expect(screen.getByRole("button", { name: "添加" })).toBeDisabled();
     await user.clear(screen.getByRole("textbox", { name: "period" }));
     await user.type(screen.getByRole("textbox", { name: "period" }), "9007199254740992");
+    await user.click(screen.getByText("高级选项"));
     await user.clear(screen.getByRole("spinbutton", { name: "线宽" }));
     await user.type(screen.getByRole("spinbutton", { name: "线宽" }), "9");
     expect(
@@ -481,7 +490,7 @@ it("select/show-hide/remove affect only display state and issue no metadata read
     expect(traffic.reads).toHaveLength(count);
 });
 
-it("blocks unsupported transient editor inputs and submits supported inputs through revalidation", async () => {
+it("keeps transient SMA focused on period and submits official defaults through revalidation", async () => {
     vi.stubGlobal(
         "crypto",
         (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
@@ -517,20 +526,31 @@ it("blocks unsupported transient editor inputs and submits supported inputs thro
     const user = userEvent.setup();
     const submit = screen.getByRole("button", { name: "添加" });
     const period = screen.getByRole("textbox", { name: "period" });
+    expect(period).toHaveValue("20");
+    expect(period).toHaveFocus();
+    expect(screen.queryByRole("combobox", { name: "price_field" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "输出" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "位置", hidden: true })).not.toBeVisible();
+    expect(screen.getByText("按收盘价计算")).toBeVisible();
+    expect(screen.getByText("仅供图表观察，不是正式研究结果。")).toBeVisible();
     await user.clear(period);
     await user.type(period, "10001");
     expect(submit).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("1–10000");
     await user.clear(period);
     await user.type(period, "20");
-    await user.selectOptions(screen.getByRole("combobox", { name: "price_field" }), "VOLUME");
-    expect(submit).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("仅支持 CLOSE");
-    expect(fetcher).not.toHaveBeenCalled();
-    await user.selectOptions(screen.getByRole("combobox", { name: "price_field" }), "CLOSE");
     await user.click(submit);
     await waitFor(() => {
-        expect(onConfirm).toHaveBeenCalledOnce();
+        expect(onConfirm).toHaveBeenCalledWith(
+            {
+                parameters: {
+                    period: { type: "INTEGER", value: 20 },
+                    price_field: { type: "STRING", value: "CLOSE" }
+                },
+                outputName: "value"
+            },
+            expect.objectContaining({ lineWidth: 2, opacity: 1 })
+        );
     });
 });
 
@@ -567,4 +587,46 @@ it("preserves instance presentation and parameters while rotating each context o
     expect(current).toHaveAttribute("data-presentation", style);
     expect(current).toHaveAttribute("data-chart-context-key", other.key);
     expect(screen.getByTestId("incarnation").textContent).not.toBe(incarnation);
+});
+
+it("reveals and focuses invalid advanced settings when reopening a stored display preference", async () => {
+    const traffic = transport();
+    render(
+        <ChartStudyEditor
+            selection={{ source: "REGISTERED_DISCOVERY", registration: traffic.registration }}
+            instance={{
+                instanceId: "test",
+                context,
+                selection: { source: "REGISTERED_DISCOVERY", registration: traffic.registration },
+                configuration: {
+                    parameters: {
+                        period: { type: "INTEGER", value: 20 },
+                        price_field: { type: "STRING", value: "CLOSE" }
+                    },
+                    outputName: "value"
+                },
+                presentation: {
+                    placement: "PRICE_OVERLAY",
+                    color: "#1f5f8b",
+                    lineWidth: 9,
+                    opacity: 1,
+                    visible: true
+                },
+                connectionState: "CONFIGURED_NOT_EXECUTED"
+            }}
+            hasContext={true}
+            returnFocus={null}
+            onCancel={() => undefined}
+            onStale={() => undefined}
+            onConfirm={() => undefined}
+        />
+    );
+    const width = screen.getByRole("spinbutton", { name: "线宽" });
+    expect(width).toBeVisible();
+    expect(width).toHaveFocus();
+    expect(screen.getByRole("button", { name: "应用" })).toBeDisabled();
+    const user = userEvent.setup();
+    await user.clear(width);
+    await user.type(width, "2");
+    expect(screen.getByRole("button", { name: "应用" })).toBeEnabled();
 });
