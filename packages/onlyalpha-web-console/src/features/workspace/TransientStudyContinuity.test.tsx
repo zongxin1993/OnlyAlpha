@@ -77,7 +77,7 @@ function required<T>(value: T | undefined): T {
 
 function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     const admittedCapability = required(capability);
@@ -131,7 +131,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
                 period: { type: "INTEGER", value: 20 },
                 price_field: { type: "STRING", value: "CLOSE" }
             },
-            outputName: "value"
+            outputNames: ["value"]
         },
         presentation: {
             placement: "PRICE_OVERLAY",
@@ -177,7 +177,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
             if (url.endsWith("capabilities"))
                 return Promise.resolve(
                     new Response(
-                        JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }),
+                        JSON.stringify({ schema_version: 2, capabilities: [sample.capability] }),
                         { headers: { "cache-control": "no-store" } }
                     )
                 );
@@ -535,7 +535,7 @@ it("focus reproof followed by color-only editor confirmation does not reevaluate
     render(test.tree({ owner: true }));
     await user.click(screen.getByRole("button", { name: "指标" }));
     await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
-    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.click(await screen.findByRole("button", { name: "添加" }));
     await waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
             "data-query-status",

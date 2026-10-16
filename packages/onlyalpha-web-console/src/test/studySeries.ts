@@ -29,7 +29,7 @@ export function studySeriesFixture() {
                 period: { type: "INTEGER", value: 20 },
                 price_field: { type: "STRING", value: "CLOSE" }
             },
-            outputName: "value"
+            outputNames: ["value"]
         },
         presentation: {
             placement: "PRICE_OVERLAY",

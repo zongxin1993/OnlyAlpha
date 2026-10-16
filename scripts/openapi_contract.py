@@ -90,8 +90,10 @@ SUPPORTED_COMPATIBILITY_KEYWORDS = frozenset(
         "oneOf",
         "pattern",
         "properties",
+        "propertyNames",
         "required",
         "type",
+        "uniqueItems",
         "writeOnly",
         "x-onlyalpha-reference-kind",
         "x-onlyalpha-reference-canonical-fingerprint",
@@ -462,6 +464,11 @@ def schema_vocabulary(document: Mapping[str, Any]) -> frozenset[str]:
             for _, child in sorted(properties.items()):
                 visit(child)
         visit(schema.get("items"))
+        if "propertyNames" in schema and not isinstance(schema["propertyNames"], dict):
+            raise ValueError("propertyNames must be a schema object")
+        visit(schema.get("propertyNames"))
+        if "uniqueItems" in schema and type(schema["uniqueItems"]) is not bool:
+            raise ValueError("schema uniqueItems must be boolean")
         additional_properties = schema.get("additionalProperties")
         if isinstance(additional_properties, dict):
             visit(additional_properties)
@@ -668,6 +675,25 @@ def _schema_changes(
         issues.append(f"{location}: request enum/const was newly constrained")
     elif direction == "response" and old_values is not None and new_values is None:
         issues.append(f"{location}: response enum/const became unconstrained")
+
+    if "propertyNames" in old or "propertyNames" in new:
+        old_names, new_names = old.get("propertyNames", {}), new.get("propertyNames", {})
+        if not isinstance(old_names, dict) or not isinstance(new_names, dict):
+            raise ValueError("propertyNames must be a schema object")
+        issues.extend(
+            _schema_changes(
+                {"type": "string", **old_names},
+                {"type": "string", **new_names},
+                old_document,
+                new_document,
+                direction=direction,
+                location=f"{location}.<property-name>",
+                state=state,
+            )
+        )
+    old_unique, new_unique = old.get("uniqueItems", False), new.get("uniqueItems", False)
+    if old_unique != new_unique and (new_unique if direction == "request" else old_unique):
+        issues.append(f"{location}: {direction} uniqueItems changed incompatibly")
 
     old_required = {item for item in old.get("required", []) if isinstance(item, str)}
     new_required = {item for item in new.get("required", []) if isinstance(item, str)}

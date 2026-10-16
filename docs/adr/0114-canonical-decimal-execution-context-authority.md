@@ -27,7 +27,7 @@ identity and, where admitted, the exact StrategyRevision implementation binding 
 
 ### Non-publishing legacy-CONTEXT invocation
 
-ADR 0138 permits only a separately admitted non-publishing W3 invocation of SMA@1 whose exact legacy Definition declares
+ADR 0138 and its owner-approved fourteen-family extension permit separately admitted non-publishing W3 invocations whose exact legacy Definition declares
 `CONTEXT`: versioned binding `CONTEXT_HALF_EVEN_V1` explicitly resolves it to `ROUND_HALF_EVEN` before constructing the existing
 Core context. Precision and quantum still come from the exact Definition. Both declared and effective rounding and the resolution
 policy are recorded without rewriting Definition fingerprints or copying caller context. The effective invocation's actual

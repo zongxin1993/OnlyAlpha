@@ -34,8 +34,8 @@ BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixe
 def test_official_indicator_provider_versions_content_without_changing_semantic_types() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "8"
-    assert provider.manifest.source.distribution_version == "0.9.10"
+    assert provider.manifest.provider_version == "9"
+    assert provider.manifest.source.distribution_version == "0.9.12"
 
 
 def _bar(index: int, close: str) -> OnlyBar:

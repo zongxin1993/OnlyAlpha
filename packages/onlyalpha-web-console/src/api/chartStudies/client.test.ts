@@ -2,7 +2,11 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { ChartStudyEvaluateRequestSchema, ChartStudyEvaluateSchema } from "./http.generated";
 import { marketDataBarSemantic } from "../marketData/model";
 import { LocalReadCredentials } from "../marketData/localReadCredentials";
-import { isAdmittedChartStudyEvidence, readChartStudyCapability } from "./client";
+import {
+    isAdmittedChartStudyEvidence,
+    readChartStudyCapability,
+    readChartStudyCapabilities
+} from "./client";
 import { isStudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { marketDataBarsSchema } from "../marketData/model";
@@ -11,14 +15,14 @@ import { readChartStudyEvaluation, readChartStudyEvidence } from "./client";
 
 function vector() {
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     if (capability === undefined) throw new Error("Expected installed capability vector");
     const history = marketDataBarsSchema.parse(structuredClone(sample.history));
     const evaluated = ChartStudyEvaluateSchema.parse(structuredClone(sample.evaluation));
     const input = ChartStudyEvaluateRequestSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         source_reference: {
             integration_id: history.source_selection.integration_id,
             integration_revision_fingerprint:
@@ -43,7 +47,8 @@ function vector() {
             expected_implementation_fingerprint: capability.implementation_fingerprint,
             expected_capability_projection_fingerprint: capability.capability_projection_fingerprint
         },
-        include_unclosed_preview: false
+        include_unclosed_preview: false,
+        preview_stream_id: null
     });
     const credentials = new LocalReadCredentials();
     credentials.replace("ee".repeat(32));
@@ -62,7 +67,7 @@ function vector() {
 }
 
 const request = () => ({
-    schema_version: 1,
+    schema_version: 2,
     source_reference: {
         integration_id: "local-source",
         integration_revision_fingerprint: "a".repeat(64),
@@ -89,7 +94,8 @@ const request = () => ({
         expected_implementation_fingerprint: "d".repeat(64),
         expected_capability_projection_fingerprint: "e".repeat(64)
     },
-    include_unclosed_preview: false
+    include_unclosed_preview: false,
+    preview_stream_id: null
 });
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -108,7 +114,7 @@ describe("one server-derived strict Chart schema", () => {
             Promise.resolve(
                 new Response(
                     JSON.stringify({
-                        schema_version: 1,
+                        schema_version: 2,
                         capabilities: [sample.capability]
                     }),
                     { headers: { "cache-control": "no-store" } }
@@ -116,9 +122,15 @@ describe("one server-derived strict Chart schema", () => {
             )
         );
         vi.stubGlobal("fetch", fetcher);
-        expect((await readChartStudyCapability(credentials)).type_id).toBe(
-            "onlyalpha.indicator.sma"
-        );
+        expect(
+            (
+                await readChartStudyCapability(credentials, undefined, {
+                    kind: "INDICATOR",
+                    type_id: sample.capability.type_id,
+                    semantic_version: sample.capability.semantic_version
+                })
+            ).type_id
+        ).toBe("onlyalpha.indicator.sma");
         const init = fetcher.mock.calls[0]?.[1];
         expect(init?.credentials).toBe("same-origin");
         expect(new Headers(init?.headers).has("Authorization")).toBe(false);
@@ -140,7 +152,7 @@ describe("one server-derived strict Chart schema", () => {
                 )
             )
         );
-        await expect(readChartStudyCapability(credentials)).rejects.toMatchObject({
+        await expect(readChartStudyCapabilities(credentials)).rejects.toMatchObject({
             code: "LOCAL_READ_UNAUTHORIZED",
             status: 401
         });
@@ -157,7 +169,7 @@ describe("one server-derived strict Chart schema", () => {
             "fetch",
             vi.fn(() => Promise.resolve(new Response(body, { status })))
         );
-        await expect(readChartStudyCapability(v.credentials)).rejects.toMatchObject({
+        await expect(readChartStudyCapabilities(v.credentials)).rejects.toMatchObject({
             code: "INVALID",
             status
         });
@@ -203,7 +215,7 @@ describe("one server-derived strict Chart schema", () => {
                 incarnationKey: "incarnation",
                 configurationKey: JSON.stringify({
                     parameters: v.input.calculation.typed_parameters,
-                    outputName: "value"
+                    outputNames: ["value"]
                 })
             },
             () => true,
@@ -217,7 +229,7 @@ describe("one server-derived strict Chart schema", () => {
         const controller = new AbortController();
         const configurationKey = JSON.stringify({
             parameters: v.input.calculation.typed_parameters,
-            outputName: "value"
+            outputNames: ["value"]
         });
         const evidence = await readChartStudyEvidence(
             v.credentials,
@@ -233,19 +245,19 @@ describe("one server-derived strict Chart schema", () => {
             () => true,
             controller.signal
         );
-        expect(evidence?.points[19]).toEqual({
+        expect(evidence?.[0]?.points[19]).toEqual({
             timeNs: v.evaluated.series[0]?.points[19]?.time_ns,
             value: "101.000000000000",
             readiness: "READY",
             reason: "NONE"
         });
-        if (evidence === null) throw new Error("Expected admitted evidence");
-        expect(isAdmittedChartStudyEvidence(evidence)).toBe(true);
-        expect(evidence.outputUnit).toBe("PRICE");
+        if (evidence?.[0] === undefined) throw new Error("Expected admitted evidence");
+        expect(isAdmittedChartStudyEvidence(evidence[0])).toBe(true);
+        expect(evidence[0].outputUnit).toBe("PRICE");
         expect(v.capability.descriptor.outputs[0]?.unit).toBeNull();
         expect(isAdmittedChartStudyEvidence(structuredClone(evidence))).toBe(false);
         controller.abort();
-        expect(isAdmittedChartStudyEvidence(evidence)).toBe(false);
+        expect(isAdmittedChartStudyEvidence(evidence[0])).toBe(false);
     });
     it.each([
         "definition",
@@ -306,7 +318,7 @@ describe("one server-derived strict Chart schema", () => {
                             ...v.input.calculation.typed_parameters,
                             period: { type: "INTEGER", value: 30 }
                         },
-                        outputName: "value"
+                        outputNames: ["value"]
                     })
                 },
                 () => true,
@@ -372,7 +384,7 @@ describe("one server-derived strict Chart schema", () => {
     it("absent authentication never calls the transport", async () => {
         const transport = vi.fn();
         vi.stubGlobal("fetch", transport);
-        await expect(readChartStudyCapability(new LocalReadCredentials())).rejects.toThrow(
+        await expect(readChartStudyCapabilities(new LocalReadCredentials())).rejects.toThrow(
             "UNAUTHORIZED"
         );
         expect(transport).not.toHaveBeenCalled();
@@ -388,11 +400,11 @@ describe("one server-derived strict Chart schema", () => {
             "fetch",
             vi.fn(() => response)
         );
-        const pending = readChartStudyCapability(credentials);
+        const pending = readChartStudyCapabilities(credentials);
         credentials.replace(null);
         credentials.replace("ee".repeat(32));
         resolve(
-            new Response(JSON.stringify({ schema_version: 1, capabilities: [] }), {
+            new Response(JSON.stringify({ schema_version: 2, capabilities: [] }), {
                 headers: { "cache-control": "no-store" }
             })
         );
@@ -460,7 +472,93 @@ it.each([
         status: 503,
         retryAfterSeconds: expected
     });
-    await expect(readChartStudyCapability(v.credentials)).rejects.toMatchObject({
+    await expect(readChartStudyCapabilities(v.credentials)).rejects.toMatchObject({
         retryAfterSeconds: null
     });
+});
+
+it("rejects duplicate exact capability owners instead of picking the first", async () => {
+    const credentials = new LocalReadCredentials(true);
+    vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        schema_version: 2,
+                        capabilities: [sample.capability, sample.capability]
+                    }),
+                    { headers: { "cache-control": "no-store" } }
+                )
+            )
+        )
+    );
+    await expect(readChartStudyCapabilities(credentials)).rejects.toMatchObject({
+        code: "INVALID"
+    });
+});
+
+it.each(["type", "version", "unrequested-output", "duplicate-series", "unit"])(
+    "rejects a complete response with wrong grouped relation %s",
+    async (mutation) => {
+        const v = vector();
+        const series = v.evaluated.series[0];
+        const output = v.evaluated.calculation.output_members[0];
+        if (series === undefined || output === undefined) throw new Error("Missing output");
+        if (mutation === "type") v.evaluated.calculation.type_id = "onlyalpha.indicator.other";
+        if (mutation === "version") v.evaluated.calculation.semantic_version = "999";
+        if (mutation === "unrequested-output") series.output_name = "unrequested";
+        if (mutation === "duplicate-series") v.evaluated.series.push(structuredClone(series));
+        if (mutation === "unit") output.unit = "RATIO";
+        v.respond();
+        await expect(
+            readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+        ).rejects.toMatchObject({ code: "INVALID" });
+    }
+);
+
+it("admits an owning preview separately and rejects stream substitution", async () => {
+    const v = vector();
+    v.input.include_unclosed_preview = true;
+    v.input.preview_stream_id = "a".repeat(32);
+    const time = v.input.window.before_ns;
+    const point = v.evaluated.series[0]?.points.at(-1);
+    if (point === undefined) throw new Error("Missing point");
+    v.evaluated.preview = {
+        source_kind: "PREVIEW_UNCLOSED",
+        stream_id: "a".repeat(32),
+        revision_fingerprint: "e".repeat(64),
+        bar_start_ns: time,
+        bar_end_ns: (BigInt(time) + 900_000_000_000n).toString(),
+        series: [
+            {
+                output_name: "value",
+                point: { ...point, time_ns: time, quality: "PREVIEW_UNCLOSED", closed: false }
+            }
+        ]
+    };
+    v.respond();
+    const evidence = await readChartStudyEvidence(
+        v.credentials,
+        v.input,
+        v.capability,
+        v.history,
+        {
+            instanceId: "one",
+            chartContextKey: "context",
+            incarnationKey: "incarnation",
+            configurationKey: JSON.stringify({
+                parameters: v.input.calculation.typed_parameters,
+                outputNames: ["value"]
+            })
+        },
+        () => true,
+        new AbortController().signal
+    );
+    expect(evidence?.[0]?.previewPoint?.timeNs).toBe(time);
+    expect(evidence?.[0]?.points.some((row) => row.timeNs === time)).toBe(false);
+    v.evaluated.preview.stream_id = "b".repeat(32);
+    await expect(
+        readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
+    ).rejects.toMatchObject({ code: "INVALID" });
 });

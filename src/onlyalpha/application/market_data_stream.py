@@ -8,7 +8,7 @@ import queue
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from decimal import Decimal
 from logging import Logger
@@ -19,11 +19,13 @@ from onlyalpha.application.market_data_product import (
     OnlyMarketDataProductError,
     OnlyMarketDataProductService,
     OnlyMarketDataSourceReferenceV1,
+    OnlyMarketDataSourceSelectionV1,
     OnlyResolvedMarketDataRuntime,
     only_product_bar_semantic,
 )
 from onlyalpha.application.source_read_access import OnlySourceReadPermission, OnlySourceReadSession
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
 from onlyalpha.core.clock import OnlyClock
 from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus, OnlyMarketDataType
@@ -81,6 +83,7 @@ from onlyalpha.plugin.data_source import (
 
 _WAL_CAPACITY_BYTES = 256 * 1024 * 1024
 _MINUTE_NS = 60_000_000_000
+_PREVIEW_ISSUANCE = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +93,30 @@ class OnlyMarketDataStreamEventV1:
 
     def to_dict(self) -> dict[str, object]:
         return {"schema_version": 2, "event": self.event, **self.payload}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OnlyChartStudyPreviewInput:
+    """Disposable owning-stream witness, never scientific input evidence."""
+
+    stream_id: str
+    revision_fingerprint: str
+    _session: OnlyMarketDataStreamSession = field(repr=False)
+    _preview: OnlyRealtimeBarPreviewV1 = field(repr=False)
+    _issuance: object = field(repr=False)
+
+    def require_current(self) -> None:
+        if getattr(self, "_issuance", None) is not _PREVIEW_ISSUANCE:
+            raise ValueError("CHART_STUDY_PREVIEW_UNAVAILABLE")
+        session = self._session
+        with session._lock:
+            session._require_preview_access()
+            if session._owned_preview is not self._preview:
+                raise ValueError("CHART_STUDY_PREVIEW_UNAVAILABLE")
+
+    def require_preview(self) -> OnlyRealtimeBarPreviewV1:
+        self.require_current()
+        return self._preview
 
 
 class OnlyMarketDataStreamSession:
@@ -110,6 +137,10 @@ class OnlyMarketDataStreamSession:
         instrument: OnlyInstrument | None = None,
         calendar: OnlyTradingCalendar | None = None,
         native_bar_type: OnlyBarType | None = None,
+        source_reference: OnlyMarketDataSourceReferenceV1 | None = None,
+        source_selection: OnlyMarketDataSourceSelectionV1 | None = None,
+        bar_semantic: OnlyBarSemantic | None = None,
+        read_session: OnlySourceReadSession | None = None,
     ) -> None:
         self.stream_id = stream_id
         self.source_id = source_id
@@ -134,6 +165,13 @@ class OnlyMarketDataStreamSession:
         self._calendar = calendar
         self._native_bar_type = native_bar_type
         self._projection_lock = threading.Lock()
+        self._source_reference = source_reference
+        self._source_selection = source_selection
+        self._bar_semantic = bar_semantic
+        self._read_session = read_session
+        self._owned_preview: OnlyRealtimeBarPreviewV1 | None = None
+        self._preview_order: tuple[int, int] | None = None
+        self._closed_through_ns = 0
 
     def bind_subscription(self, subscription_id: str) -> None:
         self._subscription_id = subscription_id
@@ -155,6 +193,7 @@ class OnlyMarketDataStreamSession:
             try:
                 self._events.put_nowait(event)
             except queue.Full:
+                self._owned_preview = None
                 self._terminal = OnlyMarketDataStreamEventV1(
                     "ERROR", {"code": "MARKET_DATA_STREAM_BACKPRESSURE", "detail": "reliable event queue full"}
                 )
@@ -197,16 +236,89 @@ class OnlyMarketDataStreamSession:
         with self._lock:
             if self._closed:
                 return
+            self._retain_preview(preview)
             payload = _preview_payload(preview)
             payload["timing"] = self._timing_payload(
                 preview.ingress_observation, preview.source_id, preview.instrument_id, preview.bar_type
             )
             self._preview = OnlyMarketDataStreamEventV1("BAR_PREVIEW", payload)
 
+    def _retain_preview(self, preview: OnlyRealtimeBarPreviewV1) -> None:
+        # Called under the same lock as delivery: consuming the event never consumes ownership.
+        if (
+            self._connection_state != "READY"
+            or str(preview.source_id) != self.source_id
+            or str(preview.instrument_id) != self.instrument_id
+            or preview.bar_type.semantic != self._bar_semantic
+            or preview.bar_type.instrument_id != preview.instrument_id
+            or preview.closed
+            or preview.bar_start_ns < self._closed_through_ns
+            or preview.bar_start_ns >= preview.bar_end_ns
+        ):
+            return
+        try:
+            opening, high, low, close, volume = (
+                Decimal(value) for value in (preview.open, preview.high, preview.low, preview.close, preview.volume)
+            )
+            if not all(value.is_finite() for value in (opening, high, low, close, volume)):
+                raise ValueError("nonfinite preview")
+            if not low <= opening <= high or not low <= close <= high or volume < 0:
+                raise ValueError("invalid preview")
+        except (ValueError, ArithmeticError):
+            self._owned_preview = None
+            return
+        order = (preview.bar_start_ns, preview.ts_event_ns)
+        if self._preview_order is not None and order < self._preview_order:
+            return
+        if order == self._preview_order:
+            current = self._owned_preview
+            if current is not None and (
+                current.bar_end_ns,
+                current.open,
+                current.high,
+                current.low,
+                current.close,
+                current.volume,
+            ) == (preview.bar_end_ns, preview.open, preview.high, preview.low, preview.close, preview.volume):
+                return
+            self._owned_preview = None
+            return
+        self._preview_order = order
+        self._owned_preview = preview
+
+    def _require_preview_access(self) -> None:
+        # Caller holds _lock. Missing proof is unavailable, never a stale fallback.
+        if (
+            self._closed
+            or not self._active
+            or self._connection_state != "READY"
+            or self._terminal is not None
+            or self._drain_degraded
+            or self._read_session is None
+            or self._source_selection is None
+        ):
+            raise ValueError("CHART_STUDY_PREVIEW_UNAVAILABLE")
+        self._read_session.require_selection(self._source_selection, OnlySourceReadPermission.REALTIME_PREVIEW)
+        health = getattr(self._drain, "health", None)
+        if callable(health) and health().recording_state is not OnlyRecordingState.HEALTHY:
+            self._owned_preview = None
+            raise ValueError("CHART_STUDY_PREVIEW_UNAVAILABLE")
+
+    def _invalidate_closed_preview(self, bar: OnlyBar) -> None:
+        with self._lock:
+            if str(bar.instrument_id) != self.instrument_id or bar.bar_type.semantic != self._bar_semantic:
+                return
+            self._closed_through_ns = max(self._closed_through_ns, OnlyTimestamp.from_datetime(bar.bar_end).unix_nanos)
+            if self._owned_preview is not None and self._owned_preview.bar_start_ns < self._closed_through_ns:
+                self._owned_preview = None
+
     def emit_closed(self, update: OnlyMarketDataInboundUpdate) -> None:
         if not isinstance(update.payload, OnlyBarUpdate):
             return
+        matches_owner = str(update.source_id) == self.source_id and str(update.instrument_id) == self.instrument_id
         if self._aggregator is None:
+            if matches_owner:
+                self._invalidate_closed_preview(update.payload.bar)
             event = _closed_event(update, self.source_id)
             if event is not None:
                 observation = (
@@ -231,6 +343,8 @@ class OnlyMarketDataStreamSession:
                 return
         self.emit_reliable(OnlyMarketDataStreamEventV1("BASE_CURSOR", {"sequence": str(int(update.source_sequence))}))
         if projected is not None:
+            if matches_owner:
+                self._invalidate_closed_preview(projected)
             payload = _preview_payload(_bar_preview(projected, None, update))
             payload["bar"]["closed"] = True  # type: ignore[index]
             payload["sequence"] = str(int(update.source_sequence))
@@ -265,6 +379,8 @@ class OnlyMarketDataStreamSession:
     def emit_state(self, state: str) -> None:
         with self._lock:
             self._connection_state = state
+            if state != "READY":
+                self._owned_preview = None
             # Reliable STATE is drained before the coalesced preview slot. Keep
             # its price projection, but never deliver old telemetry after loss.
             if state != "READY" and self._preview is not None:
@@ -290,6 +406,9 @@ class OnlyMarketDataStreamSession:
                 degraded = snapshot.recording_state is not OnlyRecordingState.HEALTHY
                 if degraded != self._drain_degraded:
                     self._drain_degraded = degraded
+                    if degraded:
+                        with self._lock:
+                            self._owned_preview = None
                     try:
                         diagnostic = asdict(snapshot)
                         diagnostic["last_recovery_error"] = only_market_data_diagnostic_error(
@@ -315,6 +434,7 @@ class OnlyMarketDataStreamSession:
             if self._closed:
                 return
             self._closed = True
+            self._owned_preview = None
         failure: Exception | None = None
         actions = (
             lambda: self._source.unsubscribe(
@@ -517,6 +637,10 @@ class OnlyMarketDataStreamProductService:
             instrument=instrument,
             calendar=calendar,
             native_bar_type=_bar_type(instrument_key, provider_semantic),
+            source_reference=reference,
+            source_selection=resolved.selection,
+            bar_semantic=bar_semantic,
+            read_session=read_session,
         )
         session_ref.append(session)
         try:
@@ -566,6 +690,52 @@ class OnlyMarketDataStreamProductService:
         with self._lock:
             self._sessions[stream_id] = session
         return session
+
+    def read_chart_study_preview(
+        self,
+        stream_id: str,
+        *,
+        reference: OnlyMarketDataSourceReferenceV1,
+        instrument_id: str,
+        bar_semantic: OnlyBarSemantic,
+        read_session: OnlySourceReadSession,
+    ) -> OnlyChartStudyPreviewInput | None:
+        read_session.require_reference(reference, OnlySourceReadPermission.REALTIME_PREVIEW)
+        with self._lock:
+            session = self._sessions.get(stream_id)
+        if session is None:
+            return None
+        with session._lock:
+            if (
+                session._read_session != read_session
+                or session._source_reference != reference
+                or session.instrument_id != instrument_id
+                or session._bar_semantic != bar_semantic
+            ):
+                raise ValueError("CHART_STUDY_PREVIEW_UNAVAILABLE")
+            session._require_preview_access()
+            preview = session._owned_preview
+            if preview is None:
+                return None
+            result = object.__new__(OnlyChartStudyPreviewInput)
+            object.__setattr__(result, "stream_id", stream_id)
+            object.__setattr__(
+                result,
+                "revision_fingerprint",
+                only_canonical_fingerprint(
+                    {
+                        "stream_id": stream_id,
+                        "selection": session._source_selection,
+                        "preview": _preview_payload(preview),
+                        "ts_event_ns": preview.ts_event_ns,
+                        "ts_receive_ns": preview.ts_receive_ns,
+                    }
+                ),
+            )
+            object.__setattr__(result, "_session", session)
+            object.__setattr__(result, "_preview", preview)
+            object.__setattr__(result, "_issuance", _PREVIEW_ISSUANCE)
+            return result
 
     def close(self) -> None:
         with self._lock:

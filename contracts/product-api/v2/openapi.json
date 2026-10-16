@@ -584,6 +584,26 @@
         "title": "BacktestRuntimeOptionsDto",
         "type": "object"
       },
+      "ChartStudyBooleanDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "BOOLEAN",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ChartStudyBooleanDto",
+        "type": "object"
+      },
       "ChartStudyCalculationDto": {
         "additionalProperties": false,
         "properties": {
@@ -631,7 +651,29 @@
             "$ref": "#/components/schemas/ChartStudyDefinitionDto"
           },
           "normalized_typed_parameters": {
-            "$ref": "#/components/schemas/ChartStudyParametersDto"
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartStudyIntegerDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyStringDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyDecimalDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyBooleanDto"
+                }
+              ]
+            },
+            "maxProperties": 16,
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Normalized Typed Parameters",
+            "type": "object"
           },
           "numeric": {
             "$ref": "#/components/schemas/ChartStudyNumericDto"
@@ -643,7 +685,7 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyOutputDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Output Members",
             "type": "array"
@@ -666,12 +708,14 @@
             "type": "string"
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           }
@@ -724,26 +768,52 @@
           },
           "output_members": {
             "items": {
-              "const": "value",
+              "maxLength": 128,
+              "minLength": 1,
               "type": "string"
             },
-            "maxItems": 1,
+            "maxItems": 8,
             "minItems": 1,
             "title": "Output Members",
-            "type": "array"
+            "type": "array",
+            "uniqueItems": true
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           },
           "typed_parameters": {
-            "$ref": "#/components/schemas/ChartStudyParametersDto"
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartStudyIntegerDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyStringDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyDecimalDto"
+                },
+                {
+                  "$ref": "#/components/schemas/ChartStudyBooleanDto"
+                }
+              ]
+            },
+            "maxProperties": 16,
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Typed Parameters",
+            "type": "object"
           }
         },
         "required": [
@@ -766,13 +836,13 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyCapabilityDto"
             },
-            "maxItems": 1,
+            "maxItems": 64,
             "minItems": 1,
             "title": "Capabilities",
             "type": "array"
           },
           "schema_version": {
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
             "type": "integer"
           }
@@ -841,13 +911,17 @@
           },
           "output_members": {
             "items": {
-              "const": "value",
+              "maxLength": 256,
+              "minLength": 1,
               "type": "string"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Output Members",
             "type": "array"
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/ChartStudyPresentationDto"
           },
           "provider_content_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
@@ -872,12 +946,14 @@
             "type": "integer"
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           }
@@ -900,6 +976,7 @@
           "limits",
           "numeric_execution_binding",
           "invocation_implementation_fingerprint",
+          "presentation",
           "capability_projection",
           "capability_projection_fingerprint"
         ],
@@ -955,13 +1032,17 @@
           },
           "output_members": {
             "items": {
-              "const": "value",
+              "maxLength": 256,
+              "minLength": 1,
               "type": "string"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Output Members",
             "type": "array"
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/ChartStudyPresentationDto"
           },
           "provider_content_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
@@ -987,7 +1068,7 @@
             "type": "array"
           },
           "schema_version": {
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -997,7 +1078,7 @@
             "type": "string"
           },
           "supported_shape": {
-            "const": "TIME_SERIES/CLOSED_HISTORY/CLOSE/value",
+            "const": "TIME_SERIES/BAR_FIELDS",
             "title": "Supported Shape",
             "type": "string"
           }
@@ -1021,21 +1102,23 @@
           "input_support",
           "finite_initialization",
           "limits",
-          "numeric_binding"
+          "numeric_binding",
+          "presentation"
         ],
         "title": "ChartStudyCapabilityProjectionDto",
         "type": "object"
       },
-      "ChartStudyCloseDto": {
+      "ChartStudyDecimalDto": {
         "additionalProperties": false,
         "properties": {
           "type": {
-            "const": "STRING",
+            "const": "DECIMAL",
             "title": "Type",
             "type": "string"
           },
           "value": {
-            "const": "CLOSE",
+            "maxLength": 64,
+            "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
             "title": "Value",
             "type": "string"
           }
@@ -1044,7 +1127,7 @@
           "type",
           "value"
         ],
-        "title": "ChartStudyCloseDto",
+        "title": "ChartStudyDecimalDto",
         "type": "object"
       },
       "ChartStudyDecimalPolicyDto": {
@@ -1130,13 +1213,22 @@
             "type": "null"
           },
           "input_bindings": {
-            "$ref": "#/components/schemas/ChartStudyInputBindingsDto"
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChartStudyInputBindingDto"
+            },
+            "maxProperties": 16,
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Input Bindings",
+            "type": "object"
           },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/ChartStudyPortDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Inputs",
             "type": "array"
@@ -1147,7 +1239,12 @@
             "type": "string"
           },
           "missing_values": {
-            "const": "FAIL",
+            "enum": [
+              "FAIL",
+              "PROPAGATE",
+              "SKIP",
+              "RESET"
+            ],
             "title": "Missing Values",
             "type": "string"
           },
@@ -1158,13 +1255,35 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyPortDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Outputs",
             "type": "array"
           },
           "parameters": {
-            "$ref": "#/components/schemas/ChartStudyDefinitionParametersDto"
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxProperties": 16,
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Parameters",
+            "type": "object"
           },
           "schema_version": {
             "const": 2,
@@ -1172,7 +1291,8 @@
             "type": "integer"
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
@@ -1182,7 +1302,8 @@
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           },
@@ -1207,28 +1328,6 @@
           "extensions"
         ],
         "title": "ChartStudyDefinitionDto",
-        "type": "object"
-      },
-      "ChartStudyDefinitionParametersDto": {
-        "additionalProperties": false,
-        "properties": {
-          "period": {
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Period",
-            "type": "integer"
-          },
-          "price_field": {
-            "const": "CLOSE",
-            "title": "Price Field",
-            "type": "string"
-          }
-        },
-        "required": [
-          "period",
-          "price_field"
-        ],
-        "title": "ChartStudyDefinitionParametersDto",
         "type": "object"
       },
       "ChartStudyDependencyDto": {
@@ -1283,7 +1382,7 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyPortDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Inputs",
             "type": "array"
@@ -1294,7 +1393,12 @@
             "type": "string"
           },
           "missing_values": {
-            "const": "FAIL",
+            "enum": [
+              "FAIL",
+              "PROPAGATE",
+              "SKIP",
+              "RESET"
+            ],
             "title": "Missing Values",
             "type": "string"
           },
@@ -1305,7 +1409,7 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyPortDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Outputs",
             "type": "array"
@@ -1314,16 +1418,34 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudyParameterDescriptorDto"
             },
-            "maxItems": 2,
-            "minItems": 2,
+            "maxItems": 16,
             "title": "Parameters",
             "type": "array"
           },
           "semantic_bounds": {
-            "$ref": "#/components/schemas/ChartStudySemanticBoundsDto"
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Semantic Bounds",
+            "type": "object"
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
@@ -1333,7 +1455,8 @@
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           }
@@ -1458,6 +1581,16 @@
             "title": "Instrument Id",
             "type": "string"
           },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartStudyPreviewDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "publication_status": {
             "const": "NOT_A_RESEARCH_RESULT",
             "title": "Publication Status",
@@ -1472,7 +1605,7 @@
             "type": "string"
           },
           "schema_version": {
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -1480,7 +1613,7 @@
             "items": {
               "$ref": "#/components/schemas/ChartStudySeriesDto"
             },
-            "maxItems": 1,
+            "maxItems": 16,
             "title": "Series",
             "type": "array"
           },
@@ -1505,7 +1638,8 @@
           "coverage",
           "query_status",
           "calculation",
-          "series"
+          "series",
+          "preview"
         ],
         "title": "ChartStudyEvaluateDto",
         "type": "object"
@@ -1525,7 +1659,6 @@
             "type": "string"
           },
           "include_unclosed_preview": {
-            "const": false,
             "title": "Include Unclosed Preview",
             "type": "boolean"
           },
@@ -1535,8 +1668,20 @@
             "title": "Instrument Id",
             "type": "string"
           },
+          "preview_stream_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Stream Id"
+          },
           "schema_version": {
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -1555,7 +1700,8 @@
           "window",
           "expected_history_projection_fingerprint",
           "calculation",
-          "include_unclosed_preview"
+          "include_unclosed_preview",
+          "preview_stream_id"
         ],
         "title": "ChartStudyEvaluateRequestDto",
         "type": "object"
@@ -1574,12 +1720,20 @@
             "type": "null"
           },
           "output_name": {
-            "const": "value",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Output Name",
             "type": "string"
           },
           "source": {
-            "const": "bar.close",
+            "enum": [
+              "bar.open",
+              "bar.high",
+              "bar.low",
+              "bar.close",
+              "bar.volume",
+              "bar.start_ns"
+            ],
             "title": "Source",
             "type": "string"
           }
@@ -1590,19 +1744,6 @@
           "output_name"
         ],
         "title": "ChartStudyInputBindingDto",
-        "type": "object"
-      },
-      "ChartStudyInputBindingsDto": {
-        "additionalProperties": false,
-        "properties": {
-          "value": {
-            "$ref": "#/components/schemas/ChartStudyInputBindingDto"
-          }
-        },
-        "required": [
-          "value"
-        ],
-        "title": "ChartStudyInputBindingsDto",
         "type": "object"
       },
       "ChartStudyInputDto": {
@@ -1747,7 +1888,7 @@
             "type": "string"
           },
           "closed_only": {
-            "const": true,
+            "const": false,
             "title": "Closed Only",
             "type": "boolean"
           },
@@ -1759,6 +1900,11 @@
           "instrument_policy": {
             "const": "EXACT_SOURCE_CATALOG",
             "title": "Instrument Policy",
+            "type": "string"
+          },
+          "preview_mode": {
+            "const": "OWNING_STREAM_SNAPSHOT",
+            "title": "Preview Mode",
             "type": "string"
           },
           "resolution_mode": {
@@ -1773,6 +1919,7 @@
           "bar_formation",
           "alignment",
           "closed_only",
+          "preview_mode",
           "coverage_policy"
         ],
         "title": "ChartStudyInputSupportDto",
@@ -1903,7 +2050,10 @@
             "type": "string"
           },
           "declared_rounding": {
-            "const": "CONTEXT",
+            "enum": [
+              "CONTEXT",
+              "ROUND_HALF_EVEN"
+            ],
             "title": "Declared Rounding",
             "type": "string"
           },
@@ -1977,7 +2127,10 @@
             "type": "string"
           },
           "rounding": {
-            "const": "CONTEXT",
+            "enum": [
+              "CONTEXT",
+              "ROUND_HALF_EVEN"
+            ],
             "title": "Rounding",
             "type": "string"
           }
@@ -2000,17 +2153,22 @@
             "type": "string"
           },
           "name": {
-            "const": "value",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "nullable": {
-            "const": true,
             "title": "Nullable",
             "type": "boolean"
           },
           "unit": {
-            "const": "PRICE",
+            "enum": [
+              "PRICE",
+              "RATIO",
+              "VOLUME",
+              "SCALAR"
+            ],
             "title": "Unit",
             "type": "string"
           }
@@ -2034,6 +2192,12 @@
               },
               {
                 "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
               }
             ],
             "title": "Default"
@@ -2046,10 +2210,16 @@
                 },
                 {
                   "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
                 }
               ]
             },
-            "maxItems": 2,
+            "maxItems": 32,
             "title": "Enum Values",
             "type": "array"
           },
@@ -2057,6 +2227,9 @@
             "anyOf": [
               {
                 "type": "integer"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2070,23 +2243,26 @@
                 "type": "integer"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
             "title": "Minimum"
           },
           "name": {
-            "enum": [
-              "period",
-              "price_field"
-            ],
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "parameter_type": {
             "enum": [
               "INTEGER",
-              "STRING"
+              "STRING",
+              "DECIMAL",
+              "BOOLEAN"
             ],
             "title": "Parameter Type",
             "type": "string"
@@ -2113,23 +2289,6 @@
         "title": "ChartStudyParameterDescriptorDto",
         "type": "object"
       },
-      "ChartStudyParametersDto": {
-        "additionalProperties": false,
-        "properties": {
-          "period": {
-            "$ref": "#/components/schemas/ChartStudyIntegerDto"
-          },
-          "price_field": {
-            "$ref": "#/components/schemas/ChartStudyCloseDto"
-          }
-        },
-        "required": [
-          "period",
-          "price_field"
-        ],
-        "title": "ChartStudyParametersDto",
-        "type": "object"
-      },
       "ChartStudyPointDto": {
         "additionalProperties": false,
         "properties": {
@@ -2146,7 +2305,8 @@
           "readiness": {
             "enum": [
               "PARTIAL",
-              "READY"
+              "READY",
+              "UNAVAILABLE"
             ],
             "title": "Readiness",
             "type": "string"
@@ -2155,7 +2315,9 @@
             "enum": [
               "NONE",
               "WARMUP_INCOMPLETE",
-              "VALUE_UNDEFINED"
+              "VALUE_UNDEFINED",
+              "INPUT_UNAVAILABLE",
+              "DEPENDENCY_UNAVAILABLE"
             ],
             "title": "Reason",
             "type": "string"
@@ -2194,7 +2356,12 @@
         "additionalProperties": false,
         "properties": {
           "data_type": {
-            "const": "DECIMAL",
+            "enum": [
+              "DECIMAL",
+              "INTEGER",
+              "STRING",
+              "BOOLEAN"
+            ],
             "title": "Data Type",
             "type": "string"
           },
@@ -2209,7 +2376,8 @@
             "type": "array"
           },
           "name": {
-            "const": "value",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -2218,13 +2386,23 @@
             "type": "boolean"
           },
           "semantic_type": {
-            "const": "NUMERIC_SERIES",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Type",
             "type": "string"
           },
           "unit": {
-            "title": "Unit",
-            "type": "null"
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
           }
         },
         "required": [
@@ -2236,6 +2414,287 @@
           "unit"
         ],
         "title": "ChartStudyPortDto",
+        "type": "object"
+      },
+      "ChartStudyPresentationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Category",
+            "type": "string"
+          },
+          "default_parameters": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "maxProperties": 16,
+            "propertyNames": {
+              "maxLength": 256,
+              "minLength": 1
+            },
+            "title": "Default Parameters",
+            "type": "object"
+          },
+          "default_variant": {
+            "title": "Default Variant",
+            "type": "boolean"
+          },
+          "display_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fill": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill"
+          },
+          "placement": {
+            "enum": [
+              "PRICE_OVERLAY",
+              "SEPARATE_PANE"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "preview_supported": {
+            "title": "Preview Supported",
+            "type": "boolean"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ChartStudyPresentationSeriesDto"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "display_name",
+          "category",
+          "default_parameters",
+          "series",
+          "placement",
+          "fill",
+          "preview_supported",
+          "default_variant"
+        ],
+        "title": "ChartStudyPresentationDto",
+        "type": "object"
+      },
+      "ChartStudyPresentationSeriesDto": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "default_visible": {
+            "title": "Default Visible",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "LINE",
+              "HISTOGRAM"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "output_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Output Name",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "PRICE",
+              "RATIO",
+              "VOLUME",
+              "SCALAR"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_name",
+          "label",
+          "kind",
+          "unit",
+          "color",
+          "default_visible"
+        ],
+        "title": "ChartStudyPresentationSeriesDto",
+        "type": "object"
+      },
+      "ChartStudyPreviewDto": {
+        "additionalProperties": false,
+        "properties": {
+          "bar_end_ns": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Bar End Ns",
+            "type": "string"
+          },
+          "bar_start_ns": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Bar Start Ns",
+            "type": "string"
+          },
+          "revision_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision Fingerprint",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ChartStudyPreviewSeriesDto"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Series",
+            "type": "array"
+          },
+          "source_kind": {
+            "const": "PREVIEW_UNCLOSED",
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "stream_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Stream Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind",
+          "stream_id",
+          "revision_fingerprint",
+          "bar_start_ns",
+          "bar_end_ns",
+          "series"
+        ],
+        "title": "ChartStudyPreviewDto",
+        "type": "object"
+      },
+      "ChartStudyPreviewPointDto": {
+        "additionalProperties": false,
+        "properties": {
+          "closed": {
+            "const": false,
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "quality": {
+            "const": "PREVIEW_UNCLOSED",
+            "title": "Quality",
+            "type": "string"
+          },
+          "readiness": {
+            "enum": [
+              "PARTIAL",
+              "READY",
+              "UNAVAILABLE"
+            ],
+            "title": "Readiness",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "NONE",
+              "WARMUP_INCOMPLETE",
+              "VALUE_UNDEFINED",
+              "INPUT_UNAVAILABLE",
+              "DEPENDENCY_UNAVAILABLE"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "time_ns": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Time Ns",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "time_ns",
+          "value",
+          "readiness",
+          "reason",
+          "quality",
+          "closed"
+        ],
+        "title": "ChartStudyPreviewPointDto",
+        "type": "object"
+      },
+      "ChartStudyPreviewSeriesDto": {
+        "additionalProperties": false,
+        "properties": {
+          "output_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Output Name",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/ChartStudyPreviewPointDto"
+          }
+        },
+        "required": [
+          "output_name",
+          "point"
+        ],
+        "title": "ChartStudyPreviewSeriesDto",
         "type": "object"
       },
       "ChartStudyProviderManifestDto": {
@@ -2299,25 +2758,12 @@
         "title": "ChartStudyResourceDto",
         "type": "object"
       },
-      "ChartStudySemanticBoundsDto": {
-        "additionalProperties": false,
-        "properties": {
-          "value": {
-            "title": "Value",
-            "type": "null"
-          }
-        },
-        "required": [
-          "value"
-        ],
-        "title": "ChartStudySemanticBoundsDto",
-        "type": "object"
-      },
       "ChartStudySeriesDto": {
         "additionalProperties": false,
         "properties": {
           "output_name": {
-            "const": "value",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Output Name",
             "type": "string"
           },
@@ -2367,6 +2813,28 @@
         "title": "ChartStudySourceReferenceDto",
         "type": "object"
       },
+      "ChartStudyStringDto": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "STRING",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "ChartStudyStringDto",
+        "type": "object"
+      },
       "ChartStudyTypeReferenceDto": {
         "additionalProperties": false,
         "properties": {
@@ -2376,12 +2844,14 @@
             "type": "string"
           },
           "semantic_version": {
-            "const": "1",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Semantic Version",
             "type": "string"
           },
           "type_id": {
-            "const": "onlyalpha.indicator.sma",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Type Id",
             "type": "string"
           }
@@ -2398,7 +2868,8 @@
         "additionalProperties": false,
         "properties": {
           "initialization": {
-            "const": "PARTIAL_WINDOW",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Initialization",
             "type": "string"
           },
@@ -2409,12 +2880,16 @@
             "type": "integer"
           },
           "pre_ready_output": {
-            "const": "PARTIAL",
+            "enum": [
+              "PARTIAL",
+              "NULL"
+            ],
             "title": "Pre Ready Output",
             "type": "string"
           },
           "ready_condition": {
-            "const": "samples >= minimum_observations",
+            "maxLength": 256,
+            "minLength": 1,
             "title": "Ready Condition",
             "type": "string"
           }

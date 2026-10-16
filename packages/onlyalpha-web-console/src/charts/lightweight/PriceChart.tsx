@@ -116,22 +116,30 @@ export function PriceChart({
             (evidence) => !isStudySeriesEvidence(evidence)
         );
         return new Map(
-            entries.map((instance) => {
-                const matches = studyEvidence.filter(
-                    (evidence) =>
-                        isStudySeriesEvidence(evidence) &&
-                        evidence.instanceId === instance.instanceId
-                );
-                return [
-                    instance.instanceId,
-                    duplicateInstances ||
-                    matches.length > 1 ||
-                    malformedEvidence ||
-                    !validPresentation(instance.presentation)
-                        ? { status: "INVALID" as const, detail: "重复身份 / 非法展示证据或样式" }
-                        : projectStudySeries(instance, incarnationKey, timeline, matches[0])
-                ] as const;
-            })
+            entries.flatMap((instance) =>
+                instance.configuration.outputNames
+                    .filter((name) => instance.presentation.seriesStyles?.[name]?.visible !== false)
+                    .map((outputName) => {
+                        const matches = studyEvidence.filter(
+                            (evidence) =>
+                                isStudySeriesEvidence(evidence) &&
+                                evidence.instanceId === instance.instanceId &&
+                                evidence.outputName === outputName
+                        );
+                        return [
+                            JSON.stringify([instance.instanceId, outputName]),
+                            duplicateInstances ||
+                            matches.length > 1 ||
+                            malformedEvidence ||
+                            !validPresentation(instance.presentation)
+                                ? {
+                                      status: "INVALID" as const,
+                                      detail: "重复身份 / 非法展示证据或样式"
+                                  }
+                                : projectStudySeries(instance, incarnationKey, timeline, matches[0])
+                        ] as const;
+                    })
+            )
         );
     }, [studies, contextKey, studyEvidence, incarnationKey, timeline]);
     const activeType = useRef<FinancialChartType>("CANDLESTICK");
@@ -409,12 +417,22 @@ export function PriceChart({
                             instance.presentation.visible &&
                             validPresentation(instance.presentation)
                     )
-                    .flatMap((instance) => {
-                        const view = views.get(instance.instanceId);
-                        return view?.status === "PROJECTED" && view.projection.segments.length > 0
-                            ? [...view.projection.pointsByTime.keys()]
-                            : [];
-                    })
+                    .flatMap((instance) =>
+                        instance.configuration.outputNames
+                            .filter(
+                                (name) =>
+                                    instance.presentation.seriesStyles?.[name]?.visible !== false
+                            )
+                            .flatMap((outputName) => {
+                                const view = views.get(
+                                    JSON.stringify([instance.instanceId, outputName])
+                                );
+                                return view?.status === "PROJECTED" &&
+                                    view.projection.segments.length > 0
+                                    ? [...view.projection.pointsByTime.keys()]
+                                    : [];
+                            })
+                    )
             )
         ];
         const nextAxis = [...new Set([...displayed.map((bar) => bar.time), ...nextExtra])].sort(
@@ -503,61 +521,80 @@ export function PriceChart({
                         (instance) =>
                             instance.context.key === contextKey && instance.presentation.visible
                     )
-                    .map((instance) => {
-                        const view = views.get(instance.instanceId);
-                        if (view === undefined) return null;
-                        const time =
-                            hover.context === contextKey && hover.incarnation === incarnationKey
-                                ? hover.time
-                                : null;
-                        const point =
-                            view.status === "PROJECTED" && time !== null
-                                ? view.projection.pointsByTime.get(time)
-                                : undefined;
-                        const value =
-                            view.status !== "PROJECTED"
-                                ? view.detail
-                                : time === null
-                                  ? "—"
-                                  : point === undefined
-                                    ? "此时间无对应结果"
-                                    : `${point.value ?? "暂无数值"}${point.readiness === "PARTIAL" ? " · 部分可用" : point.readiness === "PRE_READY" ? " · 预热中" : ""}`;
-                        return (
-                            <div
-                                key={instance.instanceId}
-                                data-testid="study-hover"
-                                data-instance-id={instance.instanceId}
-                                data-selected={selectedStudyId === instance.instanceId}
-                            >
-                                <span>
-                                    {studyDisplayLabel(instance)} · {value}
-                                </span>
-                                <details className="study-hover__details">
-                                    <summary
-                                        aria-label={`指标点详情 ${studyDescriptor(instance.selection).typeId.split(".").at(-1)?.toUpperCase() ?? studyDescriptor(instance.selection).typeId}`}
+                    .flatMap((instance) =>
+                        instance.configuration.outputNames
+                            .filter(
+                                (name) =>
+                                    instance.presentation.seriesStyles?.[name]?.visible !== false
+                            )
+                            .map((outputName) => {
+                                const view = views.get(
+                                    JSON.stringify([instance.instanceId, outputName])
+                                );
+                                if (view === undefined) return null;
+                                const time =
+                                    hover.context === contextKey &&
+                                    hover.incarnation === incarnationKey
+                                        ? hover.time
+                                        : null;
+                                const point =
+                                    view.status === "PROJECTED" && time !== null
+                                        ? view.projection.pointsByTime.get(time)
+                                        : undefined;
+                                const value =
+                                    view.status !== "PROJECTED"
+                                        ? view.detail
+                                        : time === null
+                                          ? "—"
+                                          : point === undefined
+                                            ? "此时间无对应结果"
+                                            : `${point.value ?? "暂无数值"}${point.readiness === "PARTIAL" ? " · 部分可用" : point.readiness === "PRE_READY" ? " · 预热中" : ""}`;
+                                return (
+                                    <div
+                                        key={JSON.stringify([instance.instanceId, outputName])}
+                                        data-testid="study-hover"
+                                        data-instance-id={instance.instanceId}
+                                        data-selected={selectedStudyId === instance.instanceId}
                                     >
-                                        详情
-                                    </summary>
-                                    <span>
-                                        {studyDescriptor(instance.selection).typeId} ·{" "}
-                                        {instance.configuration.outputName} ·{" "}
-                                        {view.status === "PROJECTED"
-                                            ? view.projection.outputUnit === "PRICE"
-                                                ? "PRICE"
-                                                : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
-                                            : "无有效结果"}{" "}
-                                        · {studyHover(view, time)}
-                                    </span>
-                                </details>
-                            </div>
-                        );
-                    })}
+                                        <span>
+                                            {studyDisplayLabel(instance)} · {outputName} · {value}
+                                        </span>
+                                        <details className="study-hover__details">
+                                            <summary
+                                                aria-label={`指标点详情 ${studyDescriptor(instance.selection).typeId.split(".").at(-1)?.toUpperCase() ?? studyDescriptor(instance.selection).typeId}`}
+                                            >
+                                                详情
+                                            </summary>
+                                            <span>
+                                                {studyDescriptor(instance.selection).typeId} ·{" "}
+                                                {outputName} ·{" "}
+                                                {view.status === "PROJECTED"
+                                                    ? view.projection.outputUnit === "PRICE"
+                                                        ? "PRICE"
+                                                        : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
+                                                    : "无有效结果"}{" "}
+                                                · {studyHover(view, time)}
+                                            </span>
+                                        </details>
+                                    </div>
+                                );
+                            })
+                    )}
             </div>
             <div
                 className="chart-region__canvas"
                 ref={container}
                 data-testid="price-chart"
                 data-chart-type={chartType}
+                data-study-preview-count={
+                    studyEvidence.filter(
+                        (row) =>
+                            isStudySeriesEvidence(row) &&
+                            row.chartContextKey === contextKey &&
+                            row.incarnationKey === incarnationKey &&
+                            row.previewPoint !== undefined
+                    ).length
+                }
                 onMouseLeave={() => {
                     onSelection?.(null);
                     setHover({ context: contextKey, incarnation: incarnationKey, time: null });

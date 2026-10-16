@@ -1695,6 +1695,16 @@ export interface components {
              */
             ordered_fact_policy: "ORDERED_FACTS_V1";
         };
+        /** ChartStudyBooleanDto */
+        ChartStudyBooleanDto: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "BOOLEAN";
+            /** Value */
+            value: boolean;
+        };
         /** ChartStudyCalculationDto */
         ChartStudyCalculationDto: {
             /**
@@ -1720,7 +1730,10 @@ export interface components {
              */
             kind: "INDICATOR";
             normalized_definition: components["schemas"]["ChartStudyDefinitionDto"];
-            normalized_typed_parameters: components["schemas"]["ChartStudyParametersDto"];
+            /** Normalized Typed Parameters */
+            normalized_typed_parameters: {
+                [key: string]: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
+            };
             numeric: components["schemas"]["ChartStudyNumericDto"];
             numeric_execution_binding: components["schemas"]["ChartStudyNumericBindingDto"];
             /** Output Members */
@@ -1731,16 +1744,10 @@ export interface components {
             provider_id: string;
             /** Provider Version */
             provider_version: string;
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
         };
         /** ChartStudyCalculationRequestDto */
         ChartStudyCalculationRequestDto: {
@@ -1756,18 +1763,15 @@ export interface components {
              */
             kind: "INDICATOR";
             /** Output Members */
-            output_members: "value"[];
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
-            typed_parameters: components["schemas"]["ChartStudyParametersDto"];
+            output_members: string[];
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
+            /** Typed Parameters */
+            typed_parameters: {
+                [key: string]: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
+            };
         };
         /** ChartStudyCapabilitiesDto */
         ChartStudyCapabilitiesDto: {
@@ -1777,7 +1781,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
         };
         /** ChartStudyCapabilityDto */
         ChartStudyCapabilityDto: {
@@ -1811,7 +1815,8 @@ export interface components {
             limits: components["schemas"]["ChartStudyLimitsDto"];
             numeric_execution_binding: components["schemas"]["ChartStudyNumericBindingDto"];
             /** Output Members */
-            output_members: "value"[];
+            output_members: string[];
+            presentation: components["schemas"]["ChartStudyPresentationDto"];
             /** Provider Content Fingerprint */
             provider_content_fingerprint: string;
             /** Provider Id */
@@ -1823,16 +1828,10 @@ export interface components {
              * @constant
              */
             readiness_contract_version: 1;
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
         };
         /**
          * ChartStudyCapabilityProjectionDto
@@ -1868,7 +1867,8 @@ export interface components {
             limits: components["schemas"]["ChartStudyLimitsDto"];
             numeric_binding: components["schemas"]["ChartStudyNumericBindingDto"];
             /** Output Members */
-            output_members: "value"[];
+            output_members: string[];
+            presentation: components["schemas"]["ChartStudyPresentationDto"];
             /** Provider Content Fingerprint */
             provider_content_fingerprint: string;
             provider_manifest: components["schemas"]["ChartStudyProviderManifestDto"];
@@ -1883,7 +1883,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
             /**
              * Source Kind
              * @constant
@@ -1893,20 +1893,17 @@ export interface components {
              * Supported Shape
              * @constant
              */
-            supported_shape: "TIME_SERIES/CLOSED_HISTORY/CLOSE/value";
+            supported_shape: "TIME_SERIES/BAR_FIELDS";
         };
-        /** ChartStudyCloseDto */
-        ChartStudyCloseDto: {
+        /** ChartStudyDecimalDto */
+        ChartStudyDecimalDto: {
             /**
              * Type
              * @constant
              */
-            type: "STRING";
-            /**
-             * Value
-             * @constant
-             */
-            value: "CLOSE";
+            type: "DECIMAL";
+            /** Value */
+            value: string;
         };
         /** ChartStudyDecimalPolicyDto */
         ChartStudyDecimalPolicyDto: {
@@ -1958,7 +1955,10 @@ export interface components {
             extensions: components["schemas"]["ChartStudyExtensionsDto"];
             /** Factor Kind */
             factor_kind: null;
-            input_bindings: components["schemas"]["ChartStudyInputBindingsDto"];
+            /** Input Bindings */
+            input_bindings: {
+                [key: string]: components["schemas"]["ChartStudyInputBindingDto"];
+            };
             /** Inputs */
             inputs: components["schemas"]["ChartStudyPortDto"][];
             /**
@@ -1968,44 +1968,31 @@ export interface components {
             kind: "INDICATOR";
             /**
              * Missing Values
-             * @constant
+             * @enum {string}
              */
-            missing_values: "FAIL";
+            missing_values: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
             numeric: components["schemas"]["ChartStudyNumericDto"];
             /** Outputs */
             outputs: components["schemas"]["ChartStudyPortDto"][];
-            parameters: components["schemas"]["ChartStudyDefinitionParametersDto"];
+            /** Parameters */
+            parameters: {
+                [key: string]: number | string | boolean | null;
+            };
             /**
              * Schema Version
              * @constant
              */
             schema_version: 2;
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
+            /** Semantic Version */
+            semantic_version: string;
             /**
              * Timestamp
              * @constant
              */
             timestamp: "EVENT_TIME";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
+            /** Type Id */
+            type_id: string;
             warmup: components["schemas"]["ChartStudyWarmupDto"];
-        };
-        /** ChartStudyDefinitionParametersDto */
-        ChartStudyDefinitionParametersDto: {
-            /** Period */
-            period: number;
-            /**
-             * Price Field
-             * @constant
-             */
-            price_field: "CLOSE";
         };
         /** ChartStudyDependencyDto */
         ChartStudyDependencyDto: {
@@ -2034,30 +2021,27 @@ export interface components {
             kind: "INDICATOR";
             /**
              * Missing Values
-             * @constant
+             * @enum {string}
              */
-            missing_values: "FAIL";
+            missing_values: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
             numeric: components["schemas"]["ChartStudyNumericDto"];
             /** Outputs */
             outputs: components["schemas"]["ChartStudyPortDto"][];
             /** Parameters */
             parameters: components["schemas"]["ChartStudyParameterDescriptorDto"][];
-            semantic_bounds: components["schemas"]["ChartStudySemanticBoundsDto"];
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
+            /** Semantic Bounds */
+            semantic_bounds: {
+                [key: string]: string[] | null;
+            };
+            /** Semantic Version */
+            semantic_version: string;
             /**
              * Timestamp
              * @constant
              */
             timestamp: "EVENT_TIME";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
+            /** Type Id */
+            type_id: string;
         };
         /** ChartStudyDistributionDto */
         ChartStudyDistributionDto: {
@@ -2105,6 +2089,7 @@ export interface components {
             input: components["schemas"]["ChartStudyInputDto"];
             /** Instrument Id */
             instrument_id: string;
+            preview: components["schemas"]["ChartStudyPreviewDto"] | null;
             /**
              * Publication Status
              * @constant
@@ -2119,7 +2104,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
             /** Series */
             series: components["schemas"]["ChartStudySeriesDto"][];
             /**
@@ -2135,18 +2120,17 @@ export interface components {
             calculation: components["schemas"]["ChartStudyCalculationRequestDto"];
             /** Expected History Projection Fingerprint */
             expected_history_projection_fingerprint: string;
-            /**
-             * Include Unclosed Preview
-             * @constant
-             */
-            include_unclosed_preview: false;
+            /** Include Unclosed Preview */
+            include_unclosed_preview: boolean;
             /** Instrument Id */
             instrument_id: string;
+            /** Preview Stream Id */
+            preview_stream_id: string | null;
             /**
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
             source_reference: components["schemas"]["ChartStudySourceReferenceDto"];
             window: components["schemas"]["ChartStudyWindowDto"];
         };
@@ -2156,20 +2140,13 @@ export interface components {
         ChartStudyInputBindingDto: {
             /** Node Fingerprint */
             node_fingerprint: null;
-            /**
-             * Output Name
-             * @constant
-             */
-            output_name: "value";
+            /** Output Name */
+            output_name: string;
             /**
              * Source
-             * @constant
+             * @enum {string}
              */
-            source: "bar.close";
-        };
-        /** ChartStudyInputBindingsDto */
-        ChartStudyInputBindingsDto: {
-            value: components["schemas"]["ChartStudyInputBindingDto"];
+            source: "bar.open" | "bar.high" | "bar.low" | "bar.close" | "bar.volume" | "bar.start_ns";
         };
         /** ChartStudyInputDto */
         ChartStudyInputDto: {
@@ -2229,7 +2206,7 @@ export interface components {
              * Closed Only
              * @constant
              */
-            closed_only: true;
+            closed_only: false;
             /**
              * Coverage Policy
              * @constant
@@ -2240,6 +2217,11 @@ export interface components {
              * @constant
              */
             instrument_policy: "EXACT_SOURCE_CATALOG";
+            /**
+             * Preview Mode
+             * @constant
+             */
+            preview_mode: "OWNING_STREAM_SNAPSHOT";
             /**
              * Resolution Mode
              * @constant
@@ -2305,9 +2287,9 @@ export interface components {
             core_policy_fingerprint: string;
             /**
              * Declared Rounding
-             * @constant
+             * @enum {string}
              */
-            declared_rounding: "CONTEXT";
+            declared_rounding: "CONTEXT" | "ROUND_HALF_EVEN";
             /**
              * Domain
              * @constant
@@ -2363,9 +2345,9 @@ export interface components {
             representation: "DECIMAL";
             /**
              * Rounding
-             * @constant
+             * @enum {string}
              */
-            rounding: "CONTEXT";
+            rounding: "CONTEXT" | "ROUND_HALF_EVEN";
         };
         /** ChartStudyOutputDto */
         ChartStudyOutputDto: {
@@ -2374,51 +2356,37 @@ export interface components {
              * @constant
              */
             data_type: "DECIMAL";
-            /**
-             * Name
-             * @constant
-             */
-            name: "value";
-            /**
-             * Nullable
-             * @constant
-             */
-            nullable: true;
+            /** Name */
+            name: string;
+            /** Nullable */
+            nullable: boolean;
             /**
              * Unit
-             * @constant
+             * @enum {string}
              */
-            unit: "PRICE";
+            unit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
         };
         /** ChartStudyParameterDescriptorDto */
         ChartStudyParameterDescriptorDto: {
             /** Default */
-            default: number | string;
+            default: number | string | boolean | null;
             /** Enum Values */
-            enum_values: (number | string)[];
+            enum_values: (number | string | boolean | null)[];
             /** Maximum */
-            maximum: number | null;
+            maximum: number | string | null;
             /** Minimum */
-            minimum: number | null;
-            /**
-             * Name
-             * @enum {string}
-             */
-            name: "period" | "price_field";
+            minimum: number | string | null;
+            /** Name */
+            name: string;
             /**
              * Parameter Type
              * @enum {string}
              */
-            parameter_type: "INTEGER" | "STRING";
+            parameter_type: "INTEGER" | "STRING" | "DECIMAL" | "BOOLEAN";
             /** Required */
             required: boolean;
             /** Uppercase */
             uppercase: boolean;
-        };
-        /** ChartStudyParametersDto */
-        ChartStudyParametersDto: {
-            period: components["schemas"]["ChartStudyIntegerDto"];
-            price_field: components["schemas"]["ChartStudyCloseDto"];
         };
         /** ChartStudyPointDto */
         ChartStudyPointDto: {
@@ -2436,12 +2404,12 @@ export interface components {
              * Readiness
              * @enum {string}
              */
-            readiness: "PARTIAL" | "READY";
+            readiness: "PARTIAL" | "READY" | "UNAVAILABLE";
             /**
              * Reason
              * @enum {string}
              */
-            reason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED";
+            reason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
             /** Time Ns */
             time_ns: string;
             /** Value */
@@ -2451,25 +2419,115 @@ export interface components {
         ChartStudyPortDto: {
             /**
              * Data Type
-             * @constant
+             * @enum {string}
              */
-            data_type: "DECIMAL";
+            data_type: "DECIMAL" | "INTEGER" | "STRING" | "BOOLEAN";
             /** Dimensions */
             dimensions: "TIME"[];
-            /**
-             * Name
-             * @constant
-             */
-            name: "value";
+            /** Name */
+            name: string;
             /** Nullable */
             nullable: boolean;
+            /** Semantic Type */
+            semantic_type: string;
+            /** Unit */
+            unit: string | null;
+        };
+        /** ChartStudyPresentationDto */
+        ChartStudyPresentationDto: {
+            /** Category */
+            category: string;
+            /** Default Parameters */
+            default_parameters: {
+                [key: string]: number | string | boolean;
+            };
+            /** Default Variant */
+            default_variant: boolean;
+            /** Display Name */
+            display_name: string;
+            /** Fill */
+            fill: string[] | null;
             /**
-             * Semantic Type
+             * Placement
+             * @enum {string}
+             */
+            placement: "PRICE_OVERLAY" | "SEPARATE_PANE";
+            /** Preview Supported */
+            preview_supported: boolean;
+            /** Series */
+            series: components["schemas"]["ChartStudyPresentationSeriesDto"][];
+        };
+        /** ChartStudyPresentationSeriesDto */
+        ChartStudyPresentationSeriesDto: {
+            /** Color */
+            color: string;
+            /** Default Visible */
+            default_visible: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "LINE" | "HISTOGRAM";
+            /** Label */
+            label: string;
+            /** Output Name */
+            output_name: string;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
+        };
+        /** ChartStudyPreviewDto */
+        ChartStudyPreviewDto: {
+            /** Bar End Ns */
+            bar_end_ns: string;
+            /** Bar Start Ns */
+            bar_start_ns: string;
+            /** Revision Fingerprint */
+            revision_fingerprint: string;
+            /** Series */
+            series: components["schemas"]["ChartStudyPreviewSeriesDto"][];
+            /**
+             * Source Kind
              * @constant
              */
-            semantic_type: "NUMERIC_SERIES";
-            /** Unit */
-            unit: null;
+            source_kind: "PREVIEW_UNCLOSED";
+            /** Stream Id */
+            stream_id: string;
+        };
+        /** ChartStudyPreviewPointDto */
+        ChartStudyPreviewPointDto: {
+            /**
+             * Closed
+             * @constant
+             */
+            closed: false;
+            /**
+             * Quality
+             * @constant
+             */
+            quality: "PREVIEW_UNCLOSED";
+            /**
+             * Readiness
+             * @enum {string}
+             */
+            readiness: "PARTIAL" | "READY" | "UNAVAILABLE";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
+            /** Time Ns */
+            time_ns: string;
+            /** Value */
+            value: string | null;
+        };
+        /** ChartStudyPreviewSeriesDto */
+        ChartStudyPreviewSeriesDto: {
+            /** Output Name */
+            output_name: string;
+            point: components["schemas"]["ChartStudyPreviewPointDto"];
         };
         /** ChartStudyProviderManifestDto */
         ChartStudyProviderManifestDto: {
@@ -2496,18 +2554,10 @@ export interface components {
             /** Relative Path */
             relative_path: string;
         };
-        /** ChartStudySemanticBoundsDto */
-        ChartStudySemanticBoundsDto: {
-            /** Value */
-            value: null;
-        };
         /** ChartStudySeriesDto */
         ChartStudySeriesDto: {
-            /**
-             * Output Name
-             * @constant
-             */
-            output_name: "value";
+            /** Output Name */
+            output_name: string;
             /** Points */
             points: components["schemas"]["ChartStudyPointDto"][];
         };
@@ -2520,6 +2570,16 @@ export interface components {
             /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
         };
+        /** ChartStudyStringDto */
+        ChartStudyStringDto: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "STRING";
+            /** Value */
+            value: string;
+        };
         /** ChartStudyTypeReferenceDto */
         ChartStudyTypeReferenceDto: {
             /**
@@ -2527,36 +2587,24 @@ export interface components {
              * @constant
              */
             kind: "INDICATOR";
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
-            /**
-             * Type Id
-             * @constant
-             */
-            type_id: "onlyalpha.indicator.sma";
+            /** Semantic Version */
+            semantic_version: string;
+            /** Type Id */
+            type_id: string;
         };
         /** ChartStudyWarmupDto */
         ChartStudyWarmupDto: {
-            /**
-             * Initialization
-             * @constant
-             */
-            initialization: "PARTIAL_WINDOW";
+            /** Initialization */
+            initialization: string;
             /** Minimum Observations */
             minimum_observations: number;
             /**
              * Pre Ready Output
-             * @constant
+             * @enum {string}
              */
-            pre_ready_output: "PARTIAL";
-            /**
-             * Ready Condition
-             * @constant
-             */
-            ready_condition: "samples >= minimum_observations";
+            pre_ready_output: "PARTIAL" | "NULL";
+            /** Ready Condition */
+            ready_condition: string;
         };
         /** ChartStudyWindowDto */
         ChartStudyWindowDto: {

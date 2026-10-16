@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from onlyalpha.application.chart_study_numeric import OnlyChartStudySmaInvocation
+from onlyalpha.application.chart_study_numeric import OnlyChartStudyInvocation
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
@@ -19,7 +19,7 @@ from onlyalpha.research.calculation.predicate import only_register_research_pred
 class OnlyProductCalculationComposition:
     registry: OnlyCalculationRegistry
     catalog: OnlyQuantAssetCatalogGeneration
-    chart_study: OnlyChartStudySmaInvocation | None
+    chart_study: OnlyChartStudyInvocation | None
     chart_study_unavailable: str | None
 
 
@@ -47,7 +47,7 @@ def only_configure_product_registries(
     )
     only_register_research_predicate_primitives(calculations)
     try:
-        invocation = OnlyChartStudySmaInvocation(calculations, catalog)
+        invocation = OnlyChartStudyInvocation(calculations, catalog)
     except ValueError as error:
         return OnlyProductCalculationComposition(calculations, catalog, None, str(error))
     return OnlyProductCalculationComposition(calculations, catalog, invocation, None)

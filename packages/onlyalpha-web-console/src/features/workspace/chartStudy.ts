@@ -23,7 +23,11 @@ export interface StudyDescriptor {
     readonly typeId: string;
     readonly semanticVersion: string;
     readonly parameters: readonly StudyParameter[];
-    readonly outputs: readonly { readonly name: string; readonly semantic_type: string }[];
+    readonly outputs: readonly {
+        readonly name: string;
+        readonly semantic_type: string;
+        readonly data_type: string;
+    }[];
 }
 export interface ChartStudyContext {
     readonly key: string;
@@ -33,9 +37,12 @@ export interface ChartStudyContext {
 }
 export interface StudyConfiguration {
     readonly parameters: Readonly<Record<string, StudyScalar>>;
-    readonly outputName: string;
+    readonly outputNames: readonly string[];
 }
 export interface StudyPresentation {
+    readonly seriesStyles?: Readonly<
+        Record<string, { readonly color: string; readonly visible: boolean }>
+    >;
     readonly placement: "PRICE_OVERLAY" | "SEPARATE_PANE";
     readonly color: string;
     readonly lineWidth: number;
@@ -67,8 +74,15 @@ export function studyDisplayLabel(instance: ChartStudyInstance): string {
         .map((parameter) =>
             String(instance.configuration.parameters[parameter.name]?.value ?? "—")
         );
-    const name = descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId;
+    const name = studyName(instance.selection);
     return values.length === 0 ? name : `${name}(${values.join(", ")})`;
+}
+
+export function studyName(selection: ChartCalculationDraft): string {
+    return selection.source === "CHART_STUDY_TRANSIENT"
+        ? `${selection.capability.presentation.display_name}${selection.capability.presentation.default_variant ? "" : ` · 语义版本 ${selection.capability.semantic_version}`}`
+        : (studyDescriptor(selection).typeId.split(".").at(-1)?.toUpperCase() ??
+              studyDescriptor(selection).typeId);
 }
 
 // Exact Catalog encodes untagged scalars. This adapter tags by transport representation;
@@ -302,7 +316,16 @@ export function configurationErrors(
         )
     )
         errors.push("未知参数");
-    if (!descriptor.outputs.some((output) => output.name === configuration.outputName))
+    if (
+        configuration.outputNames.length === 0 ||
+        new Set(configuration.outputNames).size !== configuration.outputNames.length ||
+        configuration.outputNames.some(
+            (name) =>
+                !descriptor.outputs.some(
+                    (output) => output.name === name && output.data_type === "DECIMAL"
+                )
+        )
+    )
         errors.push("请选择官方 output");
     return errors;
 }
@@ -312,24 +335,10 @@ export function transientConfigurationErrors(
     configuration: StudyConfiguration
 ): readonly string[] {
     const errors: string[] = [];
-    const period = configuration.parameters.period;
-    const maximum = capability.capability_projection.limits.max_period;
-    if (
-        period?.type !== "INTEGER" ||
-        !Number.isSafeInteger(period.value) ||
-        period.value < 1 ||
-        period.value > maximum
-    )
-        errors.push(`period: 当前图表查询仅支持 1–${String(maximum)}`);
-    const priceField = configuration.parameters.price_field;
-    // The admitted supported_shape explicitly restricts this query to CLOSE/value.
-    if (priceField?.type !== "STRING" || priceField.value !== "CLOSE")
-        errors.push("price_field: 当前图表查询仅支持 CLOSE");
-    if (
-        !capability.capability_projection.output_members.some(
-            (name) => name === configuration.outputName
-        )
-    )
+    for (const [name, value] of Object.entries(configuration.parameters))
+        if (value.type === "INTEGER" && value.value > capability.limits.max_period)
+            errors.push(`${name}: 超过图表查询上限 ${String(capability.limits.max_period)}`);
+    if (configuration.outputNames.some((name) => !capability.output_members.includes(name)))
         errors.push("当前图表查询不支持此 output");
     return errors;
 }
@@ -343,6 +352,9 @@ export function validPresentation(value: StudyPresentation): boolean {
         Number.isFinite(value.opacity) &&
         value.opacity >= 0 &&
         value.opacity <= 1 &&
-        typeof value.visible === "boolean"
+        typeof value.visible === "boolean" &&
+        Object.values(value.seriesStyles ?? {}).every(
+            (style) => /^#[0-9a-fA-F]{6}$/.test(style.color) && typeof style.visible === "boolean"
+        )
     );
 }

@@ -316,10 +316,11 @@ def create_research_app(
         and calculation_composition.chart_study._registry is calculation_registry
         and calculation_composition.chart_study._catalog is calculation_composition.catalog
     ):
-        _ = calculation_composition.chart_study.admission
+        _ = calculation_composition.chart_study.admissions
         chart_study = OnlyChartStudyProductQueryService(
             market_data,
             calculation_composition.chart_study,
+            market_data_stream,
         )
     if local_read_configuration is not None:
         app.add_middleware(

@@ -61,7 +61,8 @@ def create_chart_study_router(service: OnlyChartStudyProductQueryService) -> API
 
             def query() -> ChartStudyCapabilitiesDto:
                 return ChartStudyCapabilitiesDto(
-                    schema_version=1, capabilities=[ChartStudyCapabilityDto.from_model(service.capabilities(session))]
+                    schema_version=2,
+                    capabilities=[ChartStudyCapabilityDto.from_model(item) for item in service.capabilities(session)],
                 )
 
             value = await run_in_threadpool(query)

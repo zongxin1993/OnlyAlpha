@@ -499,6 +499,7 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "items",
         "maxItems",
         "maxLength",
+        "maxProperties",
         "maximum",
         "minItems",
         "minLength",
@@ -506,9 +507,11 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
         "oneOf",
         "pattern",
         "properties",
+        "propertyNames",
         "required",
         "title",
         "type",
+        "uniqueItems",
         "writeOnly",
         "x-onlyalpha-reference-canonical-fingerprint",
         "x-onlyalpha-reference-kind",
@@ -559,3 +562,43 @@ def test_strategy_and_backtest_routes_declare_exact_product_errors_without_422()
             assert operation["responses"][status]["content"]["application/json"]["schema"] == {
                 "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
             }
+
+
+@pytest.mark.parametrize("direction", ("request", "response"))
+@pytest.mark.parametrize("old_bound,new_bound", ((None, 8), (8, None), (8, 4), (8, 16)))
+def test_property_name_bounds_preserve_request_response_direction(
+    direction: str, old_bound: int | None, new_bound: int | None
+) -> None:
+    old: dict[str, object] = {"type": "object", "additionalProperties": {"type": "integer"}}
+    new = copy.deepcopy(old)
+    if old_bound is not None:
+        old["propertyNames"] = {"maxLength": old_bound}
+    if new_bound is not None:
+        new["propertyNames"] = {"maxLength": new_bound}
+    narrowing = new_bound is not None and (old_bound is None or new_bound < old_bound)
+    expected = "BREAKING" if narrowing == (direction == "request") else "COMPATIBLE"
+    assert _comparison_with_schema(old, new, direction=direction).change.value == expected
+
+
+@pytest.mark.parametrize("direction", ("request", "response"))
+@pytest.mark.parametrize("old_unique,new_unique", ((False, True), (True, False)))
+def test_unique_items_compatibility_is_direction_aware(direction: str, old_unique: bool, new_unique: bool) -> None:
+    old = {"type": "array", "items": {"type": "string"}, "uniqueItems": old_unique}
+    new = {**old, "uniqueItems": new_unique}
+    expected = "BREAKING" if new_unique == (direction == "request") else "COMPATIBLE"
+    assert _comparison_with_schema(old, new, direction=direction).change.value == expected
+
+
+def test_property_name_nested_unsupported_semantics_remain_fail_closed() -> None:
+    document = _fixture("base.json")
+    _request_schema(document)["propertyNames"] = {"contentEncoding": "base64"}
+    with pytest.raises(ValueError, match="unsupported schema compatibility keyword contentEncoding"):
+        governance.validate_schema_vocabulary(document)
+
+
+@pytest.mark.parametrize("keyword,value", (("uniqueItems", "true"), ("uniqueItems", 1), ("propertyNames", True)))
+def test_new_collection_constraints_reject_unsupported_value_shapes(keyword: str, value: object) -> None:
+    document = _fixture("base.json")
+    _request_schema(document)[keyword] = value
+    with pytest.raises(ValueError, match="schema object|must be boolean"):
+        governance.validate_schema_vocabulary(document)

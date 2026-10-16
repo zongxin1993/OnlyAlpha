@@ -8,7 +8,15 @@ from decimal import Decimal, localcontext
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.calculation import OnlyCalculationDefinition, OnlyCalculationKind, OnlyMissingValuePolicy
+from onlyalpha.calculation import (
+    OnlyCalculationDefinition,
+    OnlyCalculationKind,
+    OnlyCalculationTypeDefinition,
+    OnlyMissingValuePolicy,
+    only_decimal_context,
+)
+from onlyalpha.calculation.chart_decimal import only_chart_study_effective_numeric
+from onlyalpha.calculation.chart_study import OnlyChartStudySupport
 from onlyalpha.calculation.definition import OnlyNumericDefinition
 from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2
 from onlyalpha.research.calculation.readiness import (
@@ -16,6 +24,8 @@ from onlyalpha.research.calculation.readiness import (
     OnlyResearchReadinessReason,
     OnlyResearchReadinessState,
 )
+from onlyalpha_plugin_indicators.calibrated import OnlyCalibratedIndicator
+from onlyalpha_plugin_indicators.chart import chart_execution, chart_support, require_chart_capacity
 from onlyalpha_plugin_indicators.financial_semantics import evaluate_financial
 
 _Q = Decimal("0.000000000001")
@@ -24,6 +34,30 @@ _DECIMAL = pa.decimal128(38, 12)
 
 class OnlyOfficialResearchIndicatorBackend:
     """Columnar batch adapter around independent deterministic Decimal kernels."""
+
+    def chart_study_support(self, type_definition: OnlyCalculationTypeDefinition) -> OnlyChartStudySupport | None:
+        return chart_support(type_definition)
+
+    def execute_chart_study(
+        self, definition: OnlyCalculationDefinition, inputs: Mapping[str, pa.Array | pa.ChunkedArray]
+    ) -> OnlyResearchCalculationBackendExecutionV2:
+        from onlyalpha_plugin_indicators.registration import ATR_V2, CALIBRATED_TYPES, FINANCIAL_TYPES, TYPES
+
+        matches = [
+            item
+            for item in (*TYPES, ATR_V2, *FINANCIAL_TYPES, *CALIBRATED_TYPES)
+            if item.type_id == definition.type_id and item.semantic_version == definition.semantic_version
+        ]
+        if len(matches) != 1 or chart_support(matches[0]) is None:
+            raise ValueError("CHART_STUDY_IMPLEMENTATION_UNAVAILABLE")
+        if set(inputs) != {i.name for i in definition.inputs}:
+            raise ValueError("chart Indicator input names differ")
+        if len({len(v) for v in inputs.values()}) != 1:
+            raise ValueError("chart Indicator input lengths differ")
+        require_chart_capacity(definition, len(next(iter(inputs.values()))))
+        with localcontext(only_decimal_context(only_chart_study_effective_numeric(definition.numeric))):
+            outputs = self.execute(definition, inputs)
+            return chart_execution(definition, inputs, outputs)
 
     def require_chart_numeric_binding(self, numeric: OnlyNumericDefinition) -> None:
         """Prove the actual loaded SMA quantizer/carrier, not just its function bytecode."""
@@ -69,6 +103,28 @@ class OnlyOfficialResearchIndicatorBackend:
         definition: OnlyCalculationDefinition,
         inputs: Mapping[str, pa.Array | pa.ChunkedArray],
     ) -> Mapping[str, pa.Array]:
+        if (definition.type_id, definition.semantic_version) in {
+            ("onlyalpha.indicator.rsi", "2"),
+            ("onlyalpha.indicator.atr", "3"),
+            ("onlyalpha.indicator.macd", "2"),
+            ("onlyalpha.indicator.vwap", "2"),
+            ("onlyalpha.indicator.stochastic", "2"),
+        }:
+            kernel = OnlyCalibratedIndicator(definition)
+            rows = {name: array.to_pylist() for name, array in inputs.items()}
+            if len({len(column) for column in rows.values()}) != 1:
+                raise ValueError("input lengths differ")
+            columns: dict[str, list[object]] = {output.name: [] for output in definition.outputs}
+            for index in range(len(next(iter(rows.values())))):
+                result = kernel.update({name: column[index] for name, column in rows.items()})
+                for name, value in result.items():
+                    columns[name].append(value)
+            return {
+                output.name: pa.array(
+                    columns[output.name], type=pa.string() if output.data_type.value == "STRING" else _DECIMAL
+                )
+                for output in definition.outputs
+            }
         if definition.type_id in {
             "onlyalpha.indicator.wma",
             "onlyalpha.indicator.roc",

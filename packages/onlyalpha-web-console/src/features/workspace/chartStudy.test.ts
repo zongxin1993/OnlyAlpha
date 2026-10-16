@@ -8,6 +8,7 @@ import {
     parameterInputError,
     parameterTextInput,
     studyDescriptor,
+    studyName,
     validPresentation,
     type StudyParameter,
     type StudyScalar
@@ -167,13 +168,13 @@ it("requires explicit NULL/default input and output choice; boolean is never tex
     expect(
         configurationErrors(d, {
             parameters: { enabled: { type: "NULL", value: null } },
-            outputName: ""
+            outputNames: [""]
         })
     ).toHaveLength(2);
     expect(
         configurationErrors(d, {
             parameters: { enabled: { type: "BOOLEAN", value: false } },
-            outputName: "invented"
+            outputNames: ["invented"]
         })
     ).toEqual(["请选择官方 output"]);
 });
@@ -202,7 +203,7 @@ it("checks transient support separately without narrowing the canonical descript
         await import("../../../../../test-data/web/chart-studies/query.json");
     const { ChartStudyCapabilitiesSchema } = await import("../../api/chartStudies/http.generated");
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     if (capability === undefined) throw new Error("Expected installed capability");
@@ -213,10 +214,10 @@ it("checks transient support separately without narrowing the canonical descript
             period: { type: "INTEGER" as const, value: 10001 },
             price_field: { type: "STRING" as const, value: "VOLUME" }
         },
-        outputName: "value"
+        outputNames: ["value"]
     };
     expect(configurationErrors(original, configuration)).toEqual([]);
-    expect(transientConfigurationErrors(capability, configuration)).toHaveLength(2);
+    expect(transientConfigurationErrors(capability, configuration)).toHaveLength(1);
     expect(
         transientConfigurationErrors(capability, {
             ...configuration,
@@ -227,4 +228,54 @@ it("checks transient support separately without narrowing the canonical descript
         })
     ).toEqual([]);
     expect(studyDescriptor(selection)).toEqual(original);
+});
+
+it("selects a numeric output group and rejects empty, duplicate or nonnumeric members", () => {
+    const item = registration();
+    item.parameters = [];
+    item.outputs = [
+        {
+            dimensions: ["TIME"],
+            nullable: true,
+            unit: null,
+            name: "fast",
+            semantic_type: "NUMERIC_SERIES",
+            data_type: "DECIMAL"
+        },
+        {
+            dimensions: ["TIME"],
+            nullable: true,
+            unit: null,
+            name: "slow",
+            semantic_type: "NUMERIC_SERIES",
+            data_type: "DECIMAL"
+        },
+        {
+            dimensions: ["TIME"],
+            nullable: true,
+            unit: null,
+            name: "ready",
+            semantic_type: "READINESS",
+            data_type: "STRING"
+        }
+    ];
+    const d = descriptor(item);
+    expect(configurationErrors(d, { parameters: {}, outputNames: ["fast", "slow"] })).toEqual([]);
+    for (const outputNames of [[], ["fast", "fast"], ["ready"], ["missing"]])
+        expect(configurationErrors(d, { parameters: {}, outputNames })).not.toHaveLength(0);
+});
+
+it("keeps explicit semantic-variant labels on configured indicator instances", async () => {
+    const { default: sample } =
+        await import("../../../../../test-data/web/chart-studies/query.json");
+    const { ChartStudyCapabilitiesSchema } = await import("../../api/chartStudies/http.generated");
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 2,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Missing capability");
+    capability.presentation.default_variant = false;
+    expect(studyName({ source: "CHART_STUDY_TRANSIENT", capability })).toBe(
+        `${capability.presentation.display_name} · 语义版本 ${capability.semantic_version}`
+    );
 });

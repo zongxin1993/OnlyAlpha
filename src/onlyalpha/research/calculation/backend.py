@@ -8,7 +8,12 @@ from typing import Protocol, cast, runtime_checkable
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationDefinition
+from onlyalpha.calculation.chart_study import OnlyChartStudySupport
+from onlyalpha.calculation.definition import (
+    OnlyCalculationBackendKind,
+    OnlyCalculationDefinition,
+    OnlyCalculationTypeDefinition,
+)
 from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 
@@ -41,6 +46,19 @@ class OnlyResearchCalculationBackendExecutionV2:
 @runtime_checkable
 class OnlyResearchReadinessCalculationBackend(Protocol):
     def execute_with_readiness(
+        self,
+        definition: OnlyCalculationDefinition,
+        inputs: Mapping[str, pa.Array | pa.ChunkedArray],
+    ) -> OnlyResearchCalculationBackendExecutionV2: ...
+
+
+@runtime_checkable
+class OnlyChartStudyCalculationBackend(Protocol):
+    """Non-publishing Chart capability; never a Research publication permission."""
+
+    def chart_study_support(self, type_definition: OnlyCalculationTypeDefinition) -> OnlyChartStudySupport | None: ...
+
+    def execute_chart_study(
         self,
         definition: OnlyCalculationDefinition,
         inputs: Mapping[str, pa.Array | pa.ChunkedArray],

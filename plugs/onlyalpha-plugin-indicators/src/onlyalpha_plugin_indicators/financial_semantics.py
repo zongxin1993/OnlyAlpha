@@ -1,16 +1,14 @@
 """Pure Decimal semantics for the financial Indicator family."""
 
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
-from decimal import Decimal, localcontext
+from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
+from decimal import Context, Decimal, localcontext
 
 from onlyalpha.calculation import OnlyCalculationDefinition, only_decimal_context, only_quantize_decimal
 
 
-@contextmanager
-def financial_numeric_context(definition: OnlyCalculationDefinition) -> Iterator[None]:
-    with localcontext(only_decimal_context(definition.numeric)):
-        yield
+def financial_numeric_context(definition: OnlyCalculationDefinition) -> AbstractContextManager[Context]:
+    return localcontext(only_decimal_context(definition.numeric))
 
 
 def quantize_financial(definition: OnlyCalculationDefinition, value: Decimal) -> Decimal:

@@ -59,10 +59,32 @@ def _expression(schema: dict[str, Any]) -> str:
             result += f".min({schema['minItems']})"
         if "maxItems" in schema:
             result += f".max({schema['maxItems']})"
+        if schema.get("uniqueItems"):
+            if schema["items"].get("type") not in {"string", "integer", "boolean"}:
+                raise ValueError("unique object/union array contract is unsupported")
+            result += ".refine(value => new Set(value).size === value.length)"
         return result
     if kind == "null":
         return "z.null()"
     if kind == "object":
+        additional = schema.get("additionalProperties", False)
+        if isinstance(additional, dict) and "properties" not in schema:
+            names = schema.get("propertyNames", {})
+            if (
+                not isinstance(names, dict)
+                or names.get("type", "string") != "string"
+                or set(names) - {"type", "minLength", "maxLength", "pattern", "title", "description"}
+            ):
+                raise ValueError("unsupported record key contract")
+            key = {"type": "string", **names}
+            result = f"z.record({_expression(key)}, {_expression(additional)})"
+            if "minProperties" in schema:
+                result += f".refine(value => Object.keys(value).length >= {schema['minProperties']})"
+            if "maxProperties" in schema:
+                result += f".refine(value => Object.keys(value).length <= {schema['maxProperties']})"
+            return result
+        if additional is not False:
+            raise ValueError("open or mixed object contract is unsupported")
         required = set(schema.get("required", []))
         fields = [
             f"    {json.dumps(name)}: {_expression(value)}{'' if name in required else '.optional()'}"

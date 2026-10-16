@@ -446,6 +446,11 @@ export function WorkspacePage() {
                             <div className="chart-region__body">
                                 <TransientStudyPriceChart
                                     context={studyContext}
+                                    previewStreamId={
+                                        marketData.realtimeStatus === "ready"
+                                            ? marketData.streamId
+                                            : null
+                                    }
                                     onTransientRevalidated={onTransientRevalidated}
                                     dataGeneration={marketData.historyProjectionFingerprint}
                                     expectedSourceId={marketData.resolvedSourceId}

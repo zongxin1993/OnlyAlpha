@@ -38,7 +38,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
             instrument_id: history.instrument_id
         });
         const selectedCapability = ChartStudyCapabilitiesSchema.parse({
-            schema_version: 1,
+            schema_version: 2,
             capabilities: [sample.capability]
         }).capabilities[0];
         if (selectedCapability === undefined) throw new Error("Expected installed capability");
@@ -57,7 +57,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
                     return Promise.resolve(
                         new Response(
                             JSON.stringify({
-                                schema_version: 1,
+                                schema_version: 2,
                                 capabilities: [sample.capability]
                             }),
                             { headers: { "cache-control": "no-store" } }
@@ -121,7 +121,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
                         period: { type: "INTEGER", value: period },
                         price_field: { type: "STRING", value: "CLOSE" }
                     },
-                    outputName: "value"
+                    outputNames: ["value"]
                 },
                 presentation: {
                     placement: "PRICE_OVERLAY",

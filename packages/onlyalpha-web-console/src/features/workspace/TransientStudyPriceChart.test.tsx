@@ -67,7 +67,7 @@ it.each([
     if (mutation === "coverage")
         history.coverage.gaps[0] = { start_ns: "0", end_ns: history.resolved_end_ns };
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     if (capability === undefined) throw new Error("Expected capability vector");
@@ -91,7 +91,7 @@ it.each([
                 period: { type: "INTEGER", value: 20 },
                 price_field: { type: "STRING", value: "CLOSE" }
             },
-            outputName: "value"
+            outputNames: ["value"]
         },
         presentation: {
             placement: "PRICE_OVERLAY",
@@ -107,7 +107,7 @@ it.each([
     const transport = vi.fn((url: string) => {
         if (!url.endsWith("capabilities")) evaluations(url);
         return Promise.resolve(
-            new Response(JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }), {
+            new Response(JSON.stringify({ schema_version: 2, capabilities: [sample.capability] }), {
                 headers: { "cache-control": "no-store" }
             })
         );
@@ -168,13 +168,13 @@ it.each(["none", "period", "price", "stale"])(
             instrument_id: history.instrument_id
         });
         const capability = ChartStudyCapabilitiesSchema.parse({
-            schema_version: 1,
+            schema_version: 2,
             capabilities: [sample.capability]
         }).capabilities[0];
         if (capability === undefined) throw new Error("Expected installed capability vector");
         const configuration = {
             parameters: evaluation.calculation.normalized_typed_parameters,
-            outputName: "value"
+            outputNames: ["value"]
         };
         const context = {
             key: "source:revision:native15",
@@ -239,7 +239,7 @@ it.each(["none", "period", "price", "stale"])(
                     return Promise.resolve(
                         new Response(
                             JSON.stringify({
-                                schema_version: 1,
+                                schema_version: 2,
                                 capabilities: [sample.capability]
                             }),
                             { headers: { "cache-control": "no-store" } }

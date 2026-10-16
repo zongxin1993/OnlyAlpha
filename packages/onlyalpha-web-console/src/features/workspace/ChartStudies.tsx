@@ -6,6 +6,7 @@ import { CalculationPicker } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
 import {
     studyDescriptor,
+    studyName,
     studyDisplayLabel,
     type ChartStudyContext,
     type ChartStudyInstance
@@ -131,7 +132,7 @@ export function ChartStudies({
                                     <button
                                         type="button"
                                         aria-pressed={selectedId === instance.instanceId}
-                                        aria-label={`选择 ${descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId}`}
+                                        aria-label={`选择 ${studyName(instance.selection)}`}
                                         onClick={() => {
                                             setSelectedId(instance.instanceId);
                                         }}
@@ -158,7 +159,7 @@ export function ChartStudies({
                                         }}
                                     >
                                         {instance.presentation.visible ? "隐藏" : "显示"}{" "}
-                                        {descriptor.typeId.split(".").at(-1)?.toUpperCase()}
+                                        {studyName(instance.selection)}
                                     </button>
                                     {instance.connectionState === "STALE_CONFIG" ? (
                                         <span>
@@ -172,7 +173,7 @@ export function ChartStudies({
                                     ) : null}
                                     <details className="chart-studies__details">
                                         <summary
-                                            aria-label={`配置详情 ${descriptor.typeId.split(".").at(-1)?.toUpperCase() ?? descriptor.typeId}`}
+                                            aria-label={`配置详情 ${studyName(instance.selection)}`}
                                         >
                                             详情
                                         </summary>
@@ -186,7 +187,7 @@ export function ChartStudies({
                                                         `${name}=${String(value.value)}`
                                                 )
                                                 .join(" · ")}{" "}
-                                            → {instance.configuration.outputName}
+                                            → {instance.configuration.outputNames.join(", ")}
                                         </p>
                                         <p>
                                             {instance.presentation.placement === "PRICE_OVERLAY"
@@ -208,7 +209,7 @@ export function ChartStudies({
                                             setDraft(instance.selection);
                                         }}
                                     >
-                                        编辑 {descriptor.typeId.split(".").at(-1)?.toUpperCase()}
+                                        编辑 {studyName(instance.selection)}
                                     </button>
                                     <button
                                         type="button"

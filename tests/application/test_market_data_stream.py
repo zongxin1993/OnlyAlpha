@@ -476,3 +476,162 @@ def test_connection_loss_retires_coalesced_preview_timing_before_state_delivery(
     session.emit_state("READY")
     assert session.next_event(0).payload["state"] == "READY"  # type: ignore[union-attr]
     assert session.next_event(0) is None
+
+
+def _chart_preview_session():
+    import hashlib
+
+    from onlyalpha.application.market_data_product import (
+        OnlyMarketDataSourceReferenceV1,
+        OnlyMarketDataSourceSelectionV1,
+    )
+    from onlyalpha.application.market_data_stream import OnlyMarketDataStreamProductService
+    from onlyalpha.application.source_read_access import (
+        OnlySourceReadAuthority,
+        OnlySourceReadGrant,
+        OnlySourceReadPermission,
+    )
+
+    preview = _preview("1")
+    reference = OnlyMarketDataSourceReferenceV1("integration", "a" * 64, "provider")
+    grant = OnlySourceReadGrant(
+        "integration",
+        "a" * 64,
+        "provider",
+        str(preview.source_id),
+        "TEST",
+        (OnlySourceReadPermission.REALTIME_PREVIEW,),
+    )
+    authority = OnlySourceReadAuthority("human", hashlib.sha256(("1" * 64).encode()).hexdigest(), (grant,))
+    read_session = authority.authenticate("Bearer " + "1" * 64)
+    session = _session(
+        [],
+        capacity=16,
+        source_reference=reference,
+        source_selection=OnlyMarketDataSourceSelectionV1(
+            "integration", "a" * 64, "provider", str(preview.source_id), "TEST"
+        ),
+        bar_semantic=preview.bar_type.semantic,
+        read_session=read_session,
+        native_bar_type=preview.bar_type,
+    )
+    session.source_id = str(preview.source_id)
+    service = object.__new__(OnlyMarketDataStreamProductService)
+    service._sessions = {"stream": session}
+    service._lock = threading.Lock()
+    session.emit_state("READY")
+
+    def read(**changes):
+        args = dict(
+            reference=reference,
+            instrument_id=str(preview.instrument_id),
+            bar_semantic=preview.bar_type.semantic,
+            read_session=read_session,
+        )
+        args.update(changes)
+        return service.read_chart_study_preview("stream", **args)
+
+    return session, preview, authority, read
+
+
+def test_chart_preview_read_survives_delivery_and_equal_event_but_not_new_revision() -> None:
+    session, preview, _, read = _chart_preview_session()
+    assert read() is None
+    session.emit_preview(preview)
+    witness = read()
+    assert witness is not None
+    for _ in range(3):
+        assert session.next_event(0) is not None
+    assert session.next_event(0) is None
+    assert witness.require_preview() == preview
+    assert read().revision_fingerprint == witness.revision_fingerprint
+    session.emit_preview(replace(preview, ts_receive_ns=preview.ts_receive_ns + 1))
+    witness.require_current()
+    session.emit_preview(replace(preview, close="1.5", ts_event_ns=preview.ts_event_ns + 1))
+    with pytest.raises(ValueError, match="CHART_STUDY_PREVIEW_UNAVAILABLE"):
+        witness.require_current()
+    current = read()
+    session.emit_preview(preview)  # an older delivery cannot replace the current owner revision
+    current.require_current()
+    session.emit_preview(replace(preview, close="1.75", ts_event_ns=preview.ts_event_ns + 1))
+    assert read() is None  # same event identity with conflicting values is not an idempotent replay
+    with pytest.raises(ValueError):
+        current.require_current()
+
+
+@pytest.mark.parametrize("mutation", ["reference", "instrument", "semantic", "subject"])
+def test_chart_preview_exact_context_refuses_other_owner(mutation: str) -> None:
+    import hashlib
+
+    from onlyalpha.application.source_read_access import OnlySourceReadAuthority
+
+    session, preview, authority, read = _chart_preview_session()
+    session.emit_preview(preview)
+    changes = {}
+    if mutation == "reference":
+        changes["reference"] = replace(session._source_reference, integration_revision_fingerprint="b" * 64)
+    elif mutation == "instrument":
+        changes["instrument_id"] = "ETHUSDT.BINANCE"
+    elif mutation == "semantic":
+        changes["bar_semantic"] = OnlyBarSemantic.fixed_duration(5)
+    else:
+        other = OnlySourceReadAuthority("other", hashlib.sha256(("2" * 64).encode()).hexdigest(), authority.grants)
+        changes["read_session"] = other.authenticate("Bearer " + "2" * 64)
+    with pytest.raises(ValueError):
+        read(**changes)
+
+
+@pytest.mark.parametrize("invalidation", ["state", "close", "withdraw", "closed"])
+def test_chart_preview_witness_revoked_by_owner_lifecycle(invalidation: str) -> None:
+    session, preview, authority, read = _chart_preview_session()
+    session.emit_preview(preview)
+    witness = read()
+    assert witness is not None
+    if invalidation == "state":
+        session.emit_state("DEGRADED")
+        session.emit_state("READY")
+    elif invalidation == "close":
+        session.close()
+    elif invalidation == "withdraw":
+        authority.withdraw()
+    else:
+        start = OnlyTimestamp.from_unix_nanos(preview.bar_start_ns).to_datetime()
+        end = OnlyTimestamp.from_unix_nanos(preview.bar_end_ns).to_datetime()
+        bar = OnlyBar(
+            bar_type=preview.bar_type,
+            open=OnlyPrice(Decimal("1"), 2),
+            high=OnlyPrice(Decimal("2"), 2),
+            low=OnlyPrice(Decimal("0.5"), 2),
+            close=OnlyPrice(Decimal("1"), 2),
+            volume=OnlyQuantity(Decimal("10"), 2),
+            quote_volume=None,
+            turnover=None,
+            trade_count=None,
+            open_interest=None,
+            bar_start=start,
+            bar_end=end,
+            ts_event=end,
+            ts_init=end,
+            is_closed=True,
+            revision=0,
+            adjustment_type=OnlyAdjustmentType.RAW,
+            trading_day=start.date(),
+            session_type=OnlySessionType.CONTINUOUS,
+        )
+        update = OnlyMarketDataInboundUpdate(
+            OnlyMarketDataUpdateId("closed"),
+            OnlyRuntimeId("stream"),
+            preview.source_id,
+            OnlyDataSequence(1),
+            OnlyDataVersion("v1"),
+            preview.instrument_id,
+            OnlyMarketDataType.BAR,
+            OnlyBarUpdate(bar),
+            OnlyTimestamp.from_datetime(end),
+            OnlyTimestamp.from_datetime(end),
+        )
+        session.emit_closed(update)
+        session.emit_preview(replace(preview, ts_event_ns=preview.ts_event_ns + 1))
+        assert read() is None
+    with pytest.raises(ValueError):
+        witness.require_current()

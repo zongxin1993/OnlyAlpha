@@ -245,7 +245,8 @@ it("supports descriptor-driven decimal precision, required boolean and multiple 
     await user.selectOptions(booleanField, "false");
     expect(booleanField).toHaveFocus();
     expect(screen.getByRole("combobox", { name: "enabled" })).toBe(booleanField);
-    await user.selectOptions(screen.getByRole("combobox", { name: "输出" }), "other");
+    await user.click(screen.getByText("高级选项", { exact: true }));
+    await user.click(screen.getByRole("checkbox", { name: "输出 value" }));
     await user.click(screen.getByRole("button", { name: "添加" }));
     const instance = await screen.findByTestId("chart-study-instance");
     expect(JSON.parse(instance.getAttribute("data-configuration") ?? "null")).toEqual({
@@ -253,7 +254,7 @@ it("supports descriptor-driven decimal precision, required boolean and multiple 
             threshold: { type: "DECIMAL", value },
             enabled: { type: "BOOLEAN", value: false }
         },
-        outputName: "other"
+        outputNames: ["other"]
     });
 });
 it.each(["cancel", "focus", "source", "instrument", "bar"])(
@@ -496,7 +497,7 @@ it("keeps transient SMA focused on period and submits official defaults through 
         (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
     );
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     if (capability === undefined) throw new Error("Expected installed capability");
@@ -505,7 +506,7 @@ it("keeps transient SMA focused on period and submits official defaults through 
     const onConfirm = vi.fn();
     const fetcher = vi.fn(() =>
         Promise.resolve(
-            new Response(JSON.stringify({ schema_version: 1, capabilities: [sample.capability] }), {
+            new Response(JSON.stringify({ schema_version: 2, capabilities: [sample.capability] }), {
                 headers: { "cache-control": "no-store" }
             })
         )
@@ -536,7 +537,7 @@ it("keeps transient SMA focused on period and submits official defaults through 
     await user.clear(period);
     await user.type(period, "10001");
     expect(submit).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("1–10000");
+    expect(screen.getByRole("alert")).toHaveTextContent("超过图表查询上限 10000");
     await user.clear(period);
     await user.type(period, "20");
     await user.click(submit);
@@ -547,7 +548,7 @@ it("keeps transient SMA focused on period and submits official defaults through 
                     period: { type: "INTEGER", value: 20 },
                     price_field: { type: "STRING", value: "CLOSE" }
                 },
-                outputName: "value"
+                outputNames: ["value"]
             },
             expect.objectContaining({ lineWidth: 2, opacity: 1 })
         );
@@ -603,7 +604,7 @@ it("reveals and focuses invalid advanced settings when reopening a stored displa
                         period: { type: "INTEGER", value: 20 },
                         price_field: { type: "STRING", value: "CLOSE" }
                     },
-                    outputName: "value"
+                    outputNames: ["value"]
                 },
                 presentation: {
                     placement: "PRICE_OVERLAY",
@@ -629,4 +630,30 @@ it("reveals and focuses invalid advanced settings when reopening a stored displa
     await user.clear(width);
     await user.type(width, "2");
     expect(screen.getByRole("button", { name: "应用" })).toBeEnabled();
+});
+
+it("does not offer a descriptor numeric output excluded by the transient capability", async () => {
+    const capability = ChartStudyCapabilitiesSchema.parse({
+        schema_version: 2,
+        capabilities: [sample.capability]
+    }).capabilities[0];
+    if (capability === undefined) throw new Error("Missing installed capability");
+    const numeric = capability.descriptor.outputs.find((output) => output.data_type === "DECIMAL");
+    if (numeric === undefined) throw new Error("Missing numeric output");
+    capability.descriptor.outputs.push({ ...numeric, name: "normalized_atr" });
+    render(
+        <ChartStudyEditor
+            selection={{ source: "CHART_STUDY_TRANSIENT", capability }}
+            instance={null}
+            hasContext={true}
+            returnFocus={null}
+            onCancel={() => undefined}
+            onStale={() => undefined}
+            onConfirm={() => undefined}
+        />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("高级选项", { exact: true }));
+    expect(screen.getByRole("checkbox", { name: "输出 value" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "输出 normalized_atr" })).not.toBeInTheDocument();
 });

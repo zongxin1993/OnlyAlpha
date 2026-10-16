@@ -35,7 +35,7 @@ HEADERS = {"Authorization": "Bearer " + TOKEN, "Origin": ORIGIN}
 
 def request_body(model):
     return dict(
-        schema_version=1,
+        schema_version=2,
         source_reference=dict(
             integration_id=model.reference.integration_id,
             integration_revision_fingerprint=model.reference.integration_revision_fingerprint,
@@ -47,17 +47,22 @@ def request_body(model):
         expected_history_projection_fingerprint=model.expected_history_projection_fingerprint,
         calculation=dict(
             kind="INDICATOR",
-            type_id="onlyalpha.indicator.sma",
-            semantic_version="1",
-            typed_parameters=dict(
-                period=dict(type="INTEGER", value=model.period), price_field=dict(type="STRING", value="CLOSE")
-            ),
-            output_members=["value"],
+            type_id=model.type_id,
+            semantic_version=model.semantic_version,
+            typed_parameters={
+                name: dict(
+                    type="INTEGER" if type(value) is int else "BOOLEAN" if type(value) is bool else "STRING",
+                    value=value,
+                )
+                for name, value in model.parameters.items()
+            },
+            output_members=list(model.output_members),
             expected_descriptor_fingerprint=model.expected_descriptor_fingerprint,
             expected_implementation_fingerprint=model.expected_implementation_fingerprint,
             expected_capability_projection_fingerprint=model.expected_capability_projection_fingerprint,
         ),
-        include_unclosed_preview=False,
+        include_unclosed_preview=model.include_unclosed_preview,
+        preview_stream_id=model.preview_stream_id,
     )
 
 
@@ -92,7 +97,11 @@ def test_authenticated_capability_and_exact_evaluation_are_no_store_and_zero_wri
     with TestClient(app_for(q, authority), base_url=ORIGIN) as client:
         capability = client.get(CHART_CAPABILITIES_PATH, headers=HEADERS)
         assert capability.status_code == 200, capability.text
-        row = capability.json()["capabilities"][0]
+        row = next(
+            item
+            for item in capability.json()["capabilities"]
+            if (item["type_id"], item["semantic_version"]) == (model.type_id, model.semantic_version)
+        )
         assert row["capability_projection_fingerprint"] == model.expected_capability_projection_fingerprint
         result = client.post(CHART_EVALUATE_PATH, json=request_body(model), headers=HEADERS)
         assert result.status_code == 200, result.text
@@ -142,9 +151,9 @@ def test_incomplete_history_and_complete_changed_http_outcomes(tmp_path, seed):
         (("bar_semantic", "formation", "schema_version"), True),
         (("calculation", "typed_parameters", "period", "value"), True),
         (("calculation", "typed_parameters", "period", "value"), "20"),
-        (("calculation", "typed_parameters", "price_field", "value"), "VOLUME"),
+        (("calculation", "typed_parameters", "price_field", "value"), 1),
         (("calculation", "output_members"), ["value", "value"]),
-        (("calculation", "type_id"), "onlyalpha.indicator.ema"),
+        (("calculation", "type_id"), ""),
         (("bars",), []),
     ],
 )
@@ -203,7 +212,7 @@ def test_duplicate_fields_nan_constants_and_oversized_bodies_never_invoke(tmp_pa
     monkeypatch.setattr(q, "evaluate", lambda *a: calls.append(a))
     payload = json.dumps(request_body(model))
     bad = [
-        payload.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1),
+        payload.replace('"schema_version": 2', '"schema_version": 2, "schema_version": 2', 1),
         payload.replace('"value": 20', '"value": NaN'),
         " " * 65537,
     ]
@@ -322,7 +331,7 @@ def test_transplanted_valid_invocation_does_not_enable_shipping_chart_routes(tmp
         invocation,
         None,
     )
-    assert other.admission.fingerprint == invocation.admission.fingerprint
+    assert other.admissions[0].fingerprint == invocation.admissions[0].fingerprint
     with TestClient(shipping_app(h, q, authority, comp), base_url=ORIGIN) as client:
         assert client.get(CHART_CAPABILITIES_PATH, headers=HEADERS).status_code == 403
         assert client.post(CHART_EVALUATE_PATH, json=request_body(model), headers=HEADERS).status_code == 403
@@ -473,3 +482,115 @@ def test_future_window_readiness_survives_application_and_protected_evaluate_htt
         == "^[1-9][0-9]*$"
     )
     assert "headers" not in document["paths"][CHART_CAPABILITIES_PATH]["get"]["responses"]["503"]
+
+
+@pytest.mark.parametrize(
+    "parameter",
+    [
+        {"type": "DECIMAL", "value": "NaN"},
+        {"type": "DECIMAL", "value": "Infinity"},
+        {"type": "DECIMAL", "value": "01.2"},
+        {"type": "DECIMAL", "value": "1e2"},
+        {"type": "DECIMAL", "value": "-0"},
+        {"type": "BOOLEAN", "value": 1},
+        {"type": "INTEGER", "value": True},
+        {"type": "STRING", "value": "CLOSE", "extra": 1},
+    ],
+)
+def test_dynamic_tagged_parameter_attacks_fail_before_query(tmp_path, parameter):
+    _, _, model, _, _ = arrange(tmp_path)
+    body = request_body(model)
+    body["calculation"]["typed_parameters"]["extra"] = parameter
+    with pytest.raises(ValidationError):
+        ChartStudyEvaluateRequestDto.model_validate(body)
+
+
+def test_v2_dynamic_parameters_and_preview_binding_are_typed(tmp_path):
+    from decimal import Decimal
+
+    _, _, model, _, _ = arrange(tmp_path)
+    body = request_body(model)
+    body["calculation"]["typed_parameters"] = {
+        "multiplier": {"type": "DECIMAL", "value": "2.5"},
+        "flag": {"type": "BOOLEAN", "value": False},
+    }
+    parsed = ChartStudyEvaluateRequestDto.model_validate(body)
+    assert parsed.to_model().parameters == {"multiplier": Decimal("2.5"), "flag": False}
+    body["include_unclosed_preview"] = True
+    with pytest.raises(ValidationError):
+        ChartStudyEvaluateRequestDto.model_validate(body)
+    body["preview_stream_id"] = "a" * 32
+    assert ChartStudyEvaluateRequestDto.model_validate(body).to_model().preview_stream_id == "a" * 32
+
+
+def test_every_admitted_variant_uses_exact_dynamic_http_contract(tmp_path):
+    _, query, model, _, authority = arrange(tmp_path)
+    with TestClient(app_for(query, authority), base_url=ORIGIN) as client:
+        response = client.get(CHART_CAPABILITIES_PATH, headers=HEADERS)
+        assert response.status_code == 200, response.text
+        capabilities = response.json()
+        assert capabilities["schema_version"] == 2
+        assert len(capabilities["capabilities"]) == 19
+        assert len({item["type_id"] for item in capabilities["capabilities"]}) == 14
+        for row in capabilities["capabilities"]:
+            body = request_body(model)
+            types = {item["name"]: item["parameter_type"] for item in row["descriptor"]["parameters"]}
+            body["calculation"] = dict(
+                kind="INDICATOR",
+                type_id=row["type_id"],
+                semantic_version=row["semantic_version"],
+                typed_parameters={
+                    name: {"type": types[name], "value": value}
+                    for name, value in row["presentation"]["default_parameters"].items()
+                },
+                output_members=row["output_members"],
+                expected_descriptor_fingerprint=row["descriptor_fingerprint"],
+                expected_implementation_fingerprint=row["implementation_fingerprint"],
+                expected_capability_projection_fingerprint=row["capability_projection_fingerprint"],
+            )
+            result = client.post(CHART_EVALUATE_PATH, json=body, headers=HEADERS)
+            assert result.status_code == 200, (row["type_id"], row["semantic_version"], result.text)
+            value = result.json()
+            assert value["schema_version"] == 2 and value["preview"] is None
+            assert value["calculation"]["type_id"] == row["type_id"]
+            assert value["calculation"]["semantic_version"] == row["semantic_version"]
+            assert [item["output_name"] for item in value["series"]] == row["output_members"]
+            assert all(point["closed"] for item in value["series"] for point in item["points"])
+
+
+@pytest.mark.parametrize(
+    "name,parameter",
+    [
+        ("period", {"type": "STRING", "value": "20"}),
+        ("period", {"type": "DECIMAL", "value": "20"}),
+        ("price_field", {"type": "INTEGER", "value": 1}),
+        ("unknown", {"type": "INTEGER", "value": 1}),
+    ],
+)
+def test_parameter_tags_must_match_exact_descriptor_before_history_read(tmp_path, name, parameter, monkeypatch):
+    h, query, model, _, authority = arrange(tmp_path)
+    calls = []
+    monkeypatch.setattr(h.service, "read_chart_study_history", lambda *a, **k: calls.append(a))
+    body = request_body(model)
+    body["calculation"]["typed_parameters"][name] = parameter
+    with TestClient(app_for(query, authority), base_url=ORIGIN) as client:
+        result = client.post(CHART_EVALUATE_PATH, json=body, headers=HEADERS)
+    assert result.status_code == 400, result.text
+    assert result.json()["error"]["code"] == "CHART_STUDY_REQUEST_INVALID"
+    assert calls == []
+
+
+def test_preview_permission_failure_is_sanitized_forbidden_not_server_error(tmp_path):
+    from onlyalpha.application.source_read_access import OnlySourceReadPermission
+    from tests.application.test_source_read_access import _authority
+
+    _, query, model, _, _ = arrange(tmp_path)
+    authority = _authority(model.reference, permissions=(OnlySourceReadPermission.CLOSED_HISTORY,))
+    body = request_body(model)
+    body["include_unclosed_preview"] = True
+    body["preview_stream_id"] = "a" * 32
+    with TestClient(app_for(query, authority), base_url=ORIGIN) as client:
+        result = client.post(CHART_EVALUATE_PATH, json=body, headers=HEADERS)
+    assert result.status_code == 403, result.text
+    assert result.json()["error"]["code"] == "LOCAL_READ_FORBIDDEN"
+    assert result.headers["cache-control"] == "no-store"

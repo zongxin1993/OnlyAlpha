@@ -14,7 +14,11 @@ import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { keepDialogFocus } from "./dialogFocus";
 import "./calculationPicker.css";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
-import { readChartStudyCapability, type ChartStudyCapability } from "../../api/chartStudies/client";
+import {
+    readChartStudyCapability,
+    readChartStudyCapabilities,
+    type ChartStudyCapability
+} from "../../api/chartStudies/client";
 
 type Category = "INDICATOR" | "FACTOR";
 type CatalogState =
@@ -22,7 +26,7 @@ type CatalogState =
     | { readonly status: "loading" }
     | { readonly status: "ready"; readonly catalog: ChartCatalog }
     | { readonly status: "registered"; readonly entries: readonly RegisteredCalculation[] }
-    | { readonly status: "transient"; readonly capability: ChartStudyCapability }
+    | { readonly status: "transient"; readonly capabilities: readonly ChartStudyCapability[] }
     | { readonly status: "error"; readonly error: ChartCatalogError["code"] };
 const messages: Record<ChartCatalogError["code"], string> = {
     NO_RUNTIME: "没有可用于新工作的 Runtime Generation；执行未接入。",
@@ -39,7 +43,9 @@ const reference = (entry: PickerEntry) =>
           ? entry.capability
           : entry.type_reference;
 const label = (entry: PickerEntry) =>
-    reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id;
+    "capability_projection" in entry
+        ? entry.presentation.display_name
+        : (reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id);
 
 /** Catalog navigation only. No Study, numeric execution or market-data side effects. */
 export function CalculationPicker({
@@ -72,7 +78,7 @@ export function CalculationPicker({
             if (credentials !== undefined) {
                 next = {
                     status: "transient",
-                    capability: await readChartStudyCapability(credentials, controller.signal)
+                    capabilities: await readChartStudyCapabilities(credentials, controller.signal)
                 };
             } else
                 try {
@@ -134,7 +140,11 @@ export function CalculationPicker({
         try {
             let next: ChartCalculationDraft;
             if ("capability_projection" in entry && credentials !== undefined) {
-                const current = await readChartStudyCapability(credentials, controller.signal);
+                const current = await readChartStudyCapability(
+                    credentials,
+                    controller.signal,
+                    entry
+                );
                 if (
                     current.capability_projection_fingerprint !==
                     entry.capability_projection_fingerprint
@@ -332,24 +342,52 @@ function CatalogDialog({
                     {category === "FACTOR" ? (
                         <p role="status">此只读切片不支持 Factor</p>
                     ) : (
-                        <ul className="calculation-picker__entries">
-                            <li>
-                                <h3>SMA</h3>
-                                <p>closed native 15m · CLOSE/value · 最多 2000 Bars</p>
-                                <p>
-                                    选择仅配置；确认后查询已完成历史，不启动 Research 或数据获取。
-                                </p>
-                                <button
-                                    type="button"
-                                    disabled={selecting}
-                                    onClick={() => {
-                                        onSelect(state.capability);
-                                    }}
-                                >
-                                    选择 SMA · 配置草稿
-                                </button>
-                            </li>
-                        </ul>
+                        <>
+                            <p role="status">
+                                {new Set(state.capabilities.map((entry) => entry.type_id)).size}{" "}
+                                类指标
+                            </p>
+                            <ul className="calculation-picker__entries">
+                                {state.capabilities
+                                    .filter((entry) =>
+                                        `${label(entry)} ${entry.type_id} ${entry.presentation.category}`
+                                            .toLowerCase()
+                                            .includes(query.trim().toLowerCase())
+                                    )
+                                    .map((entry) => (
+                                        <li key={`${entry.type_id}@${entry.semantic_version}`}>
+                                            <h3>
+                                                {label(entry)}
+                                                {entry.presentation.default_variant
+                                                    ? ""
+                                                    : ` · 语义版本 ${entry.semantic_version}`}
+                                            </h3>
+                                            <p>
+                                                {entry.presentation.category} ·{" "}
+                                                {entry.presentation.placement === "PRICE_OVERLAY"
+                                                    ? "主图"
+                                                    : "独立窗格"}
+                                            </p>
+                                            <p>
+                                                {entry.type_id}@{entry.semantic_version}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                disabled={selecting}
+                                                onClick={() => {
+                                                    onSelect(entry);
+                                                }}
+                                            >
+                                                选择 {label(entry)}
+                                                {entry.presentation.default_variant
+                                                    ? ""
+                                                    : ` · 语义版本 ${entry.semantic_version}`}{" "}
+                                                · 配置草稿
+                                            </button>
+                                        </li>
+                                    ))}
+                            </ul>
+                        </>
                     )}
                 </>
             ) : state.status === "registered" ? (

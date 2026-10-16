@@ -29,11 +29,11 @@ from onlyalpha_plugin_indicators.provider import quant_asset_provider
 
 from onlyalpha.application.chart_study_input import OnlyChartStudyClosedHistoryInput
 from onlyalpha.application.chart_study_numeric import (
-    OnlyChartStudySmaInvocation,
-    _require_sma_definition,
-    _require_sma_registration,
+    OnlyChartStudyInvocation,
+    _require_chart_definition,
+    _require_chart_registration,
 )
-from onlyalpha.calculation.chart_decimal import only_chart_sma_effective_numeric, only_chart_sma_numeric_binding
+from onlyalpha.calculation.chart_decimal import only_chart_study_effective_numeric, only_chart_study_numeric_binding
 from onlyalpha.calculation.decimal_execution import only_decimal_context
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -57,7 +57,7 @@ def composition(provider=None):
         OnlyQuantAssetCatalogGeneration((provider,)) if provider is not None else only_discover_quant_asset_providers()
     )
     registry = catalog.calculation_registry()
-    return OnlyChartStudySmaInvocation(registry, catalog), registry, catalog
+    return OnlyChartStudyInvocation(registry, catalog), registry, catalog
 
 
 def values(*items):
@@ -74,20 +74,24 @@ def observe(result):
 
 def invoke(invocation, inputs, period=20):
     return invocation._invoke_numeric(
-        {"period": period, "price_field": "CLOSE"}, inputs, capability_fingerprint=invocation.admission.fingerprint
+        {"period": period, "price_field": "CLOSE"},
+        inputs,
+        type_id="onlyalpha.indicator.sma",
+        semantic_version="1",
+        capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
     )
 
 
 @pytest.mark.parametrize("period", (1, 20, 10000))
 def test_same_explicit_context_preserves_definition_and_backend_atomic_values(period):
     invocation, registry, _ = composition()
-    registration = invocation.admission.registration
+    registration = invocation.admission_for("onlyalpha.indicator.sma", "1").registration
     definition = registry.rematerialize_definition(
         registration.implementation_manifest.calculation_type_reference, {"period": period}, {}
     )
     before = definition.fingerprint, definition.to_dict(), registration.type_definition.descriptor()
     inputs = values(*(str(index) for index in range(25)))
-    with localcontext(only_decimal_context(only_chart_sma_effective_numeric(definition.numeric))):
+    with localcontext(only_decimal_context(only_chart_study_effective_numeric(definition.numeric))):
         legacy = registration.provider.execute_with_readiness(definition, inputs)
         oracle = [
             (
@@ -214,6 +218,8 @@ def test_barrier_concurrent_isolated_invocations_preserve_each_thread_context():
 @pytest.mark.parametrize(
     "parameters",
     (
+        None,
+        [],
         {"period": True},
         {"period": "20"},
         {"period": 0},
@@ -234,7 +240,13 @@ def test_barrier_concurrent_isolated_invocations_preserve_each_thread_context():
 def test_unadmitted_parameters_and_families_are_rejected(parameters):
     invocation, _, _ = composition()
     with pytest.raises(ValueError, match="CHART_STUDY_INPUT_INVALID"):
-        invocation._invoke_numeric(parameters, values("1"), capability_fingerprint=invocation.admission.fingerprint)
+        invocation._invoke_numeric(
+            parameters,
+            values("1"),
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
+        )
 
 
 @pytest.mark.parametrize(
@@ -266,10 +278,10 @@ def test_input_bound_and_chunked_decimal_are_valid_without_scientific_dependency
         assert len(result.outputs["value"]) == 2000
         assert set(result.readiness["value"].states.to_pylist()) == {"READY"}
     assert inputs["value"].num_chunks == 2
-    assert set(vars(invocation)) == {"_registry", "_catalog", "_slot", "_admission", "_fingerprint"}
+    assert set(vars(invocation)) == {"_registry", "_catalog", "_slot", "_admissions", "_fingerprints"}
 
 
-@pytest.mark.parametrize("mutation", ("dependency", "old_manifest", "resource_hash", "missing_resource", "readiness"))
+@pytest.mark.parametrize("mutation", ("dependency", "old_manifest", "resource_hash", "missing_resource"))
 def test_manifest_or_readiness_proof_mutation_is_unavailable(mutation):
     provider = quant_asset_provider()
     registration = next(item for item in provider.calculation_registrations if item.readiness_contract_versions)
@@ -310,16 +322,16 @@ def test_manifest_or_readiness_proof_mutation_is_unavailable(mutation):
         else "CHART_STUDY_.*UNAVAILABLE"
     )
     with pytest.raises(ValueError, match=expected):
-        _require_sma_registration(changed)
+        _require_chart_registration(changed, registration.provider.chart_study_support(registration.type_definition))
 
 
 def test_equal_copied_registration_is_not_same_process_ownership():
     invocation, registry, catalog = composition()
-    registration = invocation.admission.registration
+    registration = invocation.admission_for("onlyalpha.indicator.sma", "1").registration
     key = next(key for key, item in registry._registrations.items() if item is registration)
     registry._registrations[key] = replace(registration)
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
-        OnlyChartStudySmaInvocation(registry, catalog)
+        OnlyChartStudyInvocation(registry, catalog)
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
         invoke(invocation, values("1"))
 
@@ -329,7 +341,7 @@ def test_second_discovery_cannot_supply_catalog_for_an_earlier_registry():
     second = only_discover_quant_asset_providers()
     assert second.generation_fingerprint == catalog.generation_fingerprint
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
-        OnlyChartStudySmaInvocation(registry, second)
+        OnlyChartStudyInvocation(registry, second)
     assert invoke(invocation, values("0"), 1).outputs["value"][0].as_py() == Decimal("0")
 
 
@@ -349,7 +361,7 @@ def test_helper_replacement_cannot_execute_under_authentic_resource_hash(monkeyp
 
 def test_provider_version_content_drift_is_rejected_and_new_version_changes_projection():
     invocation, _, catalog = composition()
-    provider = invocation.admission.provider
+    provider = invocation.admission_for("onlyalpha.indicator.sma", "1").provider
     manager = OnlyQuantAssetCatalogManager(catalog)
     registrations = tuple(
         item for item in provider.calculation_registrations if item.backend is OnlyCalculationBackendKind.RESEARCH
@@ -358,57 +370,106 @@ def test_provider_version_content_drift_is_rejected_and_new_version_changes_proj
     with pytest.raises(ValueError, match="QUANT_ASSET_PROVIDER_VERSION_CONTENT_DRIFT"):
         manager.refresh(lambda: OnlyQuantAssetCatalogGeneration((changed,)))
     candidate = replace(changed, manifest=replace(changed.manifest, provider_version="8"))
-    newer = replace(invocation.admission, provider=candidate, catalog=OnlyQuantAssetCatalogGeneration((candidate,)))
-    assert newer.registration.implementation_manifest == invocation.admission.registration.implementation_manifest
-    assert newer.fingerprint != invocation.admission.fingerprint
+    newer = replace(
+        invocation.admission_for("onlyalpha.indicator.sma", "1"),
+        provider=candidate,
+        catalog=OnlyQuantAssetCatalogGeneration((candidate,)),
+        catalog_generation_fingerprint=OnlyQuantAssetCatalogGeneration((candidate,)).generation_fingerprint,
+        provider_content_fingerprint=candidate.content_fingerprint,
+    )
+    assert (
+        newer.registration.implementation_manifest
+        == invocation.admission_for("onlyalpha.indicator.sma", "1").registration.implementation_manifest
+    )
+    assert newer.fingerprint != invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint
     with pytest.raises(ValueError, match="CHART_STUDY_REGISTRATION_CHANGED"):
-        invocation._invoke_numeric({}, values("1"), capability_fingerprint=newer.fingerprint)
+        invocation._invoke_numeric(
+            {},
+            values("1"),
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=newer.fingerprint,
+        )
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
         composition(candidate)
 
 
 def test_complete_different_catalog_uses_retained_actual_install_objects_not_descriptions():
     invocation, _, catalog = composition()
-    owner = invocation.admission.provider
+    owner = invocation.admission_for("onlyalpha.indicator.sma", "1").provider
     # A bounded alternative composition of actual discovered objects, no rediscovery or copied owners.
     subset = OnlyQuantAssetCatalogGeneration((owner,))
     object.__setattr__(
         subset, "_installed_origins", tuple(origin for origin in catalog._installed_origins if origin.provider is owner)
     )
-    newer = OnlyChartStudySmaInvocation(subset.calculation_registry(), subset)
-    assert newer.admission.registration is invocation.admission.registration
-    assert newer.admission.provider is owner
-    assert newer.admission.fingerprint != invocation.admission.fingerprint
+    newer = OnlyChartStudyInvocation(subset.calculation_registry(), subset)
+    assert (
+        newer.admission_for("onlyalpha.indicator.sma", "1").registration
+        is invocation.admission_for("onlyalpha.indicator.sma", "1").registration
+    )
+    assert newer.admission_for("onlyalpha.indicator.sma", "1").provider is owner
+    assert (
+        newer.admission_for("onlyalpha.indicator.sma", "1").fingerprint
+        != invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint
+    )
     assert invoke(newer, values("1"), 1).outputs["value"][0].as_py() == Decimal("1")
     with pytest.raises(ValueError, match="CHART_STUDY_REGISTRATION_CHANGED"):
-        newer._invoke_numeric({}, values("1"), capability_fingerprint=invocation.admission.fingerprint)
+        newer._invoke_numeric(
+            {},
+            values("1"),
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
+        )
 
 
 def test_missing_owner_does_not_become_catalog_absence():
     invocation, registry, _ = composition()
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
-        OnlyChartStudySmaInvocation(registry, OnlyQuantAssetCatalogGeneration(()))
-    binding = only_chart_sma_numeric_binding(invocation.admission.registration.type_definition.numeric)
+        OnlyChartStudyInvocation(registry, OnlyQuantAssetCatalogGeneration(()))
+    binding = only_chart_study_numeric_binding(
+        invocation.admission_for("onlyalpha.indicator.sma", "1").registration.type_definition.numeric
+    )
     assert binding["resolution_policy"] == "CONTEXT_HALF_EVEN_V1"
     assert binding["core_policy"]["entry_flags"] == "CLEAR"
     with pytest.raises(ValueError, match="CHART_STUDY_NUMERIC_UNAVAILABLE"):
-        only_chart_sma_effective_numeric(OnlyNumericDefinition(rounding="ROUND_HALF_EVEN"))
+        only_chart_study_effective_numeric(OnlyNumericDefinition(rounding="ROUND_DOWN"))
     with pytest.raises(ValueError, match="CHART_STUDY_NUMERIC_UNAVAILABLE"):
-        only_chart_sma_effective_numeric(OnlyNumericDefinition(output_quantum=Decimal("0.0000000000010")))
+        only_chart_study_effective_numeric(OnlyNumericDefinition(output_quantum=Decimal("0.0000000000010")))
 
 
 def test_slot_rejects_reentry_without_queue_and_is_released_after_decimal_failure():
     invocation, _, _ = composition()
-    fingerprint = invocation.admission.fingerprint
+    fingerprint = invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint
     assert invocation._slot.acquire(blocking=False)
     try:
         with pytest.raises(ValueError, match="CHART_STUDY_CAPACITY_EXCEEDED"):
-            invocation._invoke_numeric({}, values("1"), capability_fingerprint=fingerprint)
+            invocation._invoke_numeric(
+                {},
+                values("1"),
+                type_id="onlyalpha.indicator.sma",
+                semantic_version="1",
+                capability_fingerprint=fingerprint,
+            )
     finally:
         invocation._slot.release()
     with pytest.raises(InvalidOperation):
-        invocation._invoke_numeric({"period": 1}, values("10000000000000000"), capability_fingerprint=fingerprint)
-    assert observe(invocation._invoke_numeric({"period": 1}, values("0"), capability_fingerprint=fingerprint)) == (
+        invocation._invoke_numeric(
+            {"period": 1},
+            values("10000000000000000"),
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=fingerprint,
+        )
+    assert observe(
+        invocation._invoke_numeric(
+            {"period": 1},
+            values("0"),
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=fingerprint,
+        )
+    ) == (
         ("0.000000000000",),
         ("READY",),
         ("NONE",),
@@ -422,7 +483,13 @@ def test_slot_rejects_reentry_without_queue_and_is_released_after_decimal_failur
 def test_admitted_closed_history_entry_rejects_arrays_browser_bars_and_forged_handoff(raw):
     invocation, _, _ = composition()
     with pytest.raises(ValueError, match="CHART_STUDY_INPUT_UNAVAILABLE"):
-        invocation.invoke_closed_history({}, raw, capability_fingerprint=invocation.admission.fingerprint)
+        invocation.invoke_closed_history(
+            {},
+            raw,
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
+        )
 
 
 def test_admitted_input_comes_from_owning_authorized_complete_read_and_withdrawal_is_rechecked(tmp_path: Path):
@@ -449,7 +516,11 @@ def test_admitted_input_comes_from_owning_authorized_complete_read_and_withdrawa
     )
     invocation, _, _ = composition()
     result = invocation.invoke_closed_history(
-        {"period": 1}, handoff, capability_fingerprint=invocation.admission.fingerprint
+        {"period": 1},
+        handoff,
+        type_id="onlyalpha.indicator.sma",
+        semantic_version="1",
+        capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
     )
     assert observe(result)[0] == ("101.000000000000", "101.000000000000")
     from onlyalpha.application.chart_study_input import _only_issue_chart_study_closed_history_input
@@ -473,7 +544,13 @@ def test_admitted_input_comes_from_owning_authorized_complete_read_and_withdrawa
     assert before == (harness.catalog.mutations, harness.service._facts.writes)
     authority.withdraw()
     with pytest.raises(OnlySourceReadAccessError, match="LOCAL_READ_UNAUTHORIZED"):
-        invocation.invoke_closed_history({}, handoff, capability_fingerprint=invocation.admission.fingerprint)
+        invocation.invoke_closed_history(
+            {},
+            handoff,
+            type_id="onlyalpha.indicator.sma",
+            semantic_version="1",
+            capability_fingerprint=invocation.admission_for("onlyalpha.indicator.sma", "1").fingerprint,
+        )
 
 
 @pytest.mark.parametrize("constant", ("_Q", "_DECIMAL", "equal_quantum_different_exponent"))
@@ -492,7 +569,7 @@ def test_loaded_numeric_constant_mutation_cannot_execute_under_authentic_code(mo
 @pytest.mark.parametrize("mutation", ("input_type", "output_unit", "source_member", "parameters"))
 def test_exact_definition_requires_complete_ports_source_reference_and_requested_parameters(mutation):
     invocation, _, _ = composition()
-    registration = invocation.admission.registration
+    registration = invocation.admission_for("onlyalpha.indicator.sma", "1").registration
     definition = registration.definition_resolver.resolve({"period": 20}, {})
     if mutation == "input_type":
         changed = replace(
@@ -512,4 +589,4 @@ def test_exact_definition_requires_complete_ports_source_reference_and_requested
         )
     assert changed.fingerprint != definition.fingerprint
     with pytest.raises(ValueError, match="CHART_STUDY_UNAVAILABLE"):
-        _require_sma_definition(changed, registration.type_definition, {"period": 20})
+        _require_chart_definition(changed, registration.type_definition, {"period": 20})

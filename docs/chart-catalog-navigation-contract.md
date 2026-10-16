@@ -40,14 +40,21 @@ shape/readiness/output/limits and the conditional `capability_projection.input_s
 `onlyalpha.chart-study.capability-projection` domain. Evaluation compares that entire binding, not only a type name or descriptor.
 
 `POST /api/v2/chart/studies/evaluate` has strictly read-only Query semantics despite POST transport. Supported input is
-SMA@1 / CLOSE/value / one instrument from the exact Source catalog, with a provider-native aligned fixed-duration
-BarSemantic and UTC 24x7 calendar proved by the owning planner, plus a complete verified finite closed historical window.
-Catalog selection or
-Source interval min/max bounds alone do not prove input support. The server verifies the same fixed BEFORE_TIME window and
-owning history fingerprint; uploaded prices, scripts, Preview and implicit Acquisition are
-forbidden. It returns backend-atomic values/readiness as `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`, never
-a scientific publication. Incomplete input returns explicit coverage and an empty series without backend execution; missing
-proof is unavailable, not certified absence or a proved version change.
+the exact registered Chart-capable type/version and selected numeric output members from the capability projection,
+one instrument from the exact Source catalog, a provider-native aligned fixed-duration BarSemantic and UTC 24x7 calendar
+proved by the owning planner, plus a complete verified finite closed historical window. The fourteen-family extension and
+its explicit semantic variants are governed by ADR 0138's owner-approved 2026-10-16 section. Default variants/parameters,
+series roles/units, grouping and band fill are server metadata; a descriptor alone is not execution permission. Chart
+price_field is CLOSE. Required volume/start-time inputs come from the exact registered Definition bindings.
+
+The server verifies the same fixed BEFORE_TIME window and owning history fingerprint. Uploaded prices/scripts and implicit
+Acquisition are forbidden. Optional preview references an existing owning stream and needs its exact subject/Source grant;
+it never accepts browser Bars. Preview must immediately follow that closed window, remains a separate PREVIEW_UNCLOSED row,
+and is discarded when its owner revokes or replaces it. Closed results retain independent closed-history proof.
+Atomic backend values/readiness are CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT. Incomplete historical
+input returns explicit coverage and empty series without calculation; missing proof is unavailable, not certified absence
+or a proved version change. The strict point relation is: PARTIAL/WARMUP_INCOMPLETE (nullable may be null), READY with a
+value/NONE or nullable null/VALUE_UNDEFINED, UNAVAILABLE with null and INPUT_UNAVAILABLE or DEPENDENCY_UNAVAILABLE.
 
 Both APIs require a proved trusted caller boundary and Source entitlement. The server process must enforce bounded body,
 window/period, concurrency and deadline/resource protection before backend work. No support is enabled based solely on a
@@ -108,7 +115,7 @@ the 10-second protected query deadline, or establish a wall-clock latency guaran
 
 ### Internal numeric admission
 
-The disposable SMA adapter retains the actual registrations from one installed Provider discovery and the Catalog built from
+The disposable Chart adapter retains the actual registrations from one installed Provider discovery and the Catalog built from
 those objects. A copied descriptor or a separately discovered Catalog is not that occurrence. Provider factories, declared
 implementation resources and Core invocation resources must belong to the declared installed distributions; wheel resources
 are checked against RECORD. Editable installations prove only their current project/version/resource bytes, not immutable wheel
@@ -122,7 +129,7 @@ exists for structural testing and is not a Product input route. The handoff is d
 nor certifies earlier history absent. Transport-level cutoff and response fencing remain separate ingress obligations.
 
 `CONTEXT_HALF_EVEN_V1` supplies an invocation-only effective numeric value to the existing Core Decimal context constructor;
-the registered SMA Definition and algorithm are unchanged. The real backend manifest binds the resolution, Core policy and
+the registered legacy Definition and algorithm are unchanged. Explicit ROUND_HALF_EVEN registrations retain that rounding. The real backend manifest binds the resolution, Core policy and
 invocation closure. Missing proof is unavailable; only a complete different capability identity is changed. Neither the handoff,
 capability identity nor the structural value/readiness carrier is a scientific execution seal or Research publication.
 

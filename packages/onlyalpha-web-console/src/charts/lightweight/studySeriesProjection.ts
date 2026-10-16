@@ -18,6 +18,13 @@ export interface StudySeriesEvidence {
     readonly configurationKey: string;
     readonly outputName: string;
     readonly outputUnit: string | null;
+    readonly previewPoint?: {
+        readonly timeNs: string;
+        readonly value: string | null;
+        readonly readiness: string;
+        readonly reason: string;
+        readonly sourceKind: "PREVIEW_UNCLOSED";
+    };
     readonly points: readonly {
         readonly timeNs: string;
         readonly value: string | null;
@@ -46,6 +53,15 @@ const evidenceShape = z.strictObject({
     configurationKey: text,
     outputName: text,
     outputUnit: text.nullable(),
+    previewPoint: z
+        .strictObject({
+            timeNs: text,
+            value: z.string().nullable(),
+            readiness: text,
+            reason: text,
+            sourceKind: z.literal("PREVIEW_UNCLOSED")
+        })
+        .optional(),
     points: z.array(
         z.strictObject({
             timeNs: text,
@@ -77,7 +93,7 @@ export function projectStudySeries(
         evidence.instanceId !== instance.instanceId ||
         evidence.chartContextKey !== instance.context.key ||
         evidence.incarnationKey !== incarnationKey ||
-        evidence.outputName !== instance.configuration.outputName ||
+        !instance.configuration.outputNames.includes(evidence.outputName) ||
         evidence.configurationKey !== JSON.stringify(instance.configuration)
     )
         return { status: "INVALID", detail: "展示证据与实例 / 上下文 / 输入不匹配" };
@@ -92,7 +108,10 @@ export function projectStudySeries(
         const pointsByTime = new Map<number, StudySeriesEvidence["points"][number]>();
         const numeric = new Map<number, number>();
         let previous = -Infinity;
-        for (const point of evidence.points) {
+        for (const point of [
+            ...evidence.points,
+            ...(evidence.previewPoint === undefined ? [] : [evidence.previewPoint])
+        ]) {
             if (!/^(?:0|[1-9][0-9]*)$/.test(point.timeNs) || point.timeNs.length > 30)
                 throw new Error("非法 UTC timestamp");
             const ns = BigInt(point.timeNs),
@@ -156,5 +175,5 @@ export function studyHover(view: StudySeriesView, time: number | null): string {
     if (time === null) return "请移动十字线查看精确点";
     const point = view.projection.pointsByTime.get(time);
     if (point === undefined) return "此时间无对应结果";
-    return `${new Date(time * 1000).toISOString()} · ${point.value ?? "无数值"}${point.readiness === null ? "" : ` · ${point.readiness}`}${point.reason === null ? "" : ` · ${point.reason}`} · UTC ns ${point.timeNs}`;
+    return `${new Date(time * 1000).toISOString()}${"sourceKind" in point ? " · 未收盘预览" : ""} · ${point.value ?? "无数值"}${point.readiness === null ? "" : ` · ${point.readiness}`}${point.reason === null ? "" : ` · ${point.reason}`} · UTC ns ${point.timeNs}`;
 }

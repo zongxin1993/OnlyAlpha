@@ -19,6 +19,23 @@ const admittedEvidence = new WeakMap<object, () => boolean>();
 export function isAdmittedChartStudyEvidence(value: object): boolean {
     return admittedEvidence.get(value)?.() === true;
 }
+/** Canonical readiness contract v1 pairing; null does not imply unavailable or unready. */
+export function isChartStudyReadiness(
+    point: { readonly value: string | null; readonly readiness: string; readonly reason: string },
+    nullable: boolean
+): boolean {
+    if (point.readiness === "PARTIAL")
+        return point.reason === "WARMUP_INCOMPLETE" && (point.value !== null || nullable);
+    if (point.readiness === "READY")
+        return point.value !== null
+            ? point.reason === "NONE"
+            : nullable && point.reason === "VALUE_UNDEFINED";
+    return (
+        point.readiness === "UNAVAILABLE" &&
+        point.value === null &&
+        ["INPUT_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"].includes(point.reason)
+    );
+}
 export class ChartStudyWebError extends Error {
     constructor(
         readonly code: string,
@@ -97,42 +114,81 @@ async function read<T>(
 }
 
 /** Structural schemas come only from the server. These checks close owning relations. */
-export async function readChartStudyCapability(
+export async function readChartStudyCapabilities(
     credentials: LocalReadCredentials,
     signal?: AbortSignal
-): Promise<ChartStudyCapability> {
+): Promise<readonly ChartStudyCapability[]> {
     const generation = credentials.getGeneration();
     const result = await read(credentials, "capabilities", ChartStudyCapabilitiesSchema, signal);
-    const capability = result.capabilities[0];
-    if (capability === undefined) throw new ChartStudyWebError("UNAVAILABLE");
-    const p = capability.capability_projection;
-    if (
-        (await fingerprint(p)) !== capability.capability_projection_fingerprint ||
-        (await fingerprint(p.descriptor)) !== capability.descriptor_fingerprint ||
-        (await fingerprint(p.numeric_binding.core_policy)) !==
-            p.numeric_binding.core_policy_fingerprint ||
-        !sameChartBinding(capability.descriptor, p.descriptor) ||
-        !sameChartBinding(capability.numeric_execution_binding, p.numeric_binding) ||
-        !sameChartBinding(capability.limits, p.limits) ||
-        capability.implementation_fingerprint !== p.implementation.implementation_fingerprint ||
-        capability.invocation_implementation_fingerprint !==
-            p.invocation.implementation_fingerprint ||
-        capability.provider_id !== p.provider_manifest.provider_id ||
-        capability.provider_version !== p.provider_manifest.provider_version ||
-        capability.provider_content_fingerprint !== p.provider_content_fingerprint ||
-        capability.catalog_generation_fingerprint !== p.catalog_generation_fingerprint ||
-        !sameChartBinding(p.output_members, capability.output_members) ||
-        !sameChartBinding(p.readiness_contract_versions, [capability.readiness_contract_version]) ||
-        !sameChartBinding(p.implementation.calculation_type_reference, {
-            kind: capability.kind,
-            type_id: capability.type_id,
-            semantic_version: capability.semantic_version
-        })
-    )
-        throw new ChartStudyWebError("INVALID");
-    if (signal?.aborted || !credentials.isCurrent(generation))
-        throw new ChartStudyWebError("STALE");
-    return capability;
+    const identities = result.capabilities.map((row) =>
+        JSON.stringify([row.kind, row.type_id, row.semantic_version])
+    );
+    if (new Set(identities).size !== identities.length) throw new ChartStudyWebError("INVALID");
+    for (const capability of result.capabilities) {
+        const p = capability.capability_projection;
+        if (
+            (await fingerprint(p)) !== capability.capability_projection_fingerprint ||
+            (await fingerprint(p.descriptor)) !== capability.descriptor_fingerprint ||
+            (await fingerprint(p.numeric_binding.core_policy)) !==
+                p.numeric_binding.core_policy_fingerprint ||
+            !sameChartBinding(
+                Object.keys(capability.presentation.default_parameters).sort(),
+                capability.descriptor.parameters.map((parameter) => parameter.name).sort()
+            ) ||
+            capability.descriptor.parameters.some((parameter) => {
+                const value = capability.presentation.default_parameters[parameter.name];
+                return parameter.parameter_type === "INTEGER"
+                    ? typeof value !== "number" || !Number.isSafeInteger(value)
+                    : parameter.parameter_type === "BOOLEAN"
+                      ? typeof value !== "boolean"
+                      : typeof value !== "string";
+            }) ||
+            capability.type_id !== capability.descriptor.type_id ||
+            capability.semantic_version !== capability.descriptor.semantic_version ||
+            new Set(capability.output_members).size !== capability.output_members.length ||
+            !sameChartBinding(
+                [...capability.output_members].sort(),
+                capability.presentation.series.map((row) => row.output_name).sort()
+            ) ||
+            !sameChartBinding(capability.descriptor, p.descriptor) ||
+            !sameChartBinding(capability.presentation, p.presentation) ||
+            !sameChartBinding(capability.numeric_execution_binding, p.numeric_binding) ||
+            !sameChartBinding(capability.limits, p.limits) ||
+            capability.implementation_fingerprint !== p.implementation.implementation_fingerprint ||
+            capability.invocation_implementation_fingerprint !==
+                p.invocation.implementation_fingerprint ||
+            capability.provider_id !== p.provider_manifest.provider_id ||
+            capability.provider_version !== p.provider_manifest.provider_version ||
+            capability.provider_content_fingerprint !== p.provider_content_fingerprint ||
+            capability.catalog_generation_fingerprint !== p.catalog_generation_fingerprint ||
+            !sameChartBinding(p.output_members, capability.output_members) ||
+            !sameChartBinding(p.readiness_contract_versions, [
+                capability.readiness_contract_version
+            ]) ||
+            !sameChartBinding(p.implementation.calculation_type_reference, {
+                kind: capability.kind,
+                type_id: capability.type_id,
+                semantic_version: capability.semantic_version
+            })
+        )
+            throw new ChartStudyWebError("INVALID");
+        if (signal?.aborted || !credentials.isCurrent(generation))
+            throw new ChartStudyWebError("STALE");
+    }
+    return result.capabilities;
+}
+export async function readChartStudyCapability(
+    credentials: LocalReadCredentials,
+    signal: AbortSignal | undefined,
+    reference: Pick<ChartStudyCapability, "kind" | "type_id" | "semantic_version">
+): Promise<ChartStudyCapability> {
+    const entries = await readChartStudyCapabilities(credentials, signal);
+    const entry = entries.find(
+        (row) =>
+            row.type_id === reference.type_id && row.semantic_version === reference.semantic_version
+    );
+    if (entry === undefined) throw new ChartStudyWebError("UNAVAILABLE");
+    return entry;
 }
 
 /** Duration is request semantics, never evidence of Provider-native support. */
@@ -204,6 +260,11 @@ export async function readChartStudyEvaluation(
     history: MarketDataBars,
     signal?: AbortSignal
 ): Promise<ChartStudyEvaluate> {
+    if (
+        new Set(request.calculation.output_members).size !==
+        request.calculation.output_members.length
+    )
+        throw new ChartStudyWebError("INVALID");
     assertChartStudyHistory(
         request,
         history.source_selection.source_id,
@@ -235,6 +296,21 @@ export async function readChartStudyEvaluation(
         input.calendar_fingerprint !== history.calendar_fingerprint ||
         input.aggregation_semantics_version !== history.aggregation_semantics_version ||
         input.derived_projection_fingerprint !== history.derived_projection_fingerprint ||
+        new Set(calc.output_members.map((member) => member.name)).size !==
+            calc.output_members.length ||
+        new Set(result.series.map((series) => series.output_name)).size !== result.series.length ||
+        calc.type_id !== request.calculation.type_id ||
+        calc.semantic_version !== request.calculation.semantic_version ||
+        !sameChartBinding(
+            calc.output_members.map((member) => member.name).sort(),
+            [...request.calculation.output_members].sort()
+        ) ||
+        calc.output_members.some(
+            (member) =>
+                !capability.presentation.series.some(
+                    (series) => series.output_name === member.name && series.unit === member.unit
+                )
+        ) ||
         calc.capability_projection_fingerprint !== capability.capability_projection_fingerprint ||
         calc.descriptor_fingerprint !== capability.descriptor_fingerprint ||
         calc.implementation_fingerprint !== capability.implementation_fingerprint ||
@@ -248,15 +324,20 @@ export async function readChartStudyEvaluation(
         !sameChartBinding(calc.numeric_execution_binding, capability.numeric_execution_binding) ||
         !sameChartBinding(calc.normalized_typed_parameters, request.calculation.typed_parameters) ||
         (await fingerprint(calc.normalized_definition)) !== calc.definition_fingerprint ||
-        !sameChartBinding(calc.normalized_definition.parameters, {
-            period: request.calculation.typed_parameters.period.value,
-            price_field: request.calculation.typed_parameters.price_field.value
-        }) ||
+        calc.normalized_definition.type_id !== request.calculation.type_id ||
+        calc.normalized_definition.semantic_version !== request.calculation.semantic_version ||
+        !sameChartBinding(
+            calc.normalized_definition.parameters,
+            Object.fromEntries(
+                Object.entries(request.calculation.typed_parameters).map(([name, scalar]) => [
+                    name,
+                    scalar.value
+                ])
+            )
+        ) ||
         !sameChartBinding(calc.normalized_definition.numeric, capability.descriptor.numeric) ||
         !sameChartBinding(calc.normalized_definition.inputs, capability.descriptor.inputs) ||
         !sameChartBinding(calc.normalized_definition.outputs, capability.descriptor.outputs) ||
-        calc.normalized_definition.warmup.minimum_observations !==
-            request.calculation.typed_parameters.period.value ||
         result.coverage.expected_bar_count !== count ||
         result.coverage.actual_bar_count < 0 ||
         result.coverage.actual_bar_count > count ||
@@ -273,6 +354,7 @@ export async function readChartStudyEvaluation(
     if (result.query_status === "INPUT_INCOMPLETE") {
         if (
             result.series.length !== 0 ||
+            result.preview !== null ||
             result.coverage.status !== "INCOMPLETE" ||
             input.history_projection_fingerprint !== null ||
             input.resume_after_sequence !== null ||
@@ -295,33 +377,63 @@ export async function readChartStudyEvaluation(
         result.coverage.status !== "COMPLETE" ||
         result.coverage.actual_bar_count !== count ||
         result.coverage.expected_bar_count !== count ||
-        result.series.length !== 1 ||
+        !sameChartBinding(
+            result.series.map((series) => series.output_name).sort(),
+            [...request.calculation.output_members].sort()
+        ) ||
         history.bars.length !== count
     )
         throw new ChartStudyWebError("INVALID");
-    const points = result.series[0]?.points;
-    if (points?.length !== count) throw new ChartStudyWebError("INVALID");
-    for (const [index, point] of points.entries()) {
-        const bar = history.bars[index];
-        if (point.value !== null) {
-            const plotted = Number(point.value);
+    for (const series of result.series) {
+        const points = series.points;
+        const output = capability.descriptor.outputs.find(
+            (port) => port.name === series.output_name
+        );
+        if (output === undefined) throw new ChartStudyWebError("INVALID");
+        if (points.length !== count) throw new ChartStudyWebError("INVALID");
+        for (const [index, point] of points.entries()) {
+            const bar = history.bars[index];
+            if (point.value !== null) {
+                const plotted = Number(point.value);
+                if (
+                    !Number.isFinite(plotted) ||
+                    Math.abs(plotted) > Number.MAX_SAFE_INTEGER ||
+                    (plotted === 0 && /[1-9]/.test(point.value))
+                )
+                    throw new ChartStudyWebError("INVALID");
+            }
             if (
-                !Number.isFinite(plotted) ||
-                Math.abs(plotted) > Number.MAX_SAFE_INTEGER ||
-                (plotted === 0 && /[1-9]/.test(point.value))
+                bar?.closed !== true ||
+                point.time_ns !== bar.bar_start_ns ||
+                BigInt(point.time_ns) !== start + BigInt(index) * duration ||
+                BigInt(bar.bar_end_ns) !== BigInt(point.time_ns) + duration ||
+                !isChartStudyReadiness(point, output.nullable)
             )
                 throw new ChartStudyWebError("INVALID");
         }
+    }
+    if (result.preview !== null) {
+        const preview = result.preview;
         if (
-            bar?.closed !== true ||
-            point.time_ns !== bar.bar_start_ns ||
-            BigInt(point.time_ns) !== start + BigInt(index) * duration ||
-            BigInt(bar.bar_end_ns) !== BigInt(point.time_ns) + duration ||
-            (point.readiness === "READY" && (point.reason !== "NONE" || point.value === null)) ||
-            (point.readiness === "PARTIAL" &&
-                point.reason !== "WARMUP_INCOMPLETE" &&
-                point.reason !== "VALUE_UNDEFINED") ||
-            (point.reason === "VALUE_UNDEFINED") !== (point.value === null)
+            !request.include_unclosed_preview ||
+            preview.stream_id !== request.preview_stream_id ||
+            preview.bar_start_ns !== request.window.before_ns ||
+            BigInt(preview.bar_end_ns) !== BigInt(preview.bar_start_ns) + duration ||
+            !sameChartBinding(
+                preview.series.map((row) => row.output_name).sort(),
+                [...request.calculation.output_members].sort()
+            ) ||
+            new Set(preview.series.map((row) => row.output_name)).size !== preview.series.length ||
+            preview.series.some((row) => {
+                const output = capability.descriptor.outputs.find(
+                    (port) => port.name === row.output_name
+                );
+                return (
+                    row.point.time_ns !== preview.bar_start_ns ||
+                    output === undefined ||
+                    !isChartStudyReadiness(row.point, output.nullable)
+                );
+            })
         )
             throw new ChartStudyWebError("INVALID");
     }
@@ -340,11 +452,11 @@ export async function readChartStudyEvidence(
     >,
     current: () => boolean,
     signal: AbortSignal
-): Promise<StudySeriesEvidence | null> {
+): Promise<readonly StudySeriesEvidence[] | null> {
     if (
         !sameChartBinding(JSON.parse(binding.configurationKey) as unknown, {
             parameters: request.calculation.typed_parameters,
-            outputName: request.calculation.output_members[0]
+            outputNames: request.calculation.output_members
         })
     )
         throw new ChartStudyWebError("INVALID");
@@ -359,38 +471,50 @@ export async function readChartStudyEvidence(
     const active = () => !signal.aborted && credentials.isCurrent(generation) && current();
     if (!active()) throw new ChartStudyWebError("STALE");
     if (result.query_status === "INPUT_INCOMPLETE") return null;
-    const series = result.series[0];
-    const members = result.calculation.output_members.filter(
-        (member) => member.name === series?.output_name
-    );
-    const output = members[0];
-    if (
-        series === undefined ||
-        output === undefined ||
-        members.length !== 1 ||
-        series.output_name !== request.calculation.output_members[0]
-    )
-        throw new ChartStudyWebError("INVALID");
-    const evidence: StudySeriesEvidence = Object.freeze({
-        ...binding,
-        source: Object.freeze({
-            kind: "CHART_STUDY_TRANSIENT" as const,
-            historyProjectionFingerprint: request.expected_history_projection_fingerprint,
-            capabilityProjectionFingerprint: capability.capability_projection_fingerprint
-        }),
-        outputName: series.output_name,
-        outputUnit: output.unit,
-        points: Object.freeze(
-            series.points.map((point) =>
-                Object.freeze({
-                    timeNs: point.time_ns,
-                    value: point.value,
-                    readiness: point.readiness,
-                    reason: point.reason
-                })
-            )
+    return result.series.map((series) => {
+        const output = result.calculation.output_members.find(
+            (member) => member.name === series.output_name
+        );
+        if (
+            output === undefined ||
+            !request.calculation.output_members.includes(series.output_name)
         )
+            throw new ChartStudyWebError("INVALID");
+        const preview = result.preview?.series.find(
+            (row) => row.output_name === series.output_name
+        )?.point;
+        const evidence: StudySeriesEvidence = Object.freeze({
+            ...binding,
+            source: Object.freeze({
+                kind: "CHART_STUDY_TRANSIENT" as const,
+                historyProjectionFingerprint: request.expected_history_projection_fingerprint,
+                capabilityProjectionFingerprint: capability.capability_projection_fingerprint
+            }),
+            outputName: series.output_name,
+            outputUnit: output.unit,
+            ...(preview === undefined
+                ? {}
+                : {
+                      previewPoint: Object.freeze({
+                          timeNs: preview.time_ns,
+                          value: preview.value,
+                          readiness: preview.readiness,
+                          reason: preview.reason,
+                          sourceKind: "PREVIEW_UNCLOSED" as const
+                      })
+                  }),
+            points: Object.freeze(
+                series.points.map((point) =>
+                    Object.freeze({
+                        timeNs: point.time_ns,
+                        value: point.value,
+                        readiness: point.readiness,
+                        reason: point.reason
+                    })
+                )
+            )
+        });
+        admittedEvidence.set(evidence, active);
+        return evidence;
     });
-    admittedEvidence.set(evidence, active);
-    return evidence;
 }

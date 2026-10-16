@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 export default defineConfig({
     testDir: "./e2e",
     testMatch: "chart-study.acceptance.ts",
+    grepInvert: /@preview-updates/,
     workers: 1,
     retries: 0,
     outputDir: "../../test-results/chart-study-browser/artifacts",

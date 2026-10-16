@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import resource
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, cast
@@ -56,9 +57,11 @@ from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryServ
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.data.enums import OnlyMarketDataRequestStatus
+from onlyalpha.data.enums import OnlyMarketDataConnectionState, OnlyMarketDataRequestStatus
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
+from onlyalpha.data.identifiers import OnlyMarketDataGatewayId
 from onlyalpha.data.models import (
+    OnlyMarketDataConnectionSnapshot,
     OnlyMarketDataSubscriptionRequest,
     OnlyMarketDataSubscriptionResult,
     OnlyRealtimeBarPreviewV1,
@@ -142,7 +145,7 @@ def _denied_authority(kind: type[object]) -> Any:
     return authority
 
 
-def main(*, watchlist_slice: bool = False) -> None:
+def main(*, watchlist_slice: bool = False, preview_updates: bool = False) -> None:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     only_assert_postgres_test_database(dsn)
     clickhouse = _clickhouse("onlyalpha_test_chart_study_browser")
@@ -150,7 +153,13 @@ def main(*, watchlist_slice: bool = False) -> None:
         reset_dev_browser_test_namespace(dsn, clickhouse)
     OnlyPostgresMigrationAuthority(dsn).migrate()
     OnlyClickHouseMigrationAuthority(clickhouse).migrate()
-    artifacts = Path("test-results/symbol-search-browser" if watchlist_slice else "test-results/chart-study-browser")
+    artifacts = Path(
+        "test-results/symbol-search-browser"
+        if watchlist_slice
+        else "test-results/chart-study-preview-browser"
+        if preview_updates
+        else "test-results/chart-study-browser"
+    )
     artifacts.mkdir(parents=True, exist_ok=True)
     recording_path = os.environ.get("ONLYALPHA_CHART_STUDY_RECORDED_WIRE")
     if watchlist_slice and recording_path:
@@ -280,12 +289,28 @@ def main(*, watchlist_slice: bool = False) -> None:
             logger=logging.getLogger(__name__),
         )
 
+        preview_sources: dict[int, tuple[OnlyBinanceSpotDataSource, OnlyMarketDataSubscriptionRequest]] = {}
+        revised_sources: set[int] = set()
+
         def preview(
             source: OnlyBinanceSpotDataSource, request: OnlyMarketDataSubscriptionRequest
         ) -> OnlyMarketDataSubscriptionResult:
+            preview_sources[id(source)] = (source, request)
+            revised_sources.discard(id(source))
             assert len(request.bar_types) == 1
             bar_type = next(iter(request.bar_types))
             assert source._request.market_data_preview_sink is not None
+            if preview_updates:
+                # The controlled subscription replaces provider recovery, whose
+                # successful completion emits READY before publishing previews.
+                # Keep the default single-preview scenarios unchanged.
+                connection_sink = source._request.market_data_connection_sink
+                assert connection_sink is not None
+                connection_sink(
+                    OnlyMarketDataConnectionSnapshot(
+                        OnlyMarketDataGatewayId(str(source._request.source_id)), OnlyMarketDataConnectionState.READY
+                    )
+                )
             source._request.market_data_preview_sink(
                 OnlyRealtimeBarPreviewV1(
                     source._request.source_id,
@@ -417,7 +442,7 @@ def main(*, watchlist_slice: bool = False) -> None:
                     reference=dict(integration_id=str(integration_id), revision=revision),
                     instrument=str(INSTRUMENT),
                     before_ns=str(end),
-                    capability=composition.chart_study.admission.fingerprint,
+                    capabilities=[item.fingerprint for item in composition.chart_study.admissions],
                 ),
                 indent=2,
             )
@@ -432,12 +457,52 @@ def main(*, watchlist_slice: bool = False) -> None:
                 pending = tuple(ingress._work) if ingress is not None else ()
                 if pending:
                     await asyncio.wait(pending, timeout=10)
-            await app(scope, receive, send)
+            response = bytearray()
+            observe_evaluation = scope["type"] == "http" and scope.get("path") == "/api/v2/chart/studies/evaluate"
+
+            async def observe_response(message: Any) -> None:
+                if observe_evaluation and message["type"] == "http.response.body":
+                    response.extend(message.get("body", b""))
+                await send(message)
+
+            await app(scope, receive, observe_response)
+            # Deterministic external-input barrier: a genuinely observed first
+            # preview response permits the controlled venue's next revision.
+            # No request/result is changed and no business user step is performed.
+            if preview_updates and observe_evaluation and response and json.loads(response).get("preview") is not None:
+                for identity, (source, request) in tuple(preview_sources.items()):
+                    if identity in revised_sources:
+                        continue
+                    revised_sources.add(identity)
+                    bar_type = next(iter(request.bar_types))
+                    sink = source._request.market_data_preview_sink
+                    assert sink is not None
+                    next_price = format(Decimal(preview_price) + Decimal(1), "f")
+                    sink(
+                        OnlyRealtimeBarPreviewV1(
+                            source._request.source_id,
+                            INSTRUMENT,
+                            OnlyBarType(INSTRUMENT, bar_type.semantic),
+                            end,
+                            end + bar_type.semantic.window_minutes * 60_000_000_000,
+                            preview_price,
+                            next_price,
+                            preview_price,
+                            next_price,
+                            "3.00000",
+                            end + 1,
+                            end + 1,
+                        )
+                    )
 
         try:
             with (
                 patch.object(OnlyBinanceSpotDataSource, "subscribe", preview),
-                patch.object(OnlyBinanceSpotDataSource, "unsubscribe", lambda *args: None),
+                patch.object(
+                    OnlyBinanceSpotDataSource,
+                    "unsubscribe",
+                    lambda source, *args: preview_sources.pop(id(source), None),
+                ),
             ):
                 uvicorn.run(
                     observe_quiescent_health,
@@ -461,5 +526,10 @@ def main(*, watchlist_slice: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--watchlist-slice", action="store_true")
+    parser.add_argument(
+        "--preview-updates",
+        action="store_true",
+        help="Deliver the next controlled venue preview after its first observed evaluation",
+    )
     arguments = parser.parse_args()
-    main(watchlist_slice=arguments.watchlist_slice)
+    main(watchlist_slice=arguments.watchlist_slice, preview_updates=arguments.preview_updates)

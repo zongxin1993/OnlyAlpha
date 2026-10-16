@@ -1,0 +1,96 @@
+{
+  "cases": [
+    {
+      "nullable": true,
+      "output_name": "atr",
+      "readiness": "PARTIAL",
+      "reason": "WARMUP_INCOMPLETE",
+      "semantic_version": "3",
+      "type_id": "onlyalpha.indicator.atr",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "atr",
+      "readiness": "READY",
+      "reason": "NONE",
+      "semantic_version": "3",
+      "type_id": "onlyalpha.indicator.atr",
+      "value": "0.000000000000"
+    },
+    {
+      "nullable": true,
+      "output_name": "roc",
+      "readiness": "PARTIAL",
+      "reason": "WARMUP_INCOMPLETE",
+      "semantic_version": "1",
+      "type_id": "onlyalpha.indicator.roc",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "roc",
+      "readiness": "READY",
+      "reason": "VALUE_UNDEFINED",
+      "semantic_version": "1",
+      "type_id": "onlyalpha.indicator.roc",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "value",
+      "readiness": "PARTIAL",
+      "reason": "WARMUP_INCOMPLETE",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.rsi",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "value",
+      "readiness": "READY",
+      "reason": "NONE",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.rsi",
+      "value": "50.000000000000"
+    },
+    {
+      "nullable": true,
+      "output_name": "k",
+      "readiness": "PARTIAL",
+      "reason": "WARMUP_INCOMPLETE",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.stochastic",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "k",
+      "readiness": "READY",
+      "reason": "VALUE_UNDEFINED",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.stochastic",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "vwap",
+      "readiness": "READY",
+      "reason": "VALUE_UNDEFINED",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.vwap",
+      "value": null
+    },
+    {
+      "nullable": true,
+      "output_name": "vwap",
+      "readiness": "READY",
+      "reason": "VALUE_UNDEFINED",
+      "semantic_version": "2",
+      "type_id": "onlyalpha.indicator.vwap",
+      "value": null
+    }
+  ],
+  "schema_version": 1,
+  "source_kind": "INSTALLED_CALCULATION_BACKEND"
+}

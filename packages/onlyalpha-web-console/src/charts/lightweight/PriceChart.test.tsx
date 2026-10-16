@@ -509,7 +509,7 @@ it("a displayed admitted transient study keeps every Query input and call unchan
     );
     const history = marketDataBarsSchema.parse(sample.history);
     const capability = ChartStudyCapabilitiesSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         capabilities: [sample.capability]
     }).capabilities[0];
     if (!capability) throw new Error("Missing producer capability");
@@ -539,7 +539,7 @@ it("a displayed admitted transient study keeps every Query input and call unchan
             new Response(
                 JSON.stringify(
                     url.endsWith("capabilities")
-                        ? { schema_version: 1, capabilities: [sample.capability] }
+                        ? { schema_version: 2, capabilities: [sample.capability] }
                         : sample.evaluation
                 ),
                 { headers: { "cache-control": "no-store" } }
@@ -602,4 +602,39 @@ it("a displayed admitted transient study keeps every Query input and call unchan
     storage.mockRestore();
     view.unmount();
     vi.unstubAllGlobals();
+});
+
+it("keeps two selected outputs in one instance pane and rejects a duplicate output owner", () => {
+    const { bars, instance, evidence } = studySeriesFixture();
+    const group = {
+        ...instance,
+        configuration: { ...instance.configuration, outputNames: ["fast", "slow"] },
+        presentation: { ...instance.presentation, placement: "SEPARATE_PANE" as const }
+    };
+    const rows = ["fast", "slow"].map((outputName) => ({
+        ...evidence,
+        outputName,
+        configurationKey: JSON.stringify(group.configuration)
+    }));
+    const view = render(
+        <PriceChart
+            bars={bars}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            studies={[group]}
+            studyEvidence={rows}
+        />
+    );
+    expect(renderer.panes).toHaveLength(3);
+    expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "4");
+    view.rerender(
+        <PriceChart
+            bars={bars}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            studies={[group]}
+            studyEvidence={[...rows, ...rows.slice(0, 1)]}
+        />
+    );
+    expect(screen.getAllByTestId("study-hover")[0]).toHaveTextContent("重复身份");
 });

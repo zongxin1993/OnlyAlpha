@@ -139,3 +139,33 @@ it.each([Number(1767225600000000001n), ["1767225600000000000"]])(
         );
     }
 );
+
+it("keeps unclosed preview separate from closed evidence and rejects overlapping preview time", () => {
+    const { instance, bars, evidence } = studySeriesFixture();
+    const last = evidence.points.at(-1);
+    if (last === undefined) throw new Error("Missing closed point");
+    const previewPoint = {
+        timeNs: (BigInt(last.timeNs) + 900_000_000_000n).toString(),
+        value: "123.000000000000000001",
+        readiness: "READY",
+        reason: "NONE",
+        sourceKind: "PREVIEW_UNCLOSED" as const
+    };
+    const view = projectStudySeries(
+        instance,
+        evidence.incarnationKey,
+        bars.map((bar) => bar.time),
+        { ...evidence, previewPoint }
+    );
+    expect(view.status).toBe("PROJECTED");
+    expect(evidence.points).toHaveLength(80);
+    expect(studyHover(view, Number(BigInt(previewPoint.timeNs) / 1_000_000_000n))).toContain(
+        "未收盘预览"
+    );
+    expect(
+        projectStudySeries(instance, evidence.incarnationKey, [], {
+            ...evidence,
+            previewPoint: { ...previewPoint, timeNs: last.timeNs }
+        }).status
+    ).toBe("INVALID");
+});

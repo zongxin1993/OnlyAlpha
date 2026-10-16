@@ -1,4 +1,4 @@
-"""Explicit legacy CONTEXT input for non-publishing SMA invocations only."""
+"""Explicit Decimal input for registered non-publishing Chart Study invocations."""
 
 from __future__ import annotations
 
@@ -19,9 +19,13 @@ class OnlyChartNumericBindingVerifier(Protocol):
     def require_chart_numeric_binding(self, numeric: OnlyNumericDefinition) -> None: ...
 
 
-def only_chart_sma_effective_numeric(declared: OnlyNumericDefinition) -> OnlyNumericDefinition:
+def only_chart_study_effective_numeric(declared: OnlyNumericDefinition) -> OnlyNumericDefinition:
     if (
-        declared != OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), "CONTEXT")
+        declared
+        not in (
+            OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), "CONTEXT"),
+            OnlyNumericDefinition("DECIMAL", 28, Decimal("0.000000000001"), ROUND_HALF_EVEN),
+        )
         or declared.output_quantum is None
         or declared.output_quantum.as_tuple() != Decimal("0.000000000001").as_tuple()
     ):
@@ -29,8 +33,8 @@ def only_chart_sma_effective_numeric(declared: OnlyNumericDefinition) -> OnlyNum
     return replace(declared, rounding=ROUND_HALF_EVEN)
 
 
-def only_chart_sma_numeric_binding(declared: OnlyNumericDefinition) -> dict[str, object]:
-    effective = only_chart_sma_effective_numeric(declared)
+def only_chart_study_numeric_binding(declared: OnlyNumericDefinition) -> dict[str, object]:
+    effective = only_chart_study_effective_numeric(declared)
     policy = ONLY_DECIMAL_EXECUTION_POLICY_V1
     return {
         "domain": "onlyalpha.chart-study.decimal-binding",

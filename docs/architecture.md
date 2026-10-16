@@ -551,7 +551,8 @@ ADR 0138 adds a separate, non-publishing Application Chart Study Query for ordin
 bounded owning Market Data reads and the same exact registered Calculation SPI backend, then projects
 `CHART_STUDY_TRANSIENT / DISPLAY_ONLY / NOT_A_RESEARCH_RESULT`. It owns no Research Command, Run, Attempt, Result, Evidence,
 Artifact or Runtime Work and does not acquire data. Formal W6 overlays retain Verified Artifact -> Research Query admission.
-SMA@1 support requires the explicit legacy-CONTEXT binding, real manifest/Provider/Catalog closure, trusted caller/source
+The owner-approved ADR 0138 fourteen-family extension adds grouped numeric outputs and separately labeled owning-stream
+previews, without expanding formal Research readiness. Support requires the explicit numeric binding, real manifest/Provider/Catalog closure, trusted caller/source
 entitlement and resource proofs; metadata discovery is not execution permission. The renderer never computes semantics and
 transient values cannot be promoted into scientific or trading truth.
 

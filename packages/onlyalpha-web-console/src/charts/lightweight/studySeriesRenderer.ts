@@ -1,4 +1,5 @@
 import {
+    HistogramSeries,
     LineSeries,
     type IChartApi,
     type IPaneApi,
@@ -6,18 +7,22 @@ import {
     type LineWidth,
     type Time
 } from "lightweight-charts";
-import type { ChartStudyInstance } from "../../features/workspace/chartStudy";
-import { validPresentation } from "../../features/workspace/chartStudy";
+import { validPresentation, type ChartStudyInstance } from "../../features/workspace/chartStudy";
+import { StudyBandFill, bandPolygons } from "./studyBandFill";
 import type { StudySeriesView } from "./studySeriesProjection";
 
+interface Curve {
+    readonly series: ISeriesApi<"Line" | "Histogram">;
+    readonly kind: "LINE" | "HISTOGRAM";
+}
 interface Resource {
-    readonly lines: ISeriesApi<"Line">[];
+    readonly curves: Map<string, Curve>;
     pane: IPaneApi<Time> | null;
     label: HTMLParagraphElement | null;
-    projection: StudySeriesView | null;
+    fill: { series: ISeriesApi<"Line" | "Histogram">; primitive: StudyBandFill } | null;
 }
 
-/** One chart, one private pane per separate/unknown-unit instance. Stable refs survive index compaction. */
+/** Each display instance owns one pane; outputs retain their backend-defined role and unit. */
 export class StudySeriesRenderer {
     private readonly resources = new Map<string, Resource>();
     private frame: number | null = null;
@@ -25,105 +30,168 @@ export class StudySeriesRenderer {
         private readonly chart: IChartApi,
         private readonly pricePane: IPaneApi<Time>
     ) {}
-
     sync(
         instances: readonly ChartStudyInstance[],
         views: ReadonlyMap<string, StudySeriesView>,
         selectedId: string | null
     ): void {
-        const wanted = new Set(
-            instances
-                .filter((item) => item.presentation.visible && validPresentation(item.presentation))
-                .map((item) => item.instanceId)
+        const visible = instances.filter(
+            (instance) => instance.presentation.visible && validPresentation(instance.presentation)
         );
+        const wanted = new Set(visible.map((instance) => instance.instanceId));
         for (const [id, resource] of this.resources)
             if (!wanted.has(id)) {
                 this.release(resource);
                 this.resources.delete(id);
             }
-        for (const instance of instances) {
-            if (!instance.presentation.visible || !validPresentation(instance.presentation))
-                continue;
-            const view = views.get(instance.instanceId);
-            if (view === undefined) continue;
+        for (const instance of visible) {
             let resource = this.resources.get(instance.instanceId);
             if (resource === undefined) {
-                resource = { lines: [], pane: null, label: null, projection: null };
+                resource = { curves: new Map(), pane: null, label: null, fill: null };
                 this.resources.set(instance.instanceId, resource);
             }
-            const priceOverlay =
+            const metadata =
+                instance.selection.source === "CHART_STUDY_TRANSIENT"
+                    ? instance.selection.capability.presentation.series
+                    : [];
+            const outputs = instance.configuration.outputNames
+                .filter((name) => instance.presentation.seriesStyles?.[name]?.visible !== false)
+                .map((name) => ({
+                    name,
+                    view: views.get(JSON.stringify([instance.instanceId, name])),
+                    metadata: metadata.find((row) => row.output_name === name)
+                }));
+            const overlay =
                 instance.presentation.placement === "PRICE_OVERLAY" &&
-                view.status === "PROJECTED" &&
-                view.projection.outputUnit === "PRICE";
-            if (!priceOverlay && resource.pane === null) {
+                outputs.every(
+                    (output) =>
+                        output.view?.status === "PROJECTED" &&
+                        output.view.projection.outputUnit === "PRICE"
+                );
+            if (!overlay && resource.pane === null) {
                 resource.pane = this.chart.addPane(true);
                 resource.pane.setStretchFactor(0.25);
             }
-            const destination = resource.pane ?? this.pricePane;
-            // Move before deleting the old preserved pane; its index may compact.
-            if (priceOverlay && resource.pane !== null) {
-                for (const line of resource.lines) line.moveToPane(this.pricePane.paneIndex());
-                this.removePane(resource);
-            } else for (const line of resource.lines) line.moveToPane(destination.paneIndex());
-            const segments = view.status === "PROJECTED" ? view.projection.segments : [];
-            while (resource.lines.length > segments.length) {
-                const line = resource.lines.pop();
-                if (line !== undefined) this.chart.removeSeries(line);
+            const destination = overlay ? this.pricePane : (resource.pane ?? this.pricePane);
+            for (const curve of resource.curves.values())
+                curve.series.moveToPane(destination.paneIndex());
+            if (overlay && resource.pane !== null) this.removePane(resource);
+            if (resource.fill !== null) {
+                resource.fill.series.detachPrimitive(resource.fill.primitive);
+                resource.fill = null;
             }
-            while (resource.lines.length < segments.length)
-                resource.lines.push(
-                    this.chart.addSeries(
-                        LineSeries,
-                        {
-                            lastValueVisible: false,
-                            priceLineVisible: false,
-                            crosshairMarkerVisible: true
-                        },
-                        (resource.pane ?? this.pricePane).paneIndex()
-                    )
-                );
-            const style = instance.presentation;
-            const color = `${style.color}${Math.round(style.opacity * 255)
-                .toString(16)
-                .padStart(2, "0")}`;
-            resource.lines.forEach((line, index) => {
-                line.applyOptions({
-                    color,
-                    priceScaleId: "right",
-                    lineWidth: Math.min(
-                        4,
-                        Math.max(
-                            1,
-                            Math.round(style.lineWidth) +
-                                (selectedId === instance.instanceId ? 1 : 0)
-                        )
-                    ) as LineWidth
-                });
-                const segment = segments[index];
-                if (segment !== undefined && resource.projection !== view)
-                    line.setData([...segment]);
-            });
-            resource.projection = view;
-            if (resource.pane !== null && segments.length === 0) {
-                if (resource.label === null) {
-                    resource.label = document.createElement("p");
-                    resource.label.className = "study-pane-empty";
-                    resource.label.dataset.instanceId = instance.instanceId;
+            const curveKeys = new Set<string>();
+            for (const output of outputs) {
+                const kind = output.metadata?.kind ?? "LINE";
+                const segments =
+                    output.view?.status === "PROJECTED" ? output.view.projection.segments : [];
+                for (const [index, segment] of segments.entries()) {
+                    const key = JSON.stringify([output.name, index]);
+                    curveKeys.add(key);
+                    let curve = resource.curves.get(key);
+                    if (curve !== undefined && curve.kind !== kind) {
+                        this.chart.removeSeries(curve.series);
+                        resource.curves.delete(key);
+                        curve = undefined;
+                    }
+                    const style = instance.presentation;
+                    const baseColor =
+                        style.seriesStyles?.[output.name]?.color ??
+                        (outputs.length === 1
+                            ? style.color
+                            : (output.metadata?.color ?? style.color));
+                    const color = `${baseColor}${Math.round(style.opacity * 255)
+                        .toString(16)
+                        .padStart(2, "0")}`;
+                    if (curve === undefined) {
+                        const options = { lastValueVisible: false, priceLineVisible: false, color };
+                        curve = {
+                            kind,
+                            series:
+                                kind === "HISTOGRAM"
+                                    ? this.chart.addSeries(
+                                          HistogramSeries,
+                                          options,
+                                          destination.paneIndex()
+                                      )
+                                    : this.chart.addSeries(
+                                          LineSeries,
+                                          { ...options, crosshairMarkerVisible: true },
+                                          destination.paneIndex()
+                                      )
+                        };
+                        resource.curves.set(key, curve);
+                    }
+                    curve.series.applyOptions({
+                        color,
+                        priceScaleId:
+                            output.view?.status === "PROJECTED" &&
+                            output.view.projection.outputUnit === "PRICE"
+                                ? "right"
+                                : (output.metadata?.unit ?? "right"),
+                        ...(kind === "LINE"
+                            ? {
+                                  lineWidth: Math.min(
+                                      4,
+                                      Math.max(
+                                          1,
+                                          Math.round(style.lineWidth) +
+                                              (selectedId === instance.instanceId ? 1 : 0)
+                                      )
+                                  ) as LineWidth
+                              }
+                            : {})
+                    });
+                    curve.series.setData([...segment]);
                 }
-                resource.label.textContent = `${instance.configuration.outputName} · ${view.status === "PROJECTED" ? "无可绘制点" : view.detail}`;
+            }
+            const fill =
+                instance.selection.source === "CHART_STUDY_TRANSIENT"
+                    ? instance.selection.capability.presentation.fill
+                    : null;
+            if (fill !== null) {
+                const upper = outputs.find((output) => output.name === fill[0]);
+                const lower = outputs.find((output) => output.name === fill[1]);
+                const owner = resource.curves.get(JSON.stringify([fill[0], 0]));
+                if (
+                    upper?.view?.status === "PROJECTED" &&
+                    lower?.view?.status === "PROJECTED" &&
+                    owner !== undefined
+                ) {
+                    const primitive = new StudyBandFill(
+                        bandPolygons(upper.view.projection, lower.view.projection),
+                        `${upper.metadata?.color ?? instance.presentation.color}22`
+                    );
+                    owner.series.attachPrimitive(primitive);
+                    resource.fill = { series: owner.series, primitive };
+                }
+            }
+            for (const [key, curve] of resource.curves)
+                if (!curveKeys.has(key)) {
+                    this.chart.removeSeries(curve.series);
+                    resource.curves.delete(key);
+                }
+            if (resource.pane !== null && resource.curves.size === 0) {
+                resource.label ??= Object.assign(document.createElement("p"), {
+                    className: "study-pane-empty"
+                });
+                resource.label.dataset.instanceId = instance.instanceId;
+                resource.label.textContent = outputs
+                    .map(
+                        (output) =>
+                            `${output.name} · ${output.view?.status === "PROJECTED" ? "无可绘制点" : (output.view?.detail ?? "尚未计算")}`
+                    )
+                    .join(" · ");
             } else {
                 resource.label?.remove();
                 resource.label = null;
             }
         }
         if (this.frame !== null) cancelAnimationFrame(this.frame);
-        // Pane DOM is installed by the renderer on its next paint, not addPane().
         this.frame = requestAnimationFrame(() => {
             this.frame = null;
             for (const resource of this.resources.values())
                 if (resource.label !== null)
-                    // v5.2.1 exposes a native table row. Text belongs inside its
-                    // relative plot wrapper, never an extra anonymous table cell.
                     resource.pane
                         ?.getHTMLElement()
                         ?.querySelector("td > div")
@@ -131,7 +199,7 @@ export class StudySeriesRenderer {
         });
     }
     get seriesCount(): number {
-        return [...this.resources.values()].reduce((sum, item) => sum + item.lines.length, 0);
+        return [...this.resources.values()].reduce((sum, item) => sum + item.curves.size, 0);
     }
     dispose(): void {
         if (this.frame !== null) cancelAnimationFrame(this.frame);
@@ -145,8 +213,9 @@ export class StudySeriesRenderer {
         resource.pane = null;
     }
     private release(resource: Resource): void {
-        for (const line of resource.lines) this.chart.removeSeries(line);
-        resource.lines.length = 0;
+        if (resource.fill !== null) resource.fill.series.detachPrimitive(resource.fill.primitive);
+        for (const curve of resource.curves.values()) this.chart.removeSeries(curve.series);
+        resource.curves.clear();
         this.removePane(resource);
     }
 }

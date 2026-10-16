@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -30,8 +30,8 @@ from onlyalpha.calculation.definition import (
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
     OnlyCalculationStateCapability,
-    only_chart_sma_numeric_dependency,
     only_chart_study_invocation_dependency,
+    only_chart_study_numeric_dependency,
     only_distribution_semantic_dependency,
     only_python_implementation_manifest,
     only_python_stdlib_semantic_dependency,
@@ -53,6 +53,7 @@ from onlyalpha.indicator.identifiers import (
     OnlyIndicatorTypeId,
 )
 from onlyalpha.indicator.snapshot import OnlyIndicatorSnapshot
+from onlyalpha_plugin_indicators.calibrated import OnlyCalibratedTradingFactory
 from onlyalpha_plugin_indicators.financial import OnlyFinancialTradingBackendFactory
 from onlyalpha_plugin_indicators.macd import OnlyMacdIndicator, config_from_parameters
 from onlyalpha_plugin_indicators.research import OnlyOfficialResearchIndicatorBackend
@@ -294,6 +295,63 @@ STOCHASTIC = _financial_indicator(
 FINANCIAL_TYPES = (WMA, ROC, VWAP, OBV, STOCHASTIC)
 
 
+# Numerical recalibration creates exact new identities; legacy definitions remain unchanged.
+RSI_V2 = replace(TYPES[2], semantic_version="2", numeric=_FINANCIAL_NUMERIC)
+ATR_V3 = replace(ATR_V2, semantic_version="3", numeric=_FINANCIAL_NUMERIC)
+MACD_V2 = replace(TYPES[8], semantic_version="2", numeric=_FINANCIAL_NUMERIC)
+STOCHASTIC_V2 = replace(
+    STOCHASTIC,
+    semantic_version="2",
+    parameters=OnlyParameterSchema(
+        (
+            OnlyParameterDefinition("k_period", OnlyParameterType.INTEGER, False, 14, minimum=1),
+            OnlyParameterDefinition("smooth_k", OnlyParameterType.INTEGER, False, 3, minimum=1),
+            OnlyParameterDefinition("d_period", OnlyParameterType.INTEGER, False, 3, minimum=1),
+        )
+    ),
+    missing_values=OnlyMissingValuePolicy.FAIL,
+)
+VWAP_V2 = replace(
+    VWAP,
+    semantic_version="2",
+    parameters=OnlyParameterSchema(()),
+    inputs=(_HIGH, _LOW, _CLOSE, _VOLUME, OnlyInputDefinition("start_ns", OnlyCalculationDataType.INTEGER)),
+    missing_values=OnlyMissingValuePolicy.FAIL,
+)
+CALIBRATED_TYPES = (RSI_V2, ATR_V3, MACD_V2, STOCHASTIC_V2, VWAP_V2)
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyCalibratedDefinitionResolver:
+    type_definition: OnlyCalculationTypeDefinition
+
+    def resolve(
+        self, parameters: Mapping[str, object], input_bindings: Mapping[str, OnlyCalculationReference]
+    ) -> OnlyCalculationDefinition:
+        item = self.type_definition
+        p = dict(parameters)
+        if item is MACD_V2:
+            return resolve_definition(item, p)
+        normalized = item.parameters.normalize(p)
+        sources = {name: f"bar.{name}" for name in ("high", "low", "close", "volume", "start_ns")}
+        sources["value"] = "bar.close" if str(normalized.get("price_field", "CLOSE")) == "CLOSE" else "bar.volume"
+        bindings = {i.name: OnlyCalculationReference(None, i.name, sources[i.name]) for i in item.inputs}
+        if input_bindings and dict(input_bindings) != bindings:
+            raise ValueError("calibrated Indicator inputs conflict with canonical bindings")
+        required = int(str(normalized.get("period", 1)))
+        if item is RSI_V2:
+            required += 1
+        elif item is STOCHASTIC_V2:
+            required = sum(int(str(normalized[key])) for key in ("k_period", "smooth_k", "d_period")) - 2
+        return item.resolve(
+            p,
+            bindings,
+            OnlyWarmupDefinition(
+                required, "complete conventional seed/window", OnlyPreReadyOutput.NULL, "FINITE_SERIES"
+            ),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class OnlyFinancialIndicatorDefinitionResolver:
     type_definition: OnlyCalculationTypeDefinition
@@ -389,14 +447,18 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
             package_root=package_root,
             resource_paths=resources,
             semantic_dependencies=(
-                *((only_decimal_execution_semantic_dependency(),) if item in FINANCIAL_TYPES else ()),
+                *(
+                    (only_decimal_execution_semantic_dependency(),)
+                    if backend is OnlyCalculationBackendKind.TRADING and item in (*FINANCIAL_TYPES, *CALIBRATED_TYPES)
+                    else ()
+                ),
                 *(
                     (
                         only_decimal_execution_semantic_dependency(),
-                        only_chart_sma_numeric_dependency(),
+                        only_chart_study_numeric_dependency(),
                         only_chart_study_invocation_dependency(),
                     )
-                    if item.type_id == "onlyalpha.indicator.sma" and backend is OnlyCalculationBackendKind.RESEARCH
+                    if backend is OnlyCalculationBackendKind.RESEARCH
                     else ()
                 ),
                 only_python_stdlib_semantic_dependency("decimal"),
@@ -443,9 +505,14 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 item,
                 OnlyCalculationBackendKind.RESEARCH,
                 "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-                ("registration.py", "research.py", "provider.py")
-                if item.type_id == "onlyalpha.indicator.sma"
-                else ("registration.py", "research.py"),
+                (
+                    "registration.py",
+                    "research.py",
+                    "provider.py",
+                    "chart.py",
+                    "calibrated.py",
+                    "financial_semantics.py",
+                ),
             ),
             readiness_contract_versions=(1,)
             if item.type_id == "onlyalpha.indicator.sma" and item.semantic_version == "1"
@@ -480,9 +547,45 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                 item,
                 OnlyCalculationBackendKind.RESEARCH,
                 "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-                ("registration.py", "research.py", "financial_semantics.py"),
+                (
+                    "registration.py",
+                    "research.py",
+                    "financial_semantics.py",
+                    "chart.py",
+                    "calibrated.py",
+                    "provider.py",
+                ),
             ),
         )
         for item in FINANCIAL_TYPES
     )
-    return trading + research + financial_trading + financial_research
+    calibrated = tuple(
+        OnlyCalculationBackendRegistration(
+            item,
+            backend,
+            OnlyCalibratedTradingFactory()
+            if backend is OnlyCalculationBackendKind.TRADING
+            else OnlyOfficialResearchIndicatorBackend(),
+            OnlyCalibratedDefinitionResolver(item),
+            manifest(
+                item,
+                backend,
+                "onlyalpha_plugin_indicators.calibrated:OnlyCalibratedTradingFactory"
+                if backend is OnlyCalculationBackendKind.TRADING
+                else "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
+                (
+                    "registration.py",
+                    "calibrated.py",
+                    "financial_semantics.py",
+                    "research.py",
+                    "chart.py",
+                    "provider.py",
+                ),
+            ),
+            OnlyCalculationStateCapability.CHECKPOINTABLE if backend is OnlyCalculationBackendKind.TRADING else None,
+            1 if backend is OnlyCalculationBackendKind.TRADING else None,
+        )
+        for item in CALIBRATED_TYPES
+        for backend in (OnlyCalculationBackendKind.TRADING, OnlyCalculationBackendKind.RESEARCH)
+    )
+    return trading + research + financial_trading + financial_research + calibrated

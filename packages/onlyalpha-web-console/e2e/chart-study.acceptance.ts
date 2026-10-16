@@ -45,6 +45,9 @@ async function connectNativeChart(page: Page): Promise<void> {
     await page.getByLabel("时间周期").selectOption("15");
     expect((await bars).status()).toBe(200);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
+    const source = page.getByLabel("数据源");
+    if (await source.isVisible()) await page.getByText("行情设置", { exact: true }).click();
+    await expect(source).not.toBeVisible();
 }
 
 function evaluationReply(page: Page, period: number): Promise<Response> {
@@ -619,6 +622,17 @@ for (const collapsed of [false, true]) {
         if (bounds === null) throw new Error("Missing main chart region");
         await page.mouse.move(bounds.x + 8, bounds.y + 8);
         await page.mouse.wheel(0, 2000);
+        // Wheel dispatch returns before browser scrolling finishes. Focus only
+        // exposes the select itself, so observe the owning scroll boundary first.
+        await expect
+            .poll(() =>
+                main.evaluate(
+                    (element) =>
+                        Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <
+                        1
+                )
+            )
+            .toBe(true);
         const timezone = page.getByRole("combobox", { name: "显示时区" });
         await timezone.focus();
         const geometry = await chart.evaluate((element) => {
@@ -630,15 +644,28 @@ for (const collapsed of [false, true]) {
             const footer = surface
                 .querySelector(".chart-display-controls")
                 ?.getBoundingClientRect();
+            const select = surface
+                .querySelector('[aria-label="显示时区"]')
+                ?.getBoundingClientRect();
             return {
                 clip: { top: clip.top, bottom: clip.bottom },
                 plot: { top: plot.top, bottom: plot.bottom, height: plot.height },
-                footer: footer === undefined ? null : { top: footer.top, bottom: footer.bottom },
+                footer:
+                    footer === undefined
+                        ? null
+                        : { top: footer.top, bottom: footer.bottom, height: footer.height },
+                select:
+                    select === undefined
+                        ? null
+                        : { top: select.top, bottom: select.bottom, height: select.height },
                 scrollTop: main.scrollTop,
                 scrollHeight: main.scrollHeight,
                 clientHeight: main.clientHeight
             };
         });
+        console.info(
+            `Constrained chart layout (${collapsed ? "collapsed" : "expanded"}): ${JSON.stringify(geometry)}`
+        );
         await testInfo.attach("constrained-chart-layout", {
             body: JSON.stringify(geometry),
             contentType: "application/json"
@@ -656,3 +683,195 @@ for (const collapsed of [false, true]) {
         await expect(chart).toHaveAttribute("data-study-series-count", "2");
     });
 }
+
+test("all fourteen active indicator families configure and display their backend output groups through Shipping UI", async ({
+    page
+}) => {
+    // Fourteen normal add/remove workflows; each add has picker, editor, consumer
+    // metadata and one bounded evaluation. No values or business state are injected.
+    test.setTimeout(14 * 4 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
+    await connectNativeChart(page);
+    const discovery = page.waitForResponse(
+        (response) =>
+            response.url().endsWith("/api/v2/chart/studies/capabilities") &&
+            response.status() === 200
+    );
+    await page.getByRole("button", { name: "指标", exact: true }).click();
+    const body = (await (await discovery).json()) as {
+        capabilities: {
+            type_id: string;
+            semantic_version: string;
+            presentation: {
+                display_name: string;
+                default_variant: boolean;
+                series: { output_name: string; default_visible: boolean }[];
+            };
+        }[];
+    };
+    const active = body.capabilities.filter((entry) => entry.presentation.default_variant);
+    expect(new Set(active.map((entry) => entry.type_id)).size).toBe(14);
+    await page.getByRole("button", { name: "关闭目录" }).click();
+    for (const entry of active) {
+        const step = `${entry.presentation.display_name} (${entry.type_id}@${entry.semantic_version})`;
+        console.info(`Indicator workflow: ${step}`);
+        await test.step(
+            step,
+            async () => {
+                await page.getByRole("button", { name: "指标", exact: true }).click();
+                await page
+                    .getByRole("searchbox", { name: "搜索指标或因子" })
+                    .fill(entry.presentation.display_name);
+                await page
+                    .getByRole("button", {
+                        name: `选择 ${entry.presentation.display_name} · 配置草稿`,
+                        exact: true
+                    })
+                    .click();
+                const evaluated = page.waitForResponse(
+                    (response) =>
+                        response.url().endsWith("/api/v2/chart/studies/evaluate") &&
+                        (response.request().postDataJSON() as { calculation: { type_id: string } })
+                            .calculation.type_id === entry.type_id
+                );
+                await page.getByRole("button", { name: "添加", exact: true }).click();
+                const response = await evaluated;
+                expect(response.status()).toBe(200);
+                const values = (await response.json()) as {
+                    series: { output_name: string; points: { value: string | null }[] }[];
+                };
+                expect(values.series.map((series) => series.output_name).sort()).toEqual(
+                    entry.presentation.series
+                        .filter((series) => series.default_visible)
+                        .map((series) => series.output_name)
+                        .sort()
+                );
+                expect(
+                    values.series.every((series) =>
+                        series.points.some((point) => point.value !== null)
+                    )
+                ).toBe(true);
+                await expect(page.getByTestId("chart-study-query-status")).toHaveAttribute(
+                    "data-query-status",
+                    "DISPLAYABLE"
+                );
+                await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
+                await expect(page.getByTestId("study-hover")).toHaveCount(values.series.length);
+                await page
+                    .getByRole("button", {
+                        name: `编辑 ${entry.presentation.display_name}`,
+                        exact: true
+                    })
+                    .click();
+                await page.getByText("高级选项", { exact: true }).click();
+                const outputs = page.getByRole("group", { name: "输出曲线" });
+                await expect(outputs).toBeVisible();
+                await expect(outputs.getByRole("checkbox")).toHaveCount(
+                    entry.presentation.series.length
+                );
+                for (const series of entry.presentation.series)
+                    await expect(
+                        outputs.getByRole("checkbox", {
+                            name: `输出 ${series.output_name}`,
+                            exact: true
+                        })
+                    ).toBeVisible();
+                await page.getByRole("button", { name: "取消配置" }).click();
+                await page
+                    .getByRole("button", {
+                        name: `隐藏 ${entry.presentation.display_name}`,
+                        exact: true
+                    })
+                    .click();
+                await expect(page.getByTestId("price-chart")).toHaveAttribute(
+                    "data-study-series-count",
+                    "0"
+                );
+                await page
+                    .getByRole("button", {
+                        name: `显示 ${entry.presentation.display_name}`,
+                        exact: true
+                    })
+                    .click();
+                await page.getByRole("button", { name: "移除配置", exact: true }).click();
+                await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+            },
+            { timeout: 70_000 }
+        );
+    }
+    await disconnectChart(page);
+});
+
+test(
+    "owning stream revisions update a distinct unclosed indicator preview without committing it to closed output",
+    { tag: "@preview-updates" },
+    async ({ page }) => {
+        test.setTimeout(8 * chartExchangeBudgetMs + setupAndPresentationBudgetMs);
+        await connectNativeChart(page);
+        interface Reply {
+            series: { points: { time_ns: string }[] }[];
+            preview: {
+                bar_start_ns: string;
+                revision_fingerprint: string;
+                series: { point: { value: string | null; closed: boolean; quality: string } }[];
+            };
+        }
+        // Both observations are registered before adding. The fixture releases the
+        // next external preview after sending the first genuine evaluation reply.
+        const observations = new Promise<readonly [Reply, Reply]>((resolve, reject) => {
+            const revisions = new Map<string, Reply>();
+            page.on("response", (response) => {
+                if (
+                    !response.url().endsWith("/api/v2/chart/studies/evaluate") ||
+                    response.status() !== 200
+                )
+                    return;
+                void response.json().then((raw: unknown) => {
+                    const value = raw as {
+                        series: Reply["series"];
+                        preview: Reply["preview"] | null;
+                    };
+                    if (value.preview === null) return;
+                    revisions.set(value.preview.revision_fingerprint, {
+                        series: value.series,
+                        preview: value.preview
+                    });
+                    const collected = [...revisions.values()];
+                    const first = collected.at(0),
+                        next = collected.at(1);
+                    if (first !== undefined && next !== undefined) resolve([first, next]);
+                }, reject);
+            });
+        });
+        await addSma(page, 20);
+        const [first, next] = await observations;
+        expect(
+            first.series.every((series) =>
+                series.points.every((point) => point.time_ns !== first.preview.bar_start_ns)
+            )
+        ).toBe(true);
+        expect(
+            first.preview.series.every(
+                (series) => !series.point.closed && series.point.quality === "PREVIEW_UNCLOSED"
+            )
+        ).toBe(true);
+        await expect(page.getByTestId("price-chart")).toHaveAttribute(
+            "data-study-preview-count",
+            "1"
+        );
+        expect(
+            next.preview.series.some(
+                (series, index) => series.point.value !== first.preview.series[index]?.point.value
+            )
+        ).toBe(true);
+        expect(
+            next.series.every((series) =>
+                series.points.every((point) => point.time_ns !== next.preview.bar_start_ns)
+            )
+        ).toBe(true);
+        await expect(page.getByTestId("price-chart")).toHaveAttribute(
+            "data-study-preview-count",
+            "1"
+        );
+        await disconnectChart(page);
+    }
+);

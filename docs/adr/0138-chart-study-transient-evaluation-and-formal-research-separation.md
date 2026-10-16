@@ -22,6 +22,45 @@ The owner subsequently selected **minimal local authentication**, with design re
 designing a real local human credential/subject and explicit Source grants; it does not establish a configured identity boundary
 or permit reuse of Agent secrets. The concrete design and remaining proof obligations are specified in the accompanying design.
 
+## Owner-approved registered-indicator extension (2026-10-16)
+
+The owner approved the subsequent indicator plan and instructed execution in the task conversation. This extends the
+original A1 SMA-only/closed-only sequencing below to the fourteen existing indicator families: SMA, EMA, WMA, RSI, ATR,
+ROC, rolling return, rolling volatility, Z-score, OBV, VWAP, MACD, Bollinger Bands and Stochastic. The remaining A1 text
+records its initial boundary; this section supersedes only that type/output/preview restriction. New indicator families,
+private Factor/DAG execution and scientific Research readiness admission are not granted by this extension.
+
+The same installed Calculation registry publishes an explicit Chart support projection: default variant/parameters,
+numeric output roles, units, placement, colors and optional paired band fill. One Study owns its selected output members;
+MACD lines/histogram, Bollinger lines/fill and Stochastic K/D remain grouped presentation. Web neither implements formulas
+nor infers defaults or semantics from indicator names. Chart price-field selection remains CLOSE; volume inputs required
+by OBV/VWAP come from their registered bindings. Existing semantic versions retain their mathematics. Wilder RSI/ATR,
+standard MACD histogram, smoothed Stochastic and UTC-day VWAP use new explicit semantic versions. Provider-content changes
+have their own Provider version. No highest-version or legacy fallback is an admission rule.
+
+A structural Chart backend operation returns atomic values/readiness without granting formal Research readiness support
+or issuing Research facts. The existing scientific readiness allowlist and publication requirements remain unchanged.
+The invocation's registered numeric contract permits CONTEXT resolved by CONTEXT_HALF_EVEN_V1 or explicit ROUND_HALF_EVEN,
+with the same exact precision/quantum and Core Decimal envelope. Its implementation closure includes this invocation,
+Chart support metadata and the owning preview reader. Shared resource checks may be deduplicated within one verification
+pass; no elapsed-time cache or cross-request stale proof is permitted. Each request revalidates its exact composition and
+owning inputs before release.
+
+Optional unclosed preview selects only an already-open owning Market Data stream by opaque stream identity. The server
+checks the same human subject, exact Source/Revision/Instrument/BarSemantic and REALTIME_PREVIEW grant, reads its retained
+snapshot, and computes against the same verified finite closed window. It neither opens a stream nor acquires history.
+The preview must immediately follow the closed window and have the exact duration. An updated, closed, disconnected,
+degraded or revoked snapshot cannot be released. Ordinary preview replacement discards only the preview; the independently
+verified closed result remains usable. Authorization withdrawal still fails closed. Preview rows carry separate
+PREVIEW_UNCLOSED/closed=false quality, never closed-history quality or scientific evidence. Browser preview events only
+schedule a fresh bounded Query; they supply no price inputs.
+
+The development-unfrozen HTTP schema evolves atomically to version 2 with exact type/version, bounded typed parameters,
+selected output members and nullable owning stream identity. Error envelopes remain version 1. No compatibility loader,
+persistent Study schema, database migration or additional Compose topology is introduced. Historical input stays bounded
+to 2000 rows, integer parameters to 10000, one actual invocation at a time, and the registered backend enforces a finite
+work budget before calculation. Authentication, the existing query deadline and all immutable-history/source fences remain.
+
 ## Context
 
 Adding SMA20, changing its period or displaying a momentum curve is an observation workflow, not implicit consent to durable Research.

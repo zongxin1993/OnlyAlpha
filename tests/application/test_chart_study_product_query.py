@@ -10,7 +10,7 @@ import pytest
 from onlyalpha.application.chart_study_product_query import (
     OnlyChartStudyProductQueryService,
     OnlyChartStudyQueryError,
-    OnlyChartStudyRequestV1,
+    OnlyChartStudyRequestV2,
 )
 from onlyalpha.application.source_read_access import OnlySourceReadAccessError
 from onlyalpha.canonical import only_canonical_fingerprint
@@ -43,7 +43,12 @@ def arrange(tmp_path, *, period=20, seed=True, minutes=15, instrument=INSTRUMENT
         )
     invocation, _, _ = composition()
     query = OnlyChartStudyProductQueryService(harness.service, invocation)
-    admission = query.capabilities(session)
+    admission = next(
+        a
+        for a in query.capabilities(session)
+        if (a.registration.type_definition.type_id, a.registration.type_definition.semantic_version)
+        == ("onlyalpha.indicator.sma", "1")
+    )
     window = harness.service.query_bars(
         reference,
         instrument_id=str(instrument),
@@ -53,13 +58,16 @@ def arrange(tmp_path, *, period=20, seed=True, minutes=15, instrument=INSTRUMENT
         bar_semantic=semantic,
         read_session=session,
     )
-    request = OnlyChartStudyRequestV1(
+    request = OnlyChartStudyRequestV2(
         reference,
         str(instrument),
         semantic,
         end,
         count,
-        period,
+        "onlyalpha.indicator.sma",
+        "1",
+        {"period": period, "price_field": "CLOSE"},
+        ("value",),
         window.history_projection_fingerprint or "a" * 64,
         only_canonical_fingerprint(admission.registration.type_definition.descriptor()),
         admission.registration.implementation_manifest.implementation_fingerprint,
@@ -162,9 +170,9 @@ def test_owning_unavailable_and_corrupt_are_not_incomplete_or_changed(tmp_path, 
 
 @pytest.mark.parametrize("value", (True, 0, 10001, "20", 20.0))
 def test_period_exact_primitive_and_bounds(tmp_path, value):
-    _, _, request, _, _ = arrange(tmp_path, seed=False)
+    _, q, request, session, _ = arrange(tmp_path, seed=False)
     with pytest.raises(OnlyChartStudyQueryError):
-        replace(request, period=value)
+        q.evaluate(replace(request, parameters={"period": value, "price_field": "CLOSE"}), session)
 
 
 def test_one_outer_slot_remains_charged_through_owning_read_and_withdrawal(tmp_path, monkeypatch):
@@ -278,14 +286,19 @@ def test_source_catalog_eth_and_native_duration_are_proved_per_request(tmp_path,
 
 def test_capability_binds_owning_input_support_policy(tmp_path):
     _, q, _, session, _ = arrange(tmp_path, seed=False)
-    admission = q.capabilities(session)
+    admission = next(
+        item
+        for item in q.capabilities(session)
+        if item.registration.type_definition.type_id == "onlyalpha.indicator.sma"
+    )
     payload = admission.payload()
     assert payload["input_support"] == {
         "instrument_policy": "EXACT_SOURCE_CATALOG",
         "resolution_mode": "PROVIDER_NATIVE",
         "bar_formation": "FIXED_DURATION",
         "alignment": "UTC_24X7",
-        "closed_only": True,
+        "closed_only": False,
+        "preview_mode": "OWNING_STREAM_SNAPSHOT",
         "coverage_policy": "COMPLETE_VERIFIED_WINDOW",
     }
     assert admission.fingerprint == only_canonical_fingerprint(payload)
@@ -312,7 +325,7 @@ def test_derived_seven_minute_is_refused_by_owning_plan(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("count", (0, 2001, True))
 def test_query_input_bound_stays_exact(tmp_path, count):
-    _, _, request, _, _ = arrange(tmp_path, seed=False)
+    _, q, request, session, _ = arrange(tmp_path, seed=False)
     with pytest.raises(OnlyChartStudyQueryError, match="CHART_STUDY_REQUEST_INVALID"):
         replace(request, target_bar_count=count)
 
@@ -353,6 +366,6 @@ def test_catalog_unavailable_is_not_certified_instrument_absence(tmp_path):
 
 @pytest.mark.parametrize("minutes", (1, 3, 5, 30, 60, 120, 240))
 def test_aligned_native_request_is_not_restricted_to_fifteen_minutes(tmp_path, minutes):
-    _, _, request, _, _ = arrange(tmp_path, seed=False)
+    _, q, request, session, _ = arrange(tmp_path, seed=False)
     native = replace(request, bar_semantic=OnlyBarSemantic.fixed_duration(minutes))
     assert native.bar_semantic.stride_minutes == minutes

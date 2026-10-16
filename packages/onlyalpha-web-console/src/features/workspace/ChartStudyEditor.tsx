@@ -13,11 +13,13 @@ import {
     transientConfigurationErrors,
     parameterTextInput,
     studyDescriptor,
+    studyName,
     validPresentation,
     type ChartStudyInstance,
     type StudyConfiguration,
     type StudyDescriptor,
     type StudyParameter,
+    type StudyScalar,
     type StudyPresentation
 } from "./chartStudy";
 import "./chartStudy.css";
@@ -70,16 +72,45 @@ export function ChartStudyEditor({
         () =>
             instance?.configuration ?? {
                 parameters: Object.fromEntries(
-                    source.descriptor?.parameters.map((p) => [p.name, p.default]) ?? []
+                    source.descriptor?.parameters.map((p): readonly [string, StudyScalar] => {
+                        if (selection.source !== "CHART_STUDY_TRANSIENT")
+                            return [p.name, p.default];
+                        const value = selection.capability.presentation.default_parameters[p.name];
+                        if (value === undefined) throw new Error("缺少官方默认参数");
+                        return [
+                            p.name,
+                            typeof value === "boolean"
+                                ? { type: "BOOLEAN", value }
+                                : typeof value === "number"
+                                  ? { type: "INTEGER", value }
+                                  : { type: p.type === "DECIMAL" ? "DECIMAL" : "STRING", value }
+                        ];
+                    }) ?? []
                 ),
-                outputName:
-                    source.descriptor?.outputs.length === 1
-                        ? (source.descriptor.outputs[0]?.name ?? "")
-                        : ""
+                outputNames:
+                    selection.source === "CHART_STUDY_TRANSIENT"
+                        ? selection.capability.presentation.series
+                              .filter((series) => series.default_visible)
+                              .map((series) => series.output_name)
+                        : (source.descriptor?.outputs
+                              .filter((output) => output.data_type === "DECIMAL")
+                              .map((output) => output.name) ?? [])
             }
     );
     const [presentation, setPresentation] = useState<StudyPresentation>(
-        () => instance?.presentation ?? defaultPresentation()
+        () =>
+            instance?.presentation ?? {
+                ...defaultPresentation(),
+                ...(selection.source === "CHART_STUDY_TRANSIENT"
+                    ? {
+                          placement: selection.capability.presentation.placement,
+                          color:
+                              selection.capability.presentation.series.find(
+                                  (series) => series.default_visible
+                              )?.color ?? "#1f5f8b"
+                      }
+                    : {})
+            }
     );
     const [status, setStatus] = useState<"editing" | "checking" | "stale">("editing");
     const [error, setError] = useState<string | null>(null);
@@ -132,7 +163,11 @@ export function ChartStudyEditor({
         try {
             if (selection.source === "CHART_STUDY_TRANSIENT") {
                 if (credentials === undefined) throw new ChartCatalogError("INVALID");
-                const current = await readChartStudyCapability(credentials, controller.signal);
+                const current = await readChartStudyCapability(
+                    credentials,
+                    controller.signal,
+                    selection.capability
+                );
                 if (
                     current.capability_projection_fingerprint !==
                     selection.capability.capability_projection_fingerprint
@@ -278,9 +313,7 @@ export function ChartStudyEditor({
                     取消
                 </button>
             </header>
-            <p className="chart-study-editor__name">
-                {source.descriptor?.typeId.split(".").at(-1)?.toUpperCase()}
-            </p>
+            <p className="chart-study-editor__name">{studyName(selection)}</p>
             <p>仅供图表观察，不是正式研究结果。</p>
             <details className="chart-study-editor__details">
                 <summary>参数说明与技术详情</summary>
@@ -299,8 +332,8 @@ export function ChartStudyEditor({
                     </>
                 ) : selection.source === "CHART_STUDY_TRANSIENT" ? (
                     <p>
-                        CHART_STUDY_TRANSIENT · DISPLAY_ONLY · period 1–
-                        {selection.capability.capability_projection.limits.max_period}
+                        CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 最多{" "}
+                        {selection.capability.capability_projection.limits.max_input_rows} Bars
                     </p>
                 ) : (
                     <p>已登记，尚未接入后端计算。</p>
@@ -335,45 +368,31 @@ export function ChartStudyEditor({
             >
                 <fieldset disabled={status !== "editing" || metadataError !== null}>
                     <legend>参数</legend>
-                    {source.descriptor?.parameters.map((parameter) =>
-                        selection.source === "CHART_STUDY_TRANSIENT" &&
-                        parameter.name === "price_field" &&
-                        configuration.parameters.price_field?.type === "STRING" &&
-                        configuration.parameters.price_field.value === "CLOSE" ? (
-                            <p key={parameter.name}>按收盘价计算</p>
-                        ) : (
-                            <label key={parameter.name}>
-                                <span>{parameter.name === "period" ? "周期" : parameter.name}</span>
-                                {parameterField(parameter)}
-                                {parameter.required && parameter.default.type === "NULL" ? (
-                                    <small>必填，无默认值</small>
-                                ) : null}
-                            </label>
+                    {source.descriptor?.parameters
+                        .filter(
+                            (parameter) =>
+                                selection.source !== "CHART_STUDY_TRANSIENT" ||
+                                parameter.type !== "STRING" ||
+                                parameter.enumValues.length !== 1
                         )
-                    )}
-                    {source.descriptor?.outputs.length !== 1 ||
-                    configuration.outputName !== source.descriptor.outputs[0]?.name ? (
-                        <label>
-                            <span>输出</span>
-                            <select
-                                aria-label="输出"
-                                value={configuration.outputName}
-                                onChange={(event) => {
-                                    setConfiguration((previous) => ({
-                                        ...previous,
-                                        outputName: event.target.value
-                                    }));
-                                }}
-                            >
-                                <option value="">请选择官方 output</option>
-                                {source.descriptor?.outputs.map((output) => (
-                                    <option key={output.name} value={output.name}>
-                                        {output.name} · {output.semantic_type}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    ) : null}
+                        .map((parameter) =>
+                            selection.source === "CHART_STUDY_TRANSIENT" &&
+                            parameter.name === "price_field" &&
+                            configuration.parameters.price_field?.type === "STRING" &&
+                            configuration.parameters.price_field.value === "CLOSE" ? (
+                                <p key={parameter.name}>按收盘价计算</p>
+                            ) : (
+                                <label key={parameter.name}>
+                                    <span>
+                                        {parameter.name === "period" ? "周期" : parameter.name}
+                                    </span>
+                                    {parameterField(parameter)}
+                                    {parameter.required && parameter.default.type === "NULL" ? (
+                                        <small>必填，无默认值</small>
+                                    ) : null}
+                                </label>
+                            )
+                        )}
                 </fieldset>
                 <details
                     ref={advanced}
@@ -390,6 +409,93 @@ export function ChartStudyEditor({
                     <summary>高级选项</summary>
                     <fieldset disabled={status !== "editing"}>
                         <legend>显示样式</legend>
+                        <fieldset>
+                            <legend>输出曲线</legend>
+                            {source.descriptor?.outputs
+                                .filter(
+                                    (output) =>
+                                        output.data_type === "DECIMAL" &&
+                                        (selection.source !== "CHART_STUDY_TRANSIENT" ||
+                                            selection.capability.output_members.includes(
+                                                output.name
+                                            ))
+                                )
+                                .map((output) => (
+                                    <label key={output.name}>
+                                        <input
+                                            type="checkbox"
+                                            aria-label={`输出 ${output.name}`}
+                                            checked={configuration.outputNames.includes(
+                                                output.name
+                                            )}
+                                            onChange={(event) => {
+                                                setConfiguration((previous) => ({
+                                                    ...previous,
+                                                    outputNames: event.target.checked
+                                                        ? [...previous.outputNames, output.name]
+                                                        : previous.outputNames.filter(
+                                                              (name) => name !== output.name
+                                                          )
+                                                }));
+                                            }}
+                                        />
+                                        {output.name}
+                                    </label>
+                                ))}
+                        </fieldset>
+                        {selection.source === "CHART_STUDY_TRANSIENT"
+                            ? selection.capability.presentation.series.map((series) => {
+                                  const style = presentation.seriesStyles?.[series.output_name] ?? {
+                                      color: series.color,
+                                      visible: true
+                                  };
+                                  return (
+                                      <fieldset key={series.output_name}>
+                                          <legend>{series.label}</legend>
+                                          <label>
+                                              颜色
+                                              <input
+                                                  type="color"
+                                                  aria-label={`${series.label}颜色`}
+                                                  value={style.color}
+                                                  onChange={(event) => {
+                                                      setPresentation((previous) => ({
+                                                          ...previous,
+                                                          seriesStyles: {
+                                                              ...previous.seriesStyles,
+                                                              [series.output_name]: {
+                                                                  ...style,
+                                                                  color: event.target.value
+                                                              }
+                                                          }
+                                                      }));
+                                                  }}
+                                              />
+                                          </label>
+                                          <label>
+                                              显示
+                                              <input
+                                                  type="checkbox"
+                                                  aria-label={`显示 ${series.label}`}
+                                                  checked={style.visible}
+                                                  onChange={(event) => {
+                                                      setPresentation((previous) => ({
+                                                          ...previous,
+                                                          seriesStyles: {
+                                                              ...previous.seriesStyles,
+                                                              [series.output_name]: {
+                                                                  ...style,
+                                                                  visible: event.target.checked
+                                                              }
+                                                          }
+                                                      }));
+                                                  }}
+                                              />
+                                          </label>
+                                      </fieldset>
+                                  );
+                              })
+                            : null}
                         <label>
                             <span>位置</span>
                             <select
