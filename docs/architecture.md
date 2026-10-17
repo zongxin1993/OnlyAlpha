@@ -180,7 +180,7 @@ The owner-approved long-term implementation target is a Rust Trading Kernel with
 
 The Rust implementation of market-independent Core semantics lives in `crates/onlyalpha-kernel/`, under the root Cargo workspace.
 It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
-[Boolean Predicate corpus](predicate-semantics.md) and [integer comparison vectors](integer-predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
+[Boolean Predicate corpus](predicate-semantics.md) and [integer reference/literal comparison vectors](integer-predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
 Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
 
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。

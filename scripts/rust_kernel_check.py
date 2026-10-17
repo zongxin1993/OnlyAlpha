@@ -63,7 +63,11 @@ def main() -> int:
     if len(lock["package"]) != 1 or lock["package"][0]["name"] != "onlyalpha-kernel":
         raise ValueError("RUST_KERNEL_DEPENDENCY_REVIEW_REQUIRED")
     before = source_inputs(ROOT)
-    for guard in ("scripts/predicate_vectors.py", "scripts/integer_predicate_vectors.py"):
+    for guard in (
+        "scripts/predicate_vectors.py",
+        "scripts/integer_predicate_vectors.py",
+        "scripts/integer_literal_vectors.py",
+    ):
         subprocess.run([sys.executable, str(ROOT / guard), "--check"], cwd=ROOT, env=env, check=True)
     for command in build_commands(target):
         print("CHECK", " ".join(command), flush=True)
@@ -94,6 +98,7 @@ def main() -> int:
                 "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
                 "vector_sha256": digest(ROOT / "test-data/predicate/boolean-v1.tsv"),
                 "integer_vector_sha256": digest(ROOT / "test-data/predicate/integer-refs-v1.tsv"),
+                "integer_literal_vector_sha256": digest(ROOT / "test-data/predicate/integer-literal-v1.tsv"),
                 "artifacts_sha256": binaries,
             },
             indent=2,

@@ -89,3 +89,53 @@ impl IntegerPredicate {
         }))
     }
 }
+
+/// One nullable reference compared against one required, immutable literal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntegerLiteralPredicate<'a> {
+    operation: IntegerPredicate,
+    literal: IntegerOperand<'a>,
+    literal_left: bool,
+}
+
+impl<'a> IntegerLiteralPredicate<'a> {
+    pub fn resolve(
+        type_id: &str,
+        version: &str,
+        literal: IntegerOperand<'a>,
+        literal_left: bool,
+    ) -> Result<Self, PredicateError> {
+        let operation = match type_id {
+            "onlyalpha.predicate.internal.compare.eq.integer.literal" => IntegerPredicate::Eq,
+            "onlyalpha.predicate.internal.compare.ne.integer.literal" => IntegerPredicate::Ne,
+            "onlyalpha.predicate.internal.compare.lt.integer.literal" => IntegerPredicate::Lt,
+            "onlyalpha.predicate.internal.compare.le.integer.literal" => IntegerPredicate::Le,
+            "onlyalpha.predicate.internal.compare.gt.integer.literal" => IntegerPredicate::Gt,
+            "onlyalpha.predicate.internal.compare.ge.integer.literal" => IntegerPredicate::Ge,
+            _ => return Err(PredicateError::UnknownType),
+        };
+        if version != crate::predicate::SEMANTIC_VERSION {
+            return Err(PredicateError::UnknownVersion);
+        }
+        Ok(Self {
+            operation,
+            literal,
+            literal_left,
+        })
+    }
+
+    pub fn evaluate(
+        self,
+        inputs: &[Option<IntegerOperand<'_>>],
+    ) -> Result<Option<bool>, PredicateError> {
+        if inputs.len() != 1 {
+            return Err(PredicateError::InvalidArity);
+        }
+        let operands = if self.literal_left {
+            [Some(self.literal), inputs[0]]
+        } else {
+            [inputs[0], Some(self.literal)]
+        };
+        self.operation.evaluate(&operands)
+    }
+}

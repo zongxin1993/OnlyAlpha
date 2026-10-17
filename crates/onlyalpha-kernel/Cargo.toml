@@ -8,4 +8,4 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# No third-party dependencies: the admitted Boolean Predicate slice uses std only.
+# No third-party dependencies: the admitted Predicate slices use std only.

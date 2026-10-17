@@ -4,7 +4,7 @@ This Contract describes the existing semantic-version `1` registered double-refe
 are `onlyalpha.predicate.internal.compare.<op>.integer.refs`, with `<op>` exactly `eq`, `ne`, `lt`, `le`, `gt`, `ge`.
 Definitions have no parameters, nullable INTEGER `left`/`right`, nullable BOOLEAN `value` with PREDICATE_VALUE semantics,
 PROPAGATE missing policy, EVENT_TIME and upstream warmup. Type/version, Definition, implementation fingerprint and Runtime
-Generation remain separate existing identities. Boolean, Decimal, string and literal comparison families are not substitutions.
+Generation remain separate existing identities. Boolean, Decimal and string comparison families are not substitutions. The INTEGER literal subset below has its own exact type IDs and parameter layout.
 
 ## Admitted values and result
 
@@ -16,7 +16,7 @@ Ordered rows, repeated rows and fresh instances preserve their corresponding out
 
 Python TRADING uses admitted non-Boolean Python integers and has no machine-integer-width bound. Existing RESEARCH Arrow integer
 transport has its own width envelope: tests exercise int64 explicitly, without claiming arbitrary Python integers fit that array.
-This slice does not change Python admission, Research transport, literal parameters or existing executable identity.
+This slice does not change Python admission or Research transport. Distribution/artifact identity evolves separately from these unchanged semantic-version 1 Definitions.
 
 The Rust library accepts a private-field borrowed `IntegerOperand` constructed from canonical decimal ASCII text: `0`, or an
 optional minus followed by a digit 1–9 and zero or more digits 0–9. Thus plus, leading zero, negative zero, decimal/exponent notation,
@@ -55,3 +55,29 @@ Decimal arithmetic, persistent identity, recovery/UNKNOWN behavior or latency im
 
 No crate defaults, string hashing, binary floats, worker protocol, runtime switch, compatibility fallback or second Authority is
 introduced. Constitution, ADR 0139 and the owning Calculation Contracts remain authoritative.
+
+## Required INTEGER literal parameters
+
+The six `onlyalpha.predicate.internal.compare.<op>.integer.literal` types at semantic version `1` have exactly one nullable
+INTEGER input named `left`, required INTEGER parameter `literal`, and BOOLEAN `literal_left` defaulting to `false`. Their output,
+missing policy, time and warmup metadata follow the same canonical Calculation definitions. After owning schema normalization,
+the fixed literal is a non-missing integer; this slice neither changes nor reimplements Python parameter parsing. Missing,
+Boolean and fractional literal parameters and non-Boolean position parameters fail existing schema admission.
+
+With `literal_left=false`, compare input to literal; with `true`, compare literal to input. A missing input yields missing in both
+positions; a required literal cannot be missing. The Rust `IntegerLiteralPredicate` resolves only these exact literal IDs/version,
+retains the parsed borrowed `IntegerOperand` and explicit typed position as immutable configuration, checks exactly one input
+before null propagation, and delegates to the existing exact integer comparator. No numeric width, float conversion, arithmetic,
+new parser, dependency or mutable state is introduced. Rust construction consumes already normalized typed values; it does not
+claim to accept every textual form Python's parameter schema may normalize.
+
+`test-data/predicate/integer-literal-v1.tsv` records 408 cases. Its generator reuses the independent mathematical relation tables
+of the reference corpus, making each non-missing side the literal in turn and preserving the ordered relation's expectation.
+Null-literal cases are excluded because schema admission prohibits them; missing-reference cases remain in both positions.
+Expectations are never obtained by executing either backend. Exact-byte guards reject changed output, precision, owner ID,
+literal, position, duplicate or truncated rows. Registered Python TRADING and the Rust library consume every case with repetition,
+reversal and fresh instances; Python RESEARCH consumes the common int64 input/literal envelope. Omitted `literal_left` is checked
+against explicit false in the owning Python registry. Wrong Rust family/version/arity remains an error, never a nullable result.
+
+The existing sealed-generation diagnostic still admits only the Boolean and integer **reference** subsets. This library extension
+does not extend its frame/admission, create equivalence Evidence, select a Runtime implementation or establish performance gains.

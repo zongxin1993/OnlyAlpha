@@ -1,7 +1,7 @@
 # Linux Rust Kernel development
 
 The library in `crates/onlyalpha-kernel/` implements the six stateless Boolean/terminal primitives in
-[Predicate semantics](predicate-semantics.md) and the six double-reference [integer comparisons](integer-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
+[Predicate semantics](predicate-semantics.md) and the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
 
@@ -43,7 +43,7 @@ explicit error; errors are not false or missing. Unary versus binary arity is ch
 inhabit the typed API. The integer module parses exact canonical decimal integer spellings without fixed-width conversion or arithmetic. No timestamp parser, Decimal arithmetic, persistent identity hashing, transaction or recovery protocol is present, so this subset provides no evidence about their rounding/replay behavior. Future modules must add their own
 Contracts/vectors; do not infer full Kernel equivalence from these Boolean tests.
 
-The Boolean implementations use the same recorded 30-row corpus. Integer comparisons use their separate independent 216-row corpus, checked by Python registered backends and the Rust library; the sealed-generation local diagnostic process compares both subsets under [its bounded private Contract](predicate-comparison.md). The existing independent truth-table byte guard runs before Rust checks;
+The Boolean implementations use the same recorded 30-row corpus. Integer reference comparisons use their independent 216-row corpus; literal comparisons use a separate 408-row corpus, with required literal and position configuration. Both are checked by Python registered backends and the Rust library. The sealed-generation local diagnostic process compares the Boolean and integer-reference subsets only under [its bounded private Contract](predicate-comparison.md). The existing independent truth-table byte guard runs before Rust checks;
 Rust tests preserve ordered rows, repeated evaluation, reversed order and distinct terminal identities. Errors remain different
 from a nullable scalar. Builds use checked overflow and unwind in both profiles; this does not substitute for future checked
 arithmetic tests. A fresh stateless library evaluation is not deployment upgrade/recovery evidence.
