@@ -1,17 +1,17 @@
 # Stateless Predicate comparison diagnostic
 
-This Infrastructure diagnostic compares only the six stateless Boolean/terminal types in
-[Predicate semantics](predicate-semantics.md), semantic version `1`. It is a bounded first consumer of the
+This Infrastructure diagnostic compares the six stateless Boolean/terminal types in
+[Predicate semantics](predicate-semantics.md) and six double-reference [integer comparisons](integer-predicate-semantics.md), semantic version `1`. It is a bounded first consumer of the
 [Rust implementation](rust-kernel-development.md), governed by ADR 0117 and ADR 0139. It does not select a Runtime
 implementation or provide a human/Agent control API. Python remains the admitted official implementation.
 
 ## Inputs, identity and ownership
 
 `OnlyPredicateComparisonService` in the Runtime Generation Manager accepts an existing complete immutable work-binding
-Evidence, the canonical Calculation Definition, an ordered tuple of nullable Boolean operand tuples, and one exact retained
+Evidence, the canonical Calculation Definition, an ordered tuple of nullable Boolean or integer operand tuples matching the exact Definition, and one exact retained
 native Distribution Artifact manifest. It neither creates nor changes those authorities. Each observation binds the complete
 Definition and fingerprint, all ordered inputs, fresh stateless initial state, nested work ownership, exact Python Generation,
-Python implementation fingerprint, native manifest/byte identity, request digest and available native response digest.
+Python implementation fingerprint, native manifest/byte identity, request digest and available native response digest. Diagnostic context schema 2 records `input_encoding`: `NULLABLE_BOOLEAN` keeps JSON Boolean/null, while `INTEGER_DECIMAL_TEXT` records canonical decimal strings/null. No integer context is routed through a JSON float. This diagnostic schema is distinct from Calculation semantic version 1 and the unchanged work/Generation identities.
 
 The manager rematerializes the full Definition through a fresh registry containing only the admitted built-in Predicate types.
 It requires exact Definition equality and STATELESS capability. While holding the existing work-binding read guard, it verifies
@@ -25,22 +25,22 @@ requires the exact declared GNU Linux host target; it never substitutes a differ
 
 ## Private local frame
 
-The `predicate-diagnostic` executable uses bounded ASCII stdin/stdout, not files or a network listener. Version 1 is:
+The `predicate-diagnostic` executable uses bounded ASCII stdin/stdout, not files or a network listener. The current private frame is version 2:
 
 ```text
-ONLYALPHA_PREDICATE_DIAGNOSTIC_V1<TAB><64 lowercase hex context fingerprint><LF>
+ONLYALPHA_PREDICATE_DIAGNOSTIC_V2<TAB><64 lowercase hex context fingerprint><LF>
 <ordinal><TAB><type_id><TAB><semantic_version><TAB><operand>[<TAB><operand>]<LF>
 ```
 
 The context fingerprint binds all inputs above, including Generation and work ownership. Ordinals are contiguous canonical
-decimal integers starting at zero. Operands are exactly `true`, `false`, `null`. A response echoes the header and every ordered
+decimal integers starting at zero. Boolean-family operands are exactly `true`, `false`, `null`. Integer refs operands are `null` or canonical decimal integer text (`0` or `-?[1-9][0-9]*`), selected by the declared type family. Boolean values are never integers, and float/string Python inputs are rejected rather than coerced. Integer parsing reuses the Rust library; invalid syntax is a malformed frame, never a missing value or false output. A response echoes the header and every ordered
 request row, appending `<TAB>OK<TAB><scalar>` or `<TAB>ERROR<TAB><code>`. Error codes are `UnknownType`, `UnknownVersion`,
 `InvalidArity`; rejection is never a nullable scalar. The executable can report zero-operand InvalidArity; the service admits
 only correctly typed and sized rows. Type IDs use lowercase ASCII letters, digits, dot and underscore, length 1–192; semantic
 versions use ASCII letters, digits, dot, underscore, plus and minus, length 1–32. CR is forbidden and final LF mandatory.
 The executable validates the complete frame before emitting output; malformed input exits nonzero without partial success.
 
-The service admits 1–128 rows, at most two operands per row, 64 KiB request and response, and a 64 MiB executable.
+The service admits 1–128 rows, at most two operands per row, 64 KiB request and response, and a 64 MiB executable. Each integer operand has at most 256 decimal digits excluding its sign, solely as a diagnostic transport budget; the Core integer comparison API retains arbitrary digit length. An 851-bit precheck bounds conversion before decimal serialization, so even huge caller integers produce UNAVAILABLE without changing Python's global conversion limit. Admission reserves nine output bytes per row before physical proof/execution; a request whose worst-case reply exceeds 64 KiB is UNAVAILABLE without native execution. Both native and Python readers enforce the same scalar grammar and budget. The reply lexer admits canonical Boolean/integer echo tokens; byte-exact comparison detects a well-formed changed identity, operand, order, result or rejection.
 One comparison slot per Python process is acquired without waiting; busy returns UNAVAILABLE, with no queue or retry.
 Native pipe IO and process completion share a three-second deadline. This is a native-process budget, not a promised latency
 for physical Generation proof verification. Bounded nonblocking reads/writes prevent pipe deadlock and unbounded output capture.
@@ -67,7 +67,7 @@ Broker submit, formal publication, activation, fallback or retry. The existing g
 
 ## Validation boundary
 
-The canonical Rust lane tests both profiles against the independently guarded 30-row corpus. It passes the exact Cargo-selected
+The canonical Rust lane tests both profiles against the independently guarded 30-row Boolean and 216-row integer corpora. It passes the exact Cargo-selected
 binary to a hermetic Python integration helper that builds real wheels and a physically sealed Python Generation, binds isolated
 test work through the existing registry, and runs the installed Python backend against that actual native executable. Controlled
 fixture provenance and test namespaces are explicit; this is technical integration evidence, not a deployed upgrade or business UI
@@ -77,4 +77,16 @@ Contract tests mutate identity, ordering, terminal value, rejection and context;
 activation with retained work binding, released work, restart binding, malformed frames and separation from certified equivalence
 Evidence. This scalar slice contains no Decimal, timestamp, rounding, Order, execution, recovery or UNKNOWN-submit semantics.
 Those modules require their own vectors and comparison integration before broader R3 coverage or Kernel equivalence can be claimed.
+This is a development-period breaking evolution of the private frame and diagnostic context, not a public Gateway/API change.
+All current producer/consumer/tests migrate atomically to V2/schema 2. V1 is refused; no legacy loader or compatibility shim is
+added. Exact old native artifacts and all historical work/Generation facts remain retained and unchanged. Selecting an old V1
+binary with the current V2 service yields UNAVAILABLE, without substitution or rebinding. Diagnostic observations are not persisted
+as formal facts, so no stored-history transformation is introduced.
+
 The Gateway protobuf remains the sole cross-node/plugin protocol; this local diagnostic frame does not implement R4.
+
+
+[Python's integer conversion limit](https://docs.python.org/3.12/library/stdtypes.html#integer-string-conversion-length-limitation)
+and [CPython issue 136250](https://github.com/python/cpython/issues/136250) motivate bounded admission independent of interpreter
+settings. The local digit/bit checks run before context capture; regression inputs exceed 10,000 digits and exhaust the total frame
+budget. No global limit relaxation, floating conversion or oversized-value omission may produce MATCH.

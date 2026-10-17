@@ -1,9 +1,10 @@
 //! Bounded, read-only local diagnostic process. It exposes no trading capabilities.
+use onlyalpha_kernel::integer_predicate::{IntegerOperand, IntegerPredicate};
 use onlyalpha_kernel::predicate::Predicate;
 use std::io::{self, Read, Write};
 
 const LIMIT: usize = 65_536;
-const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V1";
+const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V2";
 
 fn evaluate(frame: &[u8]) -> Result<String, ()> {
     if frame.len() > LIMIT || !frame.ends_with(b"\n") || frame.contains(&b'\r') {
@@ -42,17 +43,35 @@ fn evaluate(frame: &[u8]) -> Result<String, ()> {
         {
             return Err(());
         }
-        let operands: Result<Vec<Option<bool>>, ()> = fields[3..]
-            .iter()
-            .map(|token| match *token {
-                "true" => Ok(Some(true)),
-                "false" => Ok(Some(false)),
-                "null" => Ok(None),
-                _ => Err(()),
-            })
-            .collect();
-        let operands = operands?;
-        match Predicate::resolve(fields[1], fields[2]).and_then(|op| op.evaluate(&operands)) {
+        let result = if fields[1].ends_with(".integer.refs") {
+            let operands: Result<Vec<Option<IntegerOperand<'_>>>, ()> = fields[3..]
+                .iter()
+                .map(|token| {
+                    if *token == "null" {
+                        return Ok(None);
+                    }
+                    if token.strip_prefix('-').unwrap_or(token).len() > 256 {
+                        return Err(());
+                    }
+                    IntegerOperand::parse(token).map(Some).map_err(|_| ())
+                })
+                .collect();
+            let operands = operands?;
+            IntegerPredicate::resolve(fields[1], fields[2]).and_then(|op| op.evaluate(&operands))
+        } else {
+            let operands: Result<Vec<Option<bool>>, ()> = fields[3..]
+                .iter()
+                .map(|token| match *token {
+                    "true" => Ok(Some(true)),
+                    "false" => Ok(Some(false)),
+                    "null" => Ok(None),
+                    _ => Err(()),
+                })
+                .collect();
+            let operands = operands?;
+            Predicate::resolve(fields[1], fields[2]).and_then(|op| op.evaluate(&operands))
+        };
+        match result {
             Ok(value) => output.push_str(&format!(
                 "{row}\tOK\t{}\n",
                 match value {

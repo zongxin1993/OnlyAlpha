@@ -16,7 +16,7 @@ fn run(frame: &[u8]) -> std::process::Output {
 #[test]
 fn real_diagnostic_process_matches_all_recorded_rows_and_order() {
     let corpus = include_str!("../../../test-data/predicate/boolean-v1.tsv");
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V1\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
     let mut request = header.clone();
     let mut expected = header;
     for (i, row) in corpus.lines().skip(1).enumerate() {
@@ -37,7 +37,7 @@ fn real_diagnostic_process_matches_all_recorded_rows_and_order() {
 
 #[test]
 fn malformed_or_oversized_frames_never_produce_partial_results() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V1\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
     for frame in [
         vec![],
         vec![255],
@@ -54,9 +54,27 @@ fn malformed_or_oversized_frames_never_produce_partial_results() {
 
 #[test]
 fn errors_are_distinct_from_nullable_scalars() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V1\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
     for (id, version, operands, error) in [
         ("unknown", "1", "true", "UnknownType"),
+        (
+            "onlyalpha.predicate.internal.compare.eq.integer.refs",
+            "2",
+            "1\t1",
+            "UnknownVersion",
+        ),
+        (
+            "onlyalpha.predicate.internal.compare.unknown.integer.refs",
+            "1",
+            "1\t1",
+            "UnknownType",
+        ),
+        (
+            "onlyalpha.predicate.internal.compare.eq.integer.refs",
+            "1",
+            "null",
+            "InvalidArity",
+        ),
         (
             "onlyalpha.predicate.internal.boolean.not",
             "2",
@@ -99,4 +117,62 @@ fn sealed_python_generation_compares_the_actual_native_executable() {
         String::from_utf8_lossy(&output.stdout)
             .contains("SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS")
     );
+}
+
+#[test]
+fn actual_integer_process_preserves_all_recorded_exact_values() {
+    let rows: Vec<_> = include_str!("../../../test-data/predicate/integer-refs-v1.tsv")
+        .lines()
+        .skip(1)
+        .collect();
+    assert_eq!(rows.len(), 216);
+    for batch in rows.chunks(100) {
+        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
+        let mut request = header.clone();
+        let mut expected = header;
+        for (index, row) in batch.iter().enumerate() {
+            let f: Vec<_> = row.split('\t').collect();
+            let line = format!("{index}\t{}\t{}\t{}\t{}", f[1], f[2], f[3], f[4]);
+            request.push_str(&format!("{line}\n"));
+            expected.push_str(&format!("{line}\tOK\t{}\n", f[5]));
+        }
+        let out = run(request.as_bytes());
+        assert!(out.status.success());
+        assert_eq!(out.stdout, expected.as_bytes());
+    }
+}
+
+#[test]
+fn integer_frames_reject_wrong_scalar_family_and_oversized_operands_without_partial_output() {
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
+    let good = "0\tonlyalpha.predicate.internal.compare.eq.integer.refs\t1\t1\t1\n";
+    for token in [
+        "true".to_owned(),
+        "01".to_owned(),
+        "-0".to_owned(),
+        "1e3".to_owned(),
+        "9".repeat(257),
+    ] {
+        let frame = format!(
+            "{header}{good}1\tonlyalpha.predicate.internal.compare.eq.integer.refs\t1\t{token}\t1\n"
+        );
+        let out = run(frame.as_bytes());
+        assert!(!out.status.success());
+        assert!(out.stdout.is_empty());
+    }
+    let out = run(format!("{}{good}", header.replace("V2", "V1")).as_bytes());
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+}
+
+#[test]
+fn maximum_signed_integer_tokens_round_trip_exactly() {
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t{}\n", "a".repeat(64));
+    for value in ["9".repeat(256), format!("-{}", "9".repeat(256))] {
+        let row =
+            format!("0\tonlyalpha.predicate.internal.compare.eq.integer.refs\t1\t{value}\t{value}");
+        let out = run(format!("{header}{row}\n").as_bytes());
+        assert!(out.status.success());
+        assert_eq!(out.stdout, format!("{header}{row}\tOK\ttrue\n").as_bytes());
+    }
 }

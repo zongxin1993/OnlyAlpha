@@ -77,7 +77,7 @@ for case in payload['cases']:
  assert observed['context']['native_artifact']==payload['native']
  assert observed['python_implementation'] in {item.implementation_fingerprint for item in registry.require_work_generation(binding.work_id,binding.runtime_generation_fingerprint).implementations}
 content=store.fetch_exact(native.artifact_sha256)[1]
-frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V1\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
+frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
 real_popen=subprocess.Popen
 children=[]
 def tracked(*args,**kwargs):
@@ -196,12 +196,21 @@ def main() -> None:
         store.put_once(native, content)
         calculations = OnlyCalculationRegistry()
         only_register_trading_predicate_primitives(calculations)
-        corpus = list(csv.DictReader((ROOT / "test-data/predicate/boolean-v1.tsv").open(), delimiter="\t"))
+        corpus = [
+            row
+            for name in ("boolean-v1.tsv", "integer-refs-v1.tsv")
+            for row in csv.DictReader((ROOT / "test-data/predicate" / name).open(), delimiter="\t")
+        ]
         scalars = {"true": True, "false": False, "null": None}
         cases = []
         for type_id in dict.fromkeys(row["type_id"] for row in corpus):
             rows = [row for row in corpus if row["type_id"] == type_id]
-            names = ("left", "right") if type_id.endswith((".and", ".or")) else ("value",)
+            integer = type_id.endswith(".integer.refs")
+            names = ("left", "right") if integer or type_id.endswith((".and", ".or")) else ("value",)
+
+            def scalar(token, integer=integer):
+                return None if token == "null" else int(token) if integer else scalars[token]
+
             definition = calculations.rematerialize_definition(
                 OnlyCalculationTypeReference(OnlyCalculationKind.PREDICATE, type_id, "1"),
                 {},
@@ -210,7 +219,7 @@ def main() -> None:
             cases.append(
                 {
                     "definition": dict(definition.to_dict()),
-                    "inputs": [[scalars[row["left"]], scalars[row["right"]]][: len(names)] for row in rows],
+                    "inputs": [[scalar(row["left"]), scalar(row["right"])][: len(names)] for row in rows],
                     "expected": [scalars[row["expected"]] for row in rows],
                 }
             )

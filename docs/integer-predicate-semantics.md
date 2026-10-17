@@ -21,7 +21,7 @@ This slice does not change Python admission, Research transport, literal paramet
 The Rust library accepts a private-field borrowed `IntegerOperand` constructed from canonical decimal ASCII text: `0`, or an
 optional minus followed by a digit 1–9 and zero or more digits 0–9. Thus plus, leading zero, negative zero, decimal/exponent notation,
 whitespace, Unicode digits and Boolean/null words are explicit InvalidInteger errors. Missing is passed as typed `None`, never
-constructed by swallowing a parse error. This text is a Rust API/test representation, not a new persistent wire/identity format.
+constructed by swallowing a parse error. This text is a Rust API/test representation, not a new persistent identity format. The separate [comparison diagnostic](predicate-comparison.md) adopts the same spelling within its explicit transport budget.
 Arbitrary digit length is supported within the caller's available string memory; no i64/i128/usize numeric conversion, float,
 truncation or rounding is used. Comparison examines sign, magnitude digit count, then equal-length ASCII digits, reversing magnitude
 order for negatives. It allocates no big-integer arithmetic structure and requires no external crate.
@@ -29,7 +29,7 @@ order for negatives. It allocates no big-integer arithmetic structure and requir
 Wrong type/version resolves to an explicit UnknownType/UnknownVersion error, with no fallback. Evaluation checks exactly two
 operands before missing propagation; wrong arity is InvalidArity, never false or missing. PredicateError gains InvalidInteger for
 the new parser; existing Boolean methods still return only their original applicable errors. This development-period
-Rust API/error variant evolution does not alter the existing Boolean diagnostic process frame or its owning consumer.
+Rust API/error variants remain distinct from the separately versioned diagnostic process frame.
 
 ## Independent vectors and proof boundary
 
@@ -42,8 +42,7 @@ from the Boolean corpus by the existing Rust checker.
 
 Registered Python TRADING and Rust consume every case; registered RESEARCH consumes the int64-representable subset. Tests preserve
 replay/reversal and exact bool/null equality; Rust rejects noncanonical spelling, wrong family/version and wrong arity. Linux debug
-and release use the same corpus and no profile-specific tolerance. The Boolean-only sealed-generation diagnostic remains unchanged:
-integer library correctness does not establish its R3 process integration, official Runtime admission, whole-Kernel equivalence,
+and release use the same corpus and no profile-specific tolerance. The separate bounded [sealed-generation diagnostic](predicate-comparison.md) compares both scalar subsets. Library correctness and that diagnostic do not establish official Runtime admission, whole-Kernel equivalence,
 Decimal arithmetic, persistent identity, recovery/UNKNOWN behavior or latency improvement.
 
 ## Engineering evidence and derived guards
