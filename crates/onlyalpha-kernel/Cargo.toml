@@ -1,0 +1,11 @@
+[package]
+name = "onlyalpha-kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# No third-party dependencies: the admitted Boolean Predicate slice uses std only.

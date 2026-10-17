@@ -349,6 +349,18 @@ services:
         read_only: true
         image:
           subpath: workspace/packages/onlyalpha-web-console/node_modules
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /usr/local/rustup
+        read_only: true
+        image:
+          subpath: usr/local/rustup
+      - type: image
+        source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
+        target: /usr/local/cargo
+        read_only: true
+        image:
+          subpath: usr/local/cargo
     tmpfs:
       - /workspace/.ruff_cache:uid=10001,gid=10001
       - /workspace/.mypy_cache:uid=10001,gid=10001

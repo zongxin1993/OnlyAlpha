@@ -280,6 +280,19 @@ def workspace_graph_errors(
                 f"{path}: quant asset distribution_version expected {str(release_version)!r}; "
                 f"found {matches[0].group('version')!r}"
             )
+    if (root / "Cargo.toml").is_file() or (root / "Cargo.lock").is_file():
+        try:
+            cargo = tomllib.loads((root / "Cargo.toml").read_text())
+            lock = tomllib.loads((root / "Cargo.lock").read_text())
+            packages = [item for item in lock["package"] if item["name"] == "onlyalpha-kernel"]
+            if (
+                cargo["workspace"]["package"]["version"] != str(release_version)
+                or len(packages) != 1
+                or packages[0]["version"] != str(release_version)
+            ):
+                errors.append("Rust workspace/lock release version differs from pyproject.toml")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            errors.append(f"Rust workspace/lock metadata is invalid: {exc}")
     return errors
 
 
@@ -414,6 +427,15 @@ def rewrite_workspace(
             )
         )
 
+    if (root / "Cargo.toml").is_file() or (root / "Cargo.lock").is_file():
+        cargo = read_document(root / "Cargo.toml")
+        lock = read_document(root / "Cargo.lock")
+        cargo["workspace"]["package"]["version"] = normalized
+        packages = [item for item in lock["package"] if item["name"] == "onlyalpha-kernel"]
+        if len(packages) != 1:
+            raise VersionSyncError("Rust lock must contain exactly one onlyalpha-kernel")
+        packages[0]["version"] = normalized
+        documents += [(root / "Cargo.toml", cargo), (root / "Cargo.lock", lock)]
     for path, document in documents:
         write_document(path, document)
     for path, document in web_documents:

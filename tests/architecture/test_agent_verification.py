@@ -524,3 +524,13 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
     assert "command: false" in output
     assert "short failure diagnostic" in output
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "path", ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/onlyalpha-kernel/src/lib.rs"]
+)
+def test_rust_changes_select_offline_kernel_checks(path: str) -> None:
+    plan = _plan(path)
+    assert "rust-kernel" in [check.value for check in plan.impact.checks]
+    assert plan.impact.static_plan is not None
+    assert plan.impact.static_plan.version_sync_required == (path in {"Cargo.toml", "Cargo.lock"})

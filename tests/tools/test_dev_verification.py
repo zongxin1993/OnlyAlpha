@@ -46,7 +46,7 @@ def test_source_edits_reuse_environment_but_dependency_edits_require_rebuild(tmp
 def test_source_inventory_excludes_artifacts_and_host_dependencies(tmp_path: Path) -> None:
     _environment(tmp_path)
     before = dev_verification.source_inputs(tmp_path)
-    for directory in ("test-results", ".venv", "packages/onlyalpha-web-console/node_modules"):
+    for directory in ("test-results", ".venv", "packages/onlyalpha-web-console/node_modules", "target"):
         path = tmp_path / directory
         path.mkdir(parents=True, exist_ok=True)
         (path / "generated").write_text("not source")
@@ -167,7 +167,12 @@ def _host(monkeypatch, tmp_path: Path, arguments: list[str], *, present: bool = 
 
 
 def _container(root: Path):
-    dependencies = ["/workspace/.venv", "/workspace/packages/onlyalpha-web-console/node_modules"]
+    dependencies = [
+        "/workspace/.venv",
+        "/workspace/packages/onlyalpha-web-console/node_modules",
+        "/usr/local/rustup",
+        "/usr/local/cargo",
+    ]
     return {
         "Id": "container",
         "Image": "sha256:" + "a" * 64,
@@ -473,6 +478,8 @@ def test_validation_is_source_mounted_and_cannot_start_business_services() -> No
     assert {mount["target"] for mount in dependencies} == {
         "/workspace/.venv",
         "/workspace/packages/onlyalpha-web-console/node_modules",
+        "/usr/local/rustup",
+        "/usr/local/cargo",
     }
     assert all(
         mount["read_only"] and mount["source"] == "${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}"
@@ -830,3 +837,40 @@ def test_frozen_source_preserves_an_empty_directory_still_present_in_source(tmp_
     source.unlink()
     dev_verification.freeze_source(tmp_path, "after-removal", product=True)
     assert (tmp_path / ".test-cache/dev-product-source/plugs/retained").is_dir()
+
+
+def test_rust_toolchain_and_dependencies_bind_environment_but_source_does_not(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    rust = tmp_path / "rust-toolchain.toml"
+    rust.write_text('[toolchain]\nchannel="1.99.1"\n')
+    lock = tmp_path / "Cargo.lock"
+    lock.write_text("version=4\n")
+    manifest = tmp_path / "crates/onlyalpha-kernel/Cargo.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('[package]\nname="onlyalpha-kernel"\n')
+    admitted = dev_verification.environment_inputs(tmp_path)
+    source = manifest.parent / "src/lib.rs"
+    source.parent.mkdir()
+    source.write_text("pub fn predicate() {}")
+    assert dev_verification.environment_inputs(tmp_path) == admitted
+    for path in (rust, lock, manifest):
+        before = path.read_text()
+        path.write_text(before + "\n# changed input\n")
+        assert dev_verification.environment_inputs(tmp_path) != admitted
+        path.write_text(before)
+
+
+def test_desktop_can_report_each_exact_bind_with_its_native_alias(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    record = _container(tmp_path)
+    record["Mounts"][0]["Source"] = "/host_mnt" + record["Mounts"][0]["Source"]
+    dev_verification.validate_container(record, tmp_path)
+
+
+def test_rust_compiler_and_proxies_are_exact_readonly_image_dependencies(tmp_path: Path) -> None:
+    record = _container(tmp_path)
+    for destination in ("/usr/local/rustup", "/usr/local/cargo"):
+        mounts = [m for m in record["Mounts"] if m["Destination"] == destination]
+        assert len(mounts) == 1
+        assert mounts[0]["Type"] == "image" and mounts[0]["RW"] is False
+    dev_verification.validate_container(record, tmp_path)

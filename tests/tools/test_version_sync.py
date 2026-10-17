@@ -616,3 +616,28 @@ def test_stale_runtime_factor_fixture_dependency_is_rejected(tmp_path: Path) -> 
     path.write_text(path.read_text().replace("onlyalpha==0.3.7", "onlyalpha==0.3.6"))
     with pytest.raises(VersionSyncError, match="onlyalpha"):
         check_versions(root)
+
+
+def test_rust_workspace_and_lock_follow_unique_release_authority(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.7"\n')
+    _write(root / "Cargo.lock", 'version=4\n[[package]]\nname="onlyalpha-kernel"\nversion="0.3.7"\n')
+    check_versions(root)
+    rewrite_workspace(root, "0.3.8")
+    assert parse((root / "Cargo.toml").read_text())["workspace"]["package"]["version"] == "0.3.8"
+    assert parse((root / "Cargo.lock").read_text())["package"][0]["version"] == "0.3.8"
+    check_versions(root)
+    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.6"\n')
+    assert "Rust" in _failure(root)
+
+
+def test_rust_release_check_refuses_missing_lock(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.7"\n')
+    assert "Rust" in _failure(root)
+
+
+def test_rust_release_check_refuses_missing_manifest(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write(root / "Cargo.lock", 'version=4\n[[package]]\nname="onlyalpha-kernel"\nversion="0.3.7"\n')
+    assert "Rust" in _failure(root)

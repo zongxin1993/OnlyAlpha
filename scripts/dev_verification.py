@@ -49,6 +49,8 @@ EXCLUDED_DIRECTORIES = {
 def environment_inputs(root: Path) -> dict[str, str]:
     paths = [root / name for name in ("pyproject.toml", "uv.lock", "deploy/Dockerfile.dev")]
     paths += [root / WEB / name for name in ("package.json", "package-lock.json")]
+    paths += [root / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml") if (root / name).is_file()]
+    paths += sorted((root / "crates").glob("*/Cargo.toml"))
     for directory in ("packages", "plugs"):
         paths += sorted((root / directory).glob("*/pyproject.toml"))
     paths += [
@@ -68,7 +70,7 @@ def source_inputs(root: Path) -> dict[str, str]:
         # Root runtime data and host environments are not source. Keep nested
         # env/venv source directories visible and subject to symlink validation.
         if Path(directory) == root:
-            children[:] = [name for name in children if name not in {"user_data", "env", "venv"}]
+            children[:] = [name for name in children if name not in {"user_data", "env", "venv", "target"}]
         if any((Path(directory) / name).is_symlink() for name in children):
             raise ValueError("DEV_VERIFICATION_SOURCE_SYMLINK")
         for name in sorted(files):
@@ -294,6 +296,8 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         "/onlyalpha-current-source": ("bind", str(root), False),
         "/workspace/test-results": ("bind", str(root / "test-results"), True),
         "/workspace/.venv": ("image", image_id, False),
+        "/usr/local/rustup": ("image", image_id, False),
+        "/usr/local/cargo": ("image", image_id, False),
         "/workspace/packages/onlyalpha-web-console/node_modules": ("image", image_id, False),
         **{
             f"/workspace/{WEB}/{name}": ("bind", str(root / ".test-cache/dev-tool-output" / name), True)
@@ -309,20 +313,17 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         )
         for mount in mounts
     }
-    # Docker Desktop exposes macOS file-sharing binds using one exact VM prefix.
-    # Directory binds are coherent; Desktop may report the two writable file
-    # binds without that prefix. Both representations must match exact roots.
-    desktop_expected = {
-        target: (kind, "/host_mnt" + source if kind == "bind" else source, writable)
-        for target, (kind, source, writable) in expected.items()
+    # Desktop can independently expose each exact macOS bind through its VM
+    # alias. Normalize only that OS alias; expected roots/permissions stay exact.
+    desktop_actual = {
+        target: (
+            kind,
+            source.removeprefix("/host_mnt") if kind == "bind" and isinstance(source, str) else source,
+            writable,
+        )
+        for target, (kind, source, writable) in actual.items()
     }
-    desktop_file_expected = dict(desktop_expected)
-    for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
-        target = f"/workspace/{WEB}/{name}"
-        desktop_file_expected[target] = expected[target]
-    same_mounts = actual == expected or (
-        sys.platform == "darwin" and actual in (desktop_expected, desktop_file_expected)
-    )
+    same_mounts = actual == expected or (sys.platform == "darwin" and desktop_actual == expected)
     if record.get("Config", {}).get("Image") != IMAGE or len(mounts) != len(expected) or not same_mounts:
         raise ValueError("DEV_VERIFICATION_WORKTREE_OR_DEPENDENCIES_REFUSED")
     declared = record.get("HostConfig", {}).get("Mounts", [])

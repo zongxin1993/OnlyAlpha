@@ -4,6 +4,7 @@ coverage_mode = "manual"
 [quality]
 required_gates = [
     "static",
+    "rust-kernel",
     "architecture",
     "openapi-contract",
     "private-asset-contract",

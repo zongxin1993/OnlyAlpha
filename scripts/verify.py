@@ -177,6 +177,15 @@ CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM
 
 IMPACT_RULES = (
     VerificationImpactRule(
+        "rust-kernel",
+        ("crates/onlyalpha-kernel/", "test-data/predicate/"),
+        ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/rust_kernel_check.py"),
+        (OnlyTestLane.CALCULATION,),
+        (OnlyReleaseCheck.RUST_KERNEL,),
+        VerificationEscalation.COMPONENT,
+        "Rust Kernel semantics require locked offline debug/release checks and shared Python vectors",
+    ),
+    VerificationImpactRule(
         "quality-infrastructure",
         (".github/workflows/", "scripts/pytest_"),
         (
@@ -715,7 +724,9 @@ def _static_plan(
             "packages/onlyalpha-agent-orchestrator/pyproject.toml",
         }
     }
-    version_sync_required = "package-metadata" in rules
+    version_sync_required = "package-metadata" in rules or any(
+        path in {"Cargo.toml", "Cargo.lock"} for changed in change_set.changed_paths for path in changed.impact_paths()
+    )
     build_targets = (
         ("onlyalpha", "onlyalpha-http-server")
         if "packages/onlyalpha-http-server/pyproject.toml" in metadata_paths

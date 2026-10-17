@@ -243,3 +243,21 @@ def test_quality_dependency_audit_uses_every_authoritative_lock() -> None:
     assert "--lockfile=uv.lock" in scan_args
     assert "--lockfile=packages/onlyalpha-web-console/package-lock.json" in scan_args
     assert all("continue-on-error" not in step for step in steps)
+
+
+def test_rust_kernel_is_required_and_uses_the_pinned_official_toolchain() -> None:
+    import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    channel = tomllib.loads((root / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
+    quality = _workflow()
+    assert "rust-kernel" in POLICY.quality_required_gates
+    steps = _steps(quality["rust-kernel"])
+    commands = "\n".join(str(step.get("run", "")) for step in steps)
+    assert f"rustup toolchain install {channel} --profile minimal --component rustfmt --component clippy" in commands
+    assert "python scripts/test_suite.py rust-kernel" in commands
+    dockerfile = (root / "deploy/Dockerfile.dev").read_text()
+    assert f"FROM rust:{channel}-slim-bookworm@sha256:" in dockerfile
+    runtime, tools = dockerfile.split("FROM runtime AS test", 1)
+    assert "COPY --from=rust-tools" not in runtime
+    assert "COPY --from=rust-tools" in tools

@@ -244,3 +244,6 @@ mutants/
 .env
 prompt/
 .DS_Store
+
+# Rust build output; Cargo.lock is a committed build input.
+/target/

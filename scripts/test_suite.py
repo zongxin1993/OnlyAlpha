@@ -78,6 +78,7 @@ class OnlyReleaseCheck(StrEnum):
     WEB_UNIT = "web-unit"
     WEB_BUILD = "web-build"
     WEB_E2E = "web-e2e"
+    RUST_KERNEL = "rust-kernel"
     BUILD = "build"
 
 
@@ -492,6 +493,8 @@ RELEASE_LANES = (
 
 
 def release_check_commands(check: OnlyReleaseCheck) -> tuple[tuple[str, ...], ...]:
+    if check is OnlyReleaseCheck.RUST_KERNEL:
+        return (("uv", "run", "python", "scripts/rust_kernel_check.py"),)
     if check is OnlyReleaseCheck.STATIC:
         return RELEASE_STATIC_COMMANDS
     if check is OnlyReleaseCheck.WEB_STATIC:
@@ -539,6 +542,7 @@ def release(args: argparse.Namespace) -> int:
     if code:
         return code
     for check in (
+        OnlyReleaseCheck.RUST_KERNEL,
         OnlyReleaseCheck.WEB_STATIC,
         OnlyReleaseCheck.WEB_UNIT,
         OnlyReleaseCheck.WEB_BUILD,

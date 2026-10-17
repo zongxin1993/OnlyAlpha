@@ -178,6 +178,11 @@ Result 和 Artifact final verification；失败或取消留下的 upstream facts
 
 The owner-approved long-term implementation target is a Rust Trading Kernel with Python-oriented indicators/factors and language-appropriate market plugins, as defined in [ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md). Initial Rust construction targets Linux in the existing single dev Compose environment. Current Python implementation remains implementation truth until each corresponding slice is migrated and validated. Temporary Python/Rust comparison never creates a second official writer; final retirement preserves exact historical artifacts and durable facts. The [migration work program](rust-kernel-migration-work-program.md) defines construction order, not completion or latency certification.
 
+The Rust implementation of market-independent Core semantics lives in `crates/onlyalpha-kernel/`, under the root Cargo workspace.
+It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
+[Boolean Predicate corpus](predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
+Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
+
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。
 
 P6.0 已将这个共享语义边界固化为 Runtime-neutral `OnlyTradingKernel`：Kernel config 不含 Runtime mode，Kernel 通过 builder 创建并唯一持有 Position、Allocation、Reservation、Account、Strategy Ledger、Settlement、Margin 与 Fee authorities，随后一次性安装 Order/Risk/Execution/Transaction/Projection 和共享 MarketData/Strategy processing graph。`OnlyRuntime` 只保留 identity、lifecycle、plugin resource 与 operational state，并通过临时兼容 delegate 暴露既有管理查询；这些 delegate 不是新的 Service Locator 合同。

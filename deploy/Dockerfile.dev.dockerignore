@@ -24,3 +24,5 @@ dist
 env
 htmlcov
 *.egg-info
+
+/target
