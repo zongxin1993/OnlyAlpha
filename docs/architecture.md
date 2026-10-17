@@ -636,6 +636,11 @@ producing an immutable RuntimeGeneration. The resulting immutable RuntimeGenerat
 `PREPARING → READY` transition. A validated environment carries a non-identity operational seal; a formal Worker must verify that seal,
 the exact retained wheel bytes, installed file hashes and recomputed Provider/Catalog/implementation closure before it becomes claim-capable.
 
+The same Artifact Store may retain the narrowly scoped SUPPORT-only Linux Kernel diagnostic ELF described by
+[Rust development](rust-kernel-development.md#retained-native-diagnostic-artifacts). Its declared target and exact bytes are
+retention inputs, not Runtime admission or equivalence proof. New and historical Python Generation builders reject these native
+diagnostics before installation; they cannot enter the admitted wheel closure or become a second official writer.
+
 One append-only hash-chained generation ledger is the durable operational Authority for READY, `ACTIVE_FOR_NEW_WORK`, DRAINING/RETIRED
 and immutable work bindings. Activation and rollback are expected-current compare-and-set transitions; a Run reads the pointer once and
 retains its exact binding. Restart replays the committed facts rather than inspecting newest packages or process order. Historical

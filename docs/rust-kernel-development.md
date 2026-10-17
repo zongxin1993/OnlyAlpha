@@ -59,5 +59,34 @@ arithmetic tests. A fresh stateless library evaluation is not deployment upgrade
 - [Generation contamination](engineering/failure_patterns/FP-RUNTIME-001-generation-contamination-and-fallback.md): record exact
   compiler/source/lock/artifact identity, refuse ambient wrappers and toolchain fallback. Build records never confer Runtime admission.
 
+- [System V ELF header specification](https://gabi.xinuos.com/elf/02-eheader.html): validate the declared ELF64 header envelope
+  with standard-library byte/struct operations; do not infer loadability, GNU ABI or compiler provenance from a header.
+
 References are engineering evidence subordinate to OnlyAlpha Contracts. No floating stable channel, third-party compatibility
 wrapper, hand-built cryptography, Rust Hash-based persistent identity or per-node RPC is adopted.
+
+## Retained native diagnostic artifacts
+
+The existing immutable Distribution Artifact manifest and Artifact Store also retain a narrowly bounded Linux diagnostic artifact.
+Its role must be SUPPORT, distribution name `onlyalpha-kernel`, provenance authority ONLYALPHA_GIT with an exact source revision,
+and logical name `onlyalpha_kernel-<normalized-version>-<target>.elf`. Targets are exactly `aarch64-unknown-linux-gnu` and
+`x86_64-unknown-linux-gnu`. The logical target is identity metadata; it is not inferred from the current host or substituted.
+A native diagnostic cannot declare a tested Core execution fingerprint, Provider, asset or Calculation admission binding.
+
+The existing manifest schema/byte digest remain the identity authorities. `native_target` is derived from the logical name and is
+not a second serialized field. Existing wheel manifests, fingerprints and `artifact.whl` store locations are unchanged. Native
+bytes use `artifact.elf` in the same content-addressed store; new files are created with non-executable permissions. Put/fetch verify exact
+size and SHA-256, then the ELF64 little-endian header envelope: version 1, executable/shared-object type, target machine and
+64-byte header. This is format/declared-architecture validation, not an ELF loader, GNU ABI/dependency proof, signature,
+trust decision, executable behavior verification or Rust compiler provenance certification. Malformed bytes fail even when their
+declared digest matches. Missing/corrupt exact artifacts fail without a locator/latest/old-format fallback.
+
+Both new and historical Python Generation construction reject a native diagnostic before venv/pip/process execution. Historical
+preflight failure preserves a pre-existing environment; cleanup applies only after the current invocation atomically creates
+its own environment directory. A competing directory creation fails without deleting the other invocation's files. Retention does not admit a native Kernel, activate a Generation, bind work, publish equivalence Evidence or
+create a second official writer. Existing generation/work-binding authorities remain unchanged. The later isolated comparison
+consumer must still verify exact executable provenance, inputs, generation/work ownership and failure outcomes; file retention
+alone is not Python/Rust equivalence or performance evidence.
+
+This is an additive development-period manifest domain extension. Older readers refuse the new native logical name; no historical
+wheel is rewritten, no schema fallback is added, and no deployment of mixed readers is certified by these storage tests.

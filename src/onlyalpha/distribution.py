@@ -129,7 +129,16 @@ class OnlyDistributionArtifactManifest:
         if not self.artifact_logical_name.lower().startswith(f"{normalized}-{normalized_version}-"):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
         if not self.artifact_logical_name.lower().endswith(".whl"):
-            raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
+            target = self.native_target
+            if (
+                target is None
+                or self.artifact_logical_name != f"onlyalpha_kernel-{normalized_version}-{target}.elf"
+                or self.distribution_name != "onlyalpha-kernel"
+                or self.role is not OnlyDistributionArtifactRole.SUPPORT
+                or self.source_provenance_authority is not OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT
+                or self.tested_core_execution_fingerprint is not None
+            ):
+                raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
         _sha(self.artifact_sha256, "RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
         if isinstance(self.artifact_size, bool) or not isinstance(self.artifact_size, int) or self.artifact_size < 1:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
@@ -161,6 +170,14 @@ class OnlyDistributionArtifactManifest:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
         object.__setattr__(self, "assets", assets)
         object.__setattr__(self, "implementations", implementations)
+
+    @property
+    def native_target(self) -> str | None:
+        """Declared diagnostic target; not ABI, loadability or Runtime admission proof."""
+        for target in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"):
+            if self.artifact_logical_name.endswith(f"-{target}.elf"):
+                return target
+        return None
 
     @property
     def artifact_identity(self) -> str:

@@ -36,7 +36,7 @@ BAR_TYPE = OnlyBarType(OnlyInstrumentId.parse("TEST.XNAS"), OnlyBarSemantic.fixe
 def test_official_indicator_provider_versions_content_without_changing_semantic_types() -> None:
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "11"
+    assert provider.manifest.provider_version == "12"
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]
     assert provider.manifest.source.distribution_name == project["name"]
     assert provider.manifest.source.distribution_version == project["version"]

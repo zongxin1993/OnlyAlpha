@@ -23,7 +23,7 @@ class OnlyLocalImmutableArtifactStore:
 
     def put_once(self, manifest: OnlyDistributionArtifactManifest, artifact_bytes: bytes) -> Path:
         self._verify_bytes(manifest, artifact_bytes)
-        artifact_path, manifest_path = self._paths(manifest.artifact_sha256)
+        artifact_path, manifest_path = self._paths(manifest.artifact_sha256, native=manifest.native_target is not None)
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_once(artifact_path, artifact_bytes, "RUNTIME_GENERATION_ARTIFACT_CONFLICT")
         encoded = (only_canonical_json(manifest.to_dict()) + "\n").encode()
@@ -43,6 +43,7 @@ class OnlyLocalImmutableArtifactStore:
             if not isinstance(raw_manifest, dict):
                 raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_MISMATCH")
             manifest = OnlyDistributionArtifactManifest.from_dict(cast(dict[str, object], raw_manifest))
+            artifact_path, _ = self._paths(artifact_sha256, native=manifest.native_target is not None)
             artifact_bytes = artifact_path.read_bytes()
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH") from exc
@@ -56,7 +57,7 @@ class OnlyLocalImmutableArtifactStore:
         if actual != expected:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_MISMATCH")
         self._verify_bytes(expected, artifact_bytes)
-        return self._paths(expected.artifact_sha256)[0]
+        return self._paths(expected.artifact_sha256, native=expected.native_target is not None)[0]
 
     def manifests(self) -> tuple[OnlyDistributionArtifactManifest, ...]:
         if not self.root.exists():
@@ -168,11 +169,11 @@ class OnlyLocalImmutableArtifactStore:
             raise ValueError("PRIVATE_FACTOR_RUNTIME_ARTIFACT_MISMATCH")
         return cast(dict[str, object], payload)
 
-    def _paths(self, artifact_sha256: str) -> tuple[Path, Path]:
+    def _paths(self, artifact_sha256: str, *, native: bool = False) -> tuple[Path, Path]:
         if len(artifact_sha256) != 64 or any(char not in "0123456789abcdef" for char in artifact_sha256):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
         directory = self.root / artifact_sha256[:2] / artifact_sha256
-        return directory / "artifact.whl", directory / "manifest.json"
+        return directory / ("artifact.elf" if native else "artifact.whl"), directory / "manifest.json"
 
     def _private_factor_paths(self, fingerprint: str) -> tuple[Path, Path]:
         if len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint):
@@ -191,6 +192,18 @@ class OnlyLocalImmutableArtifactStore:
 
         if len(content) != manifest.artifact_size or hashlib.sha256(content).hexdigest() != manifest.artifact_sha256:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
+        if manifest.native_target is not None:
+            import struct
+
+            # ELF64 little-endian header envelope only. No custom loader or ABI certification.
+            machine = 183 if manifest.native_target == "aarch64-unknown-linux-gnu" else 62
+            if (
+                len(content) < 64
+                or content[:7] != b"\x7fELF\x02\x01\x01"
+                or struct.unpack_from("<HHI", content, 16) not in ((2, machine, 1), (3, machine, 1))
+                or struct.unpack_from("<H", content, 52)[0] != 64
+            ):
+                raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
 
     @staticmethod
     def _write_once(path: Path, content: bytes, conflict_code: str) -> None:

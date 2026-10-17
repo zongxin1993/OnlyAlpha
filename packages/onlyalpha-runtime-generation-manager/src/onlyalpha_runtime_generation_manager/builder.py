@@ -320,6 +320,7 @@ class OnlyRuntimeGenerationBuilder:
     ) -> OnlyValidatedRuntimeGeneration:
         """Reconstruct one historical generation solely from its exact stored artifacts."""
 
+        cleanup_environment = False
         try:
             self.verify_exact_artifacts(expected_manifest)
             artifacts = tuple(
@@ -346,6 +347,8 @@ class OnlyRuntimeGenerationBuilder:
             if environment_root.exists():
                 raise FileExistsError("RUNTIME_GENERATION_ENVIRONMENT_EXISTS")
             environment_root.parent.mkdir(parents=True, exist_ok=True)
+            environment_root.mkdir()
+            cleanup_environment = True
             created = subprocess.run(
                 [str(self.python_executable), "-I", "-m", "venv", str(environment_root)],
                 capture_output=True,
@@ -455,7 +458,8 @@ class OnlyRuntimeGenerationBuilder:
             self._verify_hosted_environment(environment_root, validated.validation_evidence)
             return validated
         except Exception:
-            shutil.rmtree(environment_root, ignore_errors=True)
+            if cleanup_environment:
+                shutil.rmtree(environment_root, ignore_errors=True)
             raise
 
     def rebuild_catalog_descriptor(
@@ -767,6 +771,8 @@ class OnlyRuntimeGenerationBuilder:
 
     @staticmethod
     def _core_identity(artifacts: tuple[OnlyDistributionArtifactManifest, ...]) -> OnlyCoreExecutionIdentity:
+        if any(item.native_target is not None for item in artifacts):
+            raise ValueError("RUNTIME_GENERATION_NATIVE_DIAGNOSTIC_NOT_INSTALLABLE")
         cores = tuple(item for item in artifacts if item.role is OnlyDistributionArtifactRole.CORE)
         if len(cores) != 1:
             raise ValueError("RUNTIME_GENERATION_CORE_IDENTITY_INVALID")
