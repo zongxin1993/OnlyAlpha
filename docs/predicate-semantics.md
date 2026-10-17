@@ -55,3 +55,5 @@ resolution. Source language, package version and executable artifact identity ar
 
 The corpus remains offline test input. It does not create formal Calculation equivalence Evidence or grant an implementation
 admission/activation. Rust comparison integration and immutable executable provenance remain governed by ADR 0139 and ADR 0117.
+
+The separate [Boolean/string equality Contract](scalar-equality-semantics.md) covers eq/ne reference and literal types. Their missing propagation differs from logical AND/OR dominance; the six logical/terminal identities above do not expand to those comparisons.
