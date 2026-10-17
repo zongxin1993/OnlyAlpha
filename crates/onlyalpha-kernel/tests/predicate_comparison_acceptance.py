@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from onlyalpha_plugin_operators.provider import quant_asset_provider  # noqa: E402
+from onlyalpha_plugin_operators.provider import quant_asset_provider  # type: ignore[import-untyped]  # noqa: E402
 from onlyalpha_runtime_generation_manager import (  # noqa: E402
     OnlyLocalImmutableArtifactStore,
     OnlyRuntimeGenerationBuilder,
@@ -73,11 +73,14 @@ for case in payload['cases']:
  observed=json.loads(service.observe(binding,definition,rows,native).canonical_json)
  assert observed['status']=='MATCH',observed
  assert observed['python_outputs']==case['expected']
+ if definition.type_id.endswith('.integer.literal'):
+  assert observed['context']['literal_configuration']=={'literal':str(definition.parameters['literal']),'literal_left':definition.parameters['literal_left']}
+ assert observed['context']['definition_fingerprint']==definition.fingerprint
  assert observed['context']['binding']==payload['binding']
  assert observed['context']['native_artifact']==payload['native']
  assert observed['python_implementation'] in {item.implementation_fingerprint for item in registry.require_work_generation(binding.work_id,binding.runtime_generation_fingerprint).implementations}
 content=store.fetch_exact(native.artifact_sha256)[1]
-frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
+frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
 real_popen=subprocess.Popen
 children=[]
 def tracked(*args,**kwargs):
@@ -94,7 +97,8 @@ try: module._run_native(content,b'bad\n',native.native_target)
 except ValueError as exc: assert 'PROCESS_FAILED' in str(exc)
 else: raise AssertionError('failed process was converted to success')
 assert (registry.root/'generation-events.jsonl').read_bytes()==ledger
-print('SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS')
+assert sum(len(case['inputs']) for case in payload['cases'])==654
+print('SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS (654 vectors, 18 exact types)')
 """
 
 
@@ -198,28 +202,48 @@ def main() -> None:
         only_register_trading_predicate_primitives(calculations)
         corpus = [
             row
-            for name in ("boolean-v1.tsv", "integer-refs-v1.tsv")
+            for name in ("boolean-v1.tsv", "integer-refs-v1.tsv", "integer-literal-v1.tsv")
             for row in csv.DictReader((ROOT / "test-data/predicate" / name).open(), delimiter="\t")
         ]
         scalars = {"true": True, "false": False, "null": None}
         cases = []
-        for type_id in dict.fromkeys(row["type_id"] for row in corpus):
-            rows = [row for row in corpus if row["type_id"] == type_id]
-            integer = type_id.endswith(".integer.refs")
-            names = ("left", "right") if integer or type_id.endswith((".and", ".or")) else ("value",)
+        assert len(corpus) == 654
+        assert len({row["type_id"] for row in corpus}) == 18
+        for type_id, literal_value, position in dict.fromkeys(
+            (row["type_id"], row.get("literal"), row.get("literal_left")) for row in corpus
+        ):
+            rows = [
+                row
+                for row in corpus
+                if (row["type_id"], row.get("literal"), row.get("literal_left")) == (type_id, literal_value, position)
+            ]
+            literal = literal_value is not None
+            integer = literal or type_id.endswith(".integer.refs")
+            names = (
+                ("left",)
+                if literal
+                else ("left", "right")
+                if integer or type_id.endswith((".and", ".or"))
+                else ("value",)
+            )
 
-            def scalar(token, integer=integer):
+            def scalar(token: str, integer: bool = integer) -> bool | int | None:
                 return None if token == "null" else int(token) if integer else scalars[token]
 
             definition = calculations.rematerialize_definition(
                 OnlyCalculationTypeReference(OnlyCalculationKind.PREDICATE, type_id, "1"),
-                {},
+                {"literal": int(literal_value), "literal_left": position == "true"}
+                if literal_value is not None
+                else {},
                 {key: OnlyCalculationReference(None, key, "bar.close") for key in names},
             )
             cases.append(
                 {
                     "definition": dict(definition.to_dict()),
-                    "inputs": [[scalar(row["left"]), scalar(row["right"])][: len(names)] for row in rows],
+                    "inputs": [
+                        [scalar(row["input"])] if literal else [scalar(row["left"]), scalar(row["right"])][: len(names)]
+                        for row in rows
+                    ],
                     "expected": [scalars[row["expected"]] for row in rows],
                 }
             )

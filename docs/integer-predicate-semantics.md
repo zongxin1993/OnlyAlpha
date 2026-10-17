@@ -79,5 +79,4 @@ literal, position, duplicate or truncated rows. Registered Python TRADING and th
 reversal and fresh instances; Python RESEARCH consumes the common int64 input/literal envelope. Omitted `literal_left` is checked
 against explicit false in the owning Python registry. Wrong Rust family/version/arity remains an error, never a nullable result.
 
-The existing sealed-generation diagnostic still admits only the Boolean and integer **reference** subsets. This library extension
-does not extend its frame/admission, create equivalence Evidence, select a Runtime implementation or establish performance gains.
+The bounded [sealed-generation diagnostic](predicate-comparison.md) also admits these six literal types, binding the required literal and its position independently from ordered input rows. It does not create equivalence Evidence, select a Runtime implementation or establish performance gains.

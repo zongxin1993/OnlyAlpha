@@ -37,7 +37,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 from .artifact_store import OnlyLocalImmutableArtifactStore
 from .registry import OnlyRuntimeGenerationRegistry
 
-_PROTOCOL = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V2"
+_PROTOCOL = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V3"
 _LIMIT = 65536
 _COMPARISON_SLOT = BoundedSemaphore(1)
 _ARTIFACT_LIMIT = 64 * 1024 * 1024
@@ -55,6 +55,11 @@ _NAMES = frozenset(
 
 _INTEGER_NAMES = frozenset(
     f"onlyalpha.predicate.internal.compare.{op}.integer.refs" for op in ("eq", "ne", "lt", "le", "gt", "ge")
+)
+
+
+_INTEGER_LITERAL_NAMES = frozenset(
+    f"onlyalpha.predicate.internal.compare.{op}.integer.literal" for op in ("eq", "ne", "lt", "le", "gt", "ge")
 )
 
 
@@ -79,7 +84,7 @@ def _token(value: bool | int | None) -> str:
     return str(value)
 
 
-def _valid_input(value: bool | int | None, integer: bool) -> bool:
+def _valid_input(value: object, integer: bool) -> bool:
     if value is None:
         return True
     if not integer:
@@ -104,7 +109,14 @@ class OnlyPredicateComparisonService:
         rows: tuple[tuple[bool | int | None, ...], ...],
         native: OnlyDistributionArtifactManifest,
     ) -> OnlyPredicateComparisonObservation:
-        integer = definition.type_id in _INTEGER_NAMES
+        literal = definition.type_id in _INTEGER_LITERAL_NAMES
+        integer = literal or definition.type_id in _INTEGER_NAMES
+        valid_parameters = not literal or (
+            set(definition.parameters) == {"literal", "literal_left"}
+            and definition.parameters["literal"] is not None
+            and _valid_input(definition.parameters["literal"], True)
+            and type(definition.parameters["literal_left"]) is bool
+        )
         valid_rows = (
             type(rows) is tuple
             and 1 <= len(rows) <= 128
@@ -118,10 +130,11 @@ class OnlyPredicateComparisonService:
         )
         context = {
             "domain": "onlyalpha.predicate-comparison-diagnostic",
-            "schema_version": 2,
+            "schema_version": 3,
             "binding": asdict(binding),
-            "definition_fingerprint": definition.fingerprint,
-            "definition": definition.semantic_payload(),
+            "definition_fingerprint": None,
+            "definition": None,
+            "literal_configuration": None,
             "initial_state": "STATELESS_FRESH",
             "input_encoding": "INTEGER_DECIMAL_TEXT" if integer else "NULLABLE_BOOLEAN",
             "inputs": (tuple(tuple(None if v is None else str(v) for v in row) for row in rows) if integer else rows)
@@ -136,9 +149,11 @@ class OnlyPredicateComparisonService:
                 raise _Unavailable("PREDICATE_COMPARISON_BUSY")
             admitted = True
             if definition.kind is not OnlyCalculationKind.PREDICATE or definition.type_id not in (
-                _NAMES | _INTEGER_NAMES
+                _NAMES | _INTEGER_NAMES | _INTEGER_LITERAL_NAMES
             ):
                 raise _Unavailable("PREDICATE_COMPARISON_UNSUPPORTED")
+            if not valid_parameters:
+                raise _Unavailable("PREDICATE_COMPARISON_CONFIGURATION_INVALID")
             if not valid_rows:
                 raise _Unavailable("PREDICATE_COMPARISON_INPUT_INVALID")
             calculations = OnlyCalculationRegistry()
@@ -148,6 +163,23 @@ class OnlyPredicateComparisonService:
                 reference, definition.parameters, definition.input_bindings
             ):
                 raise _Unavailable("PREDICATE_COMPARISON_DEFINITION_MISMATCH")
+            # Capture only rematerialized, budget-checked configuration. In particular,
+            # never serialize a caller's oversized integer before rejecting it.
+            context["definition_fingerprint"] = definition.fingerprint
+            context["definition"] = definition.semantic_payload()
+            configuration = (
+                [
+                    _token(cast(int, definition.parameters["literal"])),
+                    _token(cast(bool, definition.parameters["literal_left"])),
+                ]
+                if literal
+                else []
+            )
+            if literal:
+                context["literal_configuration"] = {
+                    "literal": configuration[0],
+                    "literal_left": definition.parameters["literal_left"],
+                }
             registration = calculations.resolve(
                 definition.kind, definition.type_id, definition.semantic_version, OnlyCalculationBackendKind.TRADING
             )
@@ -156,7 +188,8 @@ class OnlyPredicateComparisonService:
                 raise _Unavailable("PREDICATE_COMPARISON_IMPLEMENTATION_UNAVAILABLE")
             payload["python_implementation"] = implementation.implementation_fingerprint
             lines = [
-                f"{i}\t{definition.type_id}\t{definition.semantic_version}\t" + "\t".join(_token(v) for v in row)
+                f"{i}\t{definition.type_id}\t{definition.semantic_version}\t"
+                + "\t".join([*configuration, *(_token(v) for v in row)])
                 for i, row in enumerate(rows)
             ]
             frame_size = len(_PROTOCOL) + 66 + sum(len(line) + 1 for line in lines)
@@ -239,7 +272,7 @@ def _validate_response(response: bytes, count: int) -> None:
         for line in lines[1:]:
             fields = line.split("\t")
             if (
-                not 5 <= len(fields) <= 7
+                not 5 <= len(fields) <= 9
                 or not fields[0].isdigit()
                 or fields[0] != str(int(fields[0]))
                 or not 0 <= int(fields[0]) < 128
@@ -249,6 +282,15 @@ def _validate_response(response: bytes, count: int) -> None:
                 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-" for c in fields[2])
                 or any(not _valid_token(value) for value in fields[3:-2])
             ):
+                raise ValueError
+            if fields[1].endswith(".integer.literal"):
+                if (
+                    not 7 <= len(fields) <= 9
+                    or fields[3] in ("true", "false", "null")
+                    or fields[4] not in ("true", "false")
+                ):
+                    raise ValueError
+            elif len(fields) > 7:
                 raise ValueError
             if (fields[-2] == "OK" and fields[-1] in ("true", "false", "null")) or (
                 fields[-2] == "ERROR" and fields[-1] in ("UnknownType", "UnknownVersion", "InvalidArity")

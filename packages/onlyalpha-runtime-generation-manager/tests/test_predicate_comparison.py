@@ -33,22 +33,24 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 NOW = datetime(2026, 10, 17, tzinfo=UTC)
 
 
-def setup_case(root: Path, *, integer: bool = False):
+def setup_case(root: Path, *, integer: bool = False, literal: bool = False):
     calculations = OnlyCalculationRegistry()
     only_register_trading_predicate_primitives(calculations)
     reference = OnlyCalculationTypeReference(
         OnlyCalculationKind.PREDICATE,
-        "onlyalpha.predicate.internal.compare.eq.integer.refs"
+        "onlyalpha.predicate.internal.compare.eq.integer.literal"
+        if literal
+        else "onlyalpha.predicate.internal.compare.eq.integer.refs"
         if integer
         else "onlyalpha.predicate.internal.boolean.not",
         "1",
     )
     definition = calculations.rematerialize_definition(
         reference,
-        {},
+        {"literal": 2**53 + 1, "literal_left": False} if literal else {},
         {
             key: OnlyCalculationReference(None, key, "bar.close")
-            for key in (("left", "right") if integer else ("value",))
+            for key in (("left",) if literal else ("left", "right") if integer else ("value",))
         },
     )
     registered = calculations.resolve(reference.kind, reference.type_id, "1", OnlyCalculationBackendKind.TRADING)
@@ -129,11 +131,17 @@ def test_comparison_binds_exact_inputs_owners_and_both_implementations(tmp_path,
     assert restarted.observe(binding, definition, ((True,), (False,), (None,)), artifact) == result
 
 
-@pytest.mark.parametrize("integer", [False, True])
+@pytest.mark.parametrize("integer,literal", [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("mutation", ["value", "identity", "order", "rejection", "context"])
-def test_well_formed_output_mutations_are_diagnostic_mismatches(tmp_path, monkeypatch, mutation, integer):
-    service, definition, binding, artifact = setup_case(tmp_path, integer=integer)
-    rows = ((2**53, 2**53 + 1), (2**128, 2**128), (None, 1)) if integer else ((True,), (False,), (None,))
+def test_well_formed_output_mutations_are_diagnostic_mismatches(tmp_path, monkeypatch, mutation, integer, literal):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=integer, literal=literal)
+    rows = (
+        ((2**53,), (2**53 + 1,), (None,))
+        if literal
+        else ((2**53, 2**53 + 1), (2**128, 2**128), (None, 1))
+        if integer
+        else ((True,), (False,), (None,))
+    )
     monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
 
     def mutated(content, request, target):
@@ -142,7 +150,7 @@ def test_well_formed_output_mutations_are_diagnostic_mismatches(tmp_path, monkey
             response = response.replace("\tOK\tfalse", "\tOK\ttrue", 1)
         elif mutation == "identity":
             response = (
-                response.replace(".compare.eq.integer.refs", ".compare.ne.integer.refs", 1)
+                response.replace(".compare.eq.integer.", ".compare.ne.integer.", 1)
                 if integer
                 else response.replace(".boolean.not", ".terminal.entry_signal", 1)
             )
@@ -175,9 +183,9 @@ def test_well_formed_output_mutations_are_diagnostic_mismatches(tmp_path, monkey
         "hosted",
     ],
 )
-@pytest.mark.parametrize("integer", [False, True])
-def test_unavailable_proof_never_becomes_match_or_retries(tmp_path, monkeypatch, fault, integer):
-    service, definition, binding, artifact = setup_case(tmp_path, integer=integer)
+@pytest.mark.parametrize("integer,literal", [(False, False), (True, False), (True, True)])
+def test_unavailable_proof_never_becomes_match_or_retries(tmp_path, monkeypatch, fault, integer, literal):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=integer, literal=literal)
     calls = []
 
     def native(content, request, target):
@@ -192,7 +200,13 @@ def test_unavailable_proof_never_becomes_match_or_retries(tmp_path, monkeypatch,
 
     monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
     monkeypatch.setattr(comparison, "_run_native", native)
-    rows = ((2**53, 2**53 + 1), (2**128, 2**128), (None, 1)) if integer else ((True,), (False,), (None,))
+    rows = (
+        ((2**53,), (2**53 + 1,), (None,))
+        if literal
+        else ((2**53, 2**53 + 1), (2**128, 2**128), (None, 1))
+        if integer
+        else ((True,), (False,), (None,))
+    )
     if fault == "missing":
         service.artifacts.verify_exact(artifact).unlink()
     if fault == "owner":
@@ -202,7 +216,7 @@ def test_unavailable_proof_never_becomes_match_or_retries(tmp_path, monkeypatch,
     if fault == "definition":
         definition = replace(definition, extensions={"foreign": True})
     if fault == "inputs":
-        rows = ((1,),)
+        rows = ((True,),) if literal else ((1,),)
     if fault == "hosted":
 
         def rejected(*args):
@@ -215,6 +229,8 @@ def test_unavailable_proof_never_becomes_match_or_retries(tmp_path, monkeypatch,
     if fault == "malformed":
         assert payload["native_output_sha256"] == hashlib.sha256(b"broken").hexdigest()
     assert len(calls) <= 1
+    if fault == "inputs":
+        assert calls == []
     assert (tmp_path / "generation/generation-events.jsonl").read_bytes() == before
 
 
@@ -245,15 +261,16 @@ def test_invalid_nonfinite_input_produces_bounded_unavailable_diagnostic(tmp_pat
     ],
 )
 def test_malformed_response_identity_is_unavailable_rather_than_semantic_mismatch(row):
-    frame = ("ONLYALPHA_PREDICATE_DIAGNOSTIC_V2\t" + "a" * 64 + "\n" + row + "\n").encode()
+    frame = ("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t" + "a" * 64 + "\n" + row + "\n").encode()
     with pytest.raises(ValueError, match="RESPONSE_INVALID"):
         comparison._validate_response(frame, 1)
 
 
-def test_proof_guard_completion_failure_withdraws_an_otherwise_matching_result(tmp_path, monkeypatch):
+@pytest.mark.parametrize("literal", [False, True])
+def test_proof_guard_completion_failure_withdraws_an_otherwise_matching_result(tmp_path, monkeypatch, literal):
     from contextlib import contextmanager
 
-    service, definition, binding, artifact = setup_case(tmp_path)
+    service, definition, binding, artifact = setup_case(tmp_path, integer=literal, literal=literal)
     monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
     monkeypatch.setattr(comparison, "_run_native", lambda content, request, target: reply(request))
     original = OnlyRuntimeGenerationRegistry.hold_work_binding_evidence
@@ -265,7 +282,9 @@ def test_proof_guard_completion_failure_withdraws_an_otherwise_matching_result(t
         raise OSError("CONTROLLED_PROOF_COMPLETION_FAILURE")
 
     monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "hold_work_binding_evidence", failing_guard)
-    result = service.observe(binding, definition, ((True,), (False,), (None,)), artifact)
+    result = service.observe(
+        binding, definition, (((2**53,), (2**53 + 1,), (None,)) if literal else ((True,), (False,), (None,))), artifact
+    )
     assert json.loads(result.canonical_json)["status"] == "UNAVAILABLE"
 
 
@@ -328,7 +347,7 @@ def test_integer_comparison_preserves_exact_context_and_restart_binding(tmp_path
     assert result["status"] == "MATCH"
     assert result["context"]["inputs"] == [[str(2**53), str(2**53 + 1)], [str(2**128), str(2**128)], [None, "1"]]
     assert result["context"]["input_encoding"] == "INTEGER_DECIMAL_TEXT"
-    assert result["context"]["schema_version"] == 2
+    assert result["context"]["schema_version"] == 3
     restarted = comparison.OnlyPredicateComparisonService(
         service.artifacts, OnlyRuntimeGenerationRegistry(service.generations.root)
     )
@@ -378,3 +397,151 @@ def test_integer_transport_digit_limit_preserves_both_signed_boundaries():
     for value in (10**256, -(10**256)):
         assert not comparison._valid_input(value, True)
         assert not comparison._valid_token(str(value))
+
+
+def test_literal_comparison_binds_exact_configuration_and_rechecks_restart(tmp_path, monkeypatch):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
+    requests = []
+
+    def native(content, request, target):
+        requests.append(request)
+        return reply(request)
+
+    monkeypatch.setattr(comparison, "_run_native", native)
+    rows = ((2**53,), (2**53 + 1,), (None,))
+    before = (service.generations.root / "generation-events.jsonl").read_bytes()
+    result = service.observe(binding, definition, rows, artifact)
+    payload = json.loads(result.canonical_json)
+    assert payload["status"] == "MATCH"
+    assert payload["context"]["definition_fingerprint"] == definition.fingerprint
+    assert payload["context"]["literal_configuration"] == {"literal": str(2**53 + 1), "literal_left": False}
+    assert payload["context"]["inputs"] == [[str(2**53)], [str(2**53 + 1)], [None]]
+    assert requests[0].splitlines()[1].split(b"\t")[3:] == [str(2**53 + 1).encode(), b"false", str(2**53).encode()]
+    restarted = comparison.OnlyPredicateComparisonService(
+        service.artifacts, OnlyRuntimeGenerationRegistry(service.generations.root)
+    )
+    assert restarted.observe(binding, definition, rows, artifact) == result
+    assert (service.generations.root / "generation-events.jsonl").read_bytes() == before
+    service.generations.release_work(binding.work_id, actor="human", occurred_at=NOW)
+    assert json.loads(service.observe(binding, definition, rows, artifact).canonical_json)["status"] == "UNAVAILABLE"
+
+
+@pytest.mark.parametrize("field", ["literal", "literal_left"])
+def test_literal_configuration_echo_mutation_is_mismatch_even_if_outputs_match(tmp_path, monkeypatch, field):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
+
+    def mutated(content, request, target):
+        lines = reply(request).decode().splitlines()
+        fields = lines[1].split("\t")
+        fields[3 if field == "literal" else 4] = str(2**53) if field == "literal" else "true"
+        lines[1] = "\t".join(fields)
+        return ("\n".join(lines) + "\n").encode()
+
+    monkeypatch.setattr(comparison, "_run_native", mutated)
+    before = (service.generations.root / "generation-events.jsonl").read_bytes()
+    assert (
+        json.loads(service.observe(binding, definition, ((2**53,), (2**53 + 1,), (None,)), artifact).canonical_json)[
+            "status"
+        ]
+        == "MISMATCH"
+    )
+    assert (service.generations.root / "generation-events.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"literal": 10**10000, "literal_left": False},
+        {"literal": 10**256, "literal_left": False},
+        {"literal": True, "literal_left": False},
+        {"literal": "1", "literal_left": False},
+        {"literal": 1.0, "literal_left": False},
+        {"literal": None, "literal_left": False},
+        {"literal": 1, "literal_left": "true"},
+        {"literal": 1},
+    ],
+)
+def test_invalid_literal_configuration_is_bounded_unavailable_before_proof(tmp_path, monkeypatch, parameters):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    definition = replace(definition, parameters=parameters)
+    monkeypatch.setattr(
+        OnlyRuntimeGenerationRegistry,
+        "verify_hosted_generation",
+        lambda *args: pytest.fail("invalid literal reached proof"),
+    )
+    monkeypatch.setattr(comparison, "_run_native", lambda *args: pytest.fail("invalid literal launched native work"))
+    result = json.loads(service.observe(binding, definition, ((1,),), artifact).canonical_json)
+    assert result["status"] == "UNAVAILABLE"
+    assert result["reason"] == "PREDICATE_COMPARISON_CONFIGURATION_INVALID"
+    assert result["context"]["definition"] is None
+    assert result["context"]["definition_fingerprint"] is None
+
+
+def test_repeated_literal_is_included_in_the_total_frame_budget(tmp_path, monkeypatch):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    definition = replace(definition, parameters={"literal": 10**255, "literal_left": False})
+    monkeypatch.setattr(
+        OnlyRuntimeGenerationRegistry,
+        "verify_hosted_generation",
+        lambda *args: pytest.fail("oversized frame reached proof"),
+    )
+    monkeypatch.setattr(comparison, "_run_native", lambda *args: pytest.fail("oversized frame launched native work"))
+    result = json.loads(
+        service.observe(binding, definition, tuple((10**255,) for _ in range(128)), artifact).canonical_json
+    )
+    assert result["status"] == "UNAVAILABLE"
+    assert result["reason"] == "PREDICATE_COMPARISON_INPUT_LIMIT"
+
+
+@pytest.mark.parametrize("literal_left", [False, True])
+@pytest.mark.parametrize("value", [10**256 - 1, -(10**256 - 1)])
+def test_literal_transport_admits_both_signed_256_digit_boundaries(tmp_path, monkeypatch, literal_left, value):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    definition = replace(definition, parameters={"literal": value, "literal_left": literal_left})
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
+
+    def native(content, request, target):
+        assert request.splitlines()[1].split(b"\t")[3] == str(value).encode()
+        line = request.splitlines()[1]
+        return request.splitlines()[0] + b"\n" + line + b"\tOK\ttrue\n"
+
+    monkeypatch.setattr(comparison, "_run_native", native)
+    result = json.loads(service.observe(binding, definition, ((value,),), artifact).canonical_json)
+    assert result["status"] == "MATCH"
+    assert result["context"]["literal_configuration"] == {"literal": str(value), "literal_left": literal_left}
+
+
+@pytest.mark.parametrize("configuration", ["null\tfalse", "1\tnull", "true\tfalse", "1\t0"])
+def test_malformed_literal_reply_configuration_is_unavailable(configuration):
+    frame = (
+        "ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t"
+        + "a" * 64
+        + "\n0\tonlyalpha.predicate.internal.compare.eq.integer.literal\t1\t"
+        + configuration
+        + "\t1\tOK\ttrue\n"
+    ).encode()
+    with pytest.raises(ValueError, match="RESPONSE_INVALID"):
+        comparison._validate_response(frame, 1)
+
+
+@pytest.mark.parametrize("old", ["V1", "V2"])
+def test_old_diagnostic_replies_are_unavailable_without_substitution(tmp_path, monkeypatch, old):
+    service, definition, binding, artifact = setup_case(tmp_path, integer=True, literal=True)
+    monkeypatch.setattr(OnlyRuntimeGenerationRegistry, "verify_hosted_generation", lambda *args: None)
+    calls = []
+
+    def native(content, request, target):
+        calls.append(request)
+        return reply(request).replace(b"DIAGNOSTIC_V3", ("DIAGNOSTIC_" + old).encode())
+
+    monkeypatch.setattr(comparison, "_run_native", native)
+    before = (service.generations.root / "generation-events.jsonl").read_bytes()
+    result = json.loads(
+        service.observe(binding, definition, ((2**53,), (2**53 + 1,), (None,)), artifact).canonical_json
+    )
+    assert result["status"] == "UNAVAILABLE"
+    assert len(calls) == 1
+    assert result["context"]["native_artifact"] == artifact.to_dict()
+    assert (service.generations.root / "generation-events.jsonl").read_bytes() == before

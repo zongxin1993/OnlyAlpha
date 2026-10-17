@@ -1,10 +1,22 @@
 //! Bounded, read-only local diagnostic process. It exposes no trading capabilities.
-use onlyalpha_kernel::integer_predicate::{IntegerOperand, IntegerPredicate};
+use onlyalpha_kernel::integer_predicate::{
+    IntegerLiteralPredicate, IntegerOperand, IntegerPredicate,
+};
 use onlyalpha_kernel::predicate::Predicate;
 use std::io::{self, Read, Write};
 
 const LIMIT: usize = 65_536;
-const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V2";
+const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V3";
+
+fn integer(token: &str) -> Result<Option<IntegerOperand<'_>>, ()> {
+    if token == "null" {
+        return Ok(None);
+    }
+    if token.strip_prefix('-').unwrap_or(token).len() > 256 {
+        return Err(());
+    }
+    IntegerOperand::parse(token).map(Some).map_err(|_| ())
+}
 
 fn evaluate(frame: &[u8]) -> Result<String, ()> {
     if frame.len() > LIMIT || !frame.ends_with(b"\n") || frame.contains(&b'\r') {
@@ -28,7 +40,7 @@ fn evaluate(frame: &[u8]) -> Result<String, ()> {
         count += 1;
         let fields: Vec<_> = row.split('\t').collect();
         if count > 128
-            || !(3..=5).contains(&fields.len())
+            || !(3..=7).contains(&fields.len())
             || fields[0] != index.to_string()
             || fields[1].is_empty()
             || fields[1].len() > 192
@@ -43,22 +55,33 @@ fn evaluate(frame: &[u8]) -> Result<String, ()> {
         {
             return Err(());
         }
-        let result = if fields[1].ends_with(".integer.refs") {
-            let operands: Result<Vec<Option<IntegerOperand<'_>>>, ()> = fields[3..]
-                .iter()
-                .map(|token| {
-                    if *token == "null" {
-                        return Ok(None);
-                    }
-                    if token.strip_prefix('-').unwrap_or(token).len() > 256 {
-                        return Err(());
-                    }
-                    IntegerOperand::parse(token).map(Some).map_err(|_| ())
-                })
-                .collect();
+        let result = if fields[1].ends_with(".integer.literal") {
+            if !(5..=7).contains(&fields.len()) {
+                return Err(());
+            }
+            let literal = integer(fields[3])?.ok_or(())?;
+            let literal_left = match fields[4] {
+                "true" => true,
+                "false" => false,
+                _ => return Err(()),
+            };
+            let operands: Result<Vec<_>, ()> =
+                fields[5..].iter().map(|token| integer(token)).collect();
+            let operands = operands?;
+            IntegerLiteralPredicate::resolve(fields[1], fields[2], literal, literal_left)
+                .and_then(|op| op.evaluate(&operands))
+        } else if fields[1].ends_with(".integer.refs") {
+            if fields.len() > 5 {
+                return Err(());
+            }
+            let operands: Result<Vec<_>, ()> =
+                fields[3..].iter().map(|token| integer(token)).collect();
             let operands = operands?;
             IntegerPredicate::resolve(fields[1], fields[2]).and_then(|op| op.evaluate(&operands))
         } else {
+            if fields.len() > 5 {
+                return Err(());
+            }
             let operands: Result<Vec<Option<bool>>, ()> = fields[3..]
                 .iter()
                 .map(|token| match *token {
