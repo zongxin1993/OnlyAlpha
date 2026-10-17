@@ -13,11 +13,11 @@ def quant_asset_provider() -> OnlyQuantAssetProvider:
     return OnlyQuantAssetProvider(
         OnlyQuantAssetProviderManifest(
             provider_id="onlyalpha.indicator.library",
-            provider_version="12",
+            provider_version="13",
             kind=OnlyQuantAssetKind.INDICATOR,
             source=OnlyDistributionProviderSource(
                 distribution_name="onlyalpha-plugin-indicators",
-                distribution_version="0.10.3",
+                distribution_version="0.10.4",
             ),
         ),
         calculation_registrations=registrations(),

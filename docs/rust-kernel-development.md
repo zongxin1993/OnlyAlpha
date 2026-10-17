@@ -3,7 +3,7 @@
 The library in `crates/onlyalpha-kernel/` implements the six stateless Boolean/terminal primitives defined by
 [Predicate semantics](predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
-historical artifact retention remain governed by ADR 0139 and ADR 0117. No FFI, transport, workers or async runtime are introduced.
+historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
 
 ## Toolchain and build boundary
 
@@ -84,9 +84,7 @@ declared digest matches. Missing/corrupt exact artifacts fail without a locator/
 Both new and historical Python Generation construction reject a native diagnostic before venv/pip/process execution. Historical
 preflight failure preserves a pre-existing environment; cleanup applies only after the current invocation atomically creates
 its own environment directory. A competing directory creation fails without deleting the other invocation's files. Retention does not admit a native Kernel, activate a Generation, bind work, publish equivalence Evidence or
-create a second official writer. Existing generation/work-binding authorities remain unchanged. The later isolated comparison
-consumer must still verify exact executable provenance, inputs, generation/work ownership and failure outcomes; file retention
-alone is not Python/Rust equivalence or performance evidence.
+create a second official writer. Existing generation/work-binding authorities remain unchanged. The isolated [comparison consumer](predicate-comparison.md) verifies exact retained bytes, inputs, generation/work ownership and failure outcomes. File retention alone is not Python/Rust equivalence, compiler provenance or performance evidence.
 
 This is an additive development-period manifest domain extension. Older readers refuse the new native logical name; no historical
 wheel is rewritten, no schema fallback is added, and no deployment of mixed readers is certified by these storage tests.

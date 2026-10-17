@@ -99,3 +99,22 @@ def test_private_factor_source_artifact_is_native_immutable_and_tamper_closed(tm
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH"):
         store.fetch_private_factor_source(artifact.source_artifact_fingerprint)
+
+
+def test_fetch_size_budget_refuses_before_reading_artifact_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = b"immutable wheel"
+    manifest = _manifest(content)
+    store = OnlyLocalImmutableArtifactStore(tmp_path)
+    path = store.put_once(manifest, content)
+    original = Path.open
+
+    def guarded(source: Path, *args, **kwargs):
+        if source == path:
+            pytest.fail("over-budget artifact was read")
+        return original(source, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guarded)
+    with pytest.raises(ValueError, match="ARTIFACT_MISMATCH"):
+        store.fetch_exact(manifest.artifact_sha256, max_bytes=2)

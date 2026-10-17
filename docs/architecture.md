@@ -641,6 +641,8 @@ The same Artifact Store may retain the narrowly scoped SUPPORT-only Linux Kernel
 retention inputs, not Runtime admission or equivalence proof. New and historical Python Generation builders reject these native
 diagnostics before installation; they cannot enter the admitted wheel closure or become a second official writer.
 
+The manager also owns the bounded, read-only [Predicate comparison diagnostic](predicate-comparison.md). It verifies an existing exact work binding and physically sealed Python generation, then compares a fresh stateless registered Python backend with one explicitly pinned native artifact. It neither binds/activates work nor publishes formal facts, effects or Calculation equivalence Evidence. Its private local process frame is not the cross-node Gateway/plugin protocol.
+
 One append-only hash-chained generation ledger is the durable operational Authority for READY, `ACTIVE_FOR_NEW_WORK`, DRAINING/RETIRED
 and immutable work bindings. Activation and rollback are expected-current compare-and-set transitions; a Run reads the pointer once and
 retains its exact binding. Restart replays the committed facts rather than inspecting newest packages or process order. Historical

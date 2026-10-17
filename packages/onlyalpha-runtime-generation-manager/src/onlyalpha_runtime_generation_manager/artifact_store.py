@@ -36,15 +36,22 @@ class OnlyLocalImmutableArtifactStore:
         self.verify_exact(manifest)
         return artifact_path
 
-    def fetch_exact(self, artifact_sha256: str) -> tuple[OnlyDistributionArtifactManifest, bytes]:
+    def fetch_exact(
+        self, artifact_sha256: str, *, max_bytes: int | None = None
+    ) -> tuple[OnlyDistributionArtifactManifest, bytes]:
         artifact_path, manifest_path = self._paths(artifact_sha256)
         try:
             raw_manifest: Any = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(raw_manifest, dict):
                 raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_MISMATCH")
             manifest = OnlyDistributionArtifactManifest.from_dict(cast(dict[str, object], raw_manifest))
+            if max_bytes is not None and (
+                type(max_bytes) is not int or max_bytes < 1 or manifest.artifact_size > max_bytes
+            ):
+                raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
             artifact_path, _ = self._paths(artifact_sha256, native=manifest.native_target is not None)
-            artifact_bytes = artifact_path.read_bytes()
+            with artifact_path.open("rb") as stream:
+                artifact_bytes = stream.read(manifest.artifact_size + 1)
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH") from exc
         if manifest.artifact_sha256 != artifact_sha256:

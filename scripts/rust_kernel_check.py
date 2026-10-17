@@ -79,6 +79,12 @@ def main() -> int:
         profile: digest(artifacts / "target" / target / profile / "libonlyalpha_kernel.rlib")
         for profile in ("debug", "release")
     }
+    binaries.update(
+        {
+            f"{profile}_predicate_diagnostic": digest(artifacts / "target" / target / profile / "predicate-diagnostic")
+            for profile in ("debug", "release")
+        }
+    )
     receipt.write_text(
         json.dumps(
             {
