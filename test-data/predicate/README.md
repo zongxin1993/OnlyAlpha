@@ -19,3 +19,9 @@ ASCII decimal integers or `null`, outputs are `true`/`false`/`null`. Case identi
 Regenerate/check with `python scripts/integer_predicate_vectors.py [--check]`. The generator declares each pair's mathematical
 relation and an explicit operator truth table independently of Python/Rust backend results. Both directions of unequal examples,
 large equal values and all missing positions are retained. It does not change the Boolean corpus or certify a worker protocol.
+
+`decimal-refs-v1.tsv` records 264 independent finite Decimal comparisons under
+[the Decimal Contract](../../docs/decimal-predicate-semantics.md), in the same six-column layout. Operands use signed fixed-point
+ASCII or `null`; equal numeric values may have different scales or zero signs. Regenerate/check with
+`python scripts/decimal_predicate_vectors.py [--check]`. Explicit mathematical relations produce expectations without executing
+a backend. The corpus is shared by registered Python backends and the Rust library; it does not extend the diagnostic protocol.

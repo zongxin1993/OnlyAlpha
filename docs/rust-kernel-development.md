@@ -1,7 +1,7 @@
 # Linux Rust Kernel development
 
 The library in `crates/onlyalpha-kernel/` implements the six stateless Boolean/terminal primitives in
-[Predicate semantics](predicate-semantics.md), the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md), and eight [Boolean/string equality types](scalar-equality-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
+[Predicate semantics](predicate-semantics.md), the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md), eight [Boolean/string equality types](scalar-equality-semantics.md), and six [finite Decimal reference comparisons](decimal-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
 
@@ -14,6 +14,7 @@ repository root. They identify source owners and consumers, not a second semanti
 | --- | --- | --- |
 | Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
+| Exact finite Decimal reference comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/src/decimal_predicate.rs` implements the six typed comparisons; no arithmetic or diagnostic transport |
 | Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
 | Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
@@ -24,6 +25,8 @@ The owning Contracts are [Boolean/terminal semantics](predicate-semantics.md), [
 module name does not extend any Contract's supported types, numerical envelope, batch shape or diagnostic admission.
 The separate `src/onlyalpha/application/calculation_equivalence.py` owns formal Calculation equivalence certification; the native
 diagnostic service neither replaces that authority nor publishes its admission-grade Evidence.
+
+The Decimal library additionally consumes its independent 264-row corpus; those six types are outside the V4 diagnostic allowlist.
 
 The current separation already distinguishes definitions, scalar evaluation, batch evaluation and diagnostic orchestration.
 Retain those paths while extending the selected semantic slices; no mirrored `research`, `application` or `runtime` shell is
@@ -66,7 +69,7 @@ build scripts or native extensions are admitted. Standard library/compiler code 
 
 Rust accepts typed nullable Boolean operands and exact type/version resolution. Wrong identity/version or operand arity is an
 explicit error; errors are not false or missing. Unary versus binary arity is checked before indexing. Numeric operands cannot
-inhabit the typed API. The integer module parses exact canonical decimal integer spellings without fixed-width conversion or arithmetic. No timestamp parser, Decimal arithmetic, persistent identity hashing, transaction or recovery protocol is present, so this subset provides no evidence about their rounding/replay behavior. Future modules must add their own
+inhabit the typed API. The integer module parses exact canonical decimal integer spellings without fixed-width conversion or arithmetic. Decimal reference comparison is exact and stateless; its fixed-point parser is not arithmetic or a diagnostic encoding. No timestamp parser, Decimal arithmetic, persistent identity hashing, transaction or recovery protocol is present, so this subset provides no evidence about their rounding/replay behavior. Future modules must add their own
 Contracts/vectors; do not infer full Kernel equivalence from these Boolean tests.
 
 The Boolean implementations use the same recorded 30-row corpus. Integer reference comparisons use their independent 216-row corpus; literal comparisons use a separate 408-row corpus, with required literal and position configuration. Both are checked by Python registered backends and the Rust library. The sealed-generation local diagnostic process compares these subsets plus the 250-row Boolean/string equality corpus under [its bounded V4/schema-4 private Contract](predicate-comparison.md), covering 904 independent cases across 26 exact types. Both registered Python backends and Rust retain the shared equality corpus checks; diagnostic integration does not grant formal Calculation certification or Runtime admission. Independent corpus byte guards run before Rust checks;

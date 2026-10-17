@@ -68,6 +68,7 @@ def main() -> int:
         "scripts/integer_predicate_vectors.py",
         "scripts/integer_literal_vectors.py",
         "scripts/scalar_equality_vectors.py",
+        "scripts/decimal_predicate_vectors.py",
     ):
         subprocess.run([sys.executable, str(ROOT / guard), "--check"], cwd=ROOT, env=env, check=True)
     for command in build_commands(target):
@@ -101,6 +102,7 @@ def main() -> int:
                 "integer_vector_sha256": digest(ROOT / "test-data/predicate/integer-refs-v1.tsv"),
                 "integer_literal_vector_sha256": digest(ROOT / "test-data/predicate/integer-literal-v1.tsv"),
                 "scalar_equality_vector_sha256": digest(ROOT / "test-data/predicate/scalar-equality-v1.tsv"),
+                "decimal_vector_sha256": digest(ROOT / "test-data/predicate/decimal-refs-v1.tsv"),
                 "artifacts_sha256": binaries,
             },
             indent=2,
