@@ -1,4 +1,4 @@
-"""Read-only, generation-bound comparison of the admitted stateless Boolean/integer slice.
+"""Read-only, generation-bound comparison of the admitted stateless Boolean/integer/string slice.
 
 Observations are diagnostics, never Calculation equivalence Evidence or trading Authority.
 The native executable is trusted deployment input, not an untrusted-code sandbox.
@@ -37,7 +37,7 @@ from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_
 from .artifact_store import OnlyLocalImmutableArtifactStore
 from .registry import OnlyRuntimeGenerationRegistry
 
-_PROTOCOL = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V3"
+_PROTOCOL = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V4"
 _LIMIT = 65536
 _COMPARISON_SLOT = BoundedSemaphore(1)
 _ARTIFACT_LIMIT = 64 * 1024 * 1024
@@ -63,6 +63,15 @@ _INTEGER_LITERAL_NAMES = frozenset(
 )
 
 
+_EQUALITY_NAMES = frozenset(
+    f"onlyalpha.predicate.internal.compare.{op}.{family}.{layout}"
+    for op in ("eq", "ne")
+    for family in ("boolean", "string")
+    for layout in ("refs", "literal")
+)
+_STRING_LIMIT = 4096  # UTF-8 bytes per scalar; diagnostic transport only.
+
+
 class _Incremental(Protocol):
     def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]: ...
 
@@ -76,17 +85,26 @@ class _Unavailable(ValueError):
     pass
 
 
-def _token(value: bool | int | None) -> str:
+def _token(value: bool | int | str | None) -> str:
     if value is None:
         return "null"
     if type(value) is bool:
         return "true" if value else "false"
+    if type(value) is str:
+        return "utf8:" + value.encode("utf-8").hex()
     return str(value)
 
 
-def _valid_input(value: object, integer: bool) -> bool:
+def _valid_input(value: object, integer: bool, *, string: bool = False) -> bool:
     if value is None:
         return True
+    if string:
+        if type(value) is not str or len(value) > _STRING_LIMIT:
+            return False
+        try:
+            return len(value.encode("utf-8")) <= _STRING_LIMIT
+        except UnicodeError:
+            return False
     if not integer:
         return type(value) is bool
     # Transport budget only: reject before decimal conversion/JSON capture.
@@ -94,6 +112,15 @@ def _valid_input(value: object, integer: bool) -> bool:
 
 
 def _valid_token(value: str) -> bool:
+    if value.startswith("utf8:"):
+        raw = value[5:]
+        if len(raw) > 2 * _STRING_LIMIT or len(raw) % 2 or re.fullmatch(r"[0-9a-f]*", raw) is None:
+            return False
+        try:
+            bytes.fromhex(raw).decode("utf-8")
+        except UnicodeError:
+            return False
+        return True
     return value in ("true", "false", "null") or re.fullmatch(r"0|-?[1-9][0-9]{0,255}", value) is not None
 
 
@@ -106,15 +133,17 @@ class OnlyPredicateComparisonService:
         self,
         binding: OnlyRuntimeWorkBindingEvidence,
         definition: OnlyCalculationDefinition,
-        rows: tuple[tuple[bool | int | None, ...], ...],
+        rows: tuple[tuple[bool | int | str | None, ...], ...],
         native: OnlyDistributionArtifactManifest,
     ) -> OnlyPredicateComparisonObservation:
-        literal = definition.type_id in _INTEGER_LITERAL_NAMES
-        integer = literal or definition.type_id in _INTEGER_NAMES
+        equality = definition.type_id in _EQUALITY_NAMES
+        literal = definition.type_id in _INTEGER_LITERAL_NAMES or (equality and definition.type_id.endswith(".literal"))
+        integer = definition.type_id in _INTEGER_LITERAL_NAMES | _INTEGER_NAMES
+        string = equality and ".string." in definition.type_id
         valid_parameters = not literal or (
             set(definition.parameters) == {"literal", "literal_left"}
             and definition.parameters["literal"] is not None
-            and _valid_input(definition.parameters["literal"], True)
+            and _valid_input(definition.parameters["literal"], integer, string=string)
             and type(definition.parameters["literal_left"]) is bool
         )
         valid_rows = (
@@ -124,20 +153,24 @@ class OnlyPredicateComparisonService:
             and all(
                 type(row) is tuple
                 and len(row) == len(definition.inputs)
-                and all(_valid_input(value, integer) for value in row)
+                and all(_valid_input(value, integer, string=string) for value in row)
                 for row in rows
             )
         )
         context = {
             "domain": "onlyalpha.predicate-comparison-diagnostic",
-            "schema_version": 3,
+            "schema_version": 4,
             "binding": asdict(binding),
             "definition_fingerprint": None,
             "definition": None,
             "literal_configuration": None,
             "initial_state": "STATELESS_FRESH",
-            "input_encoding": "INTEGER_DECIMAL_TEXT" if integer else "NULLABLE_BOOLEAN",
-            "inputs": (tuple(tuple(None if v is None else str(v) for v in row) for row in rows) if integer else rows)
+            "input_encoding": "INTEGER_DECIMAL_TEXT" if integer else "UTF8_HEX" if string else "NULLABLE_BOOLEAN",
+            "inputs": (
+                tuple(tuple(None if v is None else _token(v) for v in row) for row in rows)
+                if integer or string
+                else rows
+            )
             if valid_rows
             else None,
             "native_artifact": native.to_dict(),
@@ -149,7 +182,7 @@ class OnlyPredicateComparisonService:
                 raise _Unavailable("PREDICATE_COMPARISON_BUSY")
             admitted = True
             if definition.kind is not OnlyCalculationKind.PREDICATE or definition.type_id not in (
-                _NAMES | _INTEGER_NAMES | _INTEGER_LITERAL_NAMES
+                _NAMES | _INTEGER_NAMES | _INTEGER_LITERAL_NAMES | _EQUALITY_NAMES
             ):
                 raise _Unavailable("PREDICATE_COMPARISON_UNSUPPORTED")
             if not valid_parameters:
@@ -169,7 +202,7 @@ class OnlyPredicateComparisonService:
             context["definition"] = definition.semantic_payload()
             configuration = (
                 [
-                    _token(cast(int, definition.parameters["literal"])),
+                    _token(cast(bool | int | str, definition.parameters["literal"])),
                     _token(cast(bool, definition.parameters["literal_left"])),
                 ]
                 if literal
@@ -283,14 +316,22 @@ def _validate_response(response: bytes, count: int) -> None:
                 or any(not _valid_token(value) for value in fields[3:-2])
             ):
                 raise ValueError
-            if fields[1].endswith(".integer.literal"):
-                if (
-                    not 7 <= len(fields) <= 9
-                    or fields[3] in ("true", "false", "null")
-                    or fields[4] not in ("true", "false")
-                ):
+            literal = fields[1].endswith((".integer.literal", ".boolean.literal", ".string.literal"))
+            if literal:
+                if not 7 <= len(fields) <= 9 or fields[3] == "null" or fields[4] not in ("true", "false"):
                     raise ValueError
-            elif len(fields) > 7:
+                values = [fields[3], *fields[5:-2]]
+            else:
+                if len(fields) > 7:
+                    raise ValueError
+                values = fields[3:-2]
+            if fields[1].endswith((".string.refs", ".string.literal")):
+                valid_family = all(v == "null" or v.startswith("utf8:") for v in values)
+            elif fields[1].endswith((".integer.refs", ".integer.literal")):
+                valid_family = all(v == "null" or re.fullmatch(r"0|-?[1-9][0-9]{0,255}", v) for v in values)
+            else:
+                valid_family = all(v in ("true", "false", "null") for v in values)
+            if not valid_family:
                 raise ValueError
             if (fields[-2] == "OK" and fields[-1] in ("true", "false", "null")) or (
                 fields[-2] == "ERROR" and fields[-1] in ("UnknownType", "UnknownVersion", "InvalidArity")

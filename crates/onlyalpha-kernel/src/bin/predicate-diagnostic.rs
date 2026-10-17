@@ -1,12 +1,16 @@
 //! Bounded, read-only local diagnostic process. It exposes no trading capabilities.
+use onlyalpha_kernel::boolean_equality::{
+    BooleanEqualityPredicate, BooleanLiteralEqualityPredicate,
+};
 use onlyalpha_kernel::integer_predicate::{
     IntegerLiteralPredicate, IntegerOperand, IntegerPredicate,
 };
 use onlyalpha_kernel::predicate::Predicate;
+use onlyalpha_kernel::string_equality::{StringEqualityPredicate, StringLiteralEqualityPredicate};
 use std::io::{self, Read, Write};
 
 const LIMIT: usize = 65_536;
-const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V3";
+const HEADER: &str = "ONLYALPHA_PREDICATE_DIAGNOSTIC_V4";
 
 fn integer(token: &str) -> Result<Option<IntegerOperand<'_>>, ()> {
     if token == "null" {
@@ -16,6 +20,38 @@ fn integer(token: &str) -> Result<Option<IntegerOperand<'_>>, ()> {
         return Err(());
     }
     IntegerOperand::parse(token).map(Some).map_err(|_| ())
+}
+
+fn boolean(token: &str) -> Result<Option<bool>, ()> {
+    match token {
+        "true" => Ok(Some(true)),
+        "false" => Ok(Some(false)),
+        "null" => Ok(None),
+        _ => Err(()),
+    }
+}
+
+fn string(token: &str) -> Result<Option<String>, ()> {
+    if token == "null" {
+        return Ok(None);
+    }
+    let raw = token.strip_prefix("utf8:").ok_or(())?;
+    let (pairs, remainder) = raw.as_bytes().as_chunks::<2>();
+    if raw.len() > 8192
+        || !remainder.is_empty()
+        || !raw
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(());
+    }
+    let bytes: Result<Vec<_>, ()> = pairs
+        .iter()
+        .map(|pair| {
+            u8::from_str_radix(std::str::from_utf8(pair).map_err(|_| ())?, 16).map_err(|_| ())
+        })
+        .collect();
+    String::from_utf8(bytes?).map(Some).map_err(|_| ())
 }
 
 fn evaluate(frame: &[u8]) -> Result<String, ()> {
@@ -55,7 +91,45 @@ fn evaluate(frame: &[u8]) -> Result<String, ()> {
         {
             return Err(());
         }
-        let result = if fields[1].ends_with(".integer.literal") {
+        let result = if fields[1].ends_with(".string.literal") {
+            if !(5..=7).contains(&fields.len()) {
+                return Err(());
+            }
+            let literal = string(fields[3])?.ok_or(())?;
+            let position = boolean(fields[4])?.ok_or(())?;
+            let operands: Result<Vec<_>, ()> = fields[5..].iter().map(|v| string(v)).collect();
+            let owned = operands?;
+            let operands: Vec<_> = owned.iter().map(|v| v.as_deref()).collect();
+            StringLiteralEqualityPredicate::resolve(fields[1], fields[2], &literal, position)
+                .and_then(|op| op.evaluate(&operands))
+        } else if fields[1].ends_with(".string.refs") {
+            if fields.len() > 5 {
+                return Err(());
+            }
+            let operands: Result<Vec<_>, ()> = fields[3..].iter().map(|v| string(v)).collect();
+            let owned = operands?;
+            let operands: Vec<_> = owned.iter().map(|v| v.as_deref()).collect();
+            StringEqualityPredicate::resolve(fields[1], fields[2])
+                .and_then(|op| op.evaluate(&operands))
+        } else if fields[1].ends_with(".boolean.literal") {
+            if !(5..=7).contains(&fields.len()) {
+                return Err(());
+            }
+            let literal = boolean(fields[3])?.ok_or(())?;
+            let position = boolean(fields[4])?.ok_or(())?;
+            let operands: Result<Vec<_>, ()> = fields[5..].iter().map(|v| boolean(v)).collect();
+            let operands = operands?;
+            BooleanLiteralEqualityPredicate::resolve(fields[1], fields[2], literal, position)
+                .and_then(|op| op.evaluate(&operands))
+        } else if fields[1].ends_with(".boolean.refs") {
+            if fields.len() > 5 {
+                return Err(());
+            }
+            let operands: Result<Vec<_>, ()> = fields[3..].iter().map(|v| boolean(v)).collect();
+            let operands = operands?;
+            BooleanEqualityPredicate::resolve(fields[1], fields[2])
+                .and_then(|op| op.evaluate(&operands))
+        } else if fields[1].ends_with(".integer.literal") {
             if !(5..=7).contains(&fields.len()) {
                 return Err(());
             }
@@ -82,15 +156,8 @@ fn evaluate(frame: &[u8]) -> Result<String, ()> {
             if fields.len() > 5 {
                 return Err(());
             }
-            let operands: Result<Vec<Option<bool>>, ()> = fields[3..]
-                .iter()
-                .map(|token| match *token {
-                    "true" => Ok(Some(true)),
-                    "false" => Ok(Some(false)),
-                    "null" => Ok(None),
-                    _ => Err(()),
-                })
-                .collect();
+            let operands: Result<Vec<Option<bool>>, ()> =
+                fields[3..].iter().map(|token| boolean(token)).collect();
             let operands = operands?;
             Predicate::resolve(fields[1], fields[2]).and_then(|op| op.evaluate(&operands))
         };

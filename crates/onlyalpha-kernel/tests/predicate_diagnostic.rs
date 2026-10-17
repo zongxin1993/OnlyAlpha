@@ -16,7 +16,7 @@ fn run(frame: &[u8]) -> std::process::Output {
 #[test]
 fn real_diagnostic_process_matches_all_recorded_rows_and_order() {
     let corpus = include_str!("../../../test-data/predicate/boolean-v1.tsv");
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     let mut request = header.clone();
     let mut expected = header;
     for (i, row) in corpus.lines().skip(1).enumerate() {
@@ -37,7 +37,7 @@ fn real_diagnostic_process_matches_all_recorded_rows_and_order() {
 
 #[test]
 fn malformed_or_oversized_frames_never_produce_partial_results() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     for frame in [
         vec![],
         vec![255],
@@ -54,7 +54,7 @@ fn malformed_or_oversized_frames_never_produce_partial_results() {
 
 #[test]
 fn errors_are_distinct_from_nullable_scalars() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     for (id, version, operands, error) in [
         ("unknown", "1", "true", "UnknownType"),
         (
@@ -151,7 +151,7 @@ fn actual_integer_process_preserves_all_recorded_exact_values() {
         .collect();
     assert_eq!(rows.len(), 216);
     for batch in rows.chunks(100) {
-        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
         let mut request = header.clone();
         let mut expected = header;
         for (index, row) in batch.iter().enumerate() {
@@ -168,7 +168,7 @@ fn actual_integer_process_preserves_all_recorded_exact_values() {
 
 #[test]
 fn integer_frames_reject_wrong_scalar_family_and_oversized_operands_without_partial_output() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     let good = "0\tonlyalpha.predicate.internal.compare.eq.integer.refs\t1\t1\t1\n";
     for token in [
         "true".to_owned(),
@@ -184,8 +184,8 @@ fn integer_frames_reject_wrong_scalar_family_and_oversized_operands_without_part
         assert!(!out.status.success());
         assert!(out.stdout.is_empty());
     }
-    for old in ["V1", "V2"] {
-        let out = run(format!("{}{good}", header.replace("V3", old)).as_bytes());
+    for old in ["V1", "V2", "V3"] {
+        let out = run(format!("{}{good}", header.replace("V4", old)).as_bytes());
         assert!(!out.status.success());
         assert!(out.stdout.is_empty());
     }
@@ -193,7 +193,7 @@ fn integer_frames_reject_wrong_scalar_family_and_oversized_operands_without_part
 
 #[test]
 fn maximum_signed_integer_tokens_round_trip_exactly() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     for value in ["9".repeat(256), format!("-{}", "9".repeat(256))] {
         let row =
             format!("0\tonlyalpha.predicate.internal.compare.eq.integer.refs\t1\t{value}\t{value}");
@@ -211,7 +211,7 @@ fn actual_literal_process_preserves_the_complete_independent_corpus() {
         .collect();
     assert_eq!(rows.len(), 408);
     for batch in rows.chunks(100) {
-        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
         let mut request = header.clone();
         let mut expected = header;
         for (index, row) in batch.iter().enumerate() {
@@ -228,7 +228,7 @@ fn actual_literal_process_preserves_the_complete_independent_corpus() {
 
 #[test]
 fn malformed_literal_configuration_never_emits_partial_results() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     let good = "0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n";
     for config in [
         "null\tfalse",
@@ -249,7 +249,7 @@ fn malformed_literal_configuration_never_emits_partial_results() {
 
 #[test]
 fn maximum_signed_literals_round_trip_with_both_positions() {
-    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t{}\n", "a".repeat(64));
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
     for value in ["9".repeat(256), format!("-{}", "9".repeat(256))] {
         for position in ["true", "false"] {
             let row = format!(
@@ -259,5 +259,53 @@ fn maximum_signed_literals_round_trip_with_both_positions() {
             assert!(out.status.success());
             assert_eq!(out.stdout, format!("{header}{row}\tOK\ttrue\n").as_bytes());
         }
+    }
+}
+
+#[test]
+fn scalar_equality_process_preserves_all_shared_vectors() {
+    let rows: Vec<_> = include_str!("../../../test-data/predicate/scalar-equality-v1.tsv")
+        .lines()
+        .skip(1)
+        .collect();
+    assert_eq!(rows.len(), 250);
+    for batch in rows.chunks(50) {
+        let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
+        let mut request = header.clone();
+        let mut expected = header;
+        for (index, row) in batch.iter().enumerate() {
+            let f: Vec<_> = row.split('\t').collect();
+            let fields = if f[1].ends_with(".literal") {
+                format!("{}\t{}\t{}", f[5], f[6], f[3])
+            } else {
+                format!("{}\t{}", f[3], f[4])
+            };
+            let line = format!("{index}\t{}\t{}\t{fields}", f[1], f[2]);
+            request.push_str(&format!("{line}\n"));
+            expected.push_str(&format!("{line}\tOK\t{}\n", f[7]));
+        }
+        let output = run(request.as_bytes());
+        assert!(output.status.success());
+        assert_eq!(output.stdout, expected.as_bytes());
+    }
+}
+
+#[test]
+fn invalid_string_frames_never_emit_partial_success() {
+    let header = format!("ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t{}\n", "a".repeat(64));
+    let good = "0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n";
+    for token in [
+        "true",
+        "utf8:0",
+        "utf8:FF",
+        "utf8:ff",
+        "utf8:eda080",
+        "utf8:c080",
+        "utf8:00 00",
+        &format!("utf8:{}", "00".repeat(4097)),
+    ] {
+        let out = run(format!("{header}{good}1\tonlyalpha.predicate.internal.compare.eq.string.refs\t1\t{token}\tutf8:78\n").as_bytes());
+        assert!(!out.status.success());
+        assert!(out.stdout.is_empty());
     }
 }

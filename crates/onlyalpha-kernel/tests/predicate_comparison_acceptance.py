@@ -73,14 +73,16 @@ for case in payload['cases']:
  observed=json.loads(service.observe(binding,definition,rows,native).canonical_json)
  assert observed['status']=='MATCH',observed
  assert observed['python_outputs']==case['expected']
- if definition.type_id.endswith('.integer.literal'):
-  assert observed['context']['literal_configuration']=={'literal':str(definition.parameters['literal']),'literal_left':definition.parameters['literal_left']}
+ if definition.type_id.endswith('.literal'):
+  value=definition.parameters['literal']
+  token=('utf8:'+value.encode('utf-8').hex()) if type(value) is str else ('true' if value else 'false') if type(value) is bool else str(value)
+  assert observed['context']['literal_configuration']=={'literal':token,'literal_left':definition.parameters['literal_left']}
  assert observed['context']['definition_fingerprint']==definition.fingerprint
  assert observed['context']['binding']==payload['binding']
  assert observed['context']['native_artifact']==payload['native']
  assert observed['python_implementation'] in {item.implementation_fingerprint for item in registry.require_work_generation(binding.work_id,binding.runtime_generation_fingerprint).implementations}
 content=store.fetch_exact(native.artifact_sha256)[1]
-frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V3\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
+frame=('ONLYALPHA_PREDICATE_DIAGNOSTIC_V4\t'+'a'*64+'\n0\tonlyalpha.predicate.internal.boolean.not\t1\ttrue\n').encode()
 real_popen=subprocess.Popen
 children=[]
 def tracked(*args,**kwargs):
@@ -97,8 +99,8 @@ try: module._run_native(content,b'bad\n',native.native_target)
 except ValueError as exc: assert 'PROCESS_FAILED' in str(exc)
 else: raise AssertionError('failed process was converted to success')
 assert (registry.root/'generation-events.jsonl').read_bytes()==ledger
-assert sum(len(case['inputs']) for case in payload['cases'])==654
-print('SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS (654 vectors, 18 exact types)')
+assert sum(len(case['inputs']) for case in payload['cases'])==payload['vector_count']
+print('SEALED_PYTHON_NATIVE_PREDICATE_BATCH: PASS', payload['vector_count'])
 """
 
 
@@ -202,13 +204,19 @@ def main() -> None:
         only_register_trading_predicate_primitives(calculations)
         corpus = [
             row
-            for name in ("boolean-v1.tsv", "integer-refs-v1.tsv", "integer-literal-v1.tsv")
+            for name in ("boolean-v1.tsv", "integer-refs-v1.tsv", "integer-literal-v1.tsv", "scalar-equality-v1.tsv")
             for row in csv.DictReader((ROOT / "test-data/predicate" / name).open(), delimiter="\t")
         ]
         scalars = {"true": True, "false": False, "null": None}
         cases = []
-        assert len(corpus) == 654
-        assert len({row["type_id"] for row in corpus}) == 18
+        assert len(corpus) == 904
+        assert len({row["type_id"] for row in corpus}) == 26
+        for row in corpus:
+            if row.get("literal") == "-":
+                row["literal"] = None
+                row["literal_left"] = None
+            if row["type_id"].endswith(".literal") and "input" not in row:
+                row["input"] = row["left"]
         for type_id, literal_value, position in dict.fromkeys(
             (row["type_id"], row.get("literal"), row.get("literal_left")) for row in corpus
         ):
@@ -218,21 +226,23 @@ def main() -> None:
                 if (row["type_id"], row.get("literal"), row.get("literal_left")) == (type_id, literal_value, position)
             ]
             literal = literal_value is not None
-            integer = literal or type_id.endswith(".integer.refs")
+            integer = ".integer." in type_id
             names = (
                 ("left",)
                 if literal
                 else ("left", "right")
-                if integer or type_id.endswith((".and", ".or"))
+                if ".compare." in type_id or type_id.endswith((".and", ".or"))
                 else ("value",)
             )
 
-            def scalar(token: str, integer: bool = integer) -> bool | int | None:
+            def scalar(token: str, integer: bool = integer) -> bool | int | str | None:
+                if token.startswith("utf8:"):
+                    return bytes.fromhex(token[5:]).decode("utf-8")
                 return None if token == "null" else int(token) if integer else scalars[token]
 
             definition = calculations.rematerialize_definition(
                 OnlyCalculationTypeReference(OnlyCalculationKind.PREDICATE, type_id, "1"),
-                {"literal": int(literal_value), "literal_left": position == "true"}
+                {"literal": scalar(literal_value), "literal_left": position == "true"}
                 if literal_value is not None
                 else {},
                 {key: OnlyCalculationReference(None, key, "bar.close") for key in names},
@@ -247,27 +257,33 @@ def main() -> None:
                     "expected": [scalars[row["expected"]] for row in rows],
                 }
             )
-        payload = root / "input.json"
-        payload.write_text(
-            json.dumps(
-                {
-                    "binding": asdict(registry.require_work_binding_evidence("predicate-fixture")),
-                    "native": native.to_dict(),
-                    "cases": cases,
-                }
+        # Bound each isolated interpreter to at most 64 exact Definitions; retain the
+        # existing per-process deadline as corpus coverage expands.
+        for offset in range(0, len(cases), 64):
+            batch = cases[offset : offset + 64]
+            payload = root / "input.json"
+            payload.write_text(
+                json.dumps(
+                    {
+                        "binding": asdict(registry.require_work_binding_evidence("predicate-fixture")),
+                        "native": native.to_dict(),
+                        "cases": batch,
+                        "vector_count": sum(len(case["inputs"]) for case in batch),
+                    }
+                )
             )
-        )
-        result = subprocess.run(
-            [str(root / "hosted/bin/python"), "-I", "-c", CHILD, str(payload), str(store.root), str(registry.root)],
-            cwd=root,
-            env={"LANG": "C"},
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode:
-            raise AssertionError(result.stdout + result.stderr)
-        print(result.stdout, flush=True)
+            result = subprocess.run(
+                [str(root / "hosted/bin/python"), "-I", "-c", CHILD, str(payload), str(store.root), str(registry.root)],
+                cwd=root,
+                env={"LANG": "C"},
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode:
+                raise AssertionError(result.stdout + result.stderr)
+            print(result.stdout, flush=True)
+        print("SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS (904 vectors, 26 exact types)", flush=True)
 
 
 if __name__ == "__main__":

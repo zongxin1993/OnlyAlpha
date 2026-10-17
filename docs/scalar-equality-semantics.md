@@ -42,9 +42,11 @@ checkpoint, persistence, digest, Broker or effect. Repeated/reordered rows and f
 Wrong scalar families are rejected by the Rust type system, with compile-fail examples. No generic evaluator/worker framework,
 crate, runtime selector or canonical identity format is added.
 
-The existing V3 sealed-generation diagnostic still admits only its Boolean logical/terminal and integer reference/literal subsets.
-The new equality types live separately from its existing Boolean resolver; neither its type allowlist nor frame changes here.
-This library correctness evidence does not certify diagnostic integration, whole-Kernel equivalence, deployment recovery or latency.
+The [sealed-generation diagnostic](predicate-comparison.md) admits these eight types through its V4/schema-4 bounded private frame.
+It retains exact family/literal/position identity and uses strict lowercase UTF-8 hex for string transport, with an independent
+4096-UTF-8-byte per-value diagnostic budget and the existing frame budget. These caps do not narrow the Core borrowed-str API.
+The equality types remain separate from the Boolean logical/terminal resolver. Neither library nor diagnostic correctness proves
+whole-Kernel equivalence, formal Calculation certification, deployment recovery or latency.
 
 ## Independent vectors and failure guards
 
@@ -52,7 +54,7 @@ This library correctness evidence does not certify diagnostic integration, whole
 come from explicitly declared EQ/NE/NULL relations and truth tables, never backend output. For each valid required-literal case,
 each non-missing reference side becomes the fixed literal in turn; missing literal parameters are not generated. String unequal
 pairs also appear reversed. Test-only string tokens are `utf8:` plus lowercase UTF-8 hex; missing is the distinct word `null`.
-Hex keeps NUL/tab/newline test values lossless in ASCII TSV; it is not a new Gateway, diagnostic frame or persistent format.
+Hex keeps NUL/tab/newline test values lossless in ASCII TSV; it is shared test encoding, also reused by the bounded diagnostic without becoming a Gateway or persistent format.
 
 The independent byte guard rejects output, owner, input, literal, direction, Unicode spelling, duplicate and truncation mutations.
 Registered Python TRADING and RESEARCH consume all cases, with strict Boolean/null results, repetition, reversed order and fresh
