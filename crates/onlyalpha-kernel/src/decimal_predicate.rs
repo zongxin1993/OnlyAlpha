@@ -111,3 +111,60 @@ impl DecimalPredicate {
         }))
     }
 }
+
+/// One nullable reference compared against one required immutable finite literal.
+///
+/// A missing literal cannot inhabit this API:
+/// ```compile_fail
+/// use onlyalpha_kernel::decimal_predicate::DecimalLiteralPredicate;
+/// let _ = DecimalLiteralPredicate::resolve(
+///     "onlyalpha.predicate.internal.compare.eq.decimal.literal", "1", None, false);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecimalLiteralPredicate<'a> {
+    operation: DecimalPredicate,
+    literal: DecimalOperand<'a>,
+    literal_left: bool,
+}
+
+impl<'a> DecimalLiteralPredicate<'a> {
+    pub fn resolve(
+        type_id: &str,
+        version: &str,
+        literal: DecimalOperand<'a>,
+        literal_left: bool,
+    ) -> Result<Self, PredicateError> {
+        let operation = match type_id {
+            "onlyalpha.predicate.internal.compare.eq.decimal.literal" => DecimalPredicate::Eq,
+            "onlyalpha.predicate.internal.compare.ne.decimal.literal" => DecimalPredicate::Ne,
+            "onlyalpha.predicate.internal.compare.lt.decimal.literal" => DecimalPredicate::Lt,
+            "onlyalpha.predicate.internal.compare.le.decimal.literal" => DecimalPredicate::Le,
+            "onlyalpha.predicate.internal.compare.gt.decimal.literal" => DecimalPredicate::Gt,
+            "onlyalpha.predicate.internal.compare.ge.decimal.literal" => DecimalPredicate::Ge,
+            _ => return Err(PredicateError::UnknownType),
+        };
+        if version != crate::predicate::SEMANTIC_VERSION {
+            return Err(PredicateError::UnknownVersion);
+        }
+        Ok(Self {
+            operation,
+            literal,
+            literal_left,
+        })
+    }
+
+    pub fn evaluate(
+        self,
+        inputs: &[Option<DecimalOperand<'_>>],
+    ) -> Result<Option<bool>, PredicateError> {
+        if inputs.len() != 1 {
+            return Err(PredicateError::InvalidArity);
+        }
+        let operands = if self.literal_left {
+            [Some(self.literal), inputs[0]]
+        } else {
+            [inputs[0], Some(self.literal)]
+        };
+        self.operation.evaluate(&operands)
+    }
+}

@@ -25,3 +25,9 @@ large equal values and all missing positions are retained. It does not change th
 ASCII or `null`; equal numeric values may have different scales or zero signs. Regenerate/check with
 `python scripts/decimal_predicate_vectors.py [--check]`. Explicit mathematical relations produce expectations without executing
 a backend. The corpus is shared by registered Python backends and the Rust library; it does not extend the diagnostic protocol.
+
+
+`decimal-literal-v1.tsv` records 504 cases from the same independent Decimal relations, using the seven-column
+`case_id/type_id/semantic_version/input/literal/literal_left/expected` layout. Each non-missing side is the literal in turn;
+position is retained even when outcomes coincide. Regenerate/check with `python scripts/decimal_literal_vectors.py [--check]`.
+The owning [Decimal Contract](../../docs/decimal-predicate-semantics.md) defines the typed configuration and validation boundary.

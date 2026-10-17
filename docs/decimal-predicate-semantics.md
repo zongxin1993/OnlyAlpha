@@ -28,11 +28,33 @@ ordering, then fractional ASCII ordering. Trailing fractional zero removal makes
 suffix ends in a nonzero digit. Negative magnitudes reverse ordering. No arithmetic, allocation, fixed-width coefficient,
 exponent expansion, locale, clock, unsafe code or third-party crate is involved. Length is bounded by caller-available string memory.
 
-Exact type/version resolution refuses wrong family, operator, layout or version; no literal types are implemented here.
+The reference resolver refuses wrong family, operator, literal layout or version; the literal constructor below resolves its own exact types.
 Wrong arity is `InvalidArity`, checked before missing propagation. Adding `InvalidDecimal` to the development-period Rust error enum
 requires consumers to account for that variant; it does not extend the V4 diagnostic's wire-error allowlist or change Python APIs.
 Repeated evaluation, fresh instances and row reordering preserve corresponding results. These scalars do not prove ownership,
 certified absence, formal Calculation equivalence, execution permission or LIVE authority.
+
+## Required DECIMAL literal configuration
+
+The six `onlyalpha.predicate.internal.compare.<op>.decimal.literal` types have one nullable DECIMAL input named `left`,
+required finite DECIMAL parameter `literal` and BOOLEAN `literal_left` defaulting to false. Their output, missing, time and
+warmup metadata match the reference types. Existing Python schema normalization remains authoritative and is unchanged; it rejects
+missing/non-finite literals and non-Boolean positions. This Rust slice does not reimplement that schema or add raw parameter coercion.
+
+`DecimalLiteralPredicate` consumes an already parsed `DecimalOperand` and explicit bool, retaining them as private immutable
+configuration. With false position it compares input to literal; true compares literal to input. It checks exactly one input
+before missing propagation and delegates to `DecimalPredicate`. A required literal cannot be missing or non-finite in the typed
+constructor. No new parser, arithmetic, rounding, allocation, error variant, dependency or state is added. Direction and literal
+value are retained even if missing inputs or symmetric equality happen to give the same outputs. This numeric view is not a
+replacement for the complete Definition/parameter fingerprint; it grants no new semantic identity or execution permission.
+
+`test-data/predicate/decimal-literal-v1.tsv` contains 504 cases derived from the reference corpus's independent mathematical
+relations. Each non-missing side becomes the literal in turn; rows with a missing required literal are excluded, while nullable
+inputs remain. `scripts/decimal_literal_vectors.py --check` guards exact bytes. Output, precision, owner, literal, direction,
+duplicate and truncation mutations must fail. Python TRADING and Rust consume every row with repetition, reversal and fresh
+instances. Python tests retain the normalized literal tuple and explicit position, check omitted position against false, vary
+ambient precision and test the common Arrow decimal128(38,18) input/literal envelope with exact output cardinality. Rust rejects
+wrong family/layout/operator/version and wrong arity before missing; compile-fail coverage prevents a missing required literal.
 
 ## Independent vectors and validation
 
@@ -48,8 +70,8 @@ and checks output cardinality and exact Boolean/null values. This does not certi
 Rust tests additionally reject malformed values, wrong identities/versions/arity and wrong scalar types, in Linux debug and release.
 
 The existing V4 sealed-generation diagnostic remains limited to its 26 Boolean/integer/string types and 904 vectors. These six
-Decimal types are library-only until a separate bounded transport/diagnostic consumer is implemented and verified. This slice
-provides no Decimal arithmetic/rounding, literal comparison, Runtime activation, state/recovery, deployment-upgrade or latency proof.
+reference types and six literal types below are library-only until a separate bounded transport/diagnostic consumer is implemented and verified. This slice
+provides no Decimal arithmetic/rounding, Runtime activation, state/recovery, deployment-upgrade or latency proof.
 
 ## Engineering evidence and derived protection
 
