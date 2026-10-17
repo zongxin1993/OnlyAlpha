@@ -5,6 +5,27 @@ It specifies construction order, deliverables and the behavior each unit must pr
 ledger, certification report or second acceptance Authority. Every implementation unit still needs its in-context Task Contract
 and AGENTS.md impact-aware validation. No Rust implementation or QMT removal is claimed by publishing this program.
 
+## Responsibility assessment and incremental alignment
+
+Use all of `src/onlyalpha/` as the assessment boundary under ADR 0139 section 1.1. This broadens assessment, not the definition of
+Trading Kernel or the authorization to rewrite the entire backend. For each selected slice:
+
+1. Identify its canonical Contract and actual callers; separate stable semantics, Python algorithm authoring, plugin differences,
+   application orchestration and Infrastructure. A Python package may contain more than one responsibility.
+2. Record the Python/Rust module correspondence in its owning design/development document. Reuse existing semantic Contracts and
+   `test-data/` vectors; do not create per-language specifications or a second progress/acceptance registry.
+3. Keep `src/onlyalpha/` and `crates/onlyalpha-kernel/src/` as their respective source roots for the canonical library. Align names,
+   responsibilities and dependency direction only where the module exists. Preserve component/plugin placement for other roles.
+4. Reuse sound paths; restructure only for a demonstrated boundary need in the selected slice. If paths change, update direct
+   consumers, exact implementation manifests/fingerprints, tests and build inputs together; preserve historical exact artifacts.
+5. Prove the selected Contract with independent vectors in both implementations, then apply the existing comparison/admission
+   gates. Directory correspondence alone cannot establish equivalence, replace R1-R8 dependencies or authorize Python retirement.
+
+Stable application/Infrastructure capabilities need their own bounded consumer and migration proof before Rust implementation;
+this program does not schedule a backend-wide rewrite. Algorithm authoring and market/plugin boundaries remain as defined in
+ADR 0139. Begin navigation from the [Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map), without
+moving existing files solely to make the map visually symmetric.
+
 ## Dependency order
 
 ```text

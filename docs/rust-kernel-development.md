@@ -5,6 +5,32 @@ The library in `crates/onlyalpha-kernel/` implements the six stateless Boolean/t
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
 
+## Predicate responsibility map
+
+ADR 0139 section 1.1 aligns modules by responsibility, not by matching Python and Rust file trees. Paths below are relative to the
+repository root. They identify source owners and consumers, not a second semantic specification or migration/admission status.
+
+| Responsibility | Python location | Rust location / boundary |
+| --- | --- | --- |
+| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
+| Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
+| Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
+| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
+| Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
+| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
+
+The owning Contracts are [Boolean/terminal semantics](predicate-semantics.md), [integer reference/literal semantics](integer-predicate-semantics.md),
+[Boolean/string equality semantics](scalar-equality-semantics.md) and [isolated comparison](predicate-comparison.md). A matching
+module name does not extend any Contract's supported types, numerical envelope, batch shape or diagnostic admission.
+The separate `src/onlyalpha/application/calculation_equivalence.py` owns formal Calculation equivalence certification; the native
+diagnostic service neither replaces that authority nor publishes its admission-grade Evidence.
+
+The current separation already distinguishes definitions, scalar evaluation, batch evaluation and diagnostic orchestration.
+Retain those paths while extending the selected semantic slices; no mirrored `research`, `application` or `runtime` shell is
+needed inside the Rust library. Create a nested Rust module only when actual responsibilities/dependencies warrant it, and migrate
+its real consumers atomically without old-path compatibility re-exports. New work binds the resulting exact implementation;
+existing work keeps its retained artifact. Source movement alone does not redefine semantic type/version identity.
+
 ## Toolchain and build boundary
 
 `rust-toolchain.toml` pins the official stable Rust 1.99.1 toolchain with rustfmt and Clippy. `deploy/Dockerfile.dev` obtains it from

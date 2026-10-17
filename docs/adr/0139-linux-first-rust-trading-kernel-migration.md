@@ -40,6 +40,35 @@ Deployment staging never creates Runtime-specific economic semantics. Running wo
 and draining follow ADR 0117. A long-lived Runtime handover needs explicit validated checkpoint/reconciliation semantics before
 activation; replacing a process or changing a version string is not a handover protocol.
 
+### 1.1 Module responsibilities and incremental source alignment
+
+The owner-approved assessment scope includes every module under `src/onlyalpha/`; this is not a commitment to translate every
+Python package to Rust. Classify responsibilities before selecting a migration slice. Stable canonical domain/trading semantics
+are Rust targets; stable application or Infrastructure capabilities may be selected separately when their own requirements and
+boundaries justify migration. Their implementation language does not make them Trading Kernel responsibilities. Indicators,
+factors and research authoring remain Python-oriented; market/provider/Broker implementations remain language-appropriate plugins.
+Mixed packages require responsibility-level classification rather than whole-directory translation. A generic fee accrual or
+reconciliation rule and a concrete market fee schedule must retain different owners even when related Python code shares an area.
+
+Keep Python source under `src/onlyalpha/` and the canonical Rust library under `crates/onlyalpha-kernel/src/`. Align domain names,
+module responsibilities and dependency direction; do not require matching files, classes, types or directory depth. Follow each
+language's native organization. The existing Rust library is not a separately deployed component. Independently buildable,
+versioned/deployable non-plugin components continue to follow `packages/onlyalpha-<FUNC>-<NAME>/`; concrete Plugin SPI
+implementations follow `plugs/onlyalpha-plugin-<NAME>/`. Rust package manifests may use the Cargo workspace without changing those
+ownership rules. No application, transport, storage driver or provider implementation moves into the Kernel for directory symmetry.
+
+Assess and align modules as their migration slices are selected. Keep useful existing Python/Rust paths; split or move code only
+when the current slice exposes a real responsibility or dependency problem. Add no empty counterpart tree, one-crate-per-Python-package
+scaffolding, compatibility re-export or duplicate Contract to simulate symmetry. Update actual imports, consumers, manifests,
+source-bound fingerprints, build inputs and tests atomically when paths really change. Executable provenance changes with source;
+source movement alone does not change a semantic type/version. Configuration and semantic identity continue to follow their owning
+Contracts, including new identity/version for semantic changes. Active work retains its exact artifact binding.
+
+Record responsibility correspondence with its owning development/design documentation, referencing the existing canonical Contracts
+and shared vectors. Such correspondence is a source-navigation aid, not a second specification, migration-status registry or
+Authority. The [Predicate responsibility map](../rust-kernel-development.md#predicate-responsibility-map) illustrates the first
+bounded area; it does not claim complete Python/Rust feature parity or admission of a new Runtime implementation.
+
 ### 2. Contract equivalence, not Python-as-oracle
 
 The canonical Contract, immutable inputs and language-neutral deterministic vectors define correct behavior. Python is a reference

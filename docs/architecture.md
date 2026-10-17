@@ -183,6 +183,14 @@ It is not a separately deployed service or Plugin. The initial stateless Predica
 [Boolean Predicate corpus](predicate-semantics.md) and [integer reference/literal comparison vectors](integer-predicate-semantics.md), plus the [Boolean/string equality corpus](scalar-equality-semantics.md); its presence does not select it for an active Runtime or create another writer.
 Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
 
+All modules under `src/onlyalpha/` are within migration assessment, not a blanket Rust rewrite commitment. Python and Rust align
+by domain/module responsibility and dependency direction, with language-native file/type organization. Align incrementally with
+real migration consumers; do not create empty parallel trees or move correct Python code only for symmetry. Application and
+Infrastructure migration remain separate from canonical Kernel ownership; Python-oriented algorithms and language-appropriate
+plugins retain their boundaries. ADR 0139 section 1.1 defines placement and source/provenance rules; the existing development
+[Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map) links the implementations and shared Contracts.
+
+
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。
 
 P6.0 已将这个共享语义边界固化为 Runtime-neutral `OnlyTradingKernel`：Kernel config 不含 Runtime mode，Kernel 通过 builder 创建并唯一持有 Position、Allocation、Reservation、Account、Strategy Ledger、Settlement、Margin 与 Fee authorities，随后一次性安装 Order/Risk/Execution/Transaction/Projection 和共享 MarketData/Strategy processing graph。`OnlyRuntime` 只保留 identity、lifecycle、plugin resource 与 operational state，并通过临时兼容 delegate 暴露既有管理查询；这些 delegate 不是新的 Service Locator 合同。
