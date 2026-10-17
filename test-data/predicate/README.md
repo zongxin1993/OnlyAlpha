@@ -12,3 +12,10 @@ The UTF-8 file has LF endings, a header and six tab-separated fields: `case_id`,
 Regenerate with `python scripts/predicate_vectors.py`; verify exact bytes with `python scripts/predicate_vectors.py --check`.
 The generator contains explicit truth tables independently of backend implementations. Changes require contract review and atomic
 updates of these tests/data; do not regenerate to accept a mismatching implementation.
+
+`integer-refs-v1.tsv` records 216 cases for the six double-reference integer comparisons in
+[the integer Contract](../../docs/integer-predicate-semantics.md). It uses the same six-column layout; operands are canonical signed
+ASCII decimal integers or `null`, outputs are `true`/`false`/`null`. Case identities use mathematical boundary names.
+Regenerate/check with `python scripts/integer_predicate_vectors.py [--check]`. The generator declares each pair's mathematical
+relation and an explicit operator truth table independently of Python/Rust backend results. Both directions of unequal examples,
+large equal values and all missing positions are retained. It does not change the Boolean corpus or certify a worker protocol.

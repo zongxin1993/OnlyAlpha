@@ -23,6 +23,7 @@ pub enum PredicateError {
     UnknownType,
     UnknownVersion,
     InvalidArity,
+    InvalidInteger,
 }
 
 impl Predicate {
