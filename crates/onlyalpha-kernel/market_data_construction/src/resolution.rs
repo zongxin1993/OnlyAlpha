@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OnlyConstructionRequirement {
     PreferExactNative,
-    Exact(OnlyConstructionRecipe),
+    Exact(Box<OnlyConstructionRecipe>),
 }
 impl OnlyConstructionRequirement {
     pub fn to_record(&self) -> Value {
@@ -31,7 +31,9 @@ impl OnlyConstructionRequirement {
         let r = object(v, 1, &["kind", "policy", "recipe"])?;
         let result = match text(&r["kind"])? {
             "POLICY" => Self::PreferExactNative,
-            "EXACT_RECIPE" => Self::Exact(OnlyConstructionRecipe::from_record(&r["recipe"])?),
+            "EXACT_RECIPE" => {
+                Self::Exact(Box::new(OnlyConstructionRecipe::from_record(&r["recipe"])?))
+            }
             _ => return Err(err("REQUIREMENT_KIND")),
         };
         if result.to_record() != *v {
@@ -152,7 +154,7 @@ impl OnlyConstructionResolutionPlan {
                 if recipe.target() != &target {
                     return Err(err("REQUIREMENT_TARGET"));
                 }
-                recipe.clone()
+                recipe.as_ref().clone()
             }
             OnlyConstructionRequirement::PreferExactNative => {
                 if native.len() > 1 {
@@ -290,7 +292,7 @@ impl OnlyConstructionResolutionPlan {
             return Err(err("PLAN_GRID_NOT_CANONICAL"));
         }
         if result.recipe.target() != &result.target
-            || matches!(&result.requirement,OnlyConstructionRequirement::Exact(recipe) if recipe!=&result.recipe)
+            || matches!(&result.requirement,OnlyConstructionRequirement::Exact(recipe) if recipe.as_ref()!=&result.recipe)
             || result.to_record() != *v
         {
             return Err(err("PLAN_RELATIONS_OR_FINGERPRINT"));

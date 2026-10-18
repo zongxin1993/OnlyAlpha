@@ -47,7 +47,9 @@ fn exact_resolution_never_substitutes() {
             target.clone(),
             &[cap(1, 0)],
             context(),
-            OnlyConstructionRequirement::Exact(OnlyConstructionRecipe::native(target.clone()))
+            OnlyConstructionRequirement::Exact(Box::new(OnlyConstructionRecipe::native(
+                target.clone()
+            )))
         )
         .is_err()
     );

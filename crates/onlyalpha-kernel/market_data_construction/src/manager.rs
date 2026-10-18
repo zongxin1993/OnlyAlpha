@@ -254,10 +254,10 @@ impl OnlyConstructionManager {
         let provider_id = provider.lane_id().to_string();
         // Set before extension calls: an unwind cannot leave the owner apparently healthy.
         self.failed = true;
-        if let OnlyConstructionFact::Bar(bar) = fact {
-            if !bar.is_closed() || *bar.revision() != 0.into() || bar.ts_event() != bar.bar_end() {
-                return Err(err("PROVIDER_BAR_CONTRACT"));
-            }
+        if let OnlyConstructionFact::Bar(bar) = fact
+            && (!bar.is_closed() || *bar.revision() != 0.into() || bar.ts_event() != bar.bar_end())
+        {
+            return Err(err("PROVIDER_BAR_CONTRACT"));
         }
         if init < &fact.event() {
             return Err(OnlyConstructionError::Time);

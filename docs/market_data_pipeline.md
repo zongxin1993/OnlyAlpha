@@ -44,7 +44,7 @@ Construction 不能同时激活，显式报 `RUNTIME_CONSTRUCTION_LANE_CONFLICT`
 `ROLLING_TIME_BAR@1` recipe identity，但执行仍 fail closed，尚未启用 sliding policy。
 
 `OnlyBarConstructionRecipe` 是 Native/Derived construction 的唯一 Authority；`OnlyBarType` 只绑定 instrument 与
-`OnlyBarSemantic`。Resolution plan schema v3、Construction identity schema v2 与 Bar semantic schema v2 才是
+`OnlyBarSemantic`。Resolution plan schema v3、Construction identity schema v2 与 Bar semantic schema v3 才是
 当前持久格式；旧 identity 不静默重解释，读取时要求 rebuild。
 
 Construction Graph schema v1 使用 typed BAR/TRADE provider input node；TRADE→BAR 可以表达和持久化，
@@ -56,6 +56,50 @@ topological level、lane ID 稳定顺序同步传播到 fixpoint；任一 Constr
 Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败。
 同一 provider trigger 返回重复 BarType 也属于 executor result contract violation，由 Manager 在 transaction 内 fail-stop；
 后续调用必须先完成 Construction recovery，Pipeline 的防御检查不拥有该 transaction authority。
+
+### Rust Construction library boundary
+
+`crates/onlyalpha-kernel/market_data_construction/` is package `onlyalpha-market-data-construction`; its only local edge is
+Domain. It owns typed recipe/requirement/capability/resolution/lineage values, stable construction graphs and compiled lane
+identities, exact-version pure executor registration, session-aware TIME_BAR@1, shared registrations and component recovery.
+Market-specific calendars arrive as immutable Domain inputs; provider discovery, Source continuity/grants, dispatch,
+State/calculation updates, durable Dataset publication and Runtime admission remain outside this library.
+
+Current value records retain recipe1, requirement1, graph1, resolution plan3, construction identity2 and lane1 meanings.
+Map-like graph rows normalize order, duplicate identities reject and histories retain chronological order. Exact recipe
+requests never substitute another recipe. Parsing lineage values does not prove referenced revisions/seals exist.
+Only TIME_BAR@1 is built in; other graph algorithms require a factory registered under their exact ID/version. Factories
+must create isolated, deterministic, side-effect-free executors. This in-process SPI is not a sandbox for untrusted code.
+
+A non-Clone manager binds exact Engine/Runtime/source/calendar. Registration IDs own membership; provider/lane counts derive
+from registrations. Configuration changes prepare a complete candidate before replacement and retain shared lane state.
+Processing uses explicit logical init, validates closed unrevised provider Bars and all derived output contracts, propagates
+in global `(topological level, lane ID)` order, and replaces executor state only after the complete trigger succeeds. Error
+or unwind during execution marks recovery-required without publishing or committing a prefix. A failed owner cannot capture
+or process; its coordinator must retain the last valid checkpoint and explicitly restore it. Wrong source does not rebind.
+Unmatched input yields no output, never certified historical absence or readiness. Staging uses fresh executors and validated
+checkpoint records per trigger; this favors bounded correctness and makes no production throughput claim.
+
+TIME_BAR@1 consumes session-aligned, contiguous, closed revision0 source Bars. It uses Domain exact decimal arithmetic and
+explicit calendar intervals, preserves the last accepted boundary after reset, rejects duplicates/late input, and enforces
+source/target precision, trading-day/session and known optional currency/precision relations. Missing REJECT/SKIP_WINDOW and
+tail DROP/REJECT are explicit; no synthetic Bars or silent corrections exist. Historical acquisition init does not replace
+logical replay time. Output init must convert exactly to Domain datetime; sub-microsecond loss is rejected. Read-only preview
+is nonclosed, cannot mutate formal state and never enters manager propagation.
+
+Time executor component schema1 binds exact edge/calendar and EMPTY, PENDING or SETTLED state. Rust manager component schema4
+binds exact owner/source/calendar, registrations/graph, complete lane/source-lane/recipe/level identities, derived reference
+counts, executor states and arbitrary-precision lifetime creation count. Restore validates complete relations and all fresh
+executors before a single replacement. It requires the receiver's expected typed registrations already configured; it does
+not import another configuration. Duplicate rows, owner aliases, foreign contexts, malformed states and count mismatches
+reject without changing the prior state or recovery-required flag. Row order may normalize; history order never does.
+
+This Rust component schema4 is **not admitted** to the current Python Runtime aggregation participant schema3. There is no
+fallback, conversion, production cutover, existing-history mutation or real restart/upgrade certification in this module.
+Future admission must separately bind Generation, immutable input and checkpoint authority, preserve durable history and
+prove real lifecycle behavior. Shared vectors demonstrate common valid semantics only; Python defects in absent unregister,
+checkpoint duplicate collapse and permissive readers are not Rust requirements. See the
+[Construction design](superpowers/specs/2026-10-18-rust-market-data-construction-design.md).
 
 ## 4. Cache
 

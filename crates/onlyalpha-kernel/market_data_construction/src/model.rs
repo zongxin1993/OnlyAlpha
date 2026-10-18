@@ -150,12 +150,11 @@ impl OnlyConstructionRecipe {
         if version == BigUint::default() {
             return Err(err("ALGORITHM_VERSION"));
         }
-        if let OnlyConstructionSemantic::Bar(source) = &base {
-            if source.price_type() != target.price_type()
-                || source.adjustment_policy() != target.adjustment_policy()
-            {
-                return Err(err("RECIPE_SEMANTICS"));
-            }
+        if let OnlyConstructionSemantic::Bar(source) = &base
+            && (source.price_type() != target.price_type()
+                || source.adjustment_policy() != target.adjustment_policy())
+        {
+            return Err(err("RECIPE_SEMANTICS"));
         }
         Ok(Self {
             target,

@@ -288,3 +288,19 @@ Python/application/plugins. Both build profiles run the isolated closure. Indepe
 [MarketData Contract](market_data_pipeline.md#rust-state-library-boundary) distinguishes component records from historical
 Source/Construction/Generation proof and official Python Runtime registration. No admission or full module/wire parity follows
 from a library build.
+
+## Market Data Construction responsibility map
+
+`market_data_construction/` (`onlyalpha-market-data-construction`) separates model/record, resolution, compiler, executor,
+TIME_BAR and manager responsibilities. Python reference locations are `market_data/resolution.py` and
+`market_data/aggregation/{compiler,base,time_bar,manager}.py`; this is a responsibility map, not a file/class translation.
+Subscriptions' delivery/primary selection, completed-boundary product queries, Pipeline/State/calculation/Runtime integration
+remain separate. Rust audits and corrects boundary/identity/recovery defects rather than preserving Python accidents.
+
+Construction -> Domain is the sole local edge. Exact admitted num-bigint/serde_json/sha2 features add no registry nodes.
+`rust-kernel` checks the six-package graph and pure-source boundary, then extracts Domain+Construction independently and tests
+both debug/release without Core/Clock/Event/State or application sources. The fixed Linux dev image supplies the offline
+reviewed registry; ordinary source changes use frozen mounts. Shared independent inputs live in
+`test-data/market-data-construction/`; Python consumes only the common valid API behavior. Component checkpoint schema4
+and TIME_BAR schema1 do not activate the library in the official Python Runtime. The
+[owning Contract](market_data_pipeline.md#rust-construction-library-boundary) defines ownership and failure semantics.

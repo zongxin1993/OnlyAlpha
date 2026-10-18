@@ -26,3 +26,5 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 | `test-durations.json` | pytest 时长权威缓存 | `scripts/test_suite.py` 读写 |
 
 - [market-data-state](market-data-state/README.md): independent common state operations and strict schema-2 records; no whole-module Python parity or Runtime admission claim.
+
+- [market-data-construction](market-data-construction/README.md): independent current construction records, identities, lanes and exact aggregation outputs; Python/Rust common-reference consumers.

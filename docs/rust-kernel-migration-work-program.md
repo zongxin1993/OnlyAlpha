@@ -281,3 +281,12 @@ checkpoint replacement. Construction, Pipeline/Dispatcher orchestration, calcula
 remain separate. See the [owning Contract](market_data_pipeline.md#rust-state-library-boundary) and
 [responsibility map](rust-kernel-development.md#market-data-state-responsibility-map). This library construction does not change
 the official Python participant, authorize activation/migration or record module completion.
+
+### Market Data Construction source navigation
+
+The bounded Construction responsibility lives in `crates/onlyalpha-kernel/market_data_construction/`, with Domain as its
+only local dependency. It includes exact construction values, graph compilation, pure executor SPI, TIME_BAR@1 and an atomic
+Runtime-local owner. See the [owning Contract](market_data_pipeline.md#rust-construction-library-boundary) and
+[responsibility map](rust-kernel-development.md#market-data-construction-responsibility-map). This library work does not
+activate Rust in Runtime or remove Python; Source/Generation admission, durable migration and measured product performance
+remain separately scoped integration work.

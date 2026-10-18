@@ -281,7 +281,7 @@ def _validate_pure_sources(root: Path, area: str, permitted: set[str]) -> None:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         code = re.sub(r"(?m)^\s*//.*$", "", text)
         if path.is_relative_to(event / "src") and re.search(
-            r"\b(?:SystemTime|Instant|UNIX_EPOCH|Condvar|thread|sleep|new_v4|new_v7|random|File|TcpStream|UdpSocket|Command|getrandom)\b|\bstd\s*::\s*(?:time|fs|net|process|env)\b|\buse\s+std\s*::\s*\{[^;]*\b(?:time|fs|net|process|env)\b",
+            r"\b(?:SystemTime|Instant|UNIX_EPOCH|Condvar|thread|sleep|new_v4|new_v7|random|File|TcpStream|UdpSocket|Command|getrandom)\b|\bstd\s*::\s*(?:time|fs|net|process|env|io)\b|\buse\s+std\s*::\s*\{[^;]*\b(?:time|fs|net|process|env|io)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -310,6 +310,24 @@ def validate_market_data_state_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/market_data_state/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(r"\bonlyalpha_(?:clock|event|kernel|runtime|indicator|factor|provider|storage)\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
+def validate_construction_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "market_data_construction",
+        {
+            '"../../../../test-data/market-data-construction/models-v1.jsonl"',
+            '"../../../../test-data/market-data-construction/operations-v1.jsonl"',
+        },
+    )
+    for path in (root / "crates/onlyalpha-kernel/market_data_construction/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(
+            r"\bonlyalpha_(?:clock|event|market_data_state|kernel|core|runtime|indicator|factor|calculation|provider|storage)\b",
+            code,
+        ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -354,6 +372,10 @@ def isolated_market_data_state(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "market_data_state"))
 
 
+def isolated_construction(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "market_data_construction"))
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -373,6 +395,7 @@ def main() -> int:
     validate_clock_sources(ROOT)
     validate_event_sources(ROOT)
     validate_market_data_state_sources(ROOT)
+    validate_construction_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -394,6 +417,7 @@ def main() -> int:
         ("clock", isolated_clock),
         ("event", isolated_event),
         ("market-data-state", isolated_market_data_state),
+        ("market-data-construction", isolated_construction),
     ):
         with tempfile.TemporaryDirectory(prefix=f"{name}-isolated-", dir=artifacts) as directory:
             manifest = materialize(ROOT, Path(directory) / "source")

@@ -108,3 +108,55 @@ fn noncanonical_owner_spelling_is_not_an_alias() {
         assert_eq!(m.capture_checkpoint().unwrap(), before);
     }
 }
+
+#[test]
+fn late_executor_restore_rejection_preserves_an_earlier_different_candidate() {
+    let mut m = manager();
+    m.register("three", one_graph(3)).unwrap();
+    m.register("five", one_graph(5)).unwrap();
+    m.process("source", &fact(1), &stamp(1)).unwrap();
+    let before = m.capture_checkpoint().unwrap();
+    m.process("source", &fact(2), &stamp(2)).unwrap();
+    let mut later = m.capture_checkpoint().unwrap();
+    assert_ne!(
+        later["lanes"][0]["executor_state"],
+        before["lanes"][0]["executor_state"]
+    );
+    m.restore_checkpoint(&before).unwrap();
+    later["lanes"].as_array_mut().unwrap().last_mut().unwrap()["executor_state"]["state"] =
+        json!({"kind":"PENDING","bars":[]});
+    assert!(m.restore_checkpoint(&later).is_err());
+    assert_eq!(m.capture_checkpoint().unwrap(), before);
+    for field in ["calendar_fingerprint", "construction_graph_fingerprint"] {
+        let mut bad = before.clone();
+        bad[field] = json!("d".repeat(64));
+        assert!(m.restore_checkpoint(&bad).is_err());
+        assert_eq!(m.capture_checkpoint().unwrap(), before);
+    }
+    for field in ["source_lane_id", "recipe_fingerprint", "lane_id"] {
+        let mut bad = before.clone();
+        bad["lanes"][0][field] = json!("d".repeat(64));
+        assert!(m.restore_checkpoint(&bad).is_err());
+        assert_eq!(m.capture_checkpoint().unwrap(), before);
+    }
+    for field in ["topological_level", "reference_count"] {
+        let mut bad = before.clone();
+        bad["lanes"][0][field] = json!(0);
+        assert!(m.restore_checkpoint(&bad).is_err());
+        assert_eq!(m.capture_checkpoint().unwrap(), before);
+    }
+    let mut duplicate = before.clone();
+    let p = duplicate["provider_reference_counts"][0].clone();
+    duplicate["provider_reference_counts"]
+        .as_array_mut()
+        .unwrap()
+        .push(p);
+    assert!(m.restore_checkpoint(&duplicate).is_err());
+    assert_eq!(m.capture_checkpoint().unwrap(), before);
+    let mut reordered = before.clone();
+    for field in ["lanes", "registrations", "provider_reference_counts"] {
+        reordered[field].as_array_mut().unwrap().reverse();
+    }
+    m.restore_checkpoint(&reordered).unwrap();
+    assert_eq!(m.capture_checkpoint().unwrap(), before);
+}
