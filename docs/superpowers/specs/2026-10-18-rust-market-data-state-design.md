@@ -1,6 +1,6 @@
 # Rust Market Data State design
 
-Status: PROPOSED — awaiting owner review of this written design.
+Status: OWNER-APPROVED DESIGN — the owner reviewed this written design and requested continuation.
 This specifies a library construction, not implementation completion, Runtime admission or Python retirement.
 The Constitution, [MarketData Contract](../../market_data_pipeline.md), ADRs
 [0003](../../adr/0003-cache-storage-separation.md), [0009](../../adr/0009-event-and-primary-bar-delivery.md),
@@ -132,7 +132,7 @@ Factor, subscription, Source continuity or Strategy readiness; the existing high
 
 ## Current records and checkpoint restoration
 
-Select language-neutral schema 2 for both owning records, subject to owner approval. These are explicit development Contract
+The owner-selected language-neutral format is schema 2 for both owning records. These are explicit development Contract
 changes, not per-language format families. No official Python writer/reader is replaced in this library construction.
 
 Checkpoint payload fields are exactly `schema_version`, `engine_id`, `runtime_id`, `history_limit`, `series`.
