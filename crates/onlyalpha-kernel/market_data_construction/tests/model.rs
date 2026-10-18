@@ -1,5 +1,4 @@
 mod support;
-use onlyalpha_domain::base::OnlyDomainModel;
 use onlyalpha_market_data_construction::*;
 use support::*;
 #[test]
