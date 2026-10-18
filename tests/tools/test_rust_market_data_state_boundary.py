@@ -93,6 +93,7 @@ def test_state_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_path: 
                 "market_data_state",
                 "market_data_construction",
                 "market_data_delivery",
+                "calculation",
             )
         ],
     ):

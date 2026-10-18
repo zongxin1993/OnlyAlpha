@@ -82,12 +82,16 @@ DELIVERY_DEPENDENCIES = {
     "onlyalpha-market-data-construction": {"path": "../construction"},
 }
 
+CALCULATION_DEPENDENCIES = {name: DOMAIN_DEPENDENCIES[name] for name in ("bigdecimal", "sha2", "serde_json")}
+
+
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
 
 
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
+        "onlyalpha-calculation": "crates/onlyalpha-kernel/calculation",
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
@@ -168,6 +172,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == DELIVERY_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-calculation"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == CALCULATION_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -191,6 +202,10 @@ def validate_workspace(root: Path) -> None:
 
         delivery = tomllib.loads((root / modules["onlyalpha-market-data-delivery"] / "Cargo.toml").read_text())
         if delivery.get("dependencies") != DELIVERY_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        calculation = tomllib.loads((root / modules["onlyalpha-calculation"] / "Cargo.toml").read_text())
+        if calculation.get("dependencies") != CALCULATION_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -366,6 +381,24 @@ def validate_delivery_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_calculation_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "calculation",
+        {
+            '"../../../../test-data/calculation/definitions-v1.jsonl"',
+            '"../../../../test-data/calculation/parameters-v1.jsonl"',
+        },
+    )
+    for path in (root / "crates/onlyalpha-kernel/calculation/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(
+            r"\bonlyalpha_(?:clock|event|kernel|core|domain|runtime|cluster|strategy|indicator|factor|market_data|provider|storage)\b",
+            code,
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def module_directory(module: str) -> str:
     return "market_data/" + module.removeprefix("market_data_") if module.startswith("market_data_") else module
 
@@ -421,6 +454,10 @@ def isolated_delivery(root: Path, destination: Path) -> Path:
     )
 
 
+def isolated_calculation(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("calculation",))
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -442,6 +479,7 @@ def main() -> int:
     validate_market_data_state_sources(ROOT)
     validate_construction_sources(ROOT)
     validate_delivery_sources(ROOT)
+    validate_calculation_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -459,6 +497,7 @@ def main() -> int:
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
+        ("calculation", isolated_calculation),
         ("domain", isolated_domain),
         ("clock", isolated_clock),
         ("event", isolated_event),

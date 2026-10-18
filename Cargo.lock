@@ -419,3 +419,12 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "onlyalpha-calculation"
+version = "0.10.10"
+dependencies = [
+ "bigdecimal",
+ "serde_json",
+ "sha2",
+]

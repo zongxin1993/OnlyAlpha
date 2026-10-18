@@ -319,3 +319,18 @@ barriers and Pipeline coordination remain separate. Explicit IDs, pure scoped pl
 configuration-bound recovery replace implicit UUID generation, unbounded handled-slice history and permissive readers.
 Shared common routing vectors use real Python Pipeline/Dispatcher behavior and Rust State/Delivery APIs; they do not certify
 whole-module parity, readiness or official Runtime admission. See the [owning Contract](market_data_pipeline.md#rust-delivery-planning-boundary).
+
+
+## Calculation responsibility map
+
+Python `calculation/{definition,graph,compatibility,registry}.py` is the semantic reference for the independently buildable
+`crates/onlyalpha-kernel/calculation/` library. Record/parameter/definition/graph/registry concerns are private files within one
+crate; provider-specific calculations remain plugins. Existing Core Predicate implementations remain in Core, with no duplicated
+arithmetic or transport here. Calculation has no local dependency edge and cannot access Runtime, MarketData, Cluster or plugins.
+
+Rust Definition component schema3 explicitly corrects untagged Decimal/string fingerprint collisions and scale-sensitive Decimal
+identity. Tagged normalized sorted-key records are both persistence and hash input; Graph schema1 uses these exact Definition3
+identities. Python Definition2 and its official consumers are untouched reference behavior. Rust3 is not an admitted replacement
+writer/reader, a history migration, a Runtime Generation or an execution/readiness capability. Do not infer schema2 hash parity,
+full Python-module equivalence, product activation or scientific Evidence from these common semantic vectors. Actual promotion
+requires the existing exact consumer/history and Runtime admission gates. See the [design](superpowers/specs/2026-10-18-rust-calculation-foundation-design.md).

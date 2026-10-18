@@ -104,6 +104,7 @@ def test_delivery_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_pat
                 "market_data_state",
                 "market_data_construction",
                 "market_data_delivery",
+                "calculation",
             )
         ],
     ):

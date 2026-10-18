@@ -298,3 +298,12 @@ Delivery responsibilities. Delivery implements subscription identity/primary/fre
 active-registration watermarks and component recovery. Python callback execution and calculation readiness are not moved into
 this planner. See the [owning Contract](market_data_pipeline.md#rust-delivery-planning-boundary). Later Pipeline composition
 must preserve ADR0009 actual execution guarantees and validate its real calculation/lifecycle dependencies before activation.
+
+
+### Calculation source navigation
+
+`crates/onlyalpha-kernel/calculation/` groups the pure Definition/parameter, DAG/compatibility and exact registry foundation in one
+independently buildable library. It does not move concrete indicators/factors out of Python or replace Core Predicate arithmetic.
+Its versioned Definition3 identity correction is not Python Definition2 wire/hash admission. The next integration dependencies
+remain exact calculation/plugin execution, scoped state/readiness, then MarketData/Cluster composition. Consult the
+[responsibility map](rust-kernel-development.md#calculation-responsibility-map) and existing R3-R8 migration gates.

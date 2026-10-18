@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUST_MODULES = frozenset(
     {
         "onlyalpha-domain",
+        "onlyalpha-calculation",
         "onlyalpha-kernel",
         "onlyalpha-clock",
         "onlyalpha-event",
