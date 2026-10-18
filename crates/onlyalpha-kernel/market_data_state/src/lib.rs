@@ -22,8 +22,10 @@
 //! ```
 //! Bounded Runtime-owned closed-Bar state, not durable market-history authority.
 mod model;
-mod state;
 mod snapshot;
+mod state;
 pub use model::*;
-pub use state::{OnlyMarketDataState,OnlyMarketDataSeriesSnapshot};
 pub use snapshot::OnlyMarketDataSnapshot;
+pub use state::{OnlyMarketDataSeriesSnapshot, OnlyMarketDataState};
+
+mod record;
