@@ -425,6 +425,7 @@ def validate_calculation_sources(root: Path) -> None:
         {
             '"../../../../test-data/calculation/definitions-v1.jsonl"',
             '"../../../../test-data/calculation/parameters-v1.jsonl"',
+            '"../../../../test-data/calculation/state-v1.jsonl"',
         },
     )
     for path in (root / "crates/onlyalpha-kernel/calculation/src").rglob("*.rs"):

@@ -357,3 +357,18 @@ Shipping Web UI acceptance, durable service upgrade proof, product-latency claim
 Generate Python projections with `scripts/gateway_protocol.py write`; generate Rust projections in the admitted Linux tool
 environment with `scripts/gateway_protocol.py write-rust`. The Rust canonical lane checks the Rust projection; the existing
 Gateway lane checks Python bytes and additive wire compatibility.
+
+### Scoped state and readiness
+
+Python `indicator/{registry,pipeline}.py` and `cluster/pipeline.py` provide the current reference behavior. Rust
+`calculation/src/state.rs` owns per-instance committed cursor/output state; `readiness.rs` owns the pure current-position and
+explicit dependency barrier. These stay within Calculation, with no Domain, Runtime, plugin, clock or transport imports.
+The worker client consumes these types; it does not maintain a second mutable cursor. Rust distinguishes current-ready,
+stale, missing and uncertain outcomes instead of copying Python's ready-only dependency check. This is not complete Factor or
+Cluster execution parity. Independent `test-data/calculation/state-v1.jsonl` values are checked through Python SMA and Rust state.
+
+The Rust client checkpoint envelope is schema2 and pairs its pure state with the unchanged native worker checkpoint. Its exact
+external digest, nested binding/cursor/output validation, fresh-only replacement and actual process continuation are component
+proof, not historical migration, durable service restart/upgrade or official Runtime admission. Refer to the
+[registry boundary](indicator_registry.md#rust-scoped-calculation-state-and-readiness-boundary) and
+[state design](superpowers/specs/2026-10-18-rust-calculation-state-design.md).

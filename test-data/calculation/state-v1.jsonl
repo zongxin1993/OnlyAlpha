@@ -1,0 +1,5 @@
+{"samples":1,"value":"1","ready":false}
+{"samples":2,"value":"1.5","ready":false}
+{"samples":3,"value":"2","ready":true}
+{"samples":4,"value":"3","ready":true}
+{"samples":5,"value":"4","ready":true}

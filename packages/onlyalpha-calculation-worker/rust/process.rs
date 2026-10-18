@@ -118,6 +118,9 @@ impl Worker {
         worker.handshake(deadline)?;
         Ok(worker)
     }
+    pub(crate) fn uncertain(&self) -> bool {
+        self.poisoned || self.cancelled.load(Ordering::SeqCst)
+    }
     pub fn last_compute_time(&self) -> Duration {
         Duration::from_nanos(self.last_compute_ns)
     }

@@ -106,3 +106,15 @@ fn receipt_must_bind_the_exact_prepared_input_digest() {
         .commit(&batch, &binding(), 1, &["1"], 1, &"1".repeat(64))
         .unwrap();
 }
+
+#[test]
+fn empty_cursor_restore_rejects_missing_and_unknown_fields_atomically() {
+    let mut fresh = ExecutionCursor::new(binding());
+    let original = fresh.capture();
+    let mut malformed = original.clone();
+    malformed.as_object_mut().unwrap().remove("last_event_ns");
+    malformed["extra"] = serde_json::Value::Null;
+    assert!(fresh.restore(&malformed).is_err());
+    assert_eq!(fresh.capture(), original);
+    fresh.restore(&original).unwrap();
+}

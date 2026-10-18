@@ -1,4 +1,6 @@
 //! Technical comparison/benchmark command, never a business Runtime entry point.
+use onlyalpha_calculation::{InputPosition, ReadinessPlan, ReadinessRequirement, StateOutcome};
+use onlyalpha_calculation_worker::{Checkpoint, fingerprint};
 use onlyalpha_calculation_worker::{Client, Worker, WorkerError};
 use onlyalpha_domain::{
     base::OnlyDomainModel,
@@ -6,6 +8,7 @@ use onlyalpha_domain::{
     time::{OnlyTimestamp, OnlyUtcDateTime},
 };
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::{
     error::Error,
     path::Path,
@@ -83,7 +86,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         vec![json!("1.000000000000"), json!("1.500000000000")]
     );
     assert!(warmup.iter().all(|p| p["ready"] == false));
+    assert_eq!(
+        client.snapshot("runtime/cluster/first")?.outcome(),
+        StateOutcome::Warming
+    );
     let checkpoint = client.capture("runtime/cluster/first", DEADLINE)?;
+    let restored_copy = Checkpoint::from_bytes(&checkpoint.to_bytes(), checkpoint.fingerprint())?;
+    assert_eq!(restored_copy.to_bytes(), checkpoint.to_bytes());
+    let mut damaged: Value = serde_json::from_slice(&checkpoint.to_bytes())?;
+    damaged["state"]["receipt"]["outputs"]["value"]["value"] = json!("999");
+    let bad = damaged.to_string();
+    assert!(Checkpoint::from_bytes(bad.as_bytes(), &fingerprint(bad.as_bytes())).is_err());
     assert!(matches!(
         client.update("runtime/cluster/first", &bars[1..2], DEADLINE),
         Err(WorkerError::Invalid)
@@ -108,8 +121,97 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     assert!(expected.iter().all(|p| p["ready"] == true));
     assert_eq!(
+        client.snapshot("runtime/cluster/first")?.outcome(),
+        StateOutcome::Ready
+    );
+    assert_eq!(
         client.update("runtime/cluster/second", &bars[..1], DEADLINE)?[0]["samples"],
         1
+    );
+    // A domain-valid but unquantizable price is a real known atomic worker rejection.
+    create(&mut client, "runtime/cluster/rejected", bar_type)?;
+    client.update("runtime/cluster/rejected", &bars[..1], DEADLINE)?;
+    let mut huge = bars[1].to_record();
+    for field in ["open", "high", "low", "close"] {
+        huge[field]["value"] = json!("1000000000000000000000000000000000000");
+    }
+    let huge = OnlyBar::from_record(&huge)?;
+    assert!(matches!(
+        client.update("runtime/cluster/rejected", &[huge], DEADLINE),
+        Err(WorkerError::Rejected)
+    ));
+    let rejected = client.snapshot("runtime/cluster/rejected")?;
+    assert_eq!(rejected.outcome(), StateOutcome::Failed);
+    assert_eq!(
+        rejected.position().expect("prior commit").to_record()["samples"],
+        1
+    );
+    assert_eq!(
+        client.snapshot("runtime/cluster/first")?.outcome(),
+        StateOutcome::Ready
+    );
+    client.capture("runtime/cluster/rejected", DEADLINE)?;
+    client.reset("runtime/cluster/rejected", DEADLINE)?;
+    assert_eq!(
+        client.snapshot("runtime/cluster/rejected")?.outcome(),
+        StateOutcome::Uninitialized
+    );
+    assert_eq!(
+        client.update("runtime/cluster/rejected", &bars[..1], DEADLINE)?[0]["samples"],
+        1
+    );
+    let first = client.snapshot("runtime/cluster/first")?;
+    let second = client.snapshot("runtime/cluster/second")?;
+    let nodes: BTreeMap<String, _> = BTreeMap::from([
+        ("runtime/cluster/first".into(), first.clone()),
+        ("runtime/cluster/second".into(), second.clone()),
+    ]);
+    let positions = nodes
+        .iter()
+        .map(|(k, v)| (k.clone(), v.position().expect("committed")))
+        .collect::<BTreeMap<_, _>>();
+    let plan = ReadinessPlan::new(vec![
+        ReadinessRequirement::new(first.binding().clone(), true, vec![])?,
+        ReadinessRequirement::new(second.binding().clone(), false, vec![])?,
+    ])?;
+    let barrier = plan.evaluate(&nodes, &positions)?;
+    assert!(barrier.ready() && barrier.degraded());
+    let dependent = ReadinessPlan::new(vec![
+        ReadinessRequirement::new(
+            first.binding().clone(),
+            true,
+            vec!["runtime/cluster/second".into()],
+        )?,
+        ReadinessRequirement::new(second.binding().clone(), false, vec![])?,
+    ])?;
+    assert!(!dependent.evaluate(&nodes, &positions)?.ready());
+    let mut stale = positions.clone();
+    let last = first.position().expect("committed").to_record();
+    stale.insert(
+        "runtime/cluster/first".into(),
+        InputPosition::new(
+            last["revision"].as_u64().expect("revision"),
+            last["samples"].as_u64().expect("samples"),
+            last["event_ns"].as_str().expect("event"),
+            &"0".repeat(64),
+        )?,
+    );
+    assert!(!plan.evaluate(&nodes, &stale)?.ready());
+    client.cancellation()?.cancel();
+    assert_eq!(
+        client.snapshot("runtime/cluster/first")?.outcome(),
+        StateOutcome::Unknown
+    );
+    assert!(matches!(
+        client.update("runtime/cluster/second", &bars[1..2], DEADLINE),
+        Err(WorkerError::Unknown(_))
+    ));
+    for scope in ["runtime/cluster/first", "runtime/cluster/second"] {
+        assert_eq!(client.snapshot(scope)?.outcome(), StateOutcome::Unknown);
+    }
+    assert_eq!(
+        client.snapshot("runtime/cluster/first")?.outputs(),
+        first.outputs()
     );
     drop(client); // Kills/reaps the actual first process. New process restores exact state.
     let mut restored = Client::new(Worker::spawn(
@@ -120,6 +222,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?);
     create(&mut restored, "runtime/cluster/first", bar_type)?;
     restored.restore("runtime/cluster/first", &checkpoint, DEADLINE)?;
+    assert_eq!(
+        restored.snapshot("runtime/cluster/first")?.outcome(),
+        StateOutcome::Warming
+    );
     assert_eq!(
         restored.update("runtime/cluster/first", &bars[2..], DEADLINE)?,
         expected

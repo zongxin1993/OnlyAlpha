@@ -14,7 +14,7 @@ fn sha(value: &str) -> bool {
             .bytes()
             .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
 }
-fn timestamp(value: &str) -> Result<BigInt> {
+pub(crate) fn timestamp(value: &str) -> Result<BigInt> {
     if value.len() > 128 {
         return Err(invalid());
     }
@@ -193,8 +193,17 @@ impl ExecutionCursor {
         json!({"schema_version":1,"binding":self.binding.to_record(),"revision":self.revision,"samples":self.samples,"last_event_ns":self.last.as_ref().map(ToString::to_string)})
     }
     pub fn restore(&mut self, v: &Value) -> Result<()> {
+        crate::record::object(
+            v,
+            &[
+                "schema_version",
+                "binding",
+                "revision",
+                "samples",
+                "last_event_ns",
+            ],
+        )?;
         if !self.fresh
-            || v.as_object().map(|v| v.len()) != Some(5)
             || v["schema_version"].as_u64() != Some(1)
             || ExecutionBinding::from_record(&v["binding"])? != self.binding
         {

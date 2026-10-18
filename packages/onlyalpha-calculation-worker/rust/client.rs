@@ -1,7 +1,10 @@
 //! Typed calculation lifecycle. The worker owns algorithm values and readiness.
 use crate::process::sha;
-use crate::{Result, Worker, WorkerError};
-use onlyalpha_calculation::{Definition, ExecutionBinding, ExecutionCursor};
+use crate::{Cancellation, Result, Worker, WorkerError};
+use onlyalpha_calculation::{
+    CalculationSnapshot, CalculationState, Definition, ExecutionBinding, StateOutcome,
+    normalize_result_outputs,
+};
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     market::{OnlyBar, OnlyBarType},
@@ -52,10 +55,59 @@ impl Checkpoint {
         }
         let record: Value = serde_json::from_slice(raw).map_err(invalid)?;
         if record.to_string().as_bytes() != raw
-            || !keys(&record, &["schema_version", "cursor", "plugin_state"])
-            || record["schema_version"].as_u64() != Some(1)
+            || !keys(&record, &["schema_version", "worker", "state"])
+            || record["schema_version"].as_u64() != Some(2)
+            || !keys(
+                &record["worker"],
+                &["schema_version", "cursor", "plugin_state"],
+            )
+            || record["worker"]["schema_version"].as_u64() != Some(1)
         {
             return Err(WorkerError::Invalid);
+        }
+        let binding = ExecutionBinding::from_record(&record["worker"]["cursor"]["binding"])
+            .map_err(invalid)?;
+        let mut state = CalculationState::new(binding);
+        state.restore(&record["state"]).map_err(invalid)?;
+        if state.cursor().capture() != record["worker"]["cursor"] {
+            return Err(WorkerError::Invalid);
+        }
+        // This adapter owns the current SMA projection, not the pure Calculation library.
+        let native = &record["worker"]["plugin_state"]["snapshot"];
+        if !keys(
+            native,
+            &["indicator_id", "ts_event_ns", "samples", "ready", "value"],
+        ) || native["indicator_id"] != state.cursor().binding().scope()
+            || native["samples"].as_u64() != Some(state.cursor().samples())
+        {
+            return Err(WorkerError::Invalid);
+        }
+        if state.cursor().samples() == 0 {
+            if !native["ts_event_ns"].is_null()
+                || !native["value"].is_null()
+                || native["ready"] != false
+            {
+                return Err(WorkerError::Invalid);
+            }
+        } else {
+            if native["value"].as_str().is_none() {
+                return Err(WorkerError::Invalid);
+            }
+            let value = json!({"type":"DECIMAL","value":native["value"]});
+            let outputs = normalize_result_outputs(&json!({"value":value})).map_err(invalid)?;
+            let snapshot = state.snapshot();
+            if snapshot.outputs() != Some(&outputs)
+                || record["state"]["receipt"]["ready"] != native["ready"]
+                || native["ts_event_ns"]
+                    .as_number()
+                    .ok_or(WorkerError::Invalid)?
+                    .to_string()
+                    != record["worker"]["cursor"]["last_event_ns"]
+                        .as_str()
+                        .ok_or(WorkerError::Invalid)?
+            {
+                return Err(WorkerError::Invalid);
+            }
         }
         Ok(Self {
             record,
@@ -70,9 +122,8 @@ impl Checkpoint {
     }
 }
 struct Session {
-    cursor: ExecutionCursor,
+    state: CalculationState,
     bar_type: OnlyBarType,
-    fresh: bool,
 }
 pub struct Client {
     worker: Worker,
@@ -85,6 +136,39 @@ impl Client {
             instances: BTreeMap::new(),
         }
     }
+    pub fn snapshot(&mut self, scope: &str) -> Result<CalculationSnapshot> {
+        if self.worker.uncertain() {
+            self.unknown("WORKER_UNKNOWN");
+        }
+        Ok(self
+            .instances
+            .get(scope)
+            .ok_or(WorkerError::Invalid)?
+            .state
+            .snapshot())
+    }
+    pub fn cancellation(&self) -> Result<Cancellation> {
+        self.worker.cancellation()
+    }
+    fn unknown(&mut self, reason: &str) {
+        for session in self.instances.values_mut() {
+            session
+                .state
+                .fail(StateOutcome::Unknown, reason)
+                .expect("static failure code");
+        }
+    }
+    fn exchange(&mut self, operation: Operation, deadline: Duration) -> Result<Value> {
+        let result = self.worker.exchange(operation, deadline);
+        if matches!(&result, Err(WorkerError::Unknown(_))) {
+            self.unknown("WORKER_UNKNOWN");
+        }
+        result
+    }
+    fn poison<T>(&mut self, reason: &'static str) -> Result<T> {
+        self.unknown(reason);
+        self.worker.poison(reason)
+    }
     pub fn last_compute_time(&self) -> Duration {
         self.worker.last_compute_time()
     }
@@ -92,7 +176,7 @@ impl Client {
         if !parameters.is_object() {
             return Err(WorkerError::Invalid);
         }
-        let result = self.worker.exchange(
+        let result = self.exchange(
             Operation::Resolve(CalculationResolve {
                 parameters_json: parameters.to_string().into_bytes(),
             }),
@@ -140,7 +224,7 @@ impl Client {
                 parameters,
             })
         })();
-        checked.or_else(|_| self.worker.poison("RESOLUTION"))
+        checked.or_else(|_| self.poison("RESOLUTION"))
     }
     pub fn create(
         &mut self,
@@ -170,8 +254,8 @@ impl Client {
             scope,
         )
         .map_err(invalid)?;
-        let cursor = ExecutionCursor::new(binding.clone());
-        let result = self.worker.exchange(
+        let state = CalculationState::new(binding.clone());
+        let result = self.exchange(
             Operation::Create(CalculationCreate {
                 binding_json: binding.to_record().to_string().into_bytes(),
                 definition_json: resolution.definition.to_record().to_string().into_bytes(),
@@ -181,24 +265,18 @@ impl Client {
             }),
             deadline,
         )?;
-        if result != cursor.capture() {
-            return self.worker.poison("CREATE_CURSOR");
+        if result != state.cursor().capture() {
+            return self.poison("CREATE_CURSOR");
         }
-        self.instances.insert(
-            scope.into(),
-            Session {
-                cursor,
-                bar_type,
-                fresh: true,
-            },
-        );
+        self.instances
+            .insert(scope.into(), Session { state, bar_type });
         Ok(())
     }
     fn instance(&self, scope: &str) -> Result<CalculationInstance> {
         let s = self.instances.get(scope).ok_or(WorkerError::Invalid)?;
         Ok(CalculationInstance {
             scope: scope.into(),
-            revision: s.cursor.revision(),
+            revision: s.state.cursor().revision(),
         })
     }
     pub fn update(
@@ -207,6 +285,16 @@ impl Client {
         bars: &[OnlyBar],
         deadline: Duration,
     ) -> Result<Vec<Value>> {
+        if self.worker.uncertain() {
+            return self.poison("WORKER_UNKNOWN");
+        }
+        if self
+            .instances
+            .get(scope)
+            .is_some_and(|s| s.state.snapshot().outcome() == StateOutcome::Unknown)
+        {
+            return Err(WorkerError::Unknown("EXPLICIT_RECOVERY_REQUIRED"));
+        }
         let instance = self.instance(scope)?;
         let session = &self.instances[scope];
         if bars.iter().any(|b| {
@@ -228,18 +316,28 @@ impl Client {
             .map(|b| b.to_record().to_string().into_bytes())
             .collect();
         let input = fingerprint(&records.concat());
-        let prepared = session
-            .cursor
-            .prepare(&times_ref, &input)
-            .map_err(invalid)?;
-        let result = self.worker.exchange(
+        let prepared = session.state.prepare(&times_ref, &input).map_err(invalid)?;
+        let result = self.exchange(
             Operation::Update(CalculationUpdate {
                 instance: Some(instance),
                 bars_json: records,
                 input_digest: input.clone(),
             }),
             deadline,
-        )?;
+        );
+        let result = match result {
+            Ok(value) => value,
+            Err(WorkerError::Rejected) => {
+                self.instances
+                    .get_mut(scope)
+                    .ok_or(WorkerError::Invalid)?
+                    .state
+                    .fail(StateOutcome::Failed, "WORKER_REJECTED")
+                    .map_err(invalid)?;
+                return Err(WorkerError::Rejected);
+            }
+            Err(error) => return Err(error),
+        };
         let checked = (|| {
             if !keys(&result, &["cursor", "input_digest", "points"])
                 || result["input_digest"] != input
@@ -251,9 +349,9 @@ impl Client {
                 return Err(WorkerError::Invalid);
             }
             let session = &self.instances[scope];
-            let mut expected = session.cursor.capture();
-            let samples = session.cursor.samples() + times.len() as u64;
-            expected["revision"] = json!(session.cursor.revision() + 1);
+            let mut expected = session.state.cursor().capture();
+            let samples = session.state.cursor().samples() + times.len() as u64;
+            expected["revision"] = json!(session.state.cursor().revision() + 1);
             expected["samples"] = json!(samples);
             expected["last_event_ns"] = json!(times.last());
             if result["cursor"] != expected {
@@ -262,7 +360,8 @@ impl Client {
             for (index, p) in points.iter().enumerate() {
                 if !keys(p, &["ts_event_ns", "samples", "value", "ready"])
                     || p["ts_event_ns"] != times[index]
-                    || p["samples"].as_u64() != Some(session.cursor.samples() + index as u64 + 1)
+                    || p["samples"].as_u64()
+                        != Some(session.state.cursor().samples() + index as u64 + 1)
                     || !p["ready"].is_boolean()
                 {
                     return Err(WorkerError::Invalid);
@@ -279,44 +378,35 @@ impl Client {
         })();
         let points = match checked {
             Ok(v) => v,
-            Err(_) => return self.worker.poison("BATCH_RECEIPT"),
+            Err(_) => return self.poison("BATCH_RECEIPT"),
         };
+        let last = points.last().ok_or(WorkerError::Invalid)?;
+        let value = if last["value"].is_null() {
+            json!({"type":"NULL","value":null})
+        } else {
+            json!({"type":"DECIMAL","value":last["value"]})
+        };
+        let outputs = match normalize_result_outputs(&json!({"value":value})) {
+            Ok(v) => v,
+            Err(_) => return self.poison("OUTPUT_NORMALIZATION"),
+        };
+        let receipt = json!({"cursor":result["cursor"],"input_digest":input,"outputs":outputs,"ready":last["ready"],"quality_flags":[]});
         let session = self.instances.get_mut(scope).ok_or(WorkerError::Invalid)?;
-        if session
-            .cursor
-            .commit(
-                &prepared,
-                &ExecutionBinding::from_record(&result["cursor"]["binding"]).map_err(invalid)?,
-                result["cursor"]["revision"]
-                    .as_u64()
-                    .ok_or(WorkerError::Invalid)?,
-                &times_ref,
-                result["cursor"]["samples"]
-                    .as_u64()
-                    .ok_or(WorkerError::Invalid)?,
-                result["input_digest"]
-                    .as_str()
-                    .ok_or(WorkerError::Invalid)?,
-            )
-            .is_err()
-        {
-            return self.worker.poison("BATCH_COMMIT");
+        if session.state.commit(&prepared, &receipt).is_err() {
+            return self.poison("BATCH_COMMIT");
         }
-        session.fresh = false;
         Ok(points)
     }
     pub fn capture(&mut self, scope: &str, deadline: Duration) -> Result<Checkpoint> {
         let instance = self.instance(scope)?;
-        let value = self
-            .worker
-            .exchange(Operation::Checkpoint(instance), deadline)?;
-        if value["cursor"] != self.instances[scope].cursor.capture() {
-            return self.worker.poison("CHECKPOINT_CURSOR");
+        let value = self.exchange(Operation::Checkpoint(instance), deadline)?;
+        if value["cursor"] != self.instances[scope].state.cursor().capture() {
+            return self.poison("CHECKPOINT_CURSOR");
         }
-        let raw = value.to_string();
+        let raw = json!({"schema_version":2,"worker":value,"state":self.instances[scope].state.capture()}).to_string();
         match Checkpoint::from_bytes(raw.as_bytes(), &fingerprint(raw.as_bytes())) {
             Ok(v) => Ok(v),
-            Err(_) => self.worker.poison("CHECKPOINT"),
+            Err(_) => self.poison("CHECKPOINT"),
         }
     }
     pub fn restore(
@@ -327,27 +417,26 @@ impl Client {
     ) -> Result<()> {
         let instance = self.instance(scope)?;
         let session = &self.instances[scope];
-        if !session.fresh {
+        if !session.state.is_fresh() {
             return Err(WorkerError::Invalid);
         }
-        let mut proposed = ExecutionCursor::new(session.cursor.binding().clone());
+        let mut proposed = CalculationState::new(session.state.cursor().binding().clone());
         proposed
-            .restore(&checkpoint.record["cursor"])
+            .restore(&checkpoint.record["state"])
             .map_err(invalid)?;
-        let value = self.worker.exchange(
+        let value = self.exchange(
             Operation::Restore(CalculationRestore {
                 instance: Some(instance),
-                checkpoint_json: checkpoint.to_bytes(),
-                expected_sha256: checkpoint.fingerprint.clone(),
+                checkpoint_json: checkpoint.record["worker"].to_string().into_bytes(),
+                expected_sha256: fingerprint(checkpoint.record["worker"].to_string().as_bytes()),
             }),
             deadline,
         )?;
-        if value != proposed.capture() {
-            return self.worker.poison("RESTORE_CURSOR");
+        if value != proposed.cursor().capture() {
+            return self.poison("RESTORE_CURSOR");
         }
         let session = self.instances.get_mut(scope).ok_or(WorkerError::Invalid)?;
-        session.cursor = proposed;
-        session.fresh = false;
+        session.state = proposed;
         Ok(())
     }
     pub fn reset(&mut self, scope: &str, deadline: Duration) -> Result<()> {
@@ -356,24 +445,23 @@ impl Client {
             .revision
             .checked_add(1)
             .ok_or(WorkerError::Invalid)?;
-        let value = self.worker.exchange(Operation::Reset(instance), deadline)?;
-        let mut expected = self.instances[scope].cursor.capture();
+        let value = self.exchange(Operation::Reset(instance), deadline)?;
+        let mut expected = self.instances[scope].state.cursor().capture();
         expected["revision"] = json!(revision);
         expected["samples"] = json!(0);
         expected["last_event_ns"] = Value::Null;
         if value != expected {
-            return self.worker.poison("RESET_CURSOR");
+            return self.poison("RESET_CURSOR");
         }
         let session = self.instances.get_mut(scope).ok_or(WorkerError::Invalid)?;
-        session.cursor.reset(revision).map_err(invalid)?;
-        session.fresh = false;
+        session.state.reset(revision).map_err(invalid)?;
         Ok(())
     }
     pub fn close(&mut self, scope: &str, deadline: Duration) -> Result<()> {
         let instance = self.instance(scope)?;
-        let value = self.worker.exchange(Operation::Close(instance), deadline)?;
-        if value != self.instances[scope].cursor.capture() {
-            return self.worker.poison("CLOSE_CURSOR");
+        let value = self.exchange(Operation::Close(instance), deadline)?;
+        if value != self.instances[scope].state.cursor().capture() {
+            return self.poison("CLOSE_CURSOR");
         }
         self.instances.remove(scope);
         Ok(())

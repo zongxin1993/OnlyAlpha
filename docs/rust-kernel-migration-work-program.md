@@ -314,3 +314,9 @@ The scoped execution cursor remains in Calculation; the actual Python plugin pro
 checkpoint admission and UNKNOWN behavior. This isolated comparison does not activate a Runtime participant or authorize
 historic data conversion. Subsequent MarketData/Cluster composition must consume the same ordered facts, exact generation
 and formally owned durable checkpoints; callback-to-RPC substitution by itself is not integration closure.
+
+The Calculation scoped-state boundary is in `calculation/src/{state,readiness}.rs`, consumed by the managed worker Rust client.
+It supplies explicit result/failure snapshots and a dependency barrier against caller-specified exact input positions; it does
+not execute Factors/Strategies or compose a MarketData transaction. Subsequent Pipeline composition must own its transaction,
+per-timeframe expectations, admitted input/generation and durable recovery obligations. See the
+[state boundary](indicator_registry.md#rust-scoped-calculation-state-and-readiness-boundary).
