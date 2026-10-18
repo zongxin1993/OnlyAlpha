@@ -398,3 +398,13 @@ dependencies = [
  "serde_json",
 ]
 
+
+[[package]]
+name = "onlyalpha-market-data-construction"
+version = "0.10.10"
+dependencies = [
+ "num-bigint",
+ "onlyalpha-domain",
+ "serde_json",
+ "sha2",
+]

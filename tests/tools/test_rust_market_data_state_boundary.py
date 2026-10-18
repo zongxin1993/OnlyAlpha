@@ -84,7 +84,7 @@ def test_state_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_path: 
         "Cargo.lock",
         *[
             f"crates/onlyalpha-kernel/{area}/Cargo.toml"
-            for area in ("domain", "core", "clock", "event", "market_data_state")
+            for area in ("domain", "core", "clock", "event", "market_data_state", "market_data_construction")
         ],
     ):
         target = tmp_path / name

@@ -81,16 +81,19 @@ It is separate from formal closed facts and cannot grant trading readiness.
 
 ## Recovery and records
 
-Time executor schema1 binds exact edge and calendar fingerprint, pending chronological source Bars, skipped boundary and
-last accepted boundary. Derive window metadata from those facts; reject inconsistent/missing/foreign/closed-window state.
+Time executor schema1 binds exact edge and calendar fingerprint plus one validated state variant: EMPTY; PENDING with
+chronological source Bars; or SETTLED with its last source Bar and optional skipped boundary. Latest acceptance derives from
+that variant, without duplicate stored latest/window truth. Derive window metadata from canonical facts and Calendar; reject
+inconsistent/missing/foreign/closed-window state.
 Manager component schema4 binds exact Engine/Runtime/source/calendar, registrations, compiled graph identity, lane identities,
 reference counts, executor records and exact lifetime creation count. Rust schema4 is unadmitted; existing Python Runtime
 participant schema3 and stored artifacts remain unchanged. No fallback/converter/history deletion is introduced.
 
 Restore validates the complete owner/context/graph/registration/lane set, rejects duplicate rows, validates every fresh
 executor and creation-count relation, then replaces once and clears failed. Failure preserves prior values and failed state.
-Recovery may replace an empty/populated instance only with matching immutable owner context and explicitly supplied full
-registration facts; it never adopts another context. Repeated restore is deterministic. Factory implementation binding is
+Recovery requires the receiver to have the exact registration configuration already supplied through typed register commands;
+a fresh receiver registers its expected graph before restoring. It never imports registrations or silently adopts another
+owner/configuration from a checkpoint. Repeated restore is deterministic. Factory implementation binding is
 exact ID/version under the caller's artifact; changed external implementation requires its own canonical version/admission.
 Capture while failed is prohibited; the owning outer coordinator must retain the last good checkpoint. This library cannot
 certify real restart/upgrade, Source/Construction durable publication or Generation admission.

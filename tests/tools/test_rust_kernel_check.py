@@ -60,12 +60,12 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     from scripts.rust_kernel_check import validate_workspace
 
     (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data_state"]\n'
+        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data_state","crates/onlyalpha-kernel/market_data_construction"]\n'
     )
     (tmp_path / "Cargo.lock").write_text(
-        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n'
+        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.10.7"\n'
     )
-    for name in ("domain", "core", "clock", "event", "market_data_state"):
+    for name in ("domain", "core", "clock", "event", "market_data_state", "market_data_construction"):
         path = tmp_path / f"crates/onlyalpha-kernel/{name}/Cargo.toml"
         path.parent.mkdir(parents=True)
         package = "kernel" if name == "core" else name.replace("_", "-")
@@ -106,6 +106,7 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         "crates/onlyalpha-kernel/clock/Cargo.toml",
         "crates/onlyalpha-kernel/event/Cargo.toml",
         "crates/onlyalpha-kernel/market_data_state/Cargo.toml",
+        "crates/onlyalpha-kernel/market_data_construction/Cargo.toml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +212,7 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
         "clock": "onlyalpha-clock",
         "event": "onlyalpha-event",
         "market_data_state": "onlyalpha-market-data-state",
+        "market_data_construction": "onlyalpha-market-data-construction",
     }
     assert set(members) == {f"crates/onlyalpha-kernel/{area}" for area in expected}
     for area, name in expected.items():
