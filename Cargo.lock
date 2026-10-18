@@ -426,6 +426,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-order"
+version = "0.10.10"
+dependencies = [
+ "bigdecimal",
+ "num-bigint",
+ "onlyalpha-domain",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "onlyalpha-strategy"
 version = "0.10.10"
 dependencies = [

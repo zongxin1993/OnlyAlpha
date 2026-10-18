@@ -1,0 +1,5 @@
+{"case":"whole","fills":[["10.00","4"]],"expected":[["FILLED","4","10.00","40.00"]]}
+{"case":"two-fills","fills":[["10.01","1"],["10.02","3"]],"expected":[["PARTIALLY_FILLED","1","10.01","10.01"],["FILLED","4","10.02","40.07"]]}
+{"case":"half-even-down","fills":[["10.00","1"],["10.01","1"]],"expected":[["PARTIALLY_FILLED","1","10.00","10.00"],["PARTIALLY_FILLED","2","10.00","20.01"]]}
+{"case":"half-even-up","fills":[["10.01","1"],["10.02","1"]],"expected":[["PARTIALLY_FILLED","1","10.01","10.01"],["PARTIALLY_FILLED","2","10.02","20.03"]]}
+{"case":"never-rebuild-rounded-notional","fills":[["10.00","1"],["10.01","1"],["10.00","1"],["10.01","1"]],"expected":[["PARTIALLY_FILLED","1","10.00","10.00"],["PARTIALLY_FILLED","2","10.00","20.01"],["PARTIALLY_FILLED","3","10.00","30.01"],["FILLED","4","10.00","40.02"]]}

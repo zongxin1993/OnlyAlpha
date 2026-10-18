@@ -36,7 +36,7 @@ ACCEPTED/PARTIALLY_FILLED → EXPIRED | FAILED
 
 Fill 可先于 Accepted 到达；迟到 Accepted 只能补充 Venue ID，不能把 PARTIALLY_FILLED、FILLED 或 CANCELLED
 回退到 ACCEPTED。取消后迟到 Fill 可记录为警告事实并累计成交，但状态保持 CANCELLED。取消订单的
-`remaining_quantity` 为零，历史 `filled_quantity` 和均价仍保留。非法、重复、过期或冲突更新不改变 version，
+可执行剩余量为零；Snapshot 的 `remaining_quantity` 保留未成交量以维持数量守恒，历史 `filled_quantity` 和均价仍保留。非法、重复、过期或冲突更新不改变 version，
 不产生事件，分别返回 `INVALID/DUPLICATE/STALE/CONFLICT`。
 
 部分成交按 Decimal 加权：`(旧均价×旧成交量 + 新价格×新成交量) / 新累计量`，使用价格精度和明确舍入；
@@ -124,3 +124,53 @@ Order facts，并在固定 Reservation 步骤统一消费/释放。独立 Order 
 OrderService 在 Risk ACCEPT 后协调独立的 Risk、Account Cash、Strategy Cash 和 Sell Position Reservation，再调用
 ExecutionService。Execution 同步 `received` 只令本地 Order 进入 SUBMITTED；Accepted/Rejected/Fill/Cancelled 必须由
 Broker Update 经 Runtime inbound queue 到达。重复 update ID 幂等，迟到回报不能令终态回退。
+
+
+## Rust component: canonical lifecycle and recovery
+
+`crates/onlyalpha-kernel/order/` is an independently buildable pure Order component, consuming only Domain financial DTOs and
+already-admitted exact arithmetic/JSON/hash dependencies. Official Python Runtime and durable transaction ownership remain active;
+this component cannot dispatch a Broker command, approve Risk, reserve cash/positions, publish official economic facts or activate
+Rust Runtime work. It provides no public control endpoint or legacy Python checkpoint reader.
+
+A Manager binds exact engine/runtime/gateway/generation. CREATE binds cluster/account, complete canonical Request and a caller-owned
+causal fingerprint; duplicate request IDs require the same entire identity. Deterministic Order/Client IDs derive only from Runtime
+and creation sequence, independent of transport sessions. Queries return immutable Domain Snapshots. External observations must
+carry matching runtime/gateway/generation/account/order, explicit event identity, optional provider sequence and event/init times.
+Fill envelope and nested Domain Fill must agree. Scoped event, Trade and Venue Trade IDs retain complete payload fingerprints:
+event spelling must already match its canonical identifier. Matching payload is DUPLICATE; identity reuse with changed payload/owner is CONFLICT. Venue IDs are unique per gateway/account.
+Explicit null sequence means provider sequence unavailable; it does not certify stale/duplicate/absence.
+
+`BEGIN_SUBMIT` records the local attempt as SUBMITTED + DISPATCHING before any transport handoff; it proves neither delivery nor
+Venue Accepted. Transport observation may record KNOWN_RESULT or UNKNOWN. UNKNOWN can enter RECONCILING; only exact venue facts
+resolve an actually dispatched attempt. Restoring DISPATCHING/UNKNOWN/RECONCILING never makes the order dispatchable again. Local
+failure/suppression cannot reinterpret an uncertain dispatched order as proven not sent. Cancellation and venue observation remain
+available. A new event reporting the same terminal result is a no-op only when its reason is consistent; a changed terminal reason
+is a conflict. All no-op, stale, conflict, invalid and rejected inputs leave state, receipts and global fact sequence unchanged.
+
+Partial Fill retains PENDING_CANCEL, final Fill becomes FILLED. Terminal orders reject new Fills per ADR0049; the old direct-Python
+cancelled-late-Fill behavior is not claimed equivalent. The canonical production durable transaction planner still owns venue-fact
+handling and economic recovery. This component cannot discard/acknowledge an unhandled real venue fact on its behalf. Exact cumulative
+price-times-quantity is retained; weighted average rounds the exact integer ratio once, half-even, at final price precision. Domain
+Snapshot preserves requested = filled + unfilled quantity for terminal orders; `executable_remaining` separately returns zero there.
+A new unretained cancel request while PENDING_CANCEL is INVALID; the retained original request still replays as DUPLICATE.
+Nested fee Money amounts are bounded before arithmetic-bearing Domain decoding. Supplied fee binding/estimate/funding values install atomically and Domain validates their relations. Order implements no fee formula
+and installs no implicit zero contract; corpus zero fees are explicit hermetic test fixtures.
+
+Component command/checkpoint schema1 is closed and independent of Python persisted formats. Each applied transition returns a scoped
+fact binding input hash, cause, outcome, sequence and resulting Snapshot. Checkpoint contains exact config, the complete applied-command
+journal and reconstructed state/receipt/index commitments. Fresh restore verifies caller-retained SHA-256, canonical encoding and exact
+config, replays all commands into a candidate, requires every one APPLIED, compares the complete state, and atomically installs it.
+Bad recovery leaves receiver unchanged. A coherent alternate history plus attacker-chosen expected digest is not authenticated.
+No business stores, projections, migration or real service upgrade are implied by this component checkpoint.
+
+Bounds: 64 orders, 4096 applied commands, 32KiB per command, 4MiB serialized journal budget, 64KiB per Snapshot and 16MiB checkpoint.
+Decimal coefficients are bounded to1024 digits and scale -256..256 before arithmetic. Capacity failure precedes mutation; journal
+compaction is a future owning recovery design, not an automatic reset. Existing formal execution may not use this component until
+admission, durable transaction, retained-history and product gates are implemented.
+
+Python reference audit found request-ID-only duplicate checks, direct entity pending-cancel behavior differing from the durable
+reducer, identity sets without payload equality, and incremental restore into an existing receiver. Rust follows current canonical
+requirements instead of copying those defects. Common valid financial/status trajectories are compared with actual Python Manager
+and fresh restoration using independently expected vectors. Corrected/unsupported reference paths are tested separately; comparison
+does not certify complete implementation or persisted identity equivalence.

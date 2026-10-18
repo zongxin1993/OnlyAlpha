@@ -328,3 +328,12 @@ registered algorithms and the technical MarketData coordinator. See the [owning 
 Revision2 component identity is explicitly separate from official Revision1/Freeze admission. Subsequent activation must evolve the
 owning public contract and all consumers atomically, prove exact retained artifacts/history, and preserve R3-R8 gates. Order intent,
 Risk/Portfolio, Broker effects and LIVE permissions are not inferred from a component decision or a passing technical probe.
+
+
+### Order source navigation
+
+`crates/onlyalpha-kernel/order/` groups component lifecycle, exact receipt/identity handling and fresh recovery in one independent
+library. See the [owning boundary](order.md#rust-component-canonical-lifecycle-and-recovery) and
+[design](superpowers/specs/2026-10-19-rust-order-design.md). Subsequent Position/Allocation, Account/Ledger, Risk and execution-transaction
+work must preserve owning authorities and ordered economic effects. An isolated Order transition is not durable execution closure,
+formal Runtime activation, successful submission or evidence of absent venue effects. R3-R8 gates continue to apply.

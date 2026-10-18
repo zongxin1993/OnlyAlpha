@@ -394,3 +394,11 @@ not additional crates. The actual worker and MarketData coordinator remain Infra
 Audit corrections include withdrawing the entire owner after a possibly partial node update, fresh atomic restore, and rejecting stale
 upstream readiness. The Python reference is preserved for classified comparison, not reproduced when those audited behaviors are defective.
 See the [owning Strategy boundary](strategy.md#rust-decision-component-boundary) for explicit identity evolution and activation limits.
+
+
+## Order responsibility map
+
+`crates/onlyalpha-kernel/order/` reuses Domain Request/Fill/Snapshot, owns deterministic component lifecycle, receipt identities,
+submission uncertainty and complete fresh restoration. Its source dependencies never point to Strategy, Risk, Position, Account,
+Broker or Infrastructure. Owning Contract: [Order](order.md#rust-component-canonical-lifecycle-and-recovery). Actual broker submission,
+durable cross-authority transaction and economic projection remain separate; no component outcome confers Runtime admission.
