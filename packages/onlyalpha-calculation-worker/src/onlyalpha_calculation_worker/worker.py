@@ -14,6 +14,7 @@ from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
 from onlyalpha_calculation_worker.artifact import manifest
 from onlyalpha_calculation_worker.backend import Backend, resolve
 from onlyalpha_calculation_worker.contracts import MAX_BATCH, MAX_FRAME, MAX_INSTANCES, decode, encode, sha
+from onlyalpha_calculation_worker.node_backend import NodeBackend
 
 
 def _read(stream: BinaryIO, count: int) -> bytes:
@@ -29,6 +30,7 @@ def _read(stream: BinaryIO, count: int) -> bytes:
 def serve(generation: str, reader: BinaryIO, writer: BinaryIO) -> None:
     artifact = manifest().implementation_fingerprint
     backend = Backend(sha(generation), artifact)
+    nodes = NodeBackend(generation, artifact)
     sequence = 0
     while True:
         try:
@@ -51,7 +53,16 @@ def serve(generation: str, reader: BinaryIO, writer: BinaryIO) -> None:
                 result = {"schema_version": 1, "max_batch": MAX_BATCH, "max_instances": MAX_INSTANCES}
             elif operation == "resolve":
                 result = resolve(decode(request.resolve.parameters_json))
+            elif operation == "node":
+                record = decode(request.node.request_json)
+                if type(record) is not dict:
+                    raise ValueError("NODE_REQUEST")
+                if record.get("op") == "CREATE" and backend.instance_count() + len(nodes.nodes) >= MAX_INSTANCES:
+                    raise ValueError("INSTANCE_BUDGET")
+                result = nodes.dispatch(record)
             elif operation == "create":
+                if backend.instance_count() + len(nodes.nodes) >= MAX_INSTANCES:
+                    raise ValueError("INSTANCE_BUDGET")
                 create_request = request.create
                 result = backend.create(
                     decode(create_request.binding_json),

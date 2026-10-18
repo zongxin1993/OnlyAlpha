@@ -11,6 +11,7 @@ from pathlib import Path
 
 import onlyalpha_gateway_protocol
 import onlyalpha_plugin_indicators
+import onlyalpha_plugin_operators
 from google._upb import _message
 
 import onlyalpha
@@ -35,6 +36,7 @@ def manifest() -> OnlyCalculationImplementationManifest:
     for label, root in (
         ("core", Path(onlyalpha.__file__).parent),
         ("plugin", Path(onlyalpha_plugin_indicators.__file__).parent),
+        ("operators", Path(onlyalpha_plugin_operators.__file__).parent),
         ("protocol", Path(onlyalpha_gateway_protocol.__file__).parent),
         ("worker", Path(__file__).parent),
     ):

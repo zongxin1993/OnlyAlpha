@@ -23,6 +23,7 @@ struct Restored<C> {
     expectations: BTreeMap<String, InputPosition>,
     last_inputs: BTreeMap<String, Arc<OnlyBar>>,
     quarantined: BTreeMap<OnlyClusterId, Value>,
+    delivery_receipts: BTreeMap<OnlyClusterId, Value>,
 }
 const MAX_CHECKPOINT: usize = 64 * 1024 * 1024;
 fn bad() -> PipelineError {
@@ -176,6 +177,66 @@ fn positions<C: CalculationPort>(
     }
     Ok(())
 }
+// Owning preparation acknowledgments, including no-call outcomes, retain their input prefix.
+fn delivery_receipts(
+    program: &PipelineProgram,
+    delivery: &Value,
+    rows: &Value,
+) -> PipelineResult<BTreeMap<OnlyClusterId, Value>> {
+    let mut result = BTreeMap::new();
+    for row in array(rows)? {
+        object(
+            row,
+            &[
+                "cluster",
+                "event_ns",
+                "delivery_id",
+                "input_identity",
+                "called",
+                "outcome",
+                "degraded",
+            ],
+        )?;
+        let raw = text(&row["cluster"])?;
+        let cluster: OnlyClusterId = raw.parse().map_err(|_| bad())?;
+        let called = match text(&row["outcome"])? {
+            "ACCEPTED" | "FAILED" | "UNKNOWN" => true,
+            "BLOCKED" | "QUARANTINED" => false,
+            _ => return Err(bad()),
+        };
+        if cluster.value() != raw
+            || !program.clusters.contains_key(&cluster)
+            || row["called"] != called
+            || !row["degraded"].is_boolean()
+            || result.insert(cluster, row.clone()).is_some()
+        {
+            return Err(bad());
+        }
+        validate_digest(text(&row["delivery_id"])?)?;
+        validate_digest(text(&row["input_identity"])?)?;
+        stamp(&row["event_ns"])?;
+    }
+    for registration in array(&delivery["registrations"])? {
+        let cluster: OnlyClusterId = text(&registration["cluster_id"])?
+            .parse()
+            .map_err(|_| bad())?;
+        if registration["last_planned_event_ns"].is_null() {
+            if result.contains_key(&cluster) {
+                return Err(bad());
+            }
+        } else {
+            let event = registration["last_planned_event_ns"]
+                .as_number()
+                .ok_or_else(bad)?
+                .to_string();
+            let row = result.get(&cluster).ok_or_else(bad)?;
+            if stamp(&row["event_ns"])? != stamp(&json!(event))? {
+                return Err(bad());
+            }
+        }
+    }
+    Ok(result)
+}
 impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
     pub fn capture_checkpoint(&mut self) -> PipelineResult<Value> {
         if self.failed {
@@ -190,6 +251,11 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
         result
     }
     fn capture_inner(&mut self) -> PipelineResult<Value> {
+        delivery_receipts(
+            &self.program,
+            &self.delivery.capture_checkpoint(),
+            &json!(self.delivery_receipts.values().collect::<Vec<_>>()),
+        )?;
         positions(
             &self.program,
             &mut self.calculations,
@@ -226,13 +292,14 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             })
             .collect::<Vec<_>>();
         let mut value = json!({
-            "schema_version": 1, "program": self.program.to_record(), "processed": self.processed,
+            "schema_version": 2, "program": self.program.to_record(), "processed": self.processed,
             "chain": self.chain, "last_init_ns": self.last_init.as_ref().map(|t| t.unix_nanos().to_string()),
             "frontiers": frontiers, "managers": managers, "state": self.state.capture_checkpoint(),
             "delivery": self.delivery.capture_checkpoint(),
             "expected": self.expected.iter().map(|(k, v)| json!([k, v.to_record()])).collect::<Vec<_>>(),
             "last_inputs": self.last_inputs.iter().map(|(k, b)| json!([k, b.to_record()])).collect::<Vec<_>>(),
-            "calculations": port, "quarantined": self.quarantined.values().collect::<Vec<_>>()
+            "calculations": port, "quarantined": self.quarantined.values().collect::<Vec<_>>(),
+            "delivery_receipts":self.delivery_receipts.values().collect::<Vec<_>>()
         });
         value["component_bindings"] = component_bindings(&value)?;
         if value.to_string().len() > MAX_CHECKPOINT {
@@ -267,6 +334,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
         self.expected = result.expectations;
         self.last_inputs = result.last_inputs;
         self.quarantined = result.quarantined;
+        self.delivery_receipts = result.delivery_receipts;
         self.failed = false;
         Ok(())
     }
@@ -288,9 +356,10 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
                 "last_inputs",
                 "calculations",
                 "quarantined",
+                "delivery_receipts",
             ],
         )?;
-        if value["schema_version"].as_u64() != Some(1)
+        if value["schema_version"].as_u64() != Some(2)
             || value["program"] != self.program.to_record()
         {
             return Err(bad());
@@ -532,6 +601,11 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             &last_inputs,
             &quarantined,
         )?;
+        let delivery_receipts = delivery_receipts(
+            &self.program,
+            &value["delivery"],
+            &value["delivery_receipts"],
+        )?;
         Ok(Restored {
             chain: text(&value["chain"])?.to_owned(),
             managers,
@@ -544,6 +618,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             expectations,
             last_inputs,
             quarantined,
+            delivery_receipts,
         })
     }
 }

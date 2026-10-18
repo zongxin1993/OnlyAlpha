@@ -180,6 +180,9 @@ class Backend:
         self.generation, self.artifact = sha(generation), sha(artifact)
         self._instances: dict[str, _Instance] = {}
 
+    def instance_count(self) -> int:
+        return len(self._instances)
+
     def create(
         self, raw_binding: object, definition: object, bar_type_record: object, parameters: dict[str, Any], source: str
     ) -> dict[str, Any]:

@@ -35,6 +35,7 @@ pub struct MarketDataPipeline<C: CalculationPort, D: PreparationConsumer> {
     pub(crate) expected: BTreeMap<String, InputPosition>,
     pub(crate) last_inputs: BTreeMap<String, Arc<OnlyBar>>,
     pub(crate) quarantined: BTreeMap<OnlyClusterId, Value>,
+    pub(crate) delivery_receipts: BTreeMap<OnlyClusterId, Value>,
 }
 impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
     pub fn new(program: PipelineProgram, mut calculations: C, consumer: D) -> PipelineResult<Self> {
@@ -85,7 +86,12 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             expected,
             last_inputs: BTreeMap::new(),
             quarantined: BTreeMap::new(),
+            delivery_receipts: BTreeMap::new(),
         })
+    }
+    /// Last actual preparation receipt; a route plan alone is not invocation evidence.
+    pub fn last_delivery(&self, cluster: &OnlyClusterId) -> Option<&Value> {
+        self.delivery_receipts.get(cluster)
     }
     pub fn calculations(&self) -> &C {
         &self.calculations
@@ -182,6 +188,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
         }
         let mut snapshot = None;
         let mut receipts = vec![];
+        let mut prepared_plans = vec![];
         if !bars.is_empty() {
             let primary = bars
                 .iter()
@@ -309,7 +316,10 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
                 if matches!(outcome, "FAILED" | "UNKNOWN") {
                     self.quarantined.insert(cluster.clone(), receipt.clone());
                 }
+                self.delivery_receipts
+                    .insert(cluster.clone(), receipt.clone());
                 receipts.push(receipt);
+                prepared_plans.push(plan);
             }
             snapshot = Some(current);
         }
@@ -332,6 +342,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             input_identity: identity,
             snapshot,
             receipts,
+            plans: prepared_plans,
         })
     }
 }

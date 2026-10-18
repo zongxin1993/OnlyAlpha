@@ -6,3 +6,9 @@ pub use process::{Cancellation, Result, Worker, WorkerError};
 
 mod pipeline_adapter;
 pub use pipeline_adapter::{PipelineCalculations, SmaRequest};
+
+mod strategy_adapter;
+pub use strategy_adapter::StrategyNodes;
+
+mod strategy_preparation;
+pub use strategy_preparation::StrategyPreparation;

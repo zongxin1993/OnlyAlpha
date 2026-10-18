@@ -383,3 +383,14 @@ refer to the same canonical types and do not create wrappers or duplicate record
 actual pure-consumer receipts and fresh atomic restore are specified in the owning
 [Pipeline Contract](market_data_pipeline.md#rust-composed-preparation-boundary). Independent offline builds include only this
 admitted semantic closure; the worker closure adds its existing Gateway protocol and process Infrastructure.
+
+## Strategy decision responsibility map
+
+`strategy/` groups Revision2, exact execution Program, deterministic graph processing, readiness and decisions, and component recovery
+in one independently buildable semantic crate. Its local edges are Domain, Calculation and Construction values; no MarketData Pipeline,
+process, Runtime, Provider or Broker dependency points into it. `strategy/src/{model,execution,recovery}.rs` are internal responsibilities,
+not additional crates. The actual worker and MarketData coordinator remain Infrastructure under `packages/onlyalpha-calculation-worker/`.
+
+Audit corrections include withdrawing the entire owner after a possibly partial node update, fresh atomic restore, and rejecting stale
+upstream readiness. The Python reference is preserved for classified comparison, not reproduced when those audited behaviors are defective.
+See the [owning Strategy boundary](strategy.md#rust-decision-component-boundary) for explicit identity evolution and activation limits.

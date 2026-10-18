@@ -344,6 +344,7 @@ name = "onlyalpha-calculation-worker"
 version = "0.10.10"
 dependencies = [
  "onlyalpha-market-data-pipeline",
+ "onlyalpha-strategy",
  "onlyalpha-calculation",
  "onlyalpha-domain",
  "onlyalpha-gateway-protocol",
@@ -422,6 +423,18 @@ dependencies = [
  "num-bigint",
  "onlyalpha-domain",
  "serde_json",
+]
+
+[[package]]
+name = "onlyalpha-strategy"
+version = "0.10.10"
+dependencies = [
+ "num-bigint",
+ "onlyalpha-calculation",
+ "onlyalpha-domain",
+ "onlyalpha-market-data-construction",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -391,10 +391,11 @@ pub struct PreparedMarketData {
     pub input_identity: String,
     pub snapshot: Option<OnlyMarketDataSnapshot>,
     pub receipts: Vec<Value>,
+    pub plans: Vec<OnlyBarDeliveryPlan>,
 }
 impl PreparedMarketData {
     pub fn to_record(&self) -> Value {
-        json!({"schema_version":1,"input_identity":self.input_identity,"snapshot":self.snapshot.as_ref().map(OnlyMarketDataSnapshot::to_record),"receipts":self.receipts})
+        json!({"schema_version":2,"input_identity":self.input_identity,"snapshot":self.snapshot.as_ref().map(OnlyMarketDataSnapshot::to_record),"receipts":self.receipts,"plans":self.plans.iter().map(|p|json!({"cluster":p.cluster_id().value(),"subscription":p.subscription_id().value(),"snapshot":p.snapshot().to_record()})).collect::<Vec<_>>()})
     }
 }
 

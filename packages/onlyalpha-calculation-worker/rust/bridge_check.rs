@@ -17,6 +17,7 @@ use std::{
 };
 
 mod pipeline_check;
+mod strategy_check;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 fn data(base: &Value, count: usize) -> Result<Vec<OnlyBar>, Box<dyn Error>> {
@@ -273,6 +274,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         client.close("runtime/benchmark/sma", DEADLINE)?;
     }
     pipeline_check::run(python, &artifact, &base)?;
+    strategy_check::run(python, &artifact, &base)?;
     println!("REAL_SMA_BRIDGE_PASS");
     Ok(())
 }

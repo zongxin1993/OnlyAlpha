@@ -1,0 +1,7 @@
+{"kind":"bar","record":{"schema_version":1,"bar_type":{"schema_version":2,"instrument_id":{"schema_version":1,"symbol":{"schema_version":1,"value":"A"},"venue":{"schema_version":1,"value":"X"}},"semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"SESSION_START"},"price_type":"LAST","adjustment_policy":"RAW"}},"open":{"schema_version":1,"value":"10.00","precision":2},"high":{"schema_version":1,"value":"11.00","precision":2},"low":{"schema_version":1,"value":"9.00","precision":2},"close":{"schema_version":1,"value":"10.50","precision":2},"volume":{"schema_version":1,"value":"100","precision":0},"quote_volume":null,"turnover":null,"trade_count":10,"open_interest":null,"bar_start":"2025-01-06T01:30:00Z","bar_end":"2025-01-06T01:31:00Z","ts_event":"2025-01-06T01:31:00Z","ts_init":"2025-01-06T01:31:01Z","is_closed":true,"revision":0,"adjustment_type":"RAW","trading_day":"2025-01-06","session_type":"REGULAR"}}
+{"kind":"case","minute":1,"status":"BLOCKED","entry":false,"exit":true}
+{"kind":"case","minute":2,"status":"BLOCKED","entry":false,"exit":false}
+{"kind":"case","minute":3,"status":"READY","entry":true,"exit":false}
+{"kind":"case","minute":4,"status":"READY","entry":true,"exit":false}
+{"kind":"case","minute":5,"status":"READY","entry":true,"exit":false}
+{"kind":"case","minute":6,"status":"READY","entry":true,"exit":false}

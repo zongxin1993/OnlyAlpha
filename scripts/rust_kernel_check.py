@@ -93,7 +93,16 @@ PIPELINE_DEPENDENCIES = {
     "onlyalpha-market-data-delivery": {"path": "../delivery"},
     "sha2": DOMAIN_DEPENDENCIES["sha2"],
 }
+STRATEGY_DEPENDENCIES = {
+    "onlyalpha-domain": {"path": "../domain"},
+    "onlyalpha-calculation": {"path": "../calculation"},
+    "onlyalpha-market-data-construction": {"path": "../market_data/construction"},
+    "num-bigint": CLOCK_DEPENDENCIES["num-bigint"],
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+    "sha2": DOMAIN_DEPENDENCIES["sha2"],
+}
 WORKER_DEPENDENCIES = {
+    "onlyalpha-strategy": {"path": "../../crates/onlyalpha-kernel/strategy"},
     "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
     "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
@@ -118,6 +127,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
+        "onlyalpha-strategy": "crates/onlyalpha-kernel/strategy",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -220,6 +230,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == PIPELINE_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-strategy"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == STRATEGY_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -247,6 +264,10 @@ def validate_workspace(root: Path) -> None:
 
         pipeline = tomllib.loads((root / modules["onlyalpha-market-data-pipeline"] / "Cargo.toml").read_text())
         if pipeline.get("dependencies") != PIPELINE_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        strategy = tomllib.loads((root / modules["onlyalpha-strategy"] / "Cargo.toml").read_text())
+        if strategy.get("dependencies") != STRATEGY_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
         for component, dependencies in (
@@ -450,6 +471,17 @@ def validate_pipeline_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_strategy_sources(root: Path) -> None:
+    _validate_pure_sources(root, "strategy", {'"../../../../test-data/strategy/decisions-v2.jsonl"'})
+    for path in (root / "crates/onlyalpha-kernel/strategy/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(
+            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|provider|storage|calculation_worker|gateway_protocol|market_data_pipeline|market_data_state|market_data_delivery)\b",
+            code,
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_calculation_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -588,6 +620,10 @@ def isolated_calculation(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("calculation",))
 
 
+def isolated_strategy(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "calculation", "market_data_construction", "strategy"))
+
+
 def isolated_gateway_protocol(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("gateway_protocol",))
 
@@ -618,6 +654,7 @@ def isolated_calculation_worker(root: Path, destination: Path) -> Path:
             "market_data_construction",
             "market_data_delivery",
             "market_data_pipeline",
+            "strategy",
             "gateway_protocol",
             "calculation_worker",
         ),
@@ -647,6 +684,7 @@ def main() -> int:
     validate_delivery_sources(ROOT)
     validate_calculation_sources(ROOT)
     validate_pipeline_sources(ROOT)
+    validate_strategy_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -668,6 +706,7 @@ def main() -> int:
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
+        ("strategy", isolated_strategy),
         ("calculation", isolated_calculation),
         ("gateway-protocol", isolated_gateway_protocol),
         ("calculation-worker", isolated_calculation_worker),

@@ -114,8 +114,8 @@ position, including explicit unobserved optional inputs. A route plan alone neve
 consumer invocation/outcome. A failed or uncertain consumer quarantines only its Cluster; shared construction/state or unknown/malformed
 calculation receipts fail-stop this component until explicit complete restore. There is no automatic retry or process recreation.
 
-Component checkpoint schema1 captures all Source managers, State, planning watermarks, scoped calculation bundles, expected input
-positions, last attempted Bars, ordered frontiers and quarantines under caller-expected SHA-256. Restore constructs fresh candidates,
+Component checkpoint schema2 captures all Source managers, State, planning watermarks, scoped calculation bundles, expected input
+positions, last attempted Bars, ordered frontiers, latest actual preparation receipts and quarantines under caller-expected SHA-256. Restore constructs fresh candidates,
 validates exact component relationships and worker acknowledgments, then installs the complete candidate. The consumer is deterministic
 and non-effectful: it owns no recoverable trading truth. This component is not an official Runtime participant, Source-grant or gap
 continuity proof, Research Evidence, economic execution or deployment/history migration. Python remains the active Runtime reference.
@@ -128,6 +128,12 @@ Healthy active calculations must match State latest Bar and version exactly; onl
 may legitimately lag. The externally retained expected checkpoint digest is the trust root: this is integrity/provenance checking,
 not authentication of a fully rewritten checkpoint accompanied by an attacker-chosen expected digest. It does not interpret or
 redefine a custom Construction executor's opaque state.
+
+Prepared output schema2 additionally exposes immutable scoped Delivery plans alongside actual preparation receipts. Current Rust consumers
+use this explicit schema; no schema1 output reader or fallback is retained. The plans remain data projections, not proof of Strategy execution.
+The Infrastructure Strategy coordinator uses `NoCalculations` here to avoid consuming the same algorithm input twice, checks the accepted
+preparation receipt, then invokes its separately owning Strategy executor. Checkpoint schema2 also retains each latest actual preparation receipt with its input prefix; no schema1 checkpoint reader is retained.
+A downstream Strategy cut must match this Pipeline-owned acknowledgment, not an independently asserted coordinator prefix.
 
 ### Rust Delivery planning boundary
 

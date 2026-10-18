@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -12,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home  # noqa: E402
+from scripts.strategy_reference_check import compare_reference  # noqa: E402
 
 
 def main() -> int:
@@ -62,12 +64,23 @@ def main() -> int:
             artifact,
             flush=True,
         )
-        subprocess.run(
+        completed = subprocess.run(
             [str(executable), sys.executable, artifact, str(ROOT / "test-data/domain/fact-records-v1.jsonl")],
             cwd=ROOT,
             env=env,
-            check=True,
+            check=False,
+            text=True,
+            capture_output=True,
         )
+        print(completed.stdout, end="", flush=True)
+        print(completed.stderr, end="", file=sys.stderr, flush=True)
+        completed.check_returncode()
+        base = next(
+            json.loads(line)["record"]
+            for line in (ROOT / "test-data/domain/fact-records-v1.jsonl").read_text().splitlines()
+            if json.loads(line).get("id") == "bar"
+        )
+        compare_reference(completed.stdout, base)
     return 0
 
 

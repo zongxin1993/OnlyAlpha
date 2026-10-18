@@ -1086,6 +1086,7 @@ dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators" },
 ]
 
 [package.metadata]
@@ -1093,6 +1094,7 @@ requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-gateway-protocol", editable = "packages/onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
 ]
 
 [[package]]

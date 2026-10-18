@@ -45,6 +45,11 @@ pub struct CalculationRestore {
     pub expected_sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CalculationNode {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CalculationRequest {
     #[prost(uint32, tag = "1")]
     pub protocol_version: u32,
@@ -54,7 +59,7 @@ pub struct CalculationRequest {
     pub sequence: u64,
     #[prost(
         oneof = "calculation_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18"
     )]
     pub operation: ::core::option::Option<calculation_request::Operation>,
 }
@@ -78,6 +83,8 @@ pub mod calculation_request {
         Restore(super::CalculationRestore),
         #[prost(message, tag = "17")]
         Close(super::CalculationInstance),
+        #[prost(message, tag = "18")]
+        Node(super::CalculationNode),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

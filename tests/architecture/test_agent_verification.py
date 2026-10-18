@@ -534,6 +534,7 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "rust-toolchain.toml",
         "crates/onlyalpha-kernel/core/src/lib.rs",
         "test-data/market-data-pipeline/operations-v1.jsonl",
+        "test-data/strategy/decisions-v2.jsonl",
     ],
 )
 def test_rust_changes_select_offline_kernel_checks(path: str) -> None:

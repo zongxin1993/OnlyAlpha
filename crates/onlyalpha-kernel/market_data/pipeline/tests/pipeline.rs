@@ -365,3 +365,24 @@ fn derived_state_delivery_and_calculation_cannot_form_a_separate_older_cut() {
     assert!(restore(&mut p, &spliced).is_err());
     assert_eq!(p.capture_checkpoint().unwrap(), current);
 }
+
+#[test]
+fn checkpoint_two_retains_owning_delivery_receipts_and_rejects_old_schema() {
+    let mut p = pipeline();
+    let prepared = p.process(&input(1)).unwrap();
+    for receipt in &prepared.receipts {
+        let id = receipt["cluster"].as_str().unwrap().parse().unwrap();
+        assert_eq!(p.last_delivery(&id), Some(receipt));
+    }
+    let cp = p.capture_checkpoint().unwrap();
+    assert_eq!(cp["schema_version"], 2);
+    let mut old = cp.clone();
+    old["schema_version"] = json!(1);
+    assert!(restore(&mut p, &old).is_err());
+    let mut stale = cp.clone();
+    stale["delivery_receipts"][0]["event_ns"] = json!("0");
+    stale["component_bindings"]["components"]["delivery_receipts"] =
+        json!(digest(&stale["delivery_receipts"]));
+    assert!(restore(&mut p, &stale).is_err());
+    assert_eq!(cp, p.capture_checkpoint().unwrap());
+}

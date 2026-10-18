@@ -23,6 +23,8 @@ message CalculationRestore {
   bytes checkpoint_json = 2;
   string expected_sha256 = 3;
 }
+// Closed registered TRADING node records; no arbitrary method dispatch.
+message CalculationNode { bytes request_json = 1; }
 message CalculationRequest {
   uint32 protocol_version = 1;
   string generation = 2;
@@ -36,6 +38,7 @@ message CalculationRequest {
     CalculationInstance checkpoint = 15;
     CalculationRestore restore = 16;
     CalculationInstance close = 17;
+    CalculationNode node = 18;
   }
 }
 message CalculationError { string code = 1; }

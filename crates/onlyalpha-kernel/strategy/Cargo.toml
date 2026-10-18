@@ -1,0 +1,15 @@
+[package]
+name = "onlyalpha-strategy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-domain = { path = "../domain" }
+onlyalpha-calculation = { path = "../calculation" }
+onlyalpha-market-data-construction = { path = "../market_data/construction" }
+num-bigint = { version = "=0.4.8", default-features = false, features = ["std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+sha2 = { version = "=0.11.1", default-features = false }

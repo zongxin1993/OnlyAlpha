@@ -320,3 +320,11 @@ It supplies explicit result/failure snapshots and a dependency barrier against c
 not execute Factors/Strategies or compose a MarketData transaction. Subsequent Pipeline composition must own its transaction,
 per-timeframe expectations, admitted input/generation and durable recovery obligations. See the
 [state boundary](indicator_registry.md#rust-scoped-calculation-state-and-readiness-boundary).
+
+### Strategy decision source navigation
+
+`crates/onlyalpha-kernel/strategy/` owns the bounded pure decision component; the managed Python calculation worker supplies actual
+registered algorithms and the technical MarketData coordinator. See the [owning boundary](strategy.md#rust-decision-component-boundary).
+Revision2 component identity is explicitly separate from official Revision1/Freeze admission. Subsequent activation must evolve the
+owning public contract and all consumers atomically, prove exact retained artifacts/history, and preserve R3-R8 gates. Order intent,
+Risk/Portfolio, Broker effects and LIVE permissions are not inferred from a component decision or a passing technical probe.
