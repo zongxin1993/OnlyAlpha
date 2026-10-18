@@ -9,6 +9,7 @@ path = "rust/lib.rs"
 [lints]
 workspace = true
 [dependencies]
+onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
 onlyalpha-calculation = { path = "../../crates/onlyalpha-kernel/calculation" }
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 onlyalpha-gateway-protocol = { path = "../onlyalpha-gateway-protocol" }

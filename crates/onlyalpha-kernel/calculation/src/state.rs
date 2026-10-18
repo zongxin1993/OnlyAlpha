@@ -42,6 +42,29 @@ pub struct InputPosition {
     record: Value,
 }
 impl InputPosition {
+    /// Explicitly no input has been observed; never an invented event or readiness proof.
+    pub fn unobserved() -> Self {
+        Self {
+            record: Value::Null,
+        }
+    }
+    pub fn from_record(value: &Value) -> Result<Self> {
+        if value.is_null() {
+            return Ok(Self::unobserved());
+        }
+        object(value, &["revision", "samples", "event_ns", "input_digest"])?;
+        Self::new(
+            value["revision"]
+                .as_u64()
+                .ok_or_else(|| err("REVISION_REQUIRED"))?,
+            value["samples"]
+                .as_u64()
+                .ok_or_else(|| err("SAMPLES_REQUIRED"))?,
+            text(&value["event_ns"])?,
+            text(&value["input_digest"])?,
+        )
+    }
+
     pub fn new(revision: u64, samples: u64, event_ns: &str, input_digest: &str) -> Result<Self> {
         if revision == 0 || samples == 0 {
             return Err(err("POSITION_EMPTY"));

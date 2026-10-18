@@ -101,11 +101,39 @@ prove real lifecycle behavior. Shared vectors demonstrate common valid semantics
 checkpoint duplicate collapse and permissive readers are not Rust requirements. See the
 [Construction design](superpowers/specs/2026-10-18-rust-market-data-construction-design.md).
 
+### Rust composed preparation boundary
+
+`market_data/pipeline` composes the existing Construction, State, Delivery and Calculation owners. The program binds exact
+Source/calendar/executor artifacts, Generation, scoped calculation bindings and a pure preparation consumer artifact. One BarType
+has one Source owner; native and derived ownership cannot overlap. Inputs carry exact root/Source sequence and explicit logical time.
+Closed Bar roots advance strictly; Trade roots can share event time under increasing sequence and can yield no closed Bar.
+An ordered-prefix SHA-256 chain binds receipts to earlier admitted inputs without reserializing retained history for each Bar.
+
+Calculation runs through the Infrastructure-owned managed Python worker port. Readiness uses each scope's current intended input
+position, including explicit unobserved optional inputs. A route plan alone never proves invocation: each result reports actual pure
+consumer invocation/outcome. A failed or uncertain consumer quarantines only its Cluster; shared construction/state or unknown/malformed
+calculation receipts fail-stop this component until explicit complete restore. There is no automatic retry or process recreation.
+
+Component checkpoint schema1 captures all Source managers, State, planning watermarks, scoped calculation bundles, expected input
+positions, last attempted Bars, ordered frontiers and quarantines under caller-expected SHA-256. Restore constructs fresh candidates,
+validates exact component relationships and worker acknowledgments, then installs the complete candidate. The consumer is deterministic
+and non-effectful: it owns no recoverable trading truth. This component is not an official Runtime participant, Source-grant or gap
+continuity proof, Research Evidence, economic execution or deployment/history migration. Python remains the active Runtime reference.
+See the [composition design](superpowers/specs/2026-10-18-rust-market-data-pipeline-design.md).
+
+The composed checkpoint includes a derived composition manifest binding each manager checkpoint SHA-256 to its exact root-frontier
+projection and the global ordered input prefix. Neither older manager bytes nor an older manager-plus-binding can be transplanted
+into a newer cutoff. The same manifest binds State, Delivery, calculation bundles and all other component fields to the same cutoff.
+Healthy active calculations must match State latest Bar and version exactly; only failed/quarantined slots
+may legitimately lag. The externally retained expected checkpoint digest is the trust root: this is integrity/provenance checking,
+not authentication of a fully rewritten checkpoint accompanied by an attacker-chosen expected digest. It does not interpret or
+redefine a custom Construction executor's opaque state.
+
 ### Rust Delivery planning boundary
 
 MarketData is one business directory, `crates/onlyalpha-kernel/market_data/`, containing independently buildable `state/`,
-`construction/` and `delivery/` subcrates. Existing State/Construction package names and records retain their meanings.
-No umbrella facade or deployment unit is introduced. Delivery depends on Domain, State and Construction; neither lower
+`construction/`, `delivery/` and the composed `pipeline/` subcrates. Existing State/Construction package names and records retain their meanings.
+Delivery adds no umbrella facade or deployment unit. Delivery depends on Domain, State and Construction; neither lower
 subcrate depends on Delivery. Pure dependency/source guards and extracted builds enforce this direction.
 
 `onlyalpha-market-data-delivery` owns explicit subscription values, active Cluster registrations, immutable scoped delivery

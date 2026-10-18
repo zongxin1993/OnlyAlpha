@@ -20,7 +20,7 @@ binding, cursor/result relationship, tagged scalar outputs, quality flags, outco
 
 `ReadinessPlan` is a pure instance dependency barrier, not a Factor/Strategy executor. Each evaluation must supply an expected
 revision, sample position, event nanoseconds and exact batch input digest for every registered instance. Different timeframes
-have separate explicit expectations. Missing, stale, warming, unavailable, failed, UNKNOWN or dependency-blocked required nodes
+have separate explicit expectations. A slot that has not received any input uses an explicit null/unobserved position; no event is invented. All-optional nonempty plans are permitted and report degradation without required obligations. Missing, stale, warming, unavailable, failed, UNKNOWN or dependency-blocked required nodes
 prevent readiness. An optional dependency still blocks its required consumer; unrelated optional non-readiness is visible as
 degradation. Foreign/mixed-generation bindings, duplicate/missing dependencies, cycles and incomplete expectation context fail.
 A READY barrier is not Source/Generation admission, complete historical input proof, Research Evidence or execution permission.

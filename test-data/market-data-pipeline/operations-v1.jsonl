@@ -1,0 +1,6 @@
+{"minute":1,"receipts":[["a","BLOCKED"]]}
+{"minute":2,"receipts":[["a","BLOCKED"]]}
+{"minute":3,"receipts":[["a","ACCEPTED"],["b","BLOCKED"]]}
+{"minute":4,"receipts":[["a","ACCEPTED"]]}
+{"minute":5,"receipts":[["a","ACCEPTED"]]}
+{"minute":6,"receipts":[["a","ACCEPTED"],["b","ACCEPTED"]]}

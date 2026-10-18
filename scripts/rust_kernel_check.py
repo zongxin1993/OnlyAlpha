@@ -87,7 +87,14 @@ PROTOCOL_DEPENDENCIES = {
     "prost-build": {"version": "=0.14.4", "optional": True},
     "prost-types": {"version": "=0.14.4", "optional": True},
 }
+PIPELINE_DEPENDENCIES = {
+    **DELIVERY_DEPENDENCIES,
+    "onlyalpha-calculation": {"path": "../../calculation"},
+    "onlyalpha-market-data-delivery": {"path": "../delivery"},
+    "sha2": DOMAIN_DEPENDENCIES["sha2"],
+}
 WORKER_DEPENDENCIES = {
+    "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
     "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
     "onlyalpha-gateway-protocol": {"path": "../onlyalpha-gateway-protocol"},
@@ -114,6 +121,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
+        "onlyalpha-market-data-pipeline": "crates/onlyalpha-kernel/market_data/pipeline",
     }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
@@ -205,6 +213,13 @@ def validate_workspace(root: Path) -> None:
                             alias
                         )
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-market-data-pipeline"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == PIPELINE_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -228,6 +243,10 @@ def validate_workspace(root: Path) -> None:
 
         delivery = tomllib.loads((root / modules["onlyalpha-market-data-delivery"] / "Cargo.toml").read_text())
         if delivery.get("dependencies") != DELIVERY_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        pipeline = tomllib.loads((root / modules["onlyalpha-market-data-pipeline"] / "Cargo.toml").read_text())
+        if pipeline.get("dependencies") != PIPELINE_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
         for component, dependencies in (
@@ -418,6 +437,19 @@ def validate_delivery_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_pipeline_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root, "market_data/pipeline", {'"../../../../../test-data/market-data-pipeline/operations-v1.jsonl"'}
+    )
+    for path in (root / "crates/onlyalpha-kernel/market_data/pipeline/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(
+            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|strategy|indicator|factor|provider|storage|calculation_worker|gateway_protocol)\b",
+            code,
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_calculation_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -560,8 +592,36 @@ def isolated_gateway_protocol(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("gateway_protocol",))
 
 
+def isolated_pipeline(root: Path, destination: Path) -> Path:
+    return _isolated_modules(
+        root,
+        destination,
+        (
+            "domain",
+            "calculation",
+            "market_data_state",
+            "market_data_construction",
+            "market_data_delivery",
+            "market_data_pipeline",
+        ),
+    )
+
+
 def isolated_calculation_worker(root: Path, destination: Path) -> Path:
-    return _isolated_modules(root, destination, ("domain", "calculation", "gateway_protocol", "calculation_worker"))
+    return _isolated_modules(
+        root,
+        destination,
+        (
+            "domain",
+            "calculation",
+            "market_data_state",
+            "market_data_construction",
+            "market_data_delivery",
+            "market_data_pipeline",
+            "gateway_protocol",
+            "calculation_worker",
+        ),
+    )
 
 
 def main() -> int:
@@ -586,6 +646,7 @@ def main() -> int:
     validate_construction_sources(ROOT)
     validate_delivery_sources(ROOT)
     validate_calculation_sources(ROOT)
+    validate_pipeline_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -610,6 +671,7 @@ def main() -> int:
         ("calculation", isolated_calculation),
         ("gateway-protocol", isolated_gateway_protocol),
         ("calculation-worker", isolated_calculation_worker),
+        ("market-data-pipeline", isolated_pipeline),
         ("domain", isolated_domain),
         ("clock", isolated_clock),
         ("event", isolated_event),

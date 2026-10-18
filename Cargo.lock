@@ -343,6 +343,7 @@ dependencies = [
 name = "onlyalpha-calculation-worker"
 version = "0.10.10"
 dependencies = [
+ "onlyalpha-market-data-pipeline",
  "onlyalpha-calculation",
  "onlyalpha-domain",
  "onlyalpha-gateway-protocol",
@@ -715,3 +716,17 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "onlyalpha-market-data-pipeline"
+version = "0.10.10"
+dependencies = [
+ "num-bigint",
+ "onlyalpha-calculation",
+ "onlyalpha-domain",
+ "onlyalpha-market-data-construction",
+ "onlyalpha-market-data-delivery",
+ "onlyalpha-market-data-state",
+ "serde_json",
+ "sha2",
+]

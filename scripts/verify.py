@@ -181,6 +181,7 @@ IMPACT_RULES = (
         (
             "crates/onlyalpha-kernel/",
             "test-data/predicate/",
+            "test-data/market-data-pipeline/",
             "packages/onlyalpha-calculation-worker/",
             "packages/onlyalpha-gateway-protocol/rust/",
             "contracts/gateway/v1/",

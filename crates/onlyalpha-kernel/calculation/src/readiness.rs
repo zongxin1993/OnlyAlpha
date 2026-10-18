@@ -60,10 +60,7 @@ pub struct ReadinessPlan {
 }
 impl ReadinessPlan {
     pub fn new(requirements: Vec<ReadinessRequirement>) -> Result<Self> {
-        if requirements.is_empty()
-            || requirements.len() > 256
-            || !requirements.iter().any(|r| r.required)
-        {
+        if requirements.is_empty() || requirements.len() > 256 {
             return Err(err("READINESS_PLAN_BUDGET"));
         }
         let generation = requirements[0].binding.digests()[0].clone();

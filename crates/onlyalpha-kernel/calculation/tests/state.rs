@@ -157,7 +157,6 @@ fn req(scope: &str, required: bool, dependencies: &[&str]) -> ReadinessRequireme
 fn plans_reject_cycles_missing_dependencies_scope_and_generation_mixing() {
     for nodes in [
         vec![],
-        vec![req("a", false, &[])],
         vec![req("a", true, &["b"])],
         vec![req("a", true, &["b"]), req("b", false, &["a"])],
         vec![req("a", true, &[]), req("a", true, &[])],
@@ -266,4 +265,31 @@ fn independent_sma_state_corpus_preserves_producer_warmup_and_exact_outputs() {
             row["value"]
         );
     }
+}
+
+#[test]
+fn unobserved_optional_context_does_not_invent_an_event_or_block_unrelated_required() {
+    let first = committed("first", true).snapshot();
+    let second = CalculationState::new(binding("second")).snapshot();
+    let plan =
+        ReadinessPlan::new(vec![req("first", true, &[]), req("second", false, &[])]).unwrap();
+    let positions = BTreeMap::from([
+        ("first".into(), first.position().unwrap()),
+        ("second".into(), InputPosition::unobserved()),
+    ]);
+    let snapshots = BTreeMap::from([("first".into(), first), ("second".into(), second)]);
+    let barrier = plan.evaluate(&snapshots, &positions).unwrap();
+    assert!(barrier.ready() && barrier.degraded());
+    let only_optional = ReadinessPlan::new(vec![req("second", false, &[])]).unwrap();
+    let context = BTreeMap::from([("second".into(), InputPosition::unobserved())]);
+    let values = BTreeMap::from([(
+        "second".into(),
+        CalculationState::new(binding("second")).snapshot(),
+    )]);
+    assert!(only_optional.evaluate(&values, &context).unwrap().ready());
+    assert_eq!(
+        InputPosition::from_record(&serde_json::Value::Null).unwrap(),
+        InputPosition::unobserved()
+    );
+    assert!(InputPosition::from_record(&json!({"revision":1,"samples":1,"event_ns":"1","input_digest":"b".repeat(64),"extra":null})).is_err());
 }

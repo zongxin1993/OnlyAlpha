@@ -372,3 +372,14 @@ external digest, nested binding/cursor/output validation, fresh-only replacement
 proof, not historical migration, durable service restart/upgrade or official Runtime admission. Refer to the
 [registry boundary](indicator_registry.md#rust-scoped-calculation-state-and-readiness-boundary) and
 [state design](superpowers/specs/2026-10-18-rust-calculation-state-design.md).
+
+### Composed MarketData preparation
+
+The `market_data/pipeline` crate depends on Domain, Calculation, State, Construction and Delivery; none depends back on Pipeline.
+It owns deterministic preparation ordering and composed component recovery, not another copy of lower-level semantics. The
+managed calculation worker implements its port in Infrastructure, keeping interpreter/process/deadline/timing effects outside
+Kernel. Explicit `NoCalculations` is a declared program, not automatic fallback. The public Construction/State/Delivery reexports
+refer to the same canonical types and do not create wrappers or duplicate records. Source/artifact identity, scoped expectations,
+actual pure-consumer receipts and fresh atomic restore are specified in the owning
+[Pipeline Contract](market_data_pipeline.md#rust-composed-preparation-boundary). Independent offline builds include only this
+admitted semantic closure; the worker closure adds its existing Gateway protocol and process Infrastructure.
