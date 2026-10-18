@@ -417,11 +417,45 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
     (destination / "Cargo.toml").write_text(manifest)
     shutil.copyfile(root / "rust-toolchain.toml", destination / "rust-toolchain.toml")
     chunks = (root / "Cargo.lock").read_text().split("\n[[package]]\n")
+    packages = [tomllib.loads("[[package]]\n" + chunk)["package"][0] for chunk in chunks[1:]]
+    roots = {"onlyalpha-" + module.replace("_", "-") for module in modules}
+    selected = {index for index, package in enumerate(packages) if package["name"] in roots}
+
+    def dependency_index(reference: str) -> int:
+        parts = reference.split()
+        matches = [
+            index
+            for index, package in enumerate(packages)
+            if package["name"] == parts[0]
+            and (len(parts) < 2 or package["version"] == parts[1])
+            and (len(parts) < 3 or package.get("source") == parts[2].removeprefix("(").removesuffix(")"))
+        ]
+        if len(parts) > 3 or len(matches) != 1:
+            raise ValueError("RUST_ISOLATED_LOCK_DEPENDENCY_AMBIGUOUS")
+        return matches[0]
+
+    pending = list(selected)
+    while pending:
+        index = pending.pop()
+        for reference in packages[index].get("dependencies", []):
+            dependency = dependency_index(reference)
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
     retained = []
-    for chunk in chunks[1:]:
-        package = tomllib.loads("[[package]]\n" + chunk)["package"][0]
-        if "source" in package or package["name"] in {"onlyalpha-" + module.replace("_", "-") for module in modules}:
-            retained.append(chunk)
+    for index in sorted(selected):
+        package = packages[index]
+        chunk = chunks[index + 1]
+        for reference in package.get("dependencies", []):
+            dependency = packages[dependency_index(reference)]
+            same_name = [packages[i] for i in selected if packages[i]["name"] == dependency["name"]]
+            spelling = dependency["name"]
+            if len(same_name) > 1:
+                spelling += " " + dependency["version"]
+                if sum(item["version"] == dependency["version"] for item in same_name) > 1:
+                    spelling += " (" + dependency["source"] + ")"
+            chunk = chunk.replace(' "' + reference + '",', ' "' + spelling + '",')
+        retained.append(chunk)
     (destination / "Cargo.lock").write_text(chunks[0] + "".join("\n[[package]]\n" + chunk for chunk in retained))
     return destination / "Cargo.toml"
 

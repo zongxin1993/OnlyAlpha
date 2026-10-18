@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -30,3 +31,11 @@ def test_calculation_can_build_without_other_kernel_modules(tmp_path: Path) -> N
     assert not (root / "crates/onlyalpha-kernel/domain").exists()
     assert not (root / "crates/onlyalpha-kernel/core").exists()
     assert (root / "test-data/calculation/definitions-v1.jsonl").exists()
+
+
+def test_isolated_lock_excludes_unreachable_registry_packages(tmp_path: Path) -> None:
+    manifest = check.isolated_calculation(check.ROOT, tmp_path / "source")
+    packages = tomllib.loads((manifest.parent / "Cargo.lock").read_text())["package"]
+    names = {package["name"] for package in packages}
+    assert {"onlyalpha-calculation", "bigdecimal", "sha2", "serde_json"} <= names
+    assert not {"onlyalpha-domain", "tz-rs", "jiff", "jiff-core"} & names
