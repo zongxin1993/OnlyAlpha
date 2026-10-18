@@ -276,7 +276,7 @@ See the [owning Event Contract](event.md) and [selected design](superpowers/spec
 
 ## Market Data State responsibility map
 
-The Kernel umbrella's `market_data_state/` is package `onlyalpha-market-data-state`. Python `market_data/cache.py` corresponds
+The Kernel umbrella's `market_data/state/` is package `onlyalpha-market-data-state`. Python `market_data/cache.py` corresponds
 to `state.rs`; immutable snapshot queries and restriction correspond to `snapshot.rs`; strict current records correspond to
 `record.rs`. This is a responsibility map, not a one-file/class translation: Pipeline/Construction/Dispatcher orchestration,
 Indicator/Factor state and durable market history retain their owning boundaries. `model.rs` defines only scope/config/errors.
@@ -291,16 +291,31 @@ from a library build.
 
 ## Market Data Construction responsibility map
 
-`market_data_construction/` (`onlyalpha-market-data-construction`) separates model/record, resolution, compiler, executor,
+`market_data/construction/` (`onlyalpha-market-data-construction`) separates model/record, resolution, compiler, executor,
 TIME_BAR and manager responsibilities. Python reference locations are `market_data/resolution.py` and
 `market_data/aggregation/{compiler,base,time_bar,manager}.py`; this is a responsibility map, not a file/class translation.
 Subscriptions' delivery/primary selection, completed-boundary product queries, Pipeline/State/calculation/Runtime integration
 remain separate. Rust audits and corrects boundary/identity/recovery defects rather than preserving Python accidents.
 
 Construction -> Domain is the sole local edge. Exact admitted num-bigint/serde_json/sha2 features add no registry nodes.
-`rust-kernel` checks the six-package graph and pure-source boundary, then extracts Domain+Construction independently and tests
+`rust-kernel` checks the seven-package graph and pure-source boundary, then extracts Domain+Construction independently and tests
 both debug/release without Core/Clock/Event/State or application sources. The fixed Linux dev image supplies the offline
 reviewed registry; ordinary source changes use frozen mounts. Shared independent inputs live in
 `test-data/market-data-construction/`; Python consumes only the common valid API behavior. Component checkpoint schema4
 and TIME_BAR schema1 do not activate the library in the official Python Runtime. The
 [owning Contract](market_data_pipeline.md#rust-construction-library-boundary) defines ownership and failure semantics.
+
+## MarketData business organization and delivery
+
+`crates/onlyalpha-kernel/market_data/` groups State, Construction and Delivery under one business boundary. Subcrates exist
+for actual independent build/dependency isolation, not one crate per class. State/Construction retain package names/current
+records and depend only on Domain; Delivery depends only on these libraries and Domain. No facade, nested workspace, empty
+Pipeline placeholder or new deployment is needed. The dev environment fingerprints Cargo manifests recursively so deeper
+module dependencies cannot bypass rebuild admission.
+
+Python `market_data/subscriptions.py` and the planning part of `dispatcher.py` correspond to `market_data/delivery/`.
+Subscription/model and non-Clone owner/record concerns stay internal to one Delivery crate; callback execution, calculation
+barriers and Pipeline coordination remain separate. Explicit IDs, pure scoped plans, bounded active cursors and atomic
+configuration-bound recovery replace implicit UUID generation, unbounded handled-slice history and permissive readers.
+Shared common routing vectors use real Python Pipeline/Dispatcher behavior and Rust State/Delivery APIs; they do not certify
+whole-module parity, readiness or official Runtime admission. See the [owning Contract](market_data_pipeline.md#rust-delivery-planning-boundary).

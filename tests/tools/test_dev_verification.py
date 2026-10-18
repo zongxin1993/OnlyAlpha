@@ -874,3 +874,14 @@ def test_rust_compiler_and_proxies_are_exact_readonly_image_dependencies(tmp_pat
         assert len(mounts) == 1
         assert mounts[0]["Type"] == "image" and mounts[0]["RW"] is False
     dev_verification.validate_container(record, tmp_path)
+
+
+def test_nested_market_data_manifests_are_environment_inputs(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    manifest = tmp_path / "crates/onlyalpha-kernel/market_data/state/Cargo.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('[package]\nname="onlyalpha-market-data-state"\n')
+    before = dev_verification.environment_inputs(tmp_path)
+    assert str(manifest.relative_to(tmp_path)) in before
+    manifest.write_text(manifest.read_text() + 'version="0.10.10"\n')
+    assert dev_verification.environment_inputs(tmp_path) != before

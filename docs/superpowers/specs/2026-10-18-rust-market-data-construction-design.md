@@ -26,7 +26,7 @@ references (FP-DATA-002); restored projection is not Runtime readiness (FP-RUNTI
 
 ## Module and dependency boundary
 
-Create crates/onlyalpha-kernel/market_data_construction, package onlyalpha-market-data-construction. Private modules:
+Create crates/onlyalpha-kernel/market_data/construction, package onlyalpha-market-data-construction. Private modules:
 model (typed recipe/input/edge/graph), resolution (capability/requirement/plan/identity), compiler (immutable lane plan),
 executor (pure extension contracts/registry), time_bar (TIME_BAR@1), manager (owner/checkpoint), record (strict helpers).
 Only local edge: Construction -> Domain. Reuse admitted exact num-bigint 0.4.8 std, serde_json 1.0.154 std/arbitrary_precision,

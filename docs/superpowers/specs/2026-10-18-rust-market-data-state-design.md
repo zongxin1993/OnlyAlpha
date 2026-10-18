@@ -17,7 +17,7 @@ Python 是临时参考，不按旧目录和缺陷逐行翻译。指标状态归 
 
 ## Goal, ownership and explicit exclusions
 
-Create `crates/onlyalpha-kernel/market_data_state/`, package `onlyalpha-market-data-state`.
+Create `crates/onlyalpha-kernel/market_data/state/`, package `onlyalpha-market-data-state`.
 A Runtime owns one mutable state instance. Its existing synchronous Pipeline supplies already admitted Domain Bars and explicit
 initialization time; this module atomically accepts a closed-Bar batch and returns an immutable Runtime snapshot. Cluster views
 are filtered immutable values. Neither consumers nor Event observers obtain the mutable owner.

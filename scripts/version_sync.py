@@ -25,6 +25,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-event",
         "onlyalpha-market-data-state",
         "onlyalpha-market-data-construction",
+        "onlyalpha-market-data-delivery",
     }
 )
 TEST_DISTRIBUTION_PATHS = (

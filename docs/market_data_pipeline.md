@@ -59,7 +59,7 @@ Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败
 
 ### Rust Construction library boundary
 
-`crates/onlyalpha-kernel/market_data_construction/` is package `onlyalpha-market-data-construction`; its only local edge is
+`crates/onlyalpha-kernel/market_data/construction/` is package `onlyalpha-market-data-construction`; its only local edge is
 Domain. It owns typed recipe/requirement/capability/resolution/lineage values, stable construction graphs and compiled lane
 identities, exact-version pure executor registration, session-aware TIME_BAR@1, shared registrations and component recovery.
 Market-specific calendars arrive as immutable Domain inputs; provider discovery, Source continuity/grants, dispatch,
@@ -101,6 +101,41 @@ prove real lifecycle behavior. Shared vectors demonstrate common valid semantics
 checkpoint duplicate collapse and permissive readers are not Rust requirements. See the
 [Construction design](superpowers/specs/2026-10-18-rust-market-data-construction-design.md).
 
+### Rust Delivery planning boundary
+
+MarketData is one business directory, `crates/onlyalpha-kernel/market_data/`, containing independently buildable `state/`,
+`construction/` and `delivery/` subcrates. Existing State/Construction package names and records retain their meanings.
+No umbrella facade or deployment unit is introduced. Delivery depends on Domain, State and Construction; neither lower
+subcrate depends on Delivery. Pure dependency/source guards and extracted builds enforce this direction.
+
+`onlyalpha-market-data-delivery` owns explicit subscription values, active Cluster registrations, immutable scoped delivery
+plans and one last-planned timestamp per active registration. It does not own Construction registration, State mutation,
+calculation readiness, Source/Generation admission or actual Cluster/Strategy execution. Inputs are exact Engine/Runtime-
+scoped immutable State snapshots. Only an updated primary triggers planning. Plans sort by Cluster ID, restrict views to
+single-instrument subscriptions, and enforce LatestClosed or SameEventTime freshness. Default primary uses minimum fixed-
+duration stride then canonical BarType order; non-time subscriptions require an explicit primary. Subscription IDs are
+explicit canonical Domain identifiers, never implicitly random. Duplicate Cluster/subscription registrations reject.
+
+A triggered primary must strictly advance its registration cursor. Different Clusters may advance at the same timestamp
+in separate valid input snapshots; no global time cursor is used. The complete batch validates before any cursor changes.
+Validation failures leave configuration/cursors unchanged. The returned plans are data, not executable readiness or proof
+that callbacks occurred. Actual Cluster error isolation and all calculation barriers remain the coordinator's responsibility.
+At-most-once planning applies within a continuously active registration; unregister retires that lifetime and its cursor.
+This does not grant actual execution on re-registration, global historical ID uniqueness or durable exactly-once execution.
+The future Runtime coordinator must enforce its own exact lifecycle/admission and ADR0009 execution guarantees.
+
+Subscription component schema1 is Rust-owned and distinct from Python subscription schema3; there is no fallback reader.
+Delivery checkpoint schema1 binds exact Engine/Runtime and all registrations (Cluster ID, subscription record, nullable
+last-planned event nanoseconds). Receiver configuration must already match exactly; restore never adopts another configuration.
+Strict fields/types, duplicate rejection, nested graph equality and exactly representable Domain timestamp checks precede
+one replacement. Parsed state grants neither execution authority nor proof of durable history/Generation readiness. This
+component is not registered in the official Runtime checkpoint system; activation, causal binding, real restart/upgrade and
+existing-history integrity require separate scoped work.
+
+The Python reference retains its current official implementation. Common vectors exercise real Pipeline/Dispatcher calls;
+coercive result readers, decoded ready barriers and unbounded historical slice sets are classified reference limitations,
+not Rust expected behavior. See the [Delivery design](superpowers/specs/2026-10-18-rust-market-data-delivery-design.md).
+
 ## 4. Cache
 
 `OnlyMarketDataCache` 是 Trading Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。
@@ -108,7 +143,7 @@ checkpoint duplicate collapse and permissive readers are not Rust requirements. 
 
 ### Rust State library boundary
 
-`crates/onlyalpha-kernel/market_data_state/` owns bounded closed-Bar state and immutable scoped queries, with Domain as its
+`crates/onlyalpha-kernel/market_data/state/` owns bounded closed-Bar state and immutable scoped queries, with Domain as its
 only local dependency. A non-Clone Runtime owner accepts explicit Engine/Runtime IDs, positive per-type history_limit
 (default 1024), closed unrevised end-time Bars, primary type, logical initialization time and quality flags. A complete batch
 and its snapshot validate before one replacement; failures never commit a prefix. Versions are lifetime arbitrary-precision

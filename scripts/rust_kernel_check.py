@@ -66,11 +66,21 @@ CLOCK_DEPENDENCIES = {
 }
 
 
-MARKET_DATA_STATE_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
+MARKET_DATA_STATE_DEPENDENCIES = {
+    **CLOCK_DEPENDENCIES,
+    "onlyalpha-domain": {"path": "../../domain"},
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+}
 
 
 CONSTRUCTION_DEPENDENCIES = {**MARKET_DATA_STATE_DEPENDENCIES, "sha2": DOMAIN_DEPENDENCIES["sha2"]}
 
+
+DELIVERY_DEPENDENCIES = {
+    **MARKET_DATA_STATE_DEPENDENCIES,
+    "onlyalpha-market-data-state": {"path": "../state"},
+    "onlyalpha-market-data-construction": {"path": "../construction"},
+}
 
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
 
@@ -81,8 +91,9 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
-        "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data_state",
-        "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data_construction",
+        "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
+        "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
+        "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
     }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
@@ -150,6 +161,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == CONSTRUCTION_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-market-data-delivery"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == DELIVERY_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -169,6 +187,10 @@ def validate_workspace(root: Path) -> None:
 
         construction = tomllib.loads((root / modules["onlyalpha-market-data-construction"] / "Cargo.toml").read_text())
         if construction.get("dependencies") != CONSTRUCTION_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        delivery = tomllib.loads((root / modules["onlyalpha-market-data-delivery"] / "Cargo.toml").read_text())
+        if delivery.get("dependencies") != DELIVERY_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -301,13 +323,13 @@ def validate_event_sources(root: Path) -> None:
 def validate_market_data_state_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
-        "market_data_state",
+        "market_data/state",
         {
-            '"../../../../test-data/market-data-state/operations-v1.jsonl"',
-            '"../../../../test-data/market-data-state/records-v2.jsonl"',
+            '"../../../../../test-data/market-data-state/operations-v1.jsonl"',
+            '"../../../../../test-data/market-data-state/records-v2.jsonl"',
         },
     )
-    for path in (root / "crates/onlyalpha-kernel/market_data_state/src").rglob("*.rs"):
+    for path in (root / "crates/onlyalpha-kernel/market_data/state/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(r"\bonlyalpha_(?:clock|event|kernel|runtime|indicator|factor|provider|storage)\b", code):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -316,13 +338,13 @@ def validate_market_data_state_sources(root: Path) -> None:
 def validate_construction_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
-        "market_data_construction",
+        "market_data/construction",
         {
-            '"../../../../test-data/market-data-construction/models-v1.jsonl"',
-            '"../../../../test-data/market-data-construction/operations-v1.jsonl"',
+            '"../../../../../test-data/market-data-construction/models-v1.jsonl"',
+            '"../../../../../test-data/market-data-construction/operations-v1.jsonl"',
         },
     )
-    for path in (root / "crates/onlyalpha-kernel/market_data_construction/src").rglob("*.rs"):
+    for path in (root / "crates/onlyalpha-kernel/market_data/construction/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
             r"\bonlyalpha_(?:clock|event|market_data_state|kernel|core|runtime|indicator|factor|calculation|provider|storage)\b",
@@ -331,14 +353,31 @@ def validate_construction_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_delivery_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root, "market_data/delivery", {'"../../../../../test-data/market-data-delivery/routing-v1.jsonl"'}
+    )
+    for path in (root / "crates/onlyalpha-kernel/market_data/delivery/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(
+            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|strategy|indicator|factor|calculation|provider|storage)\b",
+            code,
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
+def module_directory(module: str) -> str:
+    return "market_data/" + module.removeprefix("market_data_") if module.startswith("market_data_") else module
+
+
 def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -> Path:
     destination.mkdir(parents=True)
     for module in modules:
-        relative = Path("crates/onlyalpha-kernel") / module
+        relative = Path("crates/onlyalpha-kernel") / module_directory(module)
         shutil.copytree(root / relative, destination / relative)
         data = Path("test-data") / module.replace("_", "-")
         shutil.copytree(root / data, destination / data)
-    members = [f"crates/onlyalpha-kernel/{module}" for module in modules]
+    members = [f"crates/onlyalpha-kernel/{module_directory(module)}" for module in modules]
     manifest = re.sub(
         r"(?m)^members\s*=.*$", "members = " + json.dumps(members), (root / "Cargo.toml").read_text(), count=1
     )
@@ -376,6 +415,12 @@ def isolated_construction(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "market_data_construction"))
 
 
+def isolated_delivery(root: Path, destination: Path) -> Path:
+    return _isolated_modules(
+        root, destination, ("domain", "market_data_state", "market_data_construction", "market_data_delivery")
+    )
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -396,6 +441,7 @@ def main() -> int:
     validate_event_sources(ROOT)
     validate_market_data_state_sources(ROOT)
     validate_construction_sources(ROOT)
+    validate_delivery_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -418,6 +464,7 @@ def main() -> int:
         ("event", isolated_event),
         ("market-data-state", isolated_market_data_state),
         ("market-data-construction", isolated_construction),
+        ("market-data-delivery", isolated_delivery),
     ):
         with tempfile.TemporaryDirectory(prefix=f"{name}-isolated-", dir=artifacts) as directory:
             manifest = materialize(ROOT, Path(directory) / "source")

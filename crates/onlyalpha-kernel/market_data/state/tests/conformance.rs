@@ -9,7 +9,8 @@ fn k(row: &Value) -> onlyalpha_domain::market::OnlyBarType {
 }
 #[test]
 fn independent_operations_and_common_queries() {
-    for line in include_str!("../../../../test-data/market-data-state/operations-v1.jsonl").lines()
+    for line in
+        include_str!("../../../../../test-data/market-data-state/operations-v1.jsonl").lines()
     {
         let row: Value = serde_json::from_str(line).unwrap();
         let mut s = state(row["history_limit"].as_u64().unwrap() as usize);
@@ -94,7 +95,8 @@ fn independent_operations_and_common_queries() {
 }
 #[test]
 fn independent_full_current_records() {
-    for line in include_str!("../../../../test-data/market-data-state/records-v2.jsonl").lines() {
+    for line in include_str!("../../../../../test-data/market-data-state/records-v2.jsonl").lines()
+    {
         let row: Value = serde_json::from_str(line).unwrap();
         let expected = &row["record"];
         if row["family"] == "checkpoint" {

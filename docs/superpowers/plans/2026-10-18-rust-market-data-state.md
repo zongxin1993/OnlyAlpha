@@ -13,7 +13,7 @@
 ## Global constraints
 
 - Keep release `0.10.10`; no Python production restructure, Runtime activation, official reader replacement, history migration/deletion, push or Release.
-- Create only `crates/onlyalpha-kernel/market_data_state/`, package `onlyalpha-market-data-state`; no service or per-Python-file crates.
+- Create only `crates/onlyalpha-kernel/market_data/state/`, package `onlyalpha-market-data-state`; no service or per-Python-file crates.
 - The only local dependency is Domain. Clock/Event/Predicate/Runtime/application/storage/plugins are excluded from the independent closure; reverse/undeclared edges fail.
 - Reuse exact admitted `num-bigint` with `default-features=false, features=["std"]`; `serde_json` with `default-features=false, features=["std","arbitrary_precision"]`. Add no registry nodes; retain reviewed 40-node registry digest `5b640f52cbcb0afc623fd1755692efee625a444ec9dbd17e0869eafba4f6a03f`.
 - Scope, primary, initialization time and quality flags are explicit inputs; versions/nanoseconds are exact integers. No OS time, randomness, f64 evaluation, implicit primary choice or calculation dependency.
@@ -34,7 +34,7 @@
 
 ## File and fixture conventions
 
-All short `module/` paths below mean `crates/onlyalpha-kernel/market_data_state/`. Create private `src/{model,state,snapshot,record}.rs` and public reexports in `src/lib.rs` only as their task consumes them.
+All short `module/` paths below mean `crates/onlyalpha-kernel/market_data/state/`. Create private `src/{model,state,snapshot,record}.rs` and public reexports in `src/lib.rs` only as their task consumes them.
 
 Rust `tests/support/mod.rs` supplies explicit deterministic fixtures:
 `scope(engine:&str,runtime:&str)`, `state(limit:usize)`, `stamp(minute:u32)->OnlyTimestamp`,

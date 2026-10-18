@@ -28,3 +28,5 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 - [market-data-state](market-data-state/README.md): independent common state operations and strict schema-2 records; no whole-module Python parity or Runtime admission claim.
 
 - [market-data-construction](market-data-construction/README.md): independent current construction records, identities, lanes and exact aggregation outputs; Python/Rust common-reference consumers.
+
+- [market-data-delivery](market-data-delivery/README.md): independent common primary routing and same-time Cluster vectors, with fresh-owner Rust replay.

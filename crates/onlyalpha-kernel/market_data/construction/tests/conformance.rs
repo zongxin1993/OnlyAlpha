@@ -7,7 +7,7 @@ use support::*;
 #[test]
 fn independent_current_records_hashes_and_lanes() {
     for line in
-        include_str!("../../../../test-data/market-data-construction/models-v1.jsonl").lines()
+        include_str!("../../../../../test-data/market-data-construction/models-v1.jsonl").lines()
     {
         let row: Value = serde_json::from_str(line).unwrap();
         let r = &row["record"];
@@ -59,7 +59,8 @@ fn independent_current_records_hashes_and_lanes() {
 #[test]
 fn independent_aggregation_records_and_fresh_executor_replay() {
     for line in
-        include_str!("../../../../test-data/market-data-construction/operations-v1.jsonl").lines()
+        include_str!("../../../../../test-data/market-data-construction/operations-v1.jsonl")
+            .lines()
     {
         let row: Value = serde_json::from_str(line).unwrap();
         let edge = OnlyConstructionEdge::from_record(&row["edge"]).unwrap();

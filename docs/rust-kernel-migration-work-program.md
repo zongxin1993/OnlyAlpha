@@ -275,7 +275,7 @@ The next unit starts only after its true prerequisites hold; publishing this wor
 
 ### Market Data State source navigation
 
-The audited bounded State responsibility uses `crates/onlyalpha-kernel/market_data_state/` (`onlyalpha-market-data-state`),
+The audited bounded State responsibility uses `crates/onlyalpha-kernel/market_data/state/` (`onlyalpha-market-data-state`),
 with a sole local Domain edge. It covers atomic closed-Bar updates, immutable Runtime/Cluster queries and strict component
 checkpoint replacement. Construction, Pipeline/Dispatcher orchestration, calculation readiness and durable historical storage
 remain separate. See the [owning Contract](market_data_pipeline.md#rust-state-library-boundary) and
@@ -284,9 +284,17 @@ the official Python participant, authorize activation/migration or record module
 
 ### Market Data Construction source navigation
 
-The bounded Construction responsibility lives in `crates/onlyalpha-kernel/market_data_construction/`, with Domain as its
+The bounded Construction responsibility lives in `crates/onlyalpha-kernel/market_data/construction/`, with Domain as its
 only local dependency. It includes exact construction values, graph compilation, pure executor SPI, TIME_BAR@1 and an atomic
 Runtime-local owner. See the [owning Contract](market_data_pipeline.md#rust-construction-library-boundary) and
 [responsibility map](rust-kernel-development.md#market-data-construction-responsibility-map). This library work does not
 activate Rust in Runtime or remove Python; Source/Generation admission, durable migration and measured product performance
 remain separately scoped integration work.
+
+### MarketData organization and Delivery source navigation
+
+One business directory `crates/onlyalpha-kernel/market_data/` contains the independently buildable State, Construction and
+Delivery responsibilities. Delivery implements subscription identity/primary/freshness and deterministic scoped planning with
+active-registration watermarks and component recovery. Python callback execution and calculation readiness are not moved into
+this planner. See the [owning Contract](market_data_pipeline.md#rust-delivery-planning-boundary). Later Pipeline composition
+must preserve ADR0009 actual execution guarantees and validate its real calculation/lifecycle dependencies before activation.
