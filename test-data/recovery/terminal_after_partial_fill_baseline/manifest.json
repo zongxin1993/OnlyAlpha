@@ -72,7 +72,7 @@
     "latest_bars": [
       [
         "{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}}",
-        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":2,\"semantic\":{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":2}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
+        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":2,\"semantic\":{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":3}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
       ]
     ],
     "orders": [
@@ -109,18 +109,18 @@
     "ETX-03880f8e46e6361bf33546a171cbba96b50340420a8a12978b9ffeb4dbb937b1",
     "ETERM-5f01fad5508ddecc0a3a86884ed7610c3ba5ac01098a56d568b8906d09e6618a"
   ],
-  "configuration_fingerprint": "0df786bc50b6cc97d6a64ac3aca343a7f32accb23c2e4430b9055f3b567e8f7f",
+  "configuration_fingerprint": "07b641b0cb091a449ec7b27a71c11fbd13ab6814f930b52979f0828a3c0dac4f",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "c4d0314cee8958d70fb25fb913ae0452e95b52bc40a75340ba85738730710d3c",
-  "database_template": "terminal_after_partial_fill_baseline-c4d0314cee8958d70fb25fb913ae0452e95b52bc40a75340ba85738730710d3c.sqlite3",
+  "database_fingerprint": "6db4dc64b7a1f222324345b21d707d7ebcadd35f4dceb64803aa8e962cd1dcc4",
+  "database_template": "terminal_after_partial_fill_baseline-6db4dc64b7a1f222324345b21d707d7ebcadd35f4dceb64803aa8e962cd1dcc4.sqlite3",
   "fill_count": 2,
-  "onlyalpha_version": "0.9.9",
+  "onlyalpha_version": "0.10.8",
   "order_count": 1,
   "persistence_schema_version": "5",
-  "result_fingerprint": "80ed24450670729a7371fa15cb700c832c46c01eff9796513235314b97e682e6",
-  "scenario_fingerprint": "0df786bc50b6cc97d6a64ac3aca343a7f32accb23c2e4430b9055f3b567e8f7f",
+  "result_fingerprint": "66f0492ef478ae021de1c596a1118d552e32184bbf7eadd28253e47c9535b484",
+  "scenario_fingerprint": "07b641b0cb091a449ec7b27a71c11fbd13ab6814f930b52979f0828a3c0dac4f",
   "strategy_fingerprints": [
-    "eb87637d272485956685bba49d6eb24a511d7fdacfcc1c660ca9652efa70a30c"
+    "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
   ],
   "terminal_count": 1
 }

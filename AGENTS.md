@@ -360,6 +360,22 @@ Ponytail 不拥有任务验收 Authority，不替代 Baseline Validation、risk-
 
 ---
 
+### 3.5 Python / Rust 模块迁移
+
+按 ADR 0139，以完整功能模块作为迁移交付和隔离单位。每个模块先审计 Python 的职责、公开接口、依赖、边界、确定性、
+identity、序列化、错误及适用的恢复约束；源码不是高于 Constitution / Contract 的 oracle。真实缺陷先在 owning boundary
+增加回归并修正；未决数值、身份、历史或 Authority 设计阻塞依赖它的移植，禁止照搬 Bug 获取交叉验证一致。
+
+主要 Rust 功能模块在有实际独立构建与依赖隔离要求时使用独立 library crate，内部按职责对应 Python 模块。
+独立构建 / 测试必须只需要本模块及声明的下层依赖，不依赖整个应用、数据库、行情或 Broker 环境；同时证明 package-selected
+和隔离 source/dependency closure 构建。机械检查允许依赖方向、禁止反向引用及环；编译器拒绝环不等于已禁止所有反向依赖。
+不得为每个源文件建立 crate / 服务，不得为隔离新增逐节点 RPC。Python 当前统一打包事实与模块隔离目标必须分开描述。
+
+共享独立向量及 adversarial cases 验证两种实现的值、错误、规范化、序列化和适用状态/恢复语义。模块内小任务、类型数量或
+局部向量通过不能替代完整功能模块验收。审计结论和执行状态只留当前 Task / Review 上下文，不新增仓库质量或进度 Authority。
+
+---
+
 ## 4. 验收模型：Risk-Tiered + Impact-Aware
 
 验证范围由 **真实 Impact Scope** 决定，不由任务编号决定。
@@ -775,6 +791,8 @@ Any concrete implementation loaded through the OnlyAlpha Plugin SPI MUST live un
 `plugs/onlyalpha-plugin-<NAME>/`. Any independently buildable, versioned, deployable
 non-plugin component MUST live under `packages/onlyalpha-<FUNC>-<NAME>/`. Stable,
 market-agnostic canonical semantics and the Plugin SPI belong under `src/onlyalpha/`.
+ADR 0139 additionally permits non-deployed Rust canonical semantic library modules under the `crates/onlyalpha-kernel/` umbrella,
+with independent crates such as `domain/` and `core/`; this does not move application components or concrete plugins into Core.
 
 Do not add `apps/<...>` or category-first wrappers such as `packages/provider`,
 `packages/market`, `packages/api`, `packages/protocol`, `packages/factor`,

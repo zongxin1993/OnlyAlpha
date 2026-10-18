@@ -3305,7 +3305,7 @@ export interface components {
              *         "window_minutes": 1
              *       },
              *       "price_type": "LAST",
-             *       "schema_version": 2
+             *       "schema_version": 3
              *     }
              */
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
@@ -3356,7 +3356,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 2;
+            schema_version: 3;
         };
         /** MarketDataBarWindowDto */
         MarketDataBarWindowDto: {
@@ -3707,7 +3707,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
             /** Value */
             value: string;
         };
@@ -3724,7 +3724,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 1;
+            schema_version: 2;
         };
         /**
          * OnlyCalculationBackendKind
@@ -4228,7 +4228,7 @@ export interface components {
              * Schema Version
              * @constant
              */
-            schema_version: 2;
+            schema_version: 3;
         };
         /** ResearchCalculationCatalogDto */
         ResearchCalculationCatalogDto: {

@@ -178,10 +178,16 @@ Result 和 Artifact final verification；失败或取消留下的 upstream facts
 
 The owner-approved long-term implementation target is a Rust Trading Kernel with Python-oriented indicators/factors and language-appropriate market plugins, as defined in [ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md). Initial Rust construction targets Linux in the existing single dev Compose environment. Current Python implementation remains implementation truth until each corresponding slice is migrated and validated. Temporary Python/Rust comparison never creates a second official writer; final retirement preserves exact historical artifacts and durable facts. The [migration work program](rust-kernel-migration-work-program.md) defines construction order, not completion or latency certification.
 
-The Rust implementation of market-independent Core semantics lives in `crates/onlyalpha-kernel/`, under the root Cargo workspace.
+The Rust implementation of market-independent Core semantics lives in `crates/onlyalpha-kernel/core/`, under the root Cargo workspace.
 It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
 [Boolean Predicate corpus](predicate-semantics.md) and [integer reference/literal comparison vectors](integer-predicate-semantics.md), the [Boolean/string equality corpus](scalar-equality-semantics.md) and [finite Decimal reference/literal comparisons](decimal-predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
 Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
+
+ADR 0139 section 1.2 defines module-oriented migration: audit Python first, then implement complete corresponding Rust functional
+modules with independent library build/test and mechanically enforced dependency direction. The canonical Domain library belongs
+under `crates/onlyalpha-kernel/domain/`; Kernel consumers may depend on Domain, while Domain cannot depend on orchestration, Runtime,
+Infrastructure adapters or concrete plugins. Internal primitive steps are not whole-module completion or Runtime admission.
+
 
 All modules under `src/onlyalpha/` are within migration assessment, not a blanket Rust rewrite commitment. Python and Rust align
 by domain/module responsibility and dependency direction, with language-native file/type organization. Align incrementally with

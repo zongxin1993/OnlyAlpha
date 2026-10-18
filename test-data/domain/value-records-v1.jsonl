@@ -1,0 +1,20 @@
+{"id":"usd-normalized","type":"OnlyCurrency","input":{"schema_version":1,"code":" usd ","precision":2,"currency_type":"FIAT"},"expected":"{\"code\":\"USD\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1}"}
+{"id":"currency-unicode-uppercase","type":"OnlyCurrency","input":{"schema_version":1,"code":"ß","precision":2,"currency_type":"FIAT"},"expected":"{\"code\":\"SS\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1}"}
+{"id":"currency-open-code","type":"OnlyCurrency","input":{"schema_version":1,"code":"人民币","precision":2,"currency_type":"FIAT"},"expected":"{\"code\":\"人民币\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1}"}
+{"id":"OnlyPrice-١٢٣.٤٥","type":"OnlyPrice","input":{"schema_version":1,"value":"١٢٣.٤٥","precision":2},"expected":"{\"precision\":2,\"schema_version\":1,\"value\":\"123.45\"}"}
+{"id":"OnlyQuantity--0.00","type":"OnlyQuantity","input":{"schema_version":1,"value":"-0.00","precision":2},"expected":"{\"precision\":2,\"schema_version\":1,\"value\":\"-0.00\"}"}
+{"id":"OnlyRate-1.000000000000000000","type":"OnlyRate","input":{"schema_version":1,"value":"1.000000000000000000","precision":18},"expected":"{\"precision\":18,\"schema_version\":1,\"value\":\"1.000000000000000000\"}"}
+{"id":"OnlyPercentage-12.5","type":"OnlyPercentage","input":{"schema_version":1,"value":"12.5","precision":1},"expected":"{\"precision\":1,\"schema_version\":1,\"value\":\"12.5\"}"}
+{"id":"OnlyMultiplier-10","type":"OnlyMultiplier","input":{"schema_version":1,"value":"10","precision":0},"expected":"{\"precision\":0,\"schema_version\":1,\"value\":\"10\"}"}
+{"id":"OnlyPrice-1.25","type":"OnlyPrice","input":{"schema_version":1,"value":1.25,"precision":2},"error":"SERIALIZATION"}
+{"id":"OnlyPrice-NaN","type":"OnlyPrice","input":{"schema_version":1,"value":"NaN","precision":2},"error":"SERIALIZATION"}
+{"id":"OnlyPrice-Infinity","type":"OnlyPrice","input":{"schema_version":1,"value":"Infinity","precision":2},"error":"SERIALIZATION"}
+{"id":"OnlyQuantity--1","type":"OnlyQuantity","input":{"schema_version":1,"value":"-1","precision":0},"error":"SERIALIZATION"}
+{"id":"OnlyMultiplier-0","type":"OnlyMultiplier","input":{"schema_version":1,"value":"0","precision":0},"error":"SERIALIZATION"}
+{"id":"OnlyPrice-1.001","type":"OnlyPrice","input":{"schema_version":1,"value":"1.001","precision":2},"error":"SERIALIZATION"}
+{"id":"symbol-unicode-trim","type":"OnlySymbol","input":{"schema_version":1,"value":"\u001c中 "},"expected":"{\"schema_version\":1,\"value\":\"中\"}"}
+{"id":"symbol-embedded-whitespace","type":"OnlySymbol","input":{"schema_version":1,"value":"A\u001cB"},"error":"SERIALIZATION"}
+{"id":"venue-dot-rejected","type":"OnlyVenueId","input":{"schema_version":1,"value":"A.B"},"error":"SERIALIZATION"}
+{"id":"instrument-injective","type":"OnlyInstrumentId","input":{"schema_version":1,"symbol":{"schema_version":1,"value":"BRK.B"},"venue":{"schema_version":1,"value":"XNAS"}},"expected":"{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"BRK.B\"},\"venue\":{\"schema_version\":1,\"value\":\"XNAS\"}}"}
+{"id":"money-negative","type":"OnlyMoney","input":{"schema_version":1,"amount":"-123.45","currency":{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"}},"expected":"{\"amount\":\"-123.45\",\"currency\":{\"code\":\"USD\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1},\"schema_version\":1}"}
+{"id":"pinned_unicode_currency_uppercase","type":"OnlyCurrency","input":{"schema_version":1,"code":"ƛ","precision":2,"currency_type":"FIAT"},"expected":"{\"code\":\"ƛ\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1}"}

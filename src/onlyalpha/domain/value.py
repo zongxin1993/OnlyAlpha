@@ -7,17 +7,18 @@ from typing import Self
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import OnlyCurrencyType
 from onlyalpha.domain.errors import OnlyCurrencyMismatchError, OnlyValidationError
+from onlyalpha.domain.numeric import only_add, only_divide, only_subtract
 
 ONLY_MAX_PRECISION = 18
 
 
 def only_decimal(value: Decimal | int | str) -> Decimal:
     """Convert an exact input to a finite Decimal; floats are intentionally rejected."""
-    if isinstance(value, float):
+    if isinstance(value, float | bool):
         raise OnlyValidationError("binary float is not accepted by financial value objects")
     try:
         result = Decimal(value)
-    except (InvalidOperation, ValueError) as exc:
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise OnlyValidationError(f"invalid decimal value: {value!r}") from exc
     if not result.is_finite():
         raise OnlyValidationError("financial values must be finite")
@@ -84,13 +85,13 @@ class OnlyQuantity(OnlyDomainModel):
 
     def __add__(self, other: Self) -> Self:
         precision = max(self.precision, other.precision)
-        return type(self)(self.value + other.value, precision)
+        return type(self)(only_add(self.value, other.value), precision)
 
     def __sub__(self, other: Self) -> Self:
         if other.value > self.value:
             raise OnlyValidationError("quantity subtraction cannot produce a negative value")
         precision = max(self.precision, other.precision)
-        return type(self)(self.value - other.value, precision)
+        return type(self)(only_subtract(self.value, other.value), precision)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,11 +108,11 @@ class OnlyMoney(OnlyDomainModel):
 
     def __add__(self, other: Self) -> Self:
         self._require_currency(other)
-        return type(self)(self.amount + other.amount, self.currency)
+        return type(self)(only_add(self.amount, other.amount), self.currency)
 
     def __sub__(self, other: Self) -> Self:
         self._require_currency(other)
-        return type(self)(self.amount - other.amount, self.currency)
+        return type(self)(only_subtract(self.amount, other.amount), self.currency)
 
     def _require_currency(self, other: Self) -> None:
         if self.currency != other.currency:
@@ -147,7 +148,7 @@ class OnlyPercentage(OnlyDomainModel):
 
     @property
     def as_rate(self) -> OnlyRate:
-        return OnlyRate(self.value / Decimal("100"), min(ONLY_MAX_PRECISION, self.precision + 2))
+        return OnlyRate(only_divide(self.value, Decimal("100")), min(ONLY_MAX_PRECISION, self.precision + 2))
 
 
 @dataclass(frozen=True, slots=True)

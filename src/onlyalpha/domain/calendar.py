@@ -1,13 +1,13 @@
 """Trading calendars derive market sessions and business trading days."""
 
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
-from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.base import OnlyDomainModel, only_require_immutable_tuple
 from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlySessionProfileId, OnlyVenueId
-from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay, only_require_utc
+from onlyalpha.domain.time import OnlyTimestamp, OnlyTimeZone, OnlyTradingDay, only_require_utc, only_to_utc
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +57,7 @@ class OnlySessionSchedule(OnlyDomainModel):
     is_closed: bool = False
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.sessions)
         if self.is_closed and self.sessions:
             raise OnlyValidationError("closed schedule cannot contain sessions")
         if not self.is_closed and not self.sessions:
@@ -69,6 +70,7 @@ class OnlySessionProfile(OnlyDomainModel):
     sessions: tuple[OnlyTradingSession, ...]
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.sessions)
         if not self.sessions:
             raise OnlyValidationError("session profile requires at least one session")
 
@@ -88,6 +90,7 @@ class OnlyTradingCalendar(OnlyDomainModel):
     effective_to: date | None = None
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.sessions, self.holidays, self.weekend_days, self.special_schedules)
         if isinstance(self.calendar_id, str):
             object.__setattr__(self, "calendar_id", OnlyCalendarId(self.calendar_id))
         if isinstance(self.timezone, str):
@@ -121,11 +124,13 @@ class OnlyTradingCalendar(OnlyDomainModel):
 
     def session_at(self, timestamp_utc: datetime | OnlyTimestamp) -> OnlyTradingSession | None:
         local = self.to_local(timestamp_utc)
-        nearby_days = (
-            OnlyTradingDay(local.date() - timedelta(days=1)),
-            OnlyTradingDay(local.date()),
-            OnlyTradingDay(local.date() + timedelta(days=1)),
-        )
+        nearby_days = []
+        for offset in (-1, 0, 1):
+            try:
+                nearby_days.append(OnlyTradingDay(local.date() + timedelta(days=offset)))
+            except OverflowError:
+                # An unrepresentable neighbor is outside this lookup, not a missing session fact.
+                continue
         candidates = list(self.sessions)
         for day in nearby_days:
             special = self._special_schedule(day)
@@ -156,16 +161,19 @@ class OnlyTradingCalendar(OnlyDomainModel):
     def to_local(self, timestamp_utc: datetime | OnlyTimestamp) -> datetime:
         value = timestamp_utc.to_datetime() if isinstance(timestamp_utc, OnlyTimestamp) else timestamp_utc
         only_require_utc(value, "calendar query timestamp")
-        return value.astimezone(self.timezone.zone_info)
+        try:
+            return value.astimezone(self.timezone.zone_info)
+        except OverflowError as exc:
+            raise OnlyValidationError("local datetime converts outside years 1..9999") from exc
 
     def to_utc(self, local_datetime: datetime, *, fold: int | None = None) -> datetime:
         if local_datetime.tzinfo is not None:
-            return local_datetime.astimezone(UTC)
+            return only_to_utc(local_datetime, "calendar local datetime")
         candidates: dict[int, datetime] = {}
         for candidate_fold in (0, 1):
             aware = local_datetime.replace(tzinfo=self.timezone.zone_info, fold=candidate_fold)
-            utc = aware.astimezone(UTC)
-            roundtrip = utc.astimezone(self.timezone.zone_info).replace(tzinfo=None)
+            utc = only_to_utc(aware, "calendar local datetime")
+            roundtrip = self.to_local(utc).replace(tzinfo=None)
             if roundtrip == local_datetime:
                 candidates[candidate_fold] = utc
         unique = set(candidates.values())
@@ -218,29 +226,72 @@ class OnlyTradingCalendar(OnlyDomainModel):
     def _special_schedule(self, trading_day: OnlyTradingDay) -> OnlySessionSchedule | None:
         return next((item for item in self.special_schedules if item.trading_day == trading_day), None)
 
-    def _boundaries_for_day(self, trading_day: OnlyTradingDay, *, opening: bool) -> tuple[datetime, ...]:
+    def _local_boundaries_for_day(self, trading_day: OnlyTradingDay, *, opening: bool) -> tuple[datetime, ...]:
         boundaries: list[datetime] = []
         for session in self.sessions_for_trading_day(trading_day):
-            anchor = trading_day.value - timedelta(days=session.belongs_to_trading_day_offset)
-            local_date = anchor
+            try:
+                local_date = trading_day.value - timedelta(days=session.belongs_to_trading_day_offset)
+                if not opening and (session.crosses_midnight or session.is_full_day):
+                    local_date += timedelta(days=1)
+            except OverflowError:
+                continue
             wall_time = session.opens_at if opening else session.closes_at
-            if not opening and (session.crosses_midnight or session.is_full_day):
-                local_date += timedelta(days=1)
-            boundaries.append(self.to_utc(datetime.combine(local_date, wall_time)))
+            boundaries.append(datetime.combine(local_date, wall_time))
         return tuple(boundaries)
 
     def _boundary(self, timestamp_utc: datetime, *, forward: bool, opening: bool) -> datetime:
         only_require_utc(timestamp_utc, "calendar boundary query")
-        local_day = timestamp_utc.astimezone(self.timezone.zone_info).date()
-        candidates: list[datetime] = []
-        for distance in range(0, 370):
-            direction = 1 if forward else -1
-            day = OnlyTradingDay(local_day + timedelta(days=distance * direction))
-            candidates.extend(self._boundaries_for_day(day, opening=opening))
-            valid = [item for item in candidates if (item > timestamp_utc if forward else item < timestamp_utc)]
-            if valid:
-                return min(valid) if forward else max(valid)
-        raise OnlyValidationError("no calendar boundary found within 370 days")
+        local_day = self.to_local(timestamp_utc).date()
+        best: datetime | None = None
+        unresolved: list[tuple[tuple[timedelta, ...], OnlyValidationError]] = []
+
+        def result() -> datetime:
+            for differences, error in unresolved:
+                if best is not None:
+                    limit = best - timestamp_utc
+                    if all(delta >= limit if forward else delta <= limit for delta in differences):
+                        continue
+                raise error
+            if best is None:
+                raise OnlyValidationError("no calendar boundary found within 370 days")
+            return best
+
+        direction = 1 if forward else -1
+        # Session boundaries span trading_day - 1 through trading_day + 2.
+        for distance in range(-2, 370):
+            try:
+                day = OnlyTradingDay(local_day + timedelta(days=distance * direction))
+            except OverflowError:
+                continue
+            for local in self._local_boundaries_for_day(day, opening=opening):
+                # Bound unresolved mappings; projected times never become answers.
+                # This never accepts a gap or chooses a fold for a relevant boundary.
+                differences = []
+                for fold in (0, 1):
+                    offset = local.replace(tzinfo=self.timezone.zone_info, fold=fold).utcoffset()
+                    if offset is None:
+                        raise OnlyValidationError("calendar timezone has no UTC offset")
+                    differences.append(local - timestamp_utc.replace(tzinfo=None) - offset)
+                if all(delta <= timedelta(0) if forward else delta >= timedelta(0) for delta in differences):
+                    continue
+                if best is not None:
+                    limit = best - timestamp_utc
+                    if all(delta >= limit if forward else delta <= limit for delta in differences):
+                        continue
+                try:
+                    boundary = self.to_utc(local)
+                except OnlyValidationError as error:
+                    unresolved.append((tuple(differences), error))
+                    continue
+                if (boundary > timestamp_utc) if forward else (boundary < timestamp_utc):
+                    if best is None or (boundary < best if forward else boundary > best):
+                        best = boundary
+            if best is not None:
+                difference = (self.to_local(best).date() - day.value).days
+                # Remaining owner days cannot contain a closer boundary.
+                if (difference < 0) if forward else (difference >= 2):
+                    return result()
+        return result()
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +299,7 @@ class OnlyTradingCalendarCatalog(OnlyDomainModel):
     calendars: tuple[OnlyTradingCalendar, ...]
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.calendars)
         keys = [(item.calendar_id, item.calendar_version) for item in self.calendars]
         if len(keys) != len(set(keys)):
             raise OnlyValidationError("calendar catalog contains a duplicate version")

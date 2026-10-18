@@ -845,7 +845,7 @@ def test_rust_toolchain_and_dependencies_bind_environment_but_source_does_not(tm
     rust.write_text('[toolchain]\nchannel="1.99.1"\n')
     lock = tmp_path / "Cargo.lock"
     lock.write_text("version=4\n")
-    manifest = tmp_path / "crates/onlyalpha-kernel/Cargo.toml"
+    manifest = tmp_path / "crates/onlyalpha-kernel/core/Cargo.toml"
     manifest.parent.mkdir(parents=True)
     manifest.write_text('[package]\nname="onlyalpha-kernel"\n')
     admitted = dev_verification.environment_inputs(tmp_path)

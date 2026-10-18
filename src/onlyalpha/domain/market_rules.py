@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 
-from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.base import OnlyDomainModel, only_require_immutable_tuple
 from onlyalpha.domain.enums import OnlyLiquiditySide, OnlyOffset, OnlyOrderSide
+from onlyalpha.domain.numeric import only_multiply, only_quantize, only_remainder
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate, only_decimal
 
@@ -13,6 +14,9 @@ from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate,
 @dataclass(frozen=True, slots=True)
 class OnlyValidationResult(OnlyDomainModel):
     violations: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.violations)
 
     @property
     def is_valid(self) -> bool:
@@ -33,7 +37,7 @@ class OnlyLotSizeRule(OnlyDomainModel):
 
     def validates(self, side: OnlyOrderSide, quantity: OnlyQuantity) -> bool:
         increment = self.buy_increment if side is OnlyOrderSide.BUY else self.sell_increment
-        return quantity.value % increment == 0
+        return only_remainder(quantity.value, increment) == 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +47,7 @@ class OnlySettlementRule(OnlyDomainModel):
     allowed_offsets: tuple[OnlyOffset, ...] = tuple(OnlyOffset)
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.allowed_offsets)
         if self.settlement_days < 0:
             raise ValueError("settlement_days cannot be negative")
 
@@ -64,6 +69,9 @@ class OnlyPriceLadder(OnlyDomainModel):
 
     steps: tuple[tuple[Decimal | None, Decimal], ...]
 
+    def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.steps, *self.steps)
+
     def increment_for(self, price: OnlyPrice) -> Decimal:
         for upper, increment in self.steps:
             if upper is None or price.value <= upper:
@@ -76,7 +84,7 @@ class OnlyTickScheme(OnlyDomainModel):
     ladder: OnlyPriceLadder
 
     def validates(self, price: OnlyPrice) -> bool:
-        return price.value % self.ladder.increment_for(price) == 0
+        return only_remainder(price.value, self.ladder.increment_for(price)) == 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,10 +107,10 @@ class OnlyFeeSchedule(OnlyDomainModel):
         if notional.currency != self.minimum_fee.currency:
             raise ValueError("fee notional currency mismatch")
         rate = self.maker_rate if liquidity is OnlyLiquiditySide.MAKER else self.taker_rate
-        raw = notional.amount * rate.value
+        raw = only_multiply(notional.amount, rate.value)
         amount = max(raw, self.minimum_fee.amount)
-        quantum = Decimal(1).scaleb(-notional.currency.precision)
-        return OnlyMoney(amount.quantize(quantum, rounding=ROUND_DOWN), notional.currency)
+        quantum = Decimal((0, (1,), -notional.currency.precision))
+        return OnlyMoney(only_quantize(amount, quantum, rounding=ROUND_DOWN), notional.currency)
 
     def is_effective_at(self, timestamp: datetime) -> bool:
         only_require_utc(timestamp, "fee schedule query")
@@ -112,6 +120,9 @@ class OnlyFeeSchedule(OnlyDomainModel):
 @dataclass(frozen=True, slots=True)
 class OnlyFeeScheduleCatalog(OnlyDomainModel):
     schedules: tuple[OnlyFeeSchedule, ...]
+
+    def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.schedules)
 
     def resolve(self, schedule_id: str, as_of: datetime) -> OnlyFeeSchedule:
         matches = [item for item in self.schedules if item.schedule_id == schedule_id and item.is_effective_at(as_of)]

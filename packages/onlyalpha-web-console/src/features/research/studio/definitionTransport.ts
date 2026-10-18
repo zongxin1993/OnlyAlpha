@@ -1,3 +1,4 @@
+import { marketDataBarSemantic } from "../../../api/marketData/model";
 import type {
     ResearchCalculationCatalogItemTransport,
     ResearchCalculationInstanceTransport,
@@ -251,20 +252,12 @@ export function buildResearchDefinitionTransport(
                 registered_id: registered ? draft.dataset.registeredId.trim() : null
             },
             bar_semantic: {
-                schema_version: 2,
-                formation: {
-                    schema_version: 1,
-                    kind: "FIXED_DURATION",
-                    window_minutes: positiveInteger(
+                ...marketDataBarSemantic(
+                    positiveInteger(
                         draft.dataset.durationMinutes,
                         "dataset.bar_semantic.window_minutes"
-                    ),
-                    stride_minutes: positiveInteger(
-                        draft.dataset.durationMinutes,
-                        "dataset.bar_semantic.stride_minutes"
-                    ),
-                    alignment: "SESSION_START"
-                },
+                    )
+                ),
                 price_type: draft.dataset.priceType,
                 adjustment_policy: draft.dataset.adjustmentType
             },

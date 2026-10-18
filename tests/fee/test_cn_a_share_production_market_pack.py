@@ -101,7 +101,7 @@ def _assessment(vector: dict[str, object]):
         broker_id="reference-broker",
         account_scope=OnlyBrokerFeeAccountScope(OnlyBrokerFeeAccountScopeType.EXACT_ACCOUNT, account),
     )
-    timestamp = OnlyTimestamp(datetime.combine(day.value, datetime.min.time(), tzinfo=UTC))
+    timestamp = OnlyTimestamp.from_datetime(datetime.combine(day.value, datetime.min.time(), tzinfo=UTC))
     binding = OnlyOrderFeePolicyBinding.create(
         runtime_id=OnlyRuntimeId("reference-runtime"),
         account_id=account,
@@ -305,7 +305,7 @@ def test_production_components_reconcile_with_normalized_external_evidence() -> 
         )
         local.append(OnlyLocalFeeReconciliationComponent(identity, component.target_amount))
         external.append(OnlyExternalFeeComponent.create(identity, component.target_amount))
-    timestamp = OnlyTimestamp(datetime(2025, 6, 30, tzinfo=UTC))
+    timestamp = OnlyTimestamp.from_datetime(datetime(2025, 6, 30, tzinfo=UTC))
     evidence = OnlyExternalFeeEvidence.create(
         broker_id="reference-broker",
         account_id=assessment.subject.account_id,

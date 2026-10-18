@@ -369,16 +369,16 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
     assert first == second == decisions.load_verified(first.decision_fingerprint)
     assert first.outcome is OnlyQualificationOutcome.APPROVED
     # Pinned CPython 3.12 / PyArrow 25 vector, independently reconstructed from
-    # the Indicator distribution 0.9.10 resource manifests. The graph uses RSI
-    # and rolling-return, not SMA: their shared registration/research bytes bind
-    # the new implementations without changing graph, policy or result semantics.
+    # the current Dataset/implementation closure with BarSemantic schema 3.
+    # RSI and rolling-return graph, policy and APPROVED outcome remain fixed;
+    # Dataset, Revision and evidence identities follow their exact current inputs.
     assert revision.decision_graph.fingerprint == "2c896ca6d056161dd2ddd63f08b467892d426b31df459c3887964275625f5331"
-    assert subject == "0a028c03c9cd39322171a060006df4f5cb62b16b37f4d2c31a935fc653d86fa9"
-    assert relation.relation_fingerprint == "e2fc37d5867ec1f198b849accb693c58a7c5d6f419e1fa49f8df2a37cf8e3bfa"
+    assert subject == "83e07a47e4af760827feef3cf1f3234b167e9d5c54eb72af4c1f8c06f30070b6"
+    assert relation.relation_fingerprint == "f9e3cb4e7f94f26042d4768d05da306483d6fa34368feecac28150835808b7a6"
     assert first.policy_fingerprint == "04c6afc8acb43c89591d594e20a655b7cf1c73c5aa8fa362e535ada9a134e9e7"
     assert first.evidence == evidence
     assert first.subject_strategy_fingerprint == subject
-    assert first.decision_fingerprint == "c79ad0d7a317c79c43d2dd67d75f11b7f4f2ccf0056a123bd9f91dd5887f20fb"
+    assert first.decision_fingerprint == "15d009c504cf4e983ce2aa3e2b696ecd3cb1f215027dcfdee2c6a3921f287d51"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 
@@ -402,7 +402,7 @@ print(decision.decision_fingerprint)
         text=True,
         env={**os.environ, "PYTHONHASHSEED": "947"},
     )
-    assert completed.stdout.strip() == "c79ad0d7a317c79c43d2dd67d75f11b7f4f2ccf0056a123bd9f91dd5887f20fb"
+    assert completed.stdout.strip() == "15d009c504cf4e983ce2aa3e2b696ecd3cb1f215027dcfdee2c6a3921f287d51"
 
 
 @pytest.mark.parametrize("mutation", ("resource", "semantic_dependency"))

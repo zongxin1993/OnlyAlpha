@@ -29,10 +29,10 @@ def test_indicator_graph_calculation_and_result_identities_remain_exact(tmp_path
         tmp_path / "results", dataset_store, audit_time=lambda: datetime(2026, 8, 14, tzinfo=UTC)
     ).commit(execution, graph)
     assert graph.fingerprint == "7f631b1ec661ccacd14774cbe5c7cfd59cbef848642c72b5e0581ac0c1b6626f"
-    assert execution.calculation_fingerprint == "446a9b5c8b664da3e175f31f28e9514094a52055d47fd2ec40edc1ead10bb54d"
+    assert execution.calculation_fingerprint == "2e885d9894d9515d3406b15261d3b8a83389bb57465d2b72edd6a4d0e887473e"
     assert (
         result.manifest.result_content_fingerprint == "6caf8ea98bfa08bd68a4047eab165dfac11e3b63b2dccbcfe43add850afd8ba0"
     )
     assert result.manifest.calculation_result_fingerprint == (
-        "c69bd8a2e7439eb0aa7c86140b914433d0ca7f49a3bf44924d8891ec4460d381"
+        "45ce99c423959fe518114e6a7d66275253767ebb3936c83529233e3de263a013"
     )

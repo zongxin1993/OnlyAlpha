@@ -185,7 +185,7 @@ def _zero_fee_contract(order, timestamp):
     )
     estimate = OnlyOrderFeeEstimate(assessment, assessment, zero, zero, digest)
     principal = OnlyMoney((order.price.value * order.quantity.value).quantize(Decimal("0.00000001")), currency)
-    funding = OnlyOrderFundingPlan(order.order_id, principal, zero, principal, digest, digest)
+    funding = OnlyOrderFundingPlan(order.order_id, principal, zero, principal, binding.fingerprint, digest)
     return binding, estimate, funding
 
 

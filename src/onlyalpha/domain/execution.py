@@ -31,13 +31,28 @@ from onlyalpha.domain.identifiers import (
     OnlyVenueOrderId,
     OnlyVenueTradeId,
 )
+from onlyalpha.domain.numeric import only_add
 from onlyalpha.domain.time import OnlyTimestamp, only_require_utc
 from onlyalpha.domain.trading import OnlyExecutionIntent
 from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
 
 
 def _freeze_metadata(metadata: Mapping[str, str]) -> Mapping[str, str]:
+    if not isinstance(metadata, Mapping) or any(
+        type(key) is not str or type(value) is not str for key, value in metadata.items()
+    ):
+        raise OnlyValidationError("execution metadata requires string keys and values")
     return MappingProxyType(dict(metadata))
+
+
+def _freeze_tags(tags: tuple[str, ...]) -> tuple[str, ...]:
+    try:
+        values = tuple(tags)
+    except TypeError as exc:
+        raise OnlyValidationError("order tags require strings") from exc
+    if any(type(value) is not str for value in values):
+        raise OnlyValidationError("order tags require strings")
+    return values
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +93,7 @@ class OnlyOrderRequest(OnlyDomainModel):
         if intent.side is not self.side:
             raise OnlyValidationError("order side conflicts with canonical execution intent")
         object.__setattr__(self, "execution_intent", intent)
-        object.__setattr__(self, "tags", tuple(self.tags))
+        object.__setattr__(self, "tags", _freeze_tags(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     @property
@@ -190,9 +205,11 @@ class OnlyOrderSnapshot(OnlyDomainModel):
     execution_intent: OnlyExecutionIntent | None = None
 
     def __post_init__(self) -> None:
+        if self.quantity.value <= 0:
+            raise OnlyValidationError("order snapshot quantity must be positive")
         if self.version < 1:
             raise OnlyValidationError("order snapshot version must be positive")
-        if self.quantity.value != self.filled_quantity.value + self.remaining_quantity.value:
+        if self.quantity.value != only_add(self.filled_quantity.value, self.remaining_quantity.value):
             raise OnlyValidationError("order quantity authority is not conserved")
         if self.fill_count < 0:
             raise OnlyValidationError("fill_count cannot be negative")
@@ -223,27 +240,29 @@ class OnlyOrderSnapshot(OnlyDomainModel):
         if any(item is not None for item in contracts) and any(item is None for item in contracts):
             raise OnlyValidationError("Order fee contract must be installed atomically")
         if self.fee_policy_binding is not None:
-            if self.fee_policy_binding.order_id != self.order_id or self.funding_plan is None:
+            if (
+                self.funding_plan is None
+                or self.fee_estimate is None
+                or any(
+                    getattr(self.fee_policy_binding, field) != getattr(self, field)
+                    for field in ("runtime_id", "account_id", "cluster_id", "order_id", "instrument_id")
+                )
+            ):
                 raise OnlyValidationError("Order fee contract scope mismatch")
             if self.funding_plan.order_id != self.order_id:
                 raise OnlyValidationError("Order funding plan scope mismatch")
+            if (
+                self.fee_estimate.expected.binding != self.fee_policy_binding
+                or self.funding_plan.binding_fingerprint != self.fee_policy_binding.fingerprint
+                or self.funding_plan.estimate_fingerprint != self.fee_estimate.assumptions_fingerprint
+            ):
+                raise OnlyValidationError("Order fee artifacts do not match the installed binding")
         intent = self.execution_intent or OnlyExecutionIntent.from_offset(side=self.side, offset=self.offset)
         if intent.side is not self.side:
             raise OnlyValidationError("Order side conflicts with canonical execution intent")
         object.__setattr__(self, "execution_intent", intent)
-        object.__setattr__(self, "tags", tuple(self.tags))
+        object.__setattr__(self, "tags", _freeze_tags(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyOrderSnapshot:
-        compatible = dict(payload)
-        if compatible.get("schema_version") == 3:
-            compatible["execution_intent"] = OnlyExecutionIntent.from_offset(
-                side=OnlyOrderSide(str(compatible["side"])),
-                offset=OnlyOffset(str(compatible["offset"])),
-            ).to_dict()
-            compatible["schema_version"] = cls.schema_version
-        return super(OnlyOrderSnapshot, cls).from_dict(compatible)
 
 
 @dataclass(frozen=True, slots=True)

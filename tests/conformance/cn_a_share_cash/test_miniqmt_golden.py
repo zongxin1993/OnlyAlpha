@@ -83,7 +83,7 @@ def _config() -> OnlyClusterRunConfig:
     subscription = payload["factors"][0]["subscriptions"]["instrument_bars"][0]
     subscription["instrument_id"] = "600000.XSHG"
     subscription["bar_semantic"] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "formation": {
             "schema_version": 1,
             "kind": "CALENDAR_PERIOD",

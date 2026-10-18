@@ -127,14 +127,14 @@ const MarketDataTickCountFormationDtoSchema = z.strictObject({
     count: z.number().int().min(1)
 });
 const MarketDataValueFormationDtoSchema = z.strictObject({
-    schema_version: z.literal(1),
+    schema_version: z.literal(2),
     kind: z.literal("VALUE"),
-    value: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?$"))
+    value: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"))
 });
 const MarketDataVolumeFormationDtoSchema = z.strictObject({
-    schema_version: z.literal(1),
+    schema_version: z.literal(2),
     kind: z.literal("VOLUME"),
-    quantity: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?$"))
+    quantity: z.string().regex(new RegExp("^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"))
 });
 const OnlyPriceTypeSchema = z.enum(["LAST", "BID", "ASK", "MID", "MARK"]);
 const ChartStudyExtensionsDtoSchema = z.strictObject({});
@@ -288,7 +288,7 @@ const ChartStudyCalculationRequestDtoSchema = z.strictObject({
     expected_capability_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$"))
 });
 const MarketDataBarSemanticDtoSchema = z.strictObject({
-    schema_version: z.literal(2),
+    schema_version: z.literal(3),
     formation: z.union([
         MarketDataFixedDurationFormationDtoSchema,
         MarketDataCalendarPeriodFormationDtoSchema,

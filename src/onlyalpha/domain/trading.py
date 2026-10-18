@@ -7,7 +7,6 @@ making economic decisions.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -118,14 +117,6 @@ class OnlyExecutionIntent(OnlyDomainModel):
             OnlyOffset.CLOSE_YESTERDAY: OnlyCloseScope.YESTERDAY,
         }[offset]
         return cls(side, resolved_side, OnlyPositionEffect.CLOSE, close_scope)
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> OnlyExecutionIntent:
-        compatible = dict(payload)
-        if compatible.get("schema_version") == 1:
-            compatible["position_mode"] = OnlyPositionMode.NETTING.value
-            compatible["schema_version"] = cls.schema_version
-        return super(OnlyExecutionIntent, cls).from_dict(compatible)
 
     @property
     def reduces_exposure(self) -> bool:

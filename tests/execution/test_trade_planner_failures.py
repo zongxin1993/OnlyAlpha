@@ -11,7 +11,7 @@ import pytest
 from onlyalpha.account.enums import OnlyAccountReservationState
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
+from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.execution import (
     OnlyTradeExecutionPlanningContext,
     OnlyTradeExecutionPlanningError,
@@ -42,24 +42,13 @@ def _scope_mismatch(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExec
 
 
 def _currency(context: OnlyTradeExecutionPlanningContext) -> OnlyTradeExecutionPlanningContext:
-    usd = OnlyCurrency("USD", 2)
-    assessment = context.fee_assessment
-    components = tuple(
-        replace(
-            item,
-            raw_amount=OnlyMoney(item.raw_amount.amount, usd),
-            bounded_amount=OnlyMoney(item.bounded_amount.amount, usd),
-            target_amount=OnlyMoney(item.target_amount.amount, usd),
-        )
-        for item in assessment.components
-    )
+    # Keep each Domain object valid; the planner must reject cross-authority Currency disagreement.
+    instruction = context.trade_instruction
     return replace(
         context,
-        fee_assessment=replace(
-            assessment,
-            components=components,
-            total_charges=OnlyMoney(assessment.total_charges.amount, usd),
-            total_rebates=OnlyMoney(assessment.total_rebates.amount, usd),
+        trade_instruction=replace(
+            instruction,
+            cash_instruction=replace(instruction.cash_instruction, currency="USD"),
         ),
     )
 

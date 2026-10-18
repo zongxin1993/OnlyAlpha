@@ -75,6 +75,13 @@ classDiagram
 
 逻辑流不是对象依赖链：Instrument 定义合法交易规格；OrderRequest 表达意图；Order 表达委托状态；Trade 是成交事实；Position 由 Trade 聚合；Account 包含按币种 Balance 和 Position；Portfolio 聚合 Account，但跨币种换算必须在外层显式完成。
 
+确定性数值、具体类型序列化及跨语言规则见 [ADR 0140](adr/0140-domain-determinism-and-cross-language-contract.md)。
+
+BarSemantic 当前记录为 schema 3；Volume/Value formation 为 schema 2。阈值按精确数值去除系数末尾零并调整指数，
+不使用环境 Decimal context、不舍入，规范记录同时作为 fingerprint 输入。`1`、`1.0`、`1e0` 因而具有同一身份。
+金额和价格等声明精度仍有业务含义的字段不适用此参数规范化。开发版 reader 只接受当前版本，不保留旧版 fallback。
+Domain 声明为 tuple 的集合在构造时拒绝 list 等可变容器，防止已校验的对象及 Authority payload 在构造后改变。
+
 ## 4. 值对象
 
 | 对象 | 字段 | 约束 |
@@ -180,6 +187,8 @@ stateDiagram-v2
 `OnlyPortfolio`：Accounts、reporting currency?、total equity?、as_of。若没有显式 FX 转换，可以合法地只有分币种账户而没有 total_equity；不得直接相加 USD、CNY、BTC。
 
 辅助值：`OnlyFee`、`OnlyCommission`（非负 Money）、`OnlyMargin`（同币种 initial/maintenance）、`OnlyPnL`（同币种 realized/unrealized）、`OnlySlippage`（Money + 可选 Rate）。
+
+`OnlyPnLCalculator` 只执行明确的线性/反向合约公式。线性计算的 quote 与 settlement currency 必须相同；跨币种及 quanto 需要外层显式转换模型，不能只替换结果币种。FLAT 必须零数量，返回结算币种的零盈亏；非零数量 FLAT 拒绝。
 
 ## 10. Market Data 与 Calendar
 

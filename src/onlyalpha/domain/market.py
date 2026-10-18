@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.base import OnlyDomainModel, only_require_immutable_tuple
 from onlyalpha.domain.enums import (
     OnlyAdjustmentType,
     OnlyBookType,
@@ -19,9 +19,10 @@ from onlyalpha.domain.enums import (
 )
 from onlyalpha.domain.errors import OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlyTradeId
+from onlyalpha.domain.numeric import only_canonical_decimal
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.trading import OnlyReferencePriceKind
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice, OnlyQuantity, only_decimal
 
 
 def _validate_market_time(timestamp: datetime, name: str) -> None:
@@ -93,15 +94,6 @@ class OnlyReferencePriceFact(OnlyDomainModel):
             raise OnlyValidationError("reference-price identity/value is invalid")
         _validate_provider_lineage(self.provider_evidence_id, self.source_record_hash)
 
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "OnlyReferencePriceFact":
-        compatible = dict(payload)
-        if compatible.get("schema_version") == 1:
-            compatible["schema_version"] = cls.schema_version
-            compatible["provider_evidence_id"] = None
-            compatible["source_record_hash"] = None
-        return super(OnlyReferencePriceFact, cls).from_dict(compatible)
-
     @property
     def stable_order(self) -> tuple[datetime, int, int, str]:
         priority = {
@@ -146,15 +138,6 @@ class OnlyFundingRateFact(OnlyDomainModel):
         ):
             raise OnlyValidationError("funding-rate identity/value is invalid")
         _validate_provider_lineage(self.provider_evidence_id, self.source_record_hash)
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "OnlyFundingRateFact":
-        compatible = dict(payload)
-        if compatible.get("schema_version") == 1:
-            compatible["schema_version"] = cls.schema_version
-            compatible["provider_evidence_id"] = None
-            compatible["source_record_hash"] = None
-        return super(OnlyFundingRateFact, cls).from_dict(compatible)
 
     @property
     def stable_order(self) -> tuple[datetime, int, int, str]:
@@ -258,20 +241,26 @@ class OnlyTickCountBarFormation(OnlyDomainModel):
 
 @dataclass(frozen=True, slots=True)
 class OnlyVolumeBarFormation(OnlyDomainModel):
+    schema_version = 2
+
     quantity: Decimal
     kind: OnlyBarFormationKind = OnlyBarFormationKind.VOLUME
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "quantity", only_canonical_decimal(only_decimal(self.quantity)))
         if self.kind is not OnlyBarFormationKind.VOLUME or self.quantity <= 0:
             raise OnlyValidationError("volume Bar formation is invalid")
 
 
 @dataclass(frozen=True, slots=True)
 class OnlyValueBarFormation(OnlyDomainModel):
+    schema_version = 2
+
     value: Decimal
     kind: OnlyBarFormationKind = OnlyBarFormationKind.VALUE
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "value", only_canonical_decimal(only_decimal(self.value)))
         if self.kind is not OnlyBarFormationKind.VALUE or self.value <= 0:
             raise OnlyValidationError("value Bar formation is invalid")
 
@@ -287,7 +276,7 @@ type OnlyBarFormation = (
 
 @dataclass(frozen=True, slots=True)
 class OnlyBarSemantic(OnlyDomainModel):
-    schema_version = 2
+    schema_version = 3
 
     formation: OnlyBarFormation
     price_type: OnlyPriceType = OnlyPriceType.LAST
@@ -341,7 +330,11 @@ class OnlyBarSemantic(OnlyDomainModel):
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "OnlyBarSemantic":
-        if payload.get("schema_version") != cls.schema_version or not isinstance(payload.get("formation"), Mapping):
+        if (
+            type(payload.get("schema_version")) is not int
+            or payload.get("schema_version") != cls.schema_version
+            or not isinstance(payload.get("formation"), Mapping)
+        ):
             raise OnlyValidationError("Bar semantic schema is invalid")
         formation_payload = payload["formation"]
         assert isinstance(formation_payload, Mapping)
@@ -387,7 +380,7 @@ class OnlyTradeSemantic:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> "OnlyTradeSemantic":
-        if dict(value) != cls().to_dict():
+        if type(value.get("schema_version")) is not int or dict(value) != cls().to_dict():
             raise OnlyValidationError("Trade semantic is invalid")
         return cls()
 
@@ -402,7 +395,11 @@ class OnlyTradeInputType:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> "OnlyTradeInputType":
-        if value.get("schema_version") != 1 or not isinstance(value.get("semantic"), Mapping):
+        if (
+            type(value.get("schema_version")) is not int
+            or value.get("schema_version") != 1
+            or not isinstance(value.get("semantic"), Mapping)
+        ):
             raise OnlyValidationError("Trade input is invalid")
         semantic = value["semantic"]
         assert isinstance(semantic, Mapping)
@@ -491,6 +488,7 @@ class OnlyOrderBook(OnlyDomainModel):
     event_time: datetime
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.bids, self.asks)
         _validate_market_time(self.event_time, "event_time")
         if self.sequence < 0:
             raise OnlyValidationError("order book sequence cannot be negative")

@@ -138,7 +138,7 @@
     "latest_bars": [
       [
         "{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}}",
-        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":2,\"semantic\":{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":2}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
+        "{\"adjustment_type\":\"RAW\",\"bar_end\":\"2026-01-05T01:59:00Z\",\"bar_start\":\"2026-01-05T01:58:00Z\",\"bar_type\":{\"instrument_id\":{\"schema_version\":1,\"symbol\":{\"schema_version\":1,\"value\":\"TESTETF\"},\"venue\":{\"schema_version\":1,\"value\":\"XSHG\"}},\"schema_version\":2,\"semantic\":{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":3}},\"close\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.36\"},\"high\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.39\"},\"is_closed\":true,\"low\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.29\"},\"open\":{\"precision\":2,\"schema_version\":1,\"value\":\"10.32\"},\"open_interest\":null,\"quote_volume\":null,\"revision\":0,\"schema_version\":1,\"session_type\":\"CONTINUOUS\",\"trade_count\":120,\"trading_day\":\"2026-01-05\",\"ts_event\":\"2026-01-05T01:59:00Z\",\"ts_init\":\"2026-01-05T01:59:00Z\",\"turnover\":null,\"volume\":{\"precision\":0,\"schema_version\":1,\"value\":\"12000\"}}"
       ]
     ],
     "orders": [
@@ -194,18 +194,18 @@
     "EACK-6b0e86433c34e611c69387b94d6667733c87d4dd9737d2277c9ca52995f5093c",
     "ETX-40d22474fab99f40c171593274a4cf3dbbe1403e423b17494de77274a5188bbe"
   ],
-  "configuration_fingerprint": "bd266345392791d6900301c5939dad465febb898f7aacbab4308ec6f7b1b0500",
+  "configuration_fingerprint": "e6dfb4826b2b43315c9cfdc25cc091d671c79205c5eed39221a5fe343006922c",
   "database_archive": "database.sqlite3.gz",
-  "database_fingerprint": "4cc758a30e7cb2a8a3bffa4fa222701bde5cd82aa2eabc7614c336d54bcb0534",
-  "database_template": "multi_cluster_close_baseline-4cc758a30e7cb2a8a3bffa4fa222701bde5cd82aa2eabc7614c336d54bcb0534.sqlite3",
+  "database_fingerprint": "dc07ca90afdfb64ab7d054ee8bd92e270669b0eb29cfec3588225c3906acb820",
+  "database_template": "multi_cluster_close_baseline-dc07ca90afdfb64ab7d054ee8bd92e270669b0eb29cfec3588225c3906acb820.sqlite3",
   "fill_count": 4,
-  "onlyalpha_version": "0.9.10",
+  "onlyalpha_version": "0.10.8",
   "order_count": 4,
   "persistence_schema_version": "5",
-  "result_fingerprint": "3bcbd3b9c23080b83de773ab1602931f3489b3d3b307c6500670276e1e72b5fe",
-  "scenario_fingerprint": "bd266345392791d6900301c5939dad465febb898f7aacbab4308ec6f7b1b0500",
+  "result_fingerprint": "17e9b295e0e559c7cd57c6c7b9d714eec8369730dffe7c761577bc970998929f",
+  "scenario_fingerprint": "e6dfb4826b2b43315c9cfdc25cc091d671c79205c5eed39221a5fe343006922c",
   "strategy_fingerprints": [
-    "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+    "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
   ],
   "terminal_count": 0
 }

@@ -54,15 +54,15 @@ class MarketDataTickCountFormationDto(_Dto):
 
 
 class MarketDataVolumeFormationDto(_Dto):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     kind: Literal["VOLUME"]
-    quantity: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    quantity: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$")
 
 
 class MarketDataValueFormationDto(_Dto):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     kind: Literal["VALUE"]
-    value: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    value: str = Field(pattern=r"^[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$")
 
 
 MarketDataBarFormationDto = Annotated[
@@ -76,7 +76,7 @@ MarketDataBarFormationDto = Annotated[
 
 
 class MarketDataBarSemanticDto(_Dto):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     formation: MarketDataBarFormationDto
     price_type: OnlyPriceType = Field(strict=False)
     adjustment_policy: Literal["RAW", "FORWARD", "BACKWARD"]
@@ -360,7 +360,7 @@ class MarketDataAcquisitionRequestDto(_Dto):
     start_ns: str = Field(pattern=_NANOSECONDS)
     end_ns: str = Field(pattern=_NANOSECONDS)
     bar_semantic: MarketDataBarSemanticDto = MarketDataBarSemanticDto(
-        schema_version=2,
+        schema_version=3,
         formation=MarketDataFixedDurationFormationDto(
             schema_version=1,
             kind="FIXED_DURATION",

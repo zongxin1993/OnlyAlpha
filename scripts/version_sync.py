@@ -17,6 +17,7 @@ from packaging.version import InvalidVersion, Version
 from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
+RUST_MODULES = frozenset({"onlyalpha-domain", "onlyalpha-kernel"})
 TEST_DISTRIBUTION_PATHS = (
     Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml"),
     Path("test-data/runtime_factor_provider/pyproject.toml"),
@@ -284,11 +285,12 @@ def workspace_graph_errors(
         try:
             cargo = tomllib.loads((root / "Cargo.toml").read_text())
             lock = tomllib.loads((root / "Cargo.lock").read_text())
-            packages = [item for item in lock["package"] if item["name"] == "onlyalpha-kernel"]
+            packages = [item for item in lock["package"] if item["name"] in RUST_MODULES]
             if (
                 cargo["workspace"]["package"]["version"] != str(release_version)
-                or len(packages) != 1
-                or packages[0]["version"] != str(release_version)
+                or len(packages) != len(RUST_MODULES)
+                or {item["name"] for item in packages} != RUST_MODULES
+                or any(item["version"] != str(release_version) for item in packages)
             ):
                 errors.append("Rust workspace/lock release version differs from pyproject.toml")
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -431,10 +433,11 @@ def rewrite_workspace(
         cargo = read_document(root / "Cargo.toml")
         lock = read_document(root / "Cargo.lock")
         cargo["workspace"]["package"]["version"] = normalized
-        packages = [item for item in lock["package"] if item["name"] == "onlyalpha-kernel"]
-        if len(packages) != 1:
-            raise VersionSyncError("Rust lock must contain exactly one onlyalpha-kernel")
-        packages[0]["version"] = normalized
+        packages = [item for item in lock["package"] if item["name"] in RUST_MODULES]
+        if len(packages) != len(RUST_MODULES) or {item["name"] for item in packages} != RUST_MODULES:
+            raise VersionSyncError("Rust lock must contain each canonical module exactly once")
+        for package in packages:
+            package["version"] = normalized
         documents += [(root / "Cargo.toml", cargo), (root / "Cargo.lock", lock)]
     for path, document in documents:
         write_document(path, document)

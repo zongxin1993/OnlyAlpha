@@ -565,3 +565,23 @@ def test_quote_route_keeps_exact_decimal_and_nanosecond_strings(monkeypatch) -> 
     quote = response.json()["quotes"][0]
     assert quote["last_price"] == "0.00000001" and quote["change_pct"] == "-0.25"
     assert quote["ts_event_ns"] == START_NS_TEXT
+
+
+def test_current_bar_semantic_dto_round_trips_canonical_scientific_parameters() -> None:
+    from decimal import Decimal
+
+    import pytest
+    from onlyalpha_http_server.market_data.schema import MarketDataBarSemanticDto
+    from pydantic import ValidationError
+
+    from onlyalpha.domain.market import OnlyValueBarFormation, OnlyVolumeBarFormation
+
+    for constructor in (OnlyVolumeBarFormation, OnlyValueBarFormation):
+        semantic = OnlyBarSemantic(constructor(Decimal("1000.00")))
+        dto = MarketDataBarSemanticDto.from_model(semantic)
+        assert dto.model_dump(mode="json") == semantic.to_dict()
+        assert dto.to_model().fingerprint == semantic.fingerprint
+        old = dto.model_dump(mode="json")
+        old["schema_version"] = 2
+        with pytest.raises(ValidationError):
+            MarketDataBarSemanticDto.model_validate(old)

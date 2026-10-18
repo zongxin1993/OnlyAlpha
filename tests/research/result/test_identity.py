@@ -71,22 +71,22 @@ def test_historical_v1_and_legacy_only_scientific_v2_identities_and_serializatio
         v1.research_result_content_fingerprint,
         v1.research_result_fingerprint,
     ) == (
-        "3b64271f49607b744f669c85230c28c47565a13decd49176d1f59b071a1078b1",
-        "e3941921eb094e8bf1443d3aae512bf8002af9bb7ae520b97979ff06535f1b34",
-        "76c838643e6f456eb9a4a16fbe31c1b6361964a10ef7ec942f375f8cd076b27d",
+        "3c59d735c059c20cb476a4197ce03b635cfc509f635ba7436e1489565046d4eb",
+        "81c76d374cbfdfa678d13aa5caf1f446cd84adada909e57769e9433496b4b33b",
+        "812b0250125cf24259f79fa1141db01c844063d9ef8a6103d0103399a4d05b34",
     )
     assert (
         v2.research_result_plan_fingerprint,
         v2.research_result_content_fingerprint,
         v2.research_result_fingerprint,
     ) == (
-        "782c4e29a7fc2d7b36f80a8882db905ee00c70f2634133a4da77811a859152fe",
-        "1b655f4580a1b195b4af128db7218089abc4c61df26e27ed0aac503d3ee615a9",
-        "5f83d24daa97c02aa9f5e6d3b4d3aa5fc85d1fbb6cfd7df9db857b4678c1bdd5",
+        "9d68d35d8e9b5fcb877fbb704b4ec2f816961e11cda642590dbfb8998abec511",
+        "cef580fcf1a90fdd4e60b24b858e1b85834ba20952a9645aef7be4f388d519c1",
+        "625d97c23f5a5780523bc9efb321791d761873214a0232cfc111bfc09ff09bba",
     )
     expected_serialization_hashes = (
-        "66fa5759ebeea384e57d669805f9af2ec589d295067ca2a4fb6e4c3979e1b154",
-        "4c2408d84e6a5ede4454bf6edb5b4d0e2e1c81f4ea0069e68b61168e1a0c6756",
+        "52403441341e38ddfeb080a9f1ba302901ac1797c489df6181993b319f332132",
+        "8032a40eb3735a04a274f30a0a5a97859975183dc1a2908559805622a81f0c00",
     )
     for manifest, expected in zip((v1, v2), expected_serialization_hashes, strict=True):
         fixed = replace(manifest, created_at=datetime(2026, 9, 6, tzinfo=UTC))

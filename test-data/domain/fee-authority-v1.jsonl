@@ -1,0 +1,3 @@
+{"payload":["product","test","X","asset","broker","a","A.X",{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"}],"canonical_json":"[\"product\",\"test\",\"X\",\"asset\",\"broker\",\"a\",\"A.X\",{\"code\":\"USD\",\"currency_type\":\"FIAT\",\"precision\":2,\"schema_version\":1}]","sha256":"ce4166f857f7c0190523193a2c1d234cf38868602db8fb9df0df283102dc381c"}
+{"payload":{"b":2,"a":1},"canonical_json":"{\"a\":1,\"b\":2}","sha256":"43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"}
+{"payload":["中","é"],"canonical_json":"[\"中\",\"é\"]","sha256":"db699146c7e60368b630be584df31ada127526d421f4896a90ad1bf9821b07f6"}

@@ -182,7 +182,7 @@ def _commission_assessment(
         instrument_id=instrument,
         charge_currency=currency,
     )
-    timestamp = OnlyTimestamp(datetime(2025, 7, 1, tzinfo=UTC))
+    timestamp = OnlyTimestamp.from_datetime(datetime(2025, 7, 1, tzinfo=UTC))
     binding = OnlyOrderFeePolicyBinding.create(
         runtime_id=OnlyRuntimeId("runtime-a"),
         account_id=account,

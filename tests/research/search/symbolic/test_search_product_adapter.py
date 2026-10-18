@@ -727,7 +727,7 @@ def test_submit_v1_fingerprint_is_frozen_and_v2_separates_science_from_runtime_i
     )
     # This pin binds the exact Catalog and algorithm resource closure, including
     # registry readiness metadata; the V1 intent schema and V2 semantics are unchanged.
-    assert v1.command_fingerprint == "11d4363e751b4461fbf9a3b372c536a4bd46cc078a52eb71160dc9fe56c3be64"
+    assert v1.command_fingerprint == "f579dfa67d1284b7177a15570698ddf5a60c50050baa60a1106c5e9a21a7d511"
     with pytest.raises(OnlySearchRuntimeGenerationUnbound):
         service.submit(v1)
 

@@ -343,7 +343,7 @@ def only_cn_a_share_product_config(
                     {
                         "instrument_id": instrument_id,
                         "bar_semantic": {
-                            "schema_version": 2,
+                            "schema_version": 3,
                             "formation": {
                                 "schema_version": 1,
                                 "kind": "FIXED_DURATION",

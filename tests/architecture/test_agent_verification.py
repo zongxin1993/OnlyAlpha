@@ -527,7 +527,7 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
 
 
 @pytest.mark.parametrize(
-    "path", ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/onlyalpha-kernel/src/lib.rs"]
+    "path", ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/onlyalpha-kernel/core/src/lib.rs"]
 )
 def test_rust_changes_select_offline_kernel_checks(path: str) -> None:
     plan = _plan(path)

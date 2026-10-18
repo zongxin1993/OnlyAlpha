@@ -84,7 +84,7 @@ def only_test_zero_fee_contract(
     estimate = OnlyOrderFeeEstimate(assessment, assessment, zero, zero, digest)
     principal_amount = Decimal(0) if order.price is None else order.price.value * order.quantity.value
     principal = OnlyMoney(principal_amount.quantize(Decimal("0.01")), currency)
-    funding = OnlyOrderFundingPlan(order.order_id, principal, zero, principal, digest, digest)
+    funding = OnlyOrderFundingPlan(order.order_id, principal, zero, principal, binding.fingerprint, digest)
     return binding, estimate, funding
 
 

@@ -50,7 +50,7 @@ factors and research authoring remain Python-oriented; market/provider/Broker im
 Mixed packages require responsibility-level classification rather than whole-directory translation. A generic fee accrual or
 reconciliation rule and a concrete market fee schedule must retain different owners even when related Python code shares an area.
 
-Keep Python source under `src/onlyalpha/` and the canonical Rust library under `crates/onlyalpha-kernel/src/`. Align domain names,
+Keep Python source under `src/onlyalpha/` and the canonical Rust library under `crates/onlyalpha-kernel/core/src/`. Align domain names,
 module responsibilities and dependency direction; do not require matching files, classes, types or directory depth. Follow each
 language's native organization. The existing Rust library is not a separately deployed component. Independently buildable,
 versioned/deployable non-plugin components continue to follow `packages/onlyalpha-<FUNC>-<NAME>/`; concrete Plugin SPI
@@ -68,6 +68,40 @@ Record responsibility correspondence with its owning development/design document
 and shared vectors. Such correspondence is a source-navigation aid, not a second specification, migration-status registry or
 Authority. The [Predicate responsibility map](../rust-kernel-development.md#predicate-responsibility-map) illustrates the first
 bounded area; it does not claim complete Python/Rust feature parity or admission of a new Runtime implementation.
+
+### 1.2 Functional modules are the delivery and isolation units
+
+The owner selects complete functional modules, beginning with Python `src/onlyalpha/domain/` and the corresponding Rust Domain,
+as migration delivery units. Internal types and operations may be implemented in small steps, but passing a few primitive/vector
+slices is not completion of a module. Each selected module first inventories all public responsibilities, methods, dependencies,
+identity/serialization rules, invariants, error behavior and applicable persistence/recovery obligations. Audit the Python
+implementation against the Constitution and owning Contracts before treating it as a comparison reference. Correct real defects
+with regression tests at their owning boundary; do not reproduce a Python bug or silently weaken acceptance to obtain parity.
+Unresolved identity, numerical-policy, history or authority decisions block dependent implementation, not unrelated preparation.
+
+Major Rust functional modules use separate library crates when their independent build/test and dependency enforcement require
+that boundary. The owner-selected `crates/onlyalpha-kernel/` umbrella groups these crates: `domain/` owns package
+`onlyalpha-domain` and `core/` owns the existing package `onlyalpha-kernel`. The umbrella itself is not a Cargo package. The Domain library belongs at `crates/onlyalpha-kernel/domain/`, with language-native internal responsibility modules
+corresponding to Python Domain areas. It has no dependency on the Kernel orchestration library, Application, Runtime, database,
+Web, provider/Broker implementation or Python bridge. Higher-level consumers may depend on Domain through its public API.
+This explicitly extends the existing `crates/` placement exception for non-deployed canonical semantic libraries; independently
+deployed components and concrete plugins retain their existing `packages/` and `plugs/` placement. Do not split every Python
+file into a crate, create a service per module, or use RPC to enforce an in-process semantic boundary.
+
+Independent compilation means the module and its declared lower-layer dependency closure can build/test without the whole
+application or its databases/providers. Cargo dependency graphs, manifests, public visibility and architecture checks enforce
+allowed directions and reject reverse edges, cycles and undeclared escape paths. Rust compilation alone does not forbid a
+reverse edge that happens not to create a cycle; the owning architecture gate must reject it explicitly. Demonstrate isolation
+with a source/dependency closure build as well as package-selected build/test. Python keeps its canonical distribution until a
+real requirement justifies package separation; enforce its module dependencies and isolated tests rather than claim that each
+existing directory is independently packaged.
+
+Both languages consume shared independent canonical vectors and adversarial cases, covering all module responsibilities and
+applicable value/error/serialization/state/recovery behavior. Exact semantic facts remain under one Contract and Authority;
+implementation artifacts retain distinct provenance. Module acceptance also requires its real consumer checks, bounded independent
+review and AGENTS.md impact-aware gates. Audits, checklists, readiness snapshots and per-step PASS ledgers are not committed as a
+second progress or acceptance authority. Existing stateless Predicate work is retained for its owning Calculation area; it does
+not replace the Domain module or authorize an alternate migration completion standard.
 
 ### 2. Contract equivalence, not Python-as-oracle
 

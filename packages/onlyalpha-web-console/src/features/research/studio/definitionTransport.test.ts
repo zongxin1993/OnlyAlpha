@@ -216,7 +216,7 @@ it("preserves the admitted Dataset price and adjustment semantics", () => {
         catalog
     );
     expect(result.dataset).toMatchObject({
-        bar_semantic: { price_type: "MARK", adjustment_policy: "FORWARD" }
+        bar_semantic: { schema_version: 3, price_type: "MARK", adjustment_policy: "FORWARD" }
     });
 });
 

@@ -4,6 +4,21 @@ FROM ghcr.io/astral-sh/uv:0.10.5@sha256:476133fa2aaddb4cbee003e3dc79a88d327a5dc7
 FROM rust:1.99.1-slim-bookworm@sha256:a24e292b4af7bdee351a31d3a6379972a5652f0ea22a1b6d6883324ac4f5097c AS rust-tools
 RUN rustup component add --toolchain 1.99.1 rustfmt clippy
 
+# Dependency resolution is an explicit preparation artifact, never a test lane.
+FROM rust-tools AS rust-manifests
+WORKDIR /rust-source
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ ./crates/
+
+FROM rust-manifests AS rust-dependency-resolution
+RUN CARGO_NET_RETRY=0 cargo update --workspace
+
+FROM scratch AS rust-lockfile
+COPY --from=rust-dependency-resolution /rust-source/Cargo.lock /Cargo.lock
+
+FROM rust-manifests AS rust-dependencies
+RUN CARGO_NET_RETRY=0 cargo fetch --locked
+
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -52,6 +67,7 @@ FROM runtime AS test
 USER root
 COPY --from=rust-tools /usr/local/rustup /usr/local/rustup
 COPY --from=rust-tools /usr/local/cargo /usr/local/cargo
+COPY --from=rust-dependencies /usr/local/cargo/registry /usr/local/cargo/registry
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/tmp/onlyalpha-cargo \
     RUSTUP_AUTO_INSTALL=0 \

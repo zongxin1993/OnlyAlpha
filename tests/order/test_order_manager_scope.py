@@ -53,6 +53,20 @@ class _ConstantClientOrderIdGenerator:
             raise ValueError("unexpected sequence")
 
 
+def _in_test_runtime(snapshot, runtime_id, client_order_id):
+    # Build a valid controlled fixture for this Runtime before testing index admission.
+    unbound = replace(
+        snapshot,
+        runtime_id=runtime_id,
+        client_order_id=client_order_id,
+        fee_policy_binding=None,
+        fee_estimate=None,
+        funding_plan=None,
+    )
+    binding, estimate, funding = only_test_zero_fee_contract(unbound, unbound.updated_at)
+    return replace(unbound, fee_policy_binding=binding, fee_estimate=estimate, funding_plan=funding)
+
+
 def test_client_and_venue_identity_conflicts_fail_closed(order_request) -> None:
     runtime_id = OnlyRuntimeId("runtime")
     manager = OnlyOrderManager(
@@ -91,11 +105,7 @@ def test_client_and_venue_identity_conflicts_fail_closed(order_request) -> None:
         OnlyTimestamp.from_unix_nanos(2),
         only_test_zero_fee_contract,
     )
-    conflict_snapshot = replace(
-        conflicting.snapshot,
-        runtime_id=runtime_id,
-        client_order_id=first.snapshot.client_order_id,
-    )
+    conflict_snapshot = _in_test_runtime(conflicting.snapshot, runtime_id, first.snapshot.client_order_id)
     with pytest.raises(ValueError, match="CLIENT_ORDER_IDENTITY_CONFLICT"):
         manager.restore_execution_authority(
             conflict_snapshot,
@@ -117,10 +127,8 @@ def test_client_and_venue_identity_conflicts_fail_closed(order_request) -> None:
         OnlyTimestamp.from_unix_nanos(4),
         OnlyVenueOrderId("one-venue-order"),
     )
-    venue_conflict = replace(
-        other.require_snapshot(conflicting.order_id),
-        runtime_id=runtime_id,
-        client_order_id=OnlyClientOrderId("other-client-id"),
+    venue_conflict = _in_test_runtime(
+        other.require_snapshot(conflicting.order_id), runtime_id, OnlyClientOrderId("other-client-id")
     )
     with pytest.raises(ValueError, match="VENUE_ORDER_IDENTITY_CONFLICT"):
         manager.restore_execution_authority(

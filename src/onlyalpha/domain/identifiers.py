@@ -39,7 +39,12 @@ class OnlyRawSymbol(OnlyIdentifier):
 
 @dataclass(frozen=True, slots=True)
 class OnlyVenueId(OnlyIdentifier):
-    """Trading venue identity independent from exchange enums."""
+    """Trading venue identity; dot is reserved for InstrumentId separation."""
+
+    def __post_init__(self) -> None:
+        super(OnlyVenueId, self).__post_init__()
+        if "." in self.value:
+            raise OnlyValidationError("venue id cannot contain the instrument separator")
 
 
 @dataclass(frozen=True, slots=True)

@@ -106,7 +106,9 @@ class OnlyChartCalculationRequestV1:
         except OnlyValidationError as exc:
             raise OnlyChartCalculationError("CHART_REQUEST_INVALID") from exc
         semantic = _object(root["bar_semantic"], {"schema_version", "formation", "price_type", "adjustment_policy"})
-        _require(type(semantic["schema_version"]) is int and semantic["schema_version"] == 2)
+        _require(
+            type(semantic["schema_version"]) is int and semantic["schema_version"] == OnlyBarSemantic.schema_version
+        )
         formation = _object(
             semantic["formation"], {"schema_version", "kind", "window_minutes", "stride_minutes", "alignment"}
         )

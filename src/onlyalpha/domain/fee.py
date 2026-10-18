@@ -8,9 +8,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from functools import reduce
 from typing import Self
 
-from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.base import OnlyDomainModel, only_require_immutable_tuple
 from onlyalpha.domain.errors import OnlySerializationError
 from onlyalpha.domain.identifiers import (
     OnlyAccountId,
@@ -20,6 +21,7 @@ from onlyalpha.domain.identifiers import (
     OnlyRuntimeId,
     OnlyTradeId,
 )
+from onlyalpha.domain.numeric import only_add
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, only_decimal
 
@@ -346,6 +348,7 @@ class OnlyFeeAssessment(OnlyDomainModel):
     binding: OnlyOrderFeePolicyBinding
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.components)
         if not self.assessment_id.strip():
             raise ValueError("fee assessment identity cannot be empty")
         _require_digest(self.policy_fingerprint, "policy fingerprint")
@@ -359,7 +362,8 @@ class OnlyFeeAssessment(OnlyDomainModel):
         currency = self.total_charges.currency
         if any(item.target_amount.currency != currency for item in self.components):
             raise ValueError("fee assessment component currency mismatch")
-        charges = sum(
+        charges = reduce(
+            only_add,
             (
                 item.target_amount.amount
                 for item in self.components
@@ -367,7 +371,8 @@ class OnlyFeeAssessment(OnlyDomainModel):
             ),
             Decimal(0),
         )
-        rebates = sum(
+        rebates = reduce(
+            only_add,
             (
                 item.target_amount.amount
                 for item in self.components
@@ -377,8 +382,13 @@ class OnlyFeeAssessment(OnlyDomainModel):
         )
         if charges != self.total_charges.amount or rebates != self.total_rebates.amount:
             raise ValueError("fee assessment totals disagree with components")
-        if self.binding.order_id != self.subject.order_id:
+        if any(
+            getattr(self.binding, field) != getattr(self.subject, field)
+            for field in ("runtime_id", "account_id", "cluster_id", "order_id", "instrument_id")
+        ):
             raise ValueError("fee assessment binding scope mismatch")
+        if currency != self.binding.charge_currency:
+            raise ValueError("fee assessment currency conflicts with binding")
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +412,7 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
     fingerprint: str
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.order_fixed_schedules, self.fill_effective_families)
         if not self.market_product_id.strip() or not self.market_product_version.strip():
             raise ValueError("order fee binding requires a Market Product identity")
         if len({(item.authority, item.schedule_id) for item in self.fill_effective_families}) != len(
@@ -420,6 +431,14 @@ class OnlyOrderFeePolicyBinding(OnlyDomainModel):
             raise ValueError("order fee applicability product conflicts with binding")
         if self.applicability_scope.charge_currency != self.charge_currency:
             raise ValueError("order fee applicability currency conflicts with binding")
+        if self.broker_fee_contract.broker_id != self.applicability_scope.broker_id:
+            raise ValueError("order fee Broker conflicts with applicability scope")
+        account_scope = self.broker_fee_contract.account_scope
+        if (
+            account_scope.scope_type is OnlyBrokerFeeAccountScopeType.EXACT_ACCOUNT
+            and account_scope.account_id != self.account_id
+        ):
+            raise ValueError("order fee Broker account scope conflicts with binding")
         _require_digest(self.fingerprint, "binding fingerprint")
         if self.fingerprint != only_fee_fingerprint(self.authority_payload()):
             raise ValueError("ORDER_FEE_BINDING_CONFLICT")
@@ -545,6 +564,8 @@ class OnlyOrderFeeEstimate(OnlyDomainModel):
         )
         if len({item.currency for item in values}) != 1:
             raise ValueError("fee estimate currency mismatch")
+        if self.expected.subject != self.maximum.subject or self.expected.binding != self.maximum.binding:
+            raise ValueError("fee estimate assessments require one subject and binding")
         if self.reservation_charge != self.maximum.total_charges:
             raise ValueError("fee reservation must equal maximum charges")
 

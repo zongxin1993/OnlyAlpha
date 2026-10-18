@@ -4,7 +4,7 @@
     "capability_projection": {
       "authority": "DISPLAY_ONLY",
       "backend": "RESEARCH",
-      "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
+      "catalog_generation_fingerprint": "67c4d39ab469ff20d8adf8911bcd3f1b5cbd4217d362fe3993d0358eb1b86fad",
       "descriptor": {
         "execution_shape": "TIME_SERIES",
         "factor_kind": null,
@@ -82,8 +82,8 @@
           "type_id": "onlyalpha.indicator.sma"
         },
         "entrypoint_identity": "onlyalpha_plugin_indicators.research:OnlyOfficialResearchIndicatorBackend",
-        "implementation_bundle_fingerprint": "bf738b87a6715f22b7b8c65c492bf81918bab118d7bee03df190a5efbabb05fc",
-        "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
+        "implementation_bundle_fingerprint": "aa4a147631774e42ca6d7d52f87044ee9cdbcca40c2535e7ca9a165e615e1070",
+        "implementation_fingerprint": "63737b6a41d82668980f61f2977d4de9a1299febd2250f698383027f94e57ebd",
         "resources": [
           {
             "byte_sha256": "3ebd4300b81b7e5c61ab60751ac484e45c723e30081121e71ee3376e404154ef",
@@ -98,7 +98,7 @@
             "relative_path": "financial_semantics.py"
           },
           {
-            "byte_sha256": "c60e10f63f40c727092bdc603dc989af054c697b3e748a47f786b9d665e1125a",
+            "byte_sha256": "98f3daab033ced4d76a5faeb568305b9cf52350ac73b8ee6e78aba56930cccb7",
             "relative_path": "provider.py"
           },
           {
@@ -294,15 +294,15 @@
           }
         ]
       },
-      "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
+      "provider_content_fingerprint": "1f4134c9f75785e37260cfcc148898794e166b4114c4de137166357e561ac40e",
       "provider_manifest": {
         "kind": "INDICATOR",
         "provider_id": "onlyalpha.indicator.library",
-        "provider_version": "9",
+        "provider_version": "16",
         "schema_version": 1,
         "source": {
           "distribution_name": "onlyalpha-plugin-indicators",
-          "distribution_version": "0.9.13",
+          "distribution_version": "0.10.7",
           "kind": "DISTRIBUTION"
         }
       },
@@ -314,8 +314,8 @@
       "source_kind": "CHART_STUDY_TRANSIENT",
       "supported_shape": "TIME_SERIES/BAR_FIELDS"
     },
-    "capability_projection_fingerprint": "f3d91fd4185241d646a724d3ab43681315e4125ce965db7585a751f455085a0a",
-    "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
+    "capability_projection_fingerprint": "2e8ab6c49f000c5429f4053c83be0c8bffa3a35d16f39009c23227cd0d836d76",
+    "catalog_generation_fingerprint": "67c4d39ab469ff20d8adf8911bcd3f1b5cbd4217d362fe3993d0358eb1b86fad",
     "descriptor": {
       "execution_shape": "TIME_SERIES",
       "factor_kind": null,
@@ -385,7 +385,7 @@
     },
     "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
     "execution_shape": "TIME_SERIES",
-    "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
+    "implementation_fingerprint": "63737b6a41d82668980f61f2977d4de9a1299febd2250f698383027f94e57ebd",
     "invocation_implementation_fingerprint": "69c78d8666a07e85063a3c2fcdd17dbddf0146a53df6fce9bdfe23d67efc201c",
     "kind": "INDICATOR",
     "limits": {
@@ -444,9 +444,9 @@
         }
       ]
     },
-    "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
+    "provider_content_fingerprint": "1f4134c9f75785e37260cfcc148898794e166b4114c4de137166357e561ac40e",
     "provider_id": "onlyalpha.indicator.library",
-    "provider_version": "9",
+    "provider_version": "16",
     "readiness_contract_version": 1,
     "semantic_version": "1",
     "type_id": "onlyalpha.indicator.sma"
@@ -463,15 +463,15 @@
         "window_minutes": 15
       },
       "price_type": "LAST",
-      "schema_version": 2
+      "schema_version": 3
     },
     "calculation": {
       "backend": "RESEARCH",
-      "capability_projection_fingerprint": "f3d91fd4185241d646a724d3ab43681315e4125ce965db7585a751f455085a0a",
-      "catalog_generation_fingerprint": "296c4531ae8de5858e94897c06f0c8824790ef814563956dc7a0f4d90b3f91c5",
+      "capability_projection_fingerprint": "2e8ab6c49f000c5429f4053c83be0c8bffa3a35d16f39009c23227cd0d836d76",
+      "catalog_generation_fingerprint": "67c4d39ab469ff20d8adf8911bcd3f1b5cbd4217d362fe3993d0358eb1b86fad",
       "definition_fingerprint": "f21db1be2434426ef9fbf6e7ae806268bb866cf3bae005db4950891685e8d49e",
       "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
-      "implementation_fingerprint": "1a3ef3769a576e93d8eec414a24e380667fcd043fd28698e87b635fad5ec93dd",
+      "implementation_fingerprint": "63737b6a41d82668980f61f2977d4de9a1299febd2250f698383027f94e57ebd",
       "invocation_implementation_fingerprint": "69c78d8666a07e85063a3c2fcdd17dbddf0146a53df6fce9bdfe23d67efc201c",
       "kind": "INDICATOR",
       "normalized_definition": {
@@ -581,9 +581,9 @@
           "unit": "PRICE"
         }
       ],
-      "provider_content_fingerprint": "00fb0179a2ae5b57c2efd550cec6b4bb3b2de24f4ef9ea0ad3d143b2bffd3fec",
+      "provider_content_fingerprint": "1f4134c9f75785e37260cfcc148898794e166b4114c4de137166357e561ac40e",
       "provider_id": "onlyalpha.indicator.library",
-      "provider_version": "9",
+      "provider_version": "16",
       "semantic_version": "1",
       "type_id": "onlyalpha.indicator.sma"
     },
@@ -603,50 +603,50 @@
       "before_ns": "1767225600000000000",
       "calendar_fingerprint": "f5d66deeb9740c78deeb7be6a9b46fdddaf3cb4f37f1835ed397dbd86349850c",
       "derived_projection_fingerprint": null,
-      "history_projection_fingerprint": "530487bf04bd0c563ad8fa3c085850c1549d408da6acfe9ee8a5c8d8cb1147c7",
+      "history_projection_fingerprint": "b3eb3ff0dfc879d0eb2fb95f8e3888e591fa2eb7e7c074a729f57169f8fbed38",
       "initialization": "FINITE_WINDOW_START",
       "resolution_mode": "PROVIDER_NATIVE",
-      "resolution_plan_fingerprint": "481861b9e3b8de5d727cdc78d33e664a37cdcafba1180450c7479f339bfd9dd0",
+      "resolution_plan_fingerprint": "eac55208a200ccb95e9aad4c709cce71bd51db2b19d07a6a7aa5cdc39156d0cf",
       "resolved_end_ns": "1767225600000000000",
       "resolved_start_ns": "1765425600000000000",
       "resume_after_sequence": "1963583",
-      "resume_plan_fingerprint": "481861b9e3b8de5d727cdc78d33e664a37cdcafba1180450c7479f339bfd9dd0",
+      "resume_plan_fingerprint": "eac55208a200ccb95e9aad4c709cce71bd51db2b19d07a6a7aa5cdc39156d0cf",
       "revision_evidence": [
         {
           "covered_end_ns": "1765875600000000000",
           "covered_start_ns": "1765425600000000000",
-          "manifest_fingerprint": "021f8c2e63d88618bb6078c07b82ebdc8359fef6c94aedec1705258a7b05a9e0",
-          "manifest_id": "manifest:021f8c2e63d88618bb6078c07b82ebdc8359fef6c94aedec1705258a7b05a9e0",
-          "revision_fingerprint": "901346fa3869ad764517ae1a9c24dcc349eb1f5868e9d3f4efb096c7135686d3",
-          "revision_id": "market-data-revision:901346fa3869ad764517ae1a9c24dcc349eb1f5868e9d3f4efb096c7135686d3",
-          "seal_id": "seal:a731bc691d4efbeeb722693fe4f43257f85c05bdf648991bfbd1c9acc05159f2"
+          "manifest_fingerprint": "c001dce4cb0c8407e51d22855b7cd6d537602ef69fad8cdf599ab536def38134",
+          "manifest_id": "manifest:c001dce4cb0c8407e51d22855b7cd6d537602ef69fad8cdf599ab536def38134",
+          "revision_fingerprint": "c88cc2698cf8a28410a7d32526a4c218d1e64981d405b3c2513ae20297990cba",
+          "revision_id": "market-data-revision:c88cc2698cf8a28410a7d32526a4c218d1e64981d405b3c2513ae20297990cba",
+          "seal_id": "seal:8f0232bcd1cac5130e8cc097f7a2c7827ccbfb4283bd2a2764f964b577997c5b"
         },
         {
           "covered_end_ns": "1766325600000000000",
           "covered_start_ns": "1765875600000000000",
-          "manifest_fingerprint": "7136ebe6caa35c06d8048003a8a2feed654fe02df92088cbf9189f1b66c05c51",
-          "manifest_id": "manifest:7136ebe6caa35c06d8048003a8a2feed654fe02df92088cbf9189f1b66c05c51",
-          "revision_fingerprint": "4254c59010a644a37f093332f6f2d42b40f9807a275a1251f92c3b0d034fb377",
-          "revision_id": "market-data-revision:4254c59010a644a37f093332f6f2d42b40f9807a275a1251f92c3b0d034fb377",
-          "seal_id": "seal:a8a2299bd5115c348165fb9582c3f2ff7a6447d71c7bd8491e58550ff9297d78"
+          "manifest_fingerprint": "7fb0b5f0bd3514846b44e5e921794551657948208d2b74cd18d89dc70e8aa783",
+          "manifest_id": "manifest:7fb0b5f0bd3514846b44e5e921794551657948208d2b74cd18d89dc70e8aa783",
+          "revision_fingerprint": "4267f59472433e4cfcc6712a1438f9a7fa45dafb2b0f5db315ce265fa959d82f",
+          "revision_id": "market-data-revision:4267f59472433e4cfcc6712a1438f9a7fa45dafb2b0f5db315ce265fa959d82f",
+          "seal_id": "seal:6306039e18cab166c1a25b55cac53b24914299f463dfca3541d87e2290ee5531"
         },
         {
           "covered_end_ns": "1766775600000000000",
           "covered_start_ns": "1766325600000000000",
-          "manifest_fingerprint": "2274518d9afc7419dbfeb6f5be20e231a2ea0d8d4fc1a5d56b2156ac8cef48ab",
-          "manifest_id": "manifest:2274518d9afc7419dbfeb6f5be20e231a2ea0d8d4fc1a5d56b2156ac8cef48ab",
-          "revision_fingerprint": "063bf0ce38671453fe5d815894c3b880c6927fd4560d6c37e8dc9d38286b79a2",
-          "revision_id": "market-data-revision:063bf0ce38671453fe5d815894c3b880c6927fd4560d6c37e8dc9d38286b79a2",
-          "seal_id": "seal:8c4fd1ca2218574f932ffd506ee11c4c3b69c643d78073c356ab83464fa7f63c"
+          "manifest_fingerprint": "05c71947a357571867c95cbc687fd87555703976e4f0510dbf0462b71f8202ba",
+          "manifest_id": "manifest:05c71947a357571867c95cbc687fd87555703976e4f0510dbf0462b71f8202ba",
+          "revision_fingerprint": "629e53d509566efe0baf431d0082754fb396a7f56da1f384a5f6a5220d8fa3ec",
+          "revision_id": "market-data-revision:629e53d509566efe0baf431d0082754fb396a7f56da1f384a5f6a5220d8fa3ec",
+          "seal_id": "seal:5171baee3fdbfb555a6f80f2bc203d4c20e6bb2a51960054f24c6cc96b0f802f"
         },
         {
           "covered_end_ns": "1767225600000000000",
           "covered_start_ns": "1766775600000000000",
-          "manifest_fingerprint": "07a61f6b526a49b78b2c3b99663cae4a64fa541192221c17809b428296e274dd",
-          "manifest_id": "manifest:07a61f6b526a49b78b2c3b99663cae4a64fa541192221c17809b428296e274dd",
-          "revision_fingerprint": "7d805486f0870627ca43d7a244097b530eb2996c89e09d245b25fa0f13938652",
-          "revision_id": "market-data-revision:7d805486f0870627ca43d7a244097b530eb2996c89e09d245b25fa0f13938652",
-          "seal_id": "seal:4bd1141a2487d5555fc3f2ab3621aacd9974586d337dadbce01982c0d6aedc1f"
+          "manifest_fingerprint": "96c11dbdc9602299106906ef853157320a2e8d816b78249a8bb401e2ae0faba2",
+          "manifest_id": "manifest:96c11dbdc9602299106906ef853157320a2e8d816b78249a8bb401e2ae0faba2",
+          "revision_fingerprint": "fd33628e65727c1b068bb97c82ce49d24c40b9fc26bd86323867e84ddeb79a61",
+          "revision_id": "market-data-revision:fd33628e65727c1b068bb97c82ce49d24c40b9fc26bd86323867e84ddeb79a61",
+          "seal_id": "seal:061f042dc35e053b437a8aa96275c7da818268bf8f9f88b1975eaef26f7504ae"
         }
       ],
       "target_bar_count": 2000
@@ -16685,7 +16685,7 @@
         "window_minutes": 15
       },
       "price_type": "LAST",
-      "schema_version": 2
+      "schema_version": 3
     },
     "bars": [
       {
@@ -36703,53 +36703,53 @@
     },
     "derived_projection_fingerprint": null,
     "display_symbol": "BTCUSDT",
-    "history_projection_fingerprint": "530487bf04bd0c563ad8fa3c085850c1549d408da6acfe9ee8a5c8d8cb1147c7",
+    "history_projection_fingerprint": "b3eb3ff0dfc879d0eb2fb95f8e3888e591fa2eb7e7c074a729f57169f8fbed38",
     "instrument_id": "BTCUSDT.TEST",
     "market": "SPOT",
     "requested_bar_count": 2000,
     "requested_before_ns": "1767225600000000000",
     "resolution_mode": "PROVIDER_NATIVE",
-    "resolution_plan_fingerprint": "481861b9e3b8de5d727cdc78d33e664a37cdcafba1180450c7479f339bfd9dd0",
+    "resolution_plan_fingerprint": "eac55208a200ccb95e9aad4c709cce71bd51db2b19d07a6a7aa5cdc39156d0cf",
     "resolved_end_ns": "1767225600000000000",
     "resolved_start_ns": "1765425600000000000",
     "resume_after_sequence": "1963583",
-    "resume_plan_fingerprint": "481861b9e3b8de5d727cdc78d33e664a37cdcafba1180450c7479f339bfd9dd0",
+    "resume_plan_fingerprint": "eac55208a200ccb95e9aad4c709cce71bd51db2b19d07a6a7aa5cdc39156d0cf",
     "revision_evidence": [
       {
         "covered_end_ns": "1765875600000000000",
         "covered_start_ns": "1765425600000000000",
-        "manifest_fingerprint": "021f8c2e63d88618bb6078c07b82ebdc8359fef6c94aedec1705258a7b05a9e0",
-        "manifest_id": "manifest:021f8c2e63d88618bb6078c07b82ebdc8359fef6c94aedec1705258a7b05a9e0",
-        "revision_fingerprint": "901346fa3869ad764517ae1a9c24dcc349eb1f5868e9d3f4efb096c7135686d3",
-        "revision_id": "market-data-revision:901346fa3869ad764517ae1a9c24dcc349eb1f5868e9d3f4efb096c7135686d3",
-        "seal_id": "seal:a731bc691d4efbeeb722693fe4f43257f85c05bdf648991bfbd1c9acc05159f2"
+        "manifest_fingerprint": "c001dce4cb0c8407e51d22855b7cd6d537602ef69fad8cdf599ab536def38134",
+        "manifest_id": "manifest:c001dce4cb0c8407e51d22855b7cd6d537602ef69fad8cdf599ab536def38134",
+        "revision_fingerprint": "c88cc2698cf8a28410a7d32526a4c218d1e64981d405b3c2513ae20297990cba",
+        "revision_id": "market-data-revision:c88cc2698cf8a28410a7d32526a4c218d1e64981d405b3c2513ae20297990cba",
+        "seal_id": "seal:8f0232bcd1cac5130e8cc097f7a2c7827ccbfb4283bd2a2764f964b577997c5b"
       },
       {
         "covered_end_ns": "1766325600000000000",
         "covered_start_ns": "1765875600000000000",
-        "manifest_fingerprint": "7136ebe6caa35c06d8048003a8a2feed654fe02df92088cbf9189f1b66c05c51",
-        "manifest_id": "manifest:7136ebe6caa35c06d8048003a8a2feed654fe02df92088cbf9189f1b66c05c51",
-        "revision_fingerprint": "4254c59010a644a37f093332f6f2d42b40f9807a275a1251f92c3b0d034fb377",
-        "revision_id": "market-data-revision:4254c59010a644a37f093332f6f2d42b40f9807a275a1251f92c3b0d034fb377",
-        "seal_id": "seal:a8a2299bd5115c348165fb9582c3f2ff7a6447d71c7bd8491e58550ff9297d78"
+        "manifest_fingerprint": "7fb0b5f0bd3514846b44e5e921794551657948208d2b74cd18d89dc70e8aa783",
+        "manifest_id": "manifest:7fb0b5f0bd3514846b44e5e921794551657948208d2b74cd18d89dc70e8aa783",
+        "revision_fingerprint": "4267f59472433e4cfcc6712a1438f9a7fa45dafb2b0f5db315ce265fa959d82f",
+        "revision_id": "market-data-revision:4267f59472433e4cfcc6712a1438f9a7fa45dafb2b0f5db315ce265fa959d82f",
+        "seal_id": "seal:6306039e18cab166c1a25b55cac53b24914299f463dfca3541d87e2290ee5531"
       },
       {
         "covered_end_ns": "1766775600000000000",
         "covered_start_ns": "1766325600000000000",
-        "manifest_fingerprint": "2274518d9afc7419dbfeb6f5be20e231a2ea0d8d4fc1a5d56b2156ac8cef48ab",
-        "manifest_id": "manifest:2274518d9afc7419dbfeb6f5be20e231a2ea0d8d4fc1a5d56b2156ac8cef48ab",
-        "revision_fingerprint": "063bf0ce38671453fe5d815894c3b880c6927fd4560d6c37e8dc9d38286b79a2",
-        "revision_id": "market-data-revision:063bf0ce38671453fe5d815894c3b880c6927fd4560d6c37e8dc9d38286b79a2",
-        "seal_id": "seal:8c4fd1ca2218574f932ffd506ee11c4c3b69c643d78073c356ab83464fa7f63c"
+        "manifest_fingerprint": "05c71947a357571867c95cbc687fd87555703976e4f0510dbf0462b71f8202ba",
+        "manifest_id": "manifest:05c71947a357571867c95cbc687fd87555703976e4f0510dbf0462b71f8202ba",
+        "revision_fingerprint": "629e53d509566efe0baf431d0082754fb396a7f56da1f384a5f6a5220d8fa3ec",
+        "revision_id": "market-data-revision:629e53d509566efe0baf431d0082754fb396a7f56da1f384a5f6a5220d8fa3ec",
+        "seal_id": "seal:5171baee3fdbfb555a6f80f2bc203d4c20e6bb2a51960054f24c6cc96b0f802f"
       },
       {
         "covered_end_ns": "1767225600000000000",
         "covered_start_ns": "1766775600000000000",
-        "manifest_fingerprint": "07a61f6b526a49b78b2c3b99663cae4a64fa541192221c17809b428296e274dd",
-        "manifest_id": "manifest:07a61f6b526a49b78b2c3b99663cae4a64fa541192221c17809b428296e274dd",
-        "revision_fingerprint": "7d805486f0870627ca43d7a244097b530eb2996c89e09d245b25fa0f13938652",
-        "revision_id": "market-data-revision:7d805486f0870627ca43d7a244097b530eb2996c89e09d245b25fa0f13938652",
-        "seal_id": "seal:4bd1141a2487d5555fc3f2ab3621aacd9974586d337dadbce01982c0d6aedc1f"
+        "manifest_fingerprint": "96c11dbdc9602299106906ef853157320a2e8d816b78249a8bb401e2ae0faba2",
+        "manifest_id": "manifest:96c11dbdc9602299106906ef853157320a2e8d816b78249a8bb401e2ae0faba2",
+        "revision_fingerprint": "fd33628e65727c1b068bb97c82ce49d24c40b9fc26bd86323867e84ddeb79a61",
+        "revision_id": "market-data-revision:fd33628e65727c1b068bb97c82ce49d24c40b9fc26bd86323867e84ddeb79a61",
+        "seal_id": "seal:061f042dc35e053b437a8aa96275c7da818268bf8f9f88b1975eaef26f7504ae"
       }
     ],
     "schema_version": 1,

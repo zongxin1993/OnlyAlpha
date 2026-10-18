@@ -8,7 +8,7 @@ const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const nanos = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
 
 export const marketDataBarSemanticSchema = z.strictObject({
-    schema_version: z.literal(2),
+    schema_version: z.literal(3),
     formation: z.discriminatedUnion("kind", [
         z.strictObject({
             schema_version: z.literal(1),
@@ -30,12 +30,12 @@ export const marketDataBarSemanticSchema = z.strictObject({
             count: z.number().int().min(1)
         }),
         z.strictObject({
-            schema_version: z.literal(1),
+            schema_version: z.literal(2),
             kind: z.literal("VOLUME"),
             quantity: z.string()
         }),
         z.strictObject({
-            schema_version: z.literal(1),
+            schema_version: z.literal(2),
             kind: z.literal("VALUE"),
             value: z.string()
         })
@@ -46,7 +46,7 @@ export const marketDataBarSemanticSchema = z.strictObject({
 export type MarketDataBarSemantic = z.infer<typeof marketDataBarSemanticSchema>;
 export const marketDataBarSemantic = (durationMinutes: number): MarketDataBarSemantic =>
     marketDataBarSemanticSchema.parse({
-        schema_version: 2,
+        schema_version: 3,
         formation: {
             schema_version: 1,
             kind: "FIXED_DURATION",

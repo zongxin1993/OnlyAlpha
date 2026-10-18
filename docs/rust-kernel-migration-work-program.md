@@ -14,7 +14,7 @@ Trading Kernel or the authorization to rewrite the entire backend. For each sele
    application orchestration and Infrastructure. A Python package may contain more than one responsibility.
 2. Record the Python/Rust module correspondence in its owning design/development document. Reuse existing semantic Contracts and
    `test-data/` vectors; do not create per-language specifications or a second progress/acceptance registry.
-3. Keep `src/onlyalpha/` and `crates/onlyalpha-kernel/src/` as their respective source roots for the canonical library. Align names,
+3. Keep `src/onlyalpha/` and `crates/onlyalpha-kernel/core/src/` as their respective source roots for the canonical library. Align names,
    responsibilities and dependency direction only where the module exists. Preserve component/plugin placement for other roles.
 4. Reuse sound paths; restructure only for a demonstrated boundary need in the selected slice. If paths change, update direct
    consumers, exact implementation manifests/fingerprints, tests and build inputs together; preserve historical exact artifacts.
@@ -25,6 +25,29 @@ Stable application/Infrastructure capabilities need their own bounded consumer a
 this program does not schedule a backend-wide rewrite. Algorithm authoring and market/plugin boundaries remain as defined in
 ADR 0139. Begin navigation from the [Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map), without
 moving existing files solely to make the map visually symmetric.
+
+## Complete Domain module construction
+
+Begin the module-oriented migration with `src/onlyalpha/domain/` and `crates/onlyalpha-kernel/domain/` under ADR 0139 section 1.2.
+The selected unit covers the complete Domain public surface, not only a convenient set of identifiers or scalar primitives.
+
+1. Audit all Python Domain areas and nearest consumers against their owning Contracts. Enumerate base serialization/errors,
+   identifiers/enums, financial values, time, instruments/catalogs, calendars/venues/rules, trading intent, market facts,
+   accounts/positions/PnL, fee identities/assessments and execution requests/fills/snapshots. Resolve normative and implementation
+   differences before declaring a stable comparison baseline; preserve historical identities and immutable artifacts.
+2. Apply the owner-approved rules in [ADR 0140](adr/0140-domain-determinism-and-cross-language-contract.md): numerical precision/rounding/range rules, unambiguous identity encoding, strict subtype-aware serialization and explicit
+   timezone-rule dependencies where needed. Existing Python behavior that violates higher-level invariants is not a Rust target.
+3. Build the independent Rust Domain library in internal dependency order: foundational errors/enums/serialization, identity/value/time,
+   then their model and operation consumers. Reuse maintainable admitted dependencies where std does not cover required behavior;
+   do not invent decimal arithmetic, JSON or timezone infrastructure to satisfy a speculative zero-dependency goal.
+4. Exercise both implementations against independent module-wide vectors and adversarial mutations, with exact canonical identity,
+   numerical results, errors, subtype-preserving serialization and applicable replay/history checks. Internal steps do not replace
+   whole-module coverage. Add direct consumer regression evidence required by actual Python corrections.
+5. Prove declared package-selected and isolated source/dependency closure build/test, reject reverse/cyclic/undeclared imports,
+   and complete bounded independent correctness and simplicity review before module acceptance. No Runtime activation, Python
+   retirement or LIVE permission follows from a Domain library build or matching corpus.
+
+These are future construction dependencies, not a completion ledger. The existing R0-R8 activation and retirement gates remain.
 
 ## Dependency order
 
@@ -90,7 +113,7 @@ Python bug is fixed and regression-tested under its own impact scope before that
 ## R2 — Linux toolchain plus the first canonical Rust module
 
 **Modification map:** introduce a root `Cargo.toml` workspace, committed `Cargo.lock`, `rust-toolchain.toml` and a narrowly scoped
-`crates/onlyalpha-kernel/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
+`crates/onlyalpha-kernel/core/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
 `deploy/docker-compose.dev.yml`'s existing fixed dev services, and the canonical verification selectors as needed; do not add a
 second Compose file/project or install dependencies from the network during a test.
 

@@ -10119,9 +10119,9 @@
           "entry": false,
           "exit": true,
           "instrument_id": "TESTETF.XSHG",
-          "observation_fingerprint": "4b1eae41ae52be067e4000b4a0eac3286059858ec199fa420b2afb8cdcfe5908",
-          "observation_key": "cb7af306e80c43bdb46a353ae0f8383c7db66210e1d3a38f89cd606fb60ca4b9",
-          "strategy_fingerprint": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+          "observation_fingerprint": "b0f5489c9d7fce077a75b6719b972d872db8536c1f78a7d0c7450ade590237db",
+          "observation_key": "e0e4257316764df239aa8d72ec8dd46f8c9a3f65aa6e9940ede36bd11cb73914",
+          "strategy_fingerprint": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
         },
         "scenario_actions": [
           {
@@ -10165,7 +10165,7 @@
             "tag": "CLOSE"
           }
         ],
-        "strategy_fingerprint": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_fingerprint": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "submission_results": [
           {
             "action_id": "OPEN",
@@ -11515,7 +11515,7 @@
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:32:00Z",
@@ -11588,7 +11588,7 @@
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:33:00Z",
@@ -11661,7 +11661,7 @@
         "settlement_status": "SETTLED",
         "side": "BUY",
         "slippage": "0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-64d7d62c7e38b437ca8e5a72a392500f84ba95156f98f898b0c6b9df79f44140",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:34:00Z",
@@ -11734,7 +11734,7 @@
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-947cc96d90cfb412b78f173f3d0061c00f220fa9c769e69a2512bee7df2bfe59",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:36:00Z",
@@ -11807,7 +11807,7 @@
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-947cc96d90cfb412b78f173f3d0061c00f220fa9c769e69a2512bee7df2bfe59",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:37:00Z",
@@ -11880,7 +11880,7 @@
         "settlement_status": "SETTLED",
         "side": "SELL",
         "slippage": "-0.00",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "trade_instruction_id": "TINSTR-947cc96d90cfb412b78f173f3d0061c00f220fa9c769e69a2512bee7df2bfe59",
         "trading_day": "2026-01-05",
         "ts_event": "2026-01-05T01:38:00Z",
@@ -12089,7 +12089,7 @@
         "sequence": 1,
         "side": "BUY",
         "stop_price": null,
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       },
@@ -12106,7 +12106,7 @@
         "sequence": 2,
         "side": "SELL",
         "stop_price": null,
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "submitted_at": "2026-01-05T01:35:00Z",
         "tags": []
       }
@@ -12131,7 +12131,7 @@
         "sequence": 3,
         "side": "BUY",
         "status": "FILLED",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "submitted_at": "2026-01-05T01:31:00Z",
         "tags": []
       },
@@ -12154,7 +12154,7 @@
         "sequence": 4,
         "side": "SELL",
         "status": "FILLED",
-        "strategy_id": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b",
+        "strategy_id": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3",
         "submitted_at": "2026-01-05T01:35:00Z",
         "tags": []
       }
@@ -15586,7 +15586,7 @@
       },
       "source_sequence": 5,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "3003.00",
@@ -16126,7 +16126,7 @@
       },
       "source_sequence": 6,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "4004.00",
@@ -16666,7 +16666,7 @@
       },
       "source_sequence": 7,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "3003.00",
@@ -17206,7 +17206,7 @@
       },
       "source_sequence": 10,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "0.00",
@@ -17746,7 +17746,7 @@
       },
       "source_sequence": 11,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "0.00",
@@ -18286,7 +18286,7 @@
       },
       "source_sequence": 12,
       "strategy_id": {
-        "value": "98edd221d92e9e7235270257b54813f587217e130cdec1a88714bb5d6504720b"
+        "value": "5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3"
       },
       "strategy_reservation_consumed_delta": {
         "amount": "0.00",

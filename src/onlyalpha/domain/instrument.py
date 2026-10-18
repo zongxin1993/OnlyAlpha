@@ -1,8 +1,10 @@
 """Versioned, market-neutral instrument specifications."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Self, cast
 
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.enums import (
@@ -15,7 +17,7 @@ from onlyalpha.domain.enums import (
     OnlySecurityStatus,
     OnlySettlementType,
 )
-from onlyalpha.domain.errors import OnlyValidationError
+from onlyalpha.domain.errors import OnlySerializationError, OnlyValidationError
 from onlyalpha.domain.identifiers import (
     OnlyCalendarId,
     OnlyInstrumentId,
@@ -23,6 +25,7 @@ from onlyalpha.domain.identifiers import (
     OnlySessionProfileId,
     OnlyVenueId,
 )
+from onlyalpha.domain.numeric import only_increment, only_remainder
 from onlyalpha.domain.time import OnlyTimeZone, only_require_utc
 from onlyalpha.domain.value import (
     OnlyCurrency,
@@ -42,6 +45,29 @@ def _validate_aware(timestamp: datetime | None, field_name: str) -> None:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OnlyInstrument(OnlyDomainModel):
     """Immutable instrument definition valid for a bounded time interval."""
+
+    schema_version = 2
+
+    def to_dict(self) -> dict[str, object]:
+        payload = super(OnlyInstrument, self).to_dict()
+        payload["model_type"] = type(self).__name__
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> Self:
+        if cls is OnlyInstrument:
+            target = next(
+                (model for model in ONLY_INSTRUMENT_MODEL_TYPES if model.__name__ == payload.get("model_type")), None
+            )
+            if target is None:
+                raise OnlySerializationError("unknown or missing instrument model_type")
+            if target is not cls:
+                return cast(Self, target.from_dict(payload))
+        if payload.get("model_type") != cls.__name__:
+            raise OnlySerializationError("instrument model_type does not match requested type")
+        fields_payload = dict(payload)
+        del fields_payload["model_type"]
+        return super(OnlyInstrument, cls).from_dict(fields_payload)
 
     instrument_id: OnlyInstrumentId
     raw_symbol: OnlyRawSymbol
@@ -112,9 +138,10 @@ class OnlyInstrument(OnlyDomainModel):
         if self.minimum_quantity and self.maximum_quantity:
             if self.minimum_quantity.value > self.maximum_quantity.value:
                 raise OnlyValidationError("minimum_quantity exceeds maximum_quantity")
+        for notional in (self.minimum_notional, self.maximum_notional):
+            if notional is not None and notional.currency != self.quote_currency:
+                raise OnlyValidationError("notional limits must use quote currency")
         if self.minimum_notional and self.maximum_notional:
-            if self.minimum_notional.currency != self.maximum_notional.currency:
-                raise OnlyValidationError("notional limits must use one currency")
             if self.minimum_notional.amount > self.maximum_notional.amount:
                 raise OnlyValidationError("minimum_notional exceeds maximum_notional")
         for price in (self.minimum_price, self.maximum_price):
@@ -125,7 +152,7 @@ class OnlyInstrument(OnlyDomainModel):
                 raise OnlyValidationError("minimum_price exceeds maximum_price")
 
     def validates_price(self, price: OnlyPrice) -> bool:
-        if price.precision != self.price_precision or price.value % self.tick_size.value != 0:
+        if price.precision != self.price_precision or only_remainder(price.value, self.tick_size.value) != 0:
             return False
         if self.minimum_price and price.value < self.minimum_price.value:
             return False
@@ -136,7 +163,7 @@ class OnlyInstrument(OnlyDomainModel):
         return self.validates_price(price)
 
     def validates_quantity(self, quantity: OnlyQuantity) -> bool:
-        if quantity.precision != self.quantity_precision or quantity.value % self.step_size.value != 0:
+        if quantity.precision != self.quantity_precision or only_remainder(quantity.value, self.step_size.value) != 0:
             return False
         if self.minimum_quantity and quantity.value < self.minimum_quantity.value:
             return False
@@ -147,17 +174,17 @@ class OnlyInstrument(OnlyDomainModel):
 
     def quantize_price(self, price: OnlyPrice, *, rounding: str) -> OnlyPrice:
         try:
-            units = (price.value / self.tick_size.value).to_integral_value(rounding=rounding)
+            value = only_increment(price.value, self.tick_size.value, rounding=rounding)
         except (InvalidOperation, ValueError) as exc:
             raise OnlyValidationError("invalid explicit price rounding mode") from exc
-        return OnlyPrice(units * self.tick_size.value, self.price_precision)
+        return OnlyPrice(value, self.price_precision)
 
     def quantize_quantity(self, quantity: OnlyQuantity, *, rounding: str) -> OnlyQuantity:
         try:
-            units = (quantity.value / self.step_size.value).to_integral_value(rounding=rounding)
+            value = only_increment(quantity.value, self.step_size.value, rounding=rounding)
         except (InvalidOperation, ValueError) as exc:
             raise OnlyValidationError("invalid explicit quantity rounding mode") from exc
-        return OnlyQuantity(units * self.step_size.value, self.quantity_precision)
+        return OnlyQuantity(value, self.quantity_precision)
 
     def is_effective_at(self, timestamp: datetime) -> bool:
         _validate_aware(timestamp, "timestamp")
@@ -297,3 +324,20 @@ def _validate_contract_currencies(instrument: OnlyInstrument, contract_type: Onl
         instrument.quote_currency,
     }:
         raise OnlyValidationError("quanto contract must settle in a third currency")
+
+
+ONLY_INSTRUMENT_MODEL_TYPES = (
+    OnlyInstrument,
+    OnlyEquity,
+    OnlyETF,
+    OnlyFund,
+    OnlyFuture,
+    OnlyOption,
+    OnlyIndex,
+    OnlyCommodity,
+    OnlyFxPair,
+    OnlyCryptoSpot,
+    OnlyCryptoFuture,
+    OnlyCryptoPerpetual,
+    OnlySyntheticInstrument,
+)

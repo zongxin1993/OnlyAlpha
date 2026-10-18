@@ -4,11 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from onlyalpha.domain.base import OnlyDomainModel
+from onlyalpha.domain.base import OnlyDomainModel, only_require_immutable_tuple
 from onlyalpha.domain.enums import OnlyContractType, OnlyMarginMode, OnlyPositionDirection
 from onlyalpha.domain.errors import OnlyCurrencyMismatchError, OnlyValidationError
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyInstrumentId, OnlyPositionId, OnlyTradeId
 from onlyalpha.domain.instrument import OnlyCryptoPerpetual, OnlyFuture, OnlyInstrument
+from onlyalpha.domain.numeric import only_add, only_divide, only_multiply, only_quantize, only_subtract
 from onlyalpha.domain.time import only_require_utc
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity, OnlyRate
 
@@ -76,7 +77,7 @@ class OnlyBalance(OnlyDomainModel):
             raise OnlyCurrencyMismatchError("balance components must use balance currency")
         if min(self.total.amount, self.available.amount, self.locked.amount) < 0:
             raise OnlyValidationError("balance components cannot be negative")
-        if self.available.amount + self.locked.amount != self.total.amount:
+        if only_add(self.available.amount, self.locked.amount) != self.total.amount:
             raise OnlyValidationError("balance total must equal available plus locked")
 
 
@@ -121,6 +122,7 @@ class OnlyPosition(OnlyDomainModel):
     margin_mode: OnlyMarginMode | None = None
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.trade_ids)
         only_require_utc(self.updated_at, "position updated_at")
         if self.quantity.precision != self.available_quantity.precision:
             raise OnlyValidationError("position quantity precision mismatch")
@@ -129,10 +131,10 @@ class OnlyPosition(OnlyDomainModel):
         if self.frozen_quantity is not None:
             if self.frozen_quantity.precision != self.quantity.precision:
                 raise OnlyValidationError("frozen position quantity precision mismatch")
-            if self.available_quantity.value + self.frozen_quantity.value > self.quantity.value:
+            if only_add(self.available_quantity.value, self.frozen_quantity.value) > self.quantity.value:
                 raise OnlyValidationError("available plus frozen quantity exceeds total")
         if self.today_quantity is not None and self.yesterday_quantity is not None:
-            if self.today_quantity.value + self.yesterday_quantity.value != self.quantity.value:
+            if only_add(self.today_quantity.value, self.yesterday_quantity.value) != self.quantity.value:
                 raise OnlyValidationError("today plus yesterday quantity must equal total")
         if self.direction is OnlyPositionDirection.FLAT:
             if self.quantity.value != 0 or self.average_open_price is not None:
@@ -159,10 +161,16 @@ class OnlyAccount(OnlyDomainModel):
     updated_at: datetime
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.balances, self.positions)
         only_require_utc(self.updated_at, "account updated_at")
         balance_currencies = [balance.currency for balance in self.balances]
         if len(balance_currencies) != len(set(balance_currencies)):
             raise OnlyValidationError("account cannot contain duplicate currency balances")
+        position_ids = [position.position_id for position in self.positions]
+        if len(position_ids) != len(set(position_ids)):
+            raise OnlyValidationError("account cannot contain duplicate positions")
+        if any(position.account_id != self.account_id for position in self.positions):
+            raise OnlyValidationError("position belongs to a different account")
         if self.equity is not None and self.base_currency is None:
             raise OnlyValidationError("reported account equity requires base_currency")
         if self.equity is not None and self.equity.total.currency != self.base_currency:
@@ -177,6 +185,7 @@ class OnlyPortfolio(OnlyDomainModel):
     as_of: datetime
 
     def __post_init__(self) -> None:
+        only_require_immutable_tuple(self.accounts)
         only_require_utc(self.as_of, "portfolio as_of")
         account_ids = [account.account_id for account in self.accounts]
         if len(account_ids) != len(set(account_ids)):
@@ -197,21 +206,29 @@ class OnlyPnLCalculator:
         entry_price: OnlyPrice,
         current_price: OnlyPrice,
     ) -> OnlyMoney:
+        if direction is OnlyPositionDirection.FLAT:
+            if quantity.value != 0:
+                raise OnlyValidationError("flat PnL requires zero quantity")
+            quantum = Decimal((0, (1,), -instrument.settlement_currency.precision))
+            return OnlyMoney(only_quantize(Decimal(0), quantum), instrument.settlement_currency)
         sign = Decimal("1") if direction is OnlyPositionDirection.LONG else Decimal("-1")
         multiplier = instrument.contract_multiplier.value
         contract_type = OnlyContractType.LINEAR
         if isinstance(instrument, (OnlyFuture, OnlyCryptoPerpetual)):
             contract_type = instrument.contract_type
         if contract_type is OnlyContractType.INVERSE:
-            amount = (
-                sign
-                * quantity.value
-                * multiplier
-                * (Decimal("1") / entry_price.value - Decimal("1") / current_price.value)
+            difference = only_subtract(
+                only_divide(Decimal(1), entry_price.value), only_divide(Decimal(1), current_price.value)
             )
+            amount = only_multiply(only_multiply(only_multiply(sign, quantity.value), multiplier), difference)
         elif contract_type is OnlyContractType.QUANTO:
             raise OnlyValidationError("quanto PnL requires an explicit conversion model")
         else:
-            amount = sign * quantity.value * multiplier * (current_price.value - entry_price.value)
-        quantum = Decimal(1).scaleb(-instrument.settlement_currency.precision)
-        return OnlyMoney(amount.quantize(quantum), instrument.settlement_currency)
+            if instrument.quote_currency != instrument.settlement_currency:
+                raise OnlyValidationError("linear cross-currency PnL requires an explicit conversion model")
+            amount = only_multiply(
+                only_multiply(only_multiply(sign, quantity.value), multiplier),
+                only_subtract(current_price.value, entry_price.value),
+            )
+        quantum = Decimal((0, (1,), -instrument.settlement_currency.precision))
+        return OnlyMoney(only_quantize(amount, quantum), instrument.settlement_currency)

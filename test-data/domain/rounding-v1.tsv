@@ -1,0 +1,16 @@
+# operation\trounding\tvalue\tquantum_or_increment\texpected
+quantize	ROUND_HALF_EVEN	1.25	0.1	1.2
+quantize	ROUND_HALF_UP	1.25	0.1	1.3
+quantize	ROUND_HALF_DOWN	1.25	0.1	1.2
+quantize	ROUND_UP	1.21	0.1	1.3
+quantize	ROUND_DOWN	1.29	0.1	1.2
+quantize	ROUND_CEILING	-1.21	0.1	-1.2
+quantize	ROUND_FLOOR	-1.21	0.1	-1.3
+quantize	ROUND_05UP	1.05	0.1	1.1
+quantize	ROUND_05UP	1.55	0.1	1.6
+quantize	ROUND_05UP	1.25	0.1	1.2
+increment	ROUND_HALF_EVEN	2.625	0.25	2.50
+increment	ROUND_HALF_UP	2.625	0.25	2.75
+increment	ROUND_FLOOR	-2.625	0.25	-2.75
+increment	ROUND_CEILING	-2.625	0.25	-2.50
+increment	ROUND_05UP	-2.625	0.25	-2.75

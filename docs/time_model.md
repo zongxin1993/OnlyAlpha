@@ -64,6 +64,14 @@ Order/Cancel/Trade、Position、Account、Portfolio 和 Instrument 生命周期 
 ## 6. 序列化与 Storage
 
 Domain datetime JSON/record 只输出 UTC ISO 8601 `Z`，naive 或非 UTC 值无法序列化。
+正式读取仅接受 `YYYY-MM-DDTHH:MM:SS[.1..6 位小数]Z` 或明确的 `+00:00` 后缀；
+拒绝空格分隔、基本/周日期、逗号小数、隐式时区和超过六位的小数，不截断输入精度。
+日期记录为 `YYYY-MM-DD`；Session 墙上时间为无时区 `HH:MM:SS[.1..6 位小数]`。
+数值纳秒使用 `OnlyTimestamp`；其任意精度存储不因 datetime 互操作范围而缩窄。
+Python 与 Rust 均保持完整年 1～9999；本地/UTC 转换超出该范围时显式失败。
+Rust 通过 tz-rs 解析同一 pinned TZif，Jiff 只负责 civil 日期计算，二者不维护平行时区规则。
+这属于当前正式记录输入协议收紧；历史非规范记录必须经过 owning reader 的显式迁移，
+不会由当前 reader 猜测格式、回退或静默重写。
 `OnlyTimestamp` 的 JSON 真值是 `unix_nanos`，因此纳秒整数可无损 round-trip；TimeZone
 保留 IANA 名称，TradingDay/CalendarId/Session/Bar 字段使用强类型递归序列化。
 

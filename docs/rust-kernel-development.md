@@ -1,6 +1,6 @@
 # Linux Rust Kernel development
 
-The library in `crates/onlyalpha-kernel/` implements the six stateless Boolean/terminal primitives in
+The library in `crates/onlyalpha-kernel/core/` implements the six stateless Boolean/terminal primitives in
 [Predicate semantics](predicate-semantics.md), the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md), eight [Boolean/string equality types](scalar-equality-semantics.md), and six reference plus six fixed-literal [finite Decimal comparisons](decimal-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
@@ -12,13 +12,13 @@ repository root. They identify source owners and consumers, not a second semanti
 
 | Responsibility | Python location | Rust location / boundary |
 | --- | --- | --- |
-| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
+| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/core/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
-| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
+| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/core/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
 | Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
-| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
+| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/core/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
-| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
+| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/core/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
 
 The owning Contracts are [Boolean/terminal semantics](predicate-semantics.md), [integer reference/literal semantics](integer-predicate-semantics.md),
 [Boolean/string equality semantics](scalar-equality-semantics.md) and [isolated comparison](predicate-comparison.md). A matching
@@ -116,3 +116,94 @@ create a second official writer. Existing generation/work-binding authorities re
 
 This is an additive development-period manifest domain extension. Older readers refuse the new native logical name; no historical
 wheel is rewritten, no schema fallback is added, and no deployment of mixed readers is certified by these storage tests.
+
+## Kernel source organization
+
+`crates/onlyalpha-kernel/` is the organizational umbrella for the Trading Kernel's Rust libraries, not another Cargo package.
+The root Cargo workspace selects independent members inside it:
+
+```text
+crates/onlyalpha-kernel/
+├── domain/  # package onlyalpha-domain: canonical Domain types and pure operations
+└── core/    # package onlyalpha-kernel: the existing canonical semantic library
+```
+
+Each member owns its `Cargo.toml`, `src/lib.rs` and tests. Thus `src/onlyalpha/domain/identifiers.py` corresponds to
+`crates/onlyalpha-kernel/domain/src/identifiers.rs`. The directory expresses the Kernel/Domain containment relationship;
+the crate boundary retains independent builds and dependency enforcement. Public package/import names are unchanged.
+The allowed dependency direction is Core → Domain, never Domain → Core, Runtime, Application or concrete plugins.
+
+Place further Domain responsibilities inside `domain/`. Use subdirectories when a responsibility actually needs multiple source
+files, rather than adding an empty mirror tree or a crate per file. Package-selected and isolated-closure checks in
+`scripts/rust_kernel_check.py` enforce the independent module boundary; this navigation description does not certify parity.
+
+Rust Instrument uses composition: `OnlyInstrumentSpecification` holds common immutable fields, while
+`OnlyInstrumentKind` retains each built-in subtype and its exact derivative terms. The enclosing `OnlyInstrument` validates
+both together and keeps Python's flat, schema-versioned `model_type` record. This does not require reproducing Python
+inheritance. `OnlyInstrumentCatalog<I>` admits an explicit concrete extension reader through `OnlyInstrumentModel`; unknown
+tags fail closed and cannot be dynamically guessed or replaced by base fields. These types remain pure definitions and
+queries, not Runtime activation or a second source of instrument authority.
+
+## Domain numerical and record dependencies
+
+The Domain library uses the following pinned community-maintained dependencies for its financial-value, record and time readers:
+
+- `bigdecimal = 0.4.11` (Andrew Kubera, MIT/Apache-2.0): arbitrary integral magnitude and exact finite operations. Its ordinary
+  division, default Context and Display are not the OnlyAlpha numerical or wire Contract. Domain preserves signed zero/scale and
+  applies ADR 0140 precision and rounding explicitly. The unconditional `libm` dependency remains even without calling math APIs.
+- `num-integer = 0.1.46` (rust-num, MIT/Apache-2.0): directly used gcd and div/rem for reduced rational division. Terminating ratios
+  become exact decimals; non-terminating ratios round the integer quotient once to 28 digits/HALF_EVEN, without a rounded inverse.
+- `serde_json = 1.0.154` (serde-rs, MIT/Apache-2.0): only `std` and `arbitrary_precision`. Financial fields remain strings;
+  machine-width integer probes and floating-point conversion are not validators for arbitrary integer facts. Map keys use the
+  default sorted representation. `preserve_order`, `unbounded_depth` and derive features are not admitted.
+
+- `jiff = 0.2.38` (Andrew Gallant, MIT/Unlicense): only `std`; civil Gregorian dates, wall times and checked date arithmetic.
+  Its `Timestamp` range excludes part of Python's final supported UTC day, so it does not own absolute time or timezone conversion.
+- `tz-rs = 0.7.3` (x-hgg-x, MIT/Apache-2.0): only `alloc`; UTC instants and explicit TZif bytes from the same tzdata 2026.3 /
+  IANA 2026c dataset as Python. Zero transitive dependencies, no build script or native code, MSRV 1.85, and `forbid(unsafe_code)`.
+  Its exact archive SHA-256 is `4fc6c929ffa10fb34f4a3c7e9a73620a83ef2e85e47f9ec3381b8289e6762f42`.
+  `std` remains disabled, excluding system-zone discovery and clock APIs. Gap `Skipped` results are rejected; normal fold
+  candidates require explicit disambiguation. The library permits year zero and leap seconds, which Domain rejects.
+  TZif v4 is unsupported; a future dataset containing it must fail admission rather than be rewritten or downgraded.
+  This community project's maintenance breadth is smaller than Jiff's; its upstream history, exact source, license and RustSec
+  entries require renewed review on upgrade. [Upstream](https://github.com/x-hgg-x/tz-rs),
+  [explicit TZif API](https://docs.rs/tz-rs/0.7.3/tz/struct.TimeZone.html#method.from_tz_data).
+- `sha2 = 0.11.1` (RustCrypto, MIT/Apache-2.0): no default features; standard SHA-256 for existing canonical fingerprints.
+  The historical sha2 0.9.7 AVX2 issue (RUSTSEC-2021-0100) is outside this version's affected range; known-answer tests still apply.
+
+These are not Rust-project-official libraries. The 40 published nodes in the committed lockfile have been checked against their
+exact upstream archive checksums and manifests; the owning Rust gate binds that reviewed registry subgraph independently of local
+release versions. Changes to versions, sources, checksums, graph or admitted direct features require renewed review. Locked
+`serde`/`serde_derive`/proc-macro nodes through `cfg(any())` are distinct from the actually compiled target closure.
+`bigdecimal`, `num-traits`, `libm`, `serde_core`, `serde_json` and `zmij` have configuration/probe/generated-Rust build scripts.
+The inspected packages contain no C/C++ source or precompiled native libraries; this is not a claim that all transitive code is
+unsafe-free. MIT is an available license choice for the active closure; locked `unicode-ident` additionally requires Unicode-3.0
+notices, which must be retained on distribution. Consult each exact crate's included license files when packaging.
+
+The public RustSec advisory database query found the historical sha2 advisory above, outside the selected version range,
+and no matching entries for the other locked package names. This is not an
+absence-of-vulnerabilities guarantee; future changes need a fresh query and exact manifest/source review. Upstream references:
+[BigDecimal](https://github.com/akubera/bigdecimal-rs), [rust-num](https://github.com/rust-num/num-integer),
+[Serde JSON](https://github.com/serde-rs/json), [RustSec](https://github.com/rustsec/advisory-db).
+
+Dependency resolution/export uses `cargo update --workspace` to retain existing registry nodes and is an explicit `rust-lockfile` target in the existing dev Dockerfile, not a test or new deployment.
+The fixed dev image fetches the committed lockfile's public dependencies during preparation. Formal builds remain frozen/offline
+and seed their writable Cargo home from that admitted immutable image, clearing prior source replacements and cached mutations.
+The Unicode 15.0.0 lexical data keeps the pinned Python runtime's identifier/currency/Decimal input domain; its generator is
+`scripts/domain_unicode_tables.py --check`. This data does not implement decimal arithmetic or timezone rules.
+
+The 22 additional exact archives for time and digest support were checked against the lockfile. New active dependencies include
+Jiff's `jiff-core` and RustCrypto's digest/block-buffer/crypto-common/hybrid-array/typenum chain; Linux ARM additionally uses
+`libc` through cpufeatures. libc's build script probes rustc/platform configuration. Inactive defmt, portable-atomic and thiserror
+nodes also contain build scripts; locked presence does not imply execution. Optional log/defmt, non-pointer-atomic target helpers
+and jiff-static/proc-macro dependencies remain part of Cargo's legitimate complete lock graph. Keep all applicable license notices.
+Rust keeps upstream timezone resources separate from `src/` under
+`crates/onlyalpha-kernel/domain/resources/tzdata/2026.3/`, including their licenses and `dataset.json` checksums.
+The resources remain inside the Domain crate so its isolated build includes the complete input closure.
+`scripts/domain_timezone_data.py --check` compares every byte and the Rust lookup index with the pinned Python package.
+These copies contain the same upstream rules, not independent timezone authorities.
+
+A timezone resource version is immutable. An upgrade explicitly updates the pinned Python package/lock, Rust resources,
+dataset manifest, lookup index and dataset identity together; review upstream changes, preserve licenses, and run the
+timezone/calendar cross-language tests and isolated Domain build. Do not modify individual zone bytes or use automatic
+system/upstream updates. Historical artifact identity and upgrade requirements continue to follow ADR 0140.
