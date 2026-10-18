@@ -101,30 +101,45 @@ pub(crate) fn schema(v: &Value) -> Result<Value> {
         if upper && t != "STRING" {
             return Err(err("UPPERCASE_TYPE"));
         }
-        let mut s = spec.clone();
+        let mut bounds = vec![];
         for key in ["minimum", "maximum"] {
-            if !s[key].is_null() {
-                let bound = scalar(&s[key])?;
+            let bound = if spec[key].is_null() {
+                Value::Null
+            } else {
+                let bound = scalar(&spec[key])?;
                 if bound["type"] != t || !matches!(t, "INTEGER" | "DECIMAL") {
                     return Err(err("BOUND_TYPE_INVALID"));
                 }
-                s[key] = bound;
-            }
+                bound
+            };
+            bounds.push(bound);
         }
-        if !s["minimum"].is_null()
-            && !s["maximum"].is_null()
-            && number(&s["minimum"])? > number(&s["maximum"])?
+        if !bounds[0].is_null() && !bounds[1].is_null() && number(&bounds[0])? > number(&bounds[1])?
         {
             return Err(err("INVALID_RANGE"));
         }
+        let default = if required {
+            if !spec["default"].is_null() {
+                return Err(err("REQUIRED_HAS_DEFAULT"));
+            }
+            Value::Null
+        } else {
+            let d = scalar(&spec["default"])?;
+            if d["type"] != t {
+                return Err(err("DEFAULT_TYPE"));
+            }
+            d
+        };
         let mut allowed = vec![];
-        for value in array(&s["enum_values"])? {
+        for value in array(&spec["enum_values"])? {
             let value = scalar(value)?;
             if value["type"] != t || allowed.contains(&value) {
                 return Err(err("ENUM_TYPE_OR_DUPLICATE"));
             }
             allowed.push(value);
         }
+        // Construct from validated leaves instead of recursively cloning untrusted metadata.
+        let mut s = json!({"name":spec["name"],"parameter_type":t,"required":required,"default":default,"minimum":bounds[0],"maximum":bounds[1],"enum_values":[],"uppercase":upper});
         s["enum_values"] = json!(allowed);
         // Enum entries themselves must satisfy normalization and bounds; a temporary empty enum avoids circular membership checking.
         let mut unrestricted = s.clone();
@@ -134,16 +149,8 @@ pub(crate) fn schema(v: &Value) -> Result<Value> {
                 return Err(err("ENUM_NOT_CANONICAL"));
             }
         }
-        if required {
-            if !s["default"].is_null() {
-                return Err(err("REQUIRED_HAS_DEFAULT"));
-            }
-        } else {
-            let default = scalar(&s["default"])?;
-            if default["type"] != t {
-                return Err(err("DEFAULT_TYPE"));
-            }
-            s["default"] = normalize(&s, &default["value"])?;
+        if !required {
+            s["default"] = normalize(&s, &s["default"]["value"])?;
         }
         out.push(s);
     }

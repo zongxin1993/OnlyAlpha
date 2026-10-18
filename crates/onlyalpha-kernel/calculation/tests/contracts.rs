@@ -310,3 +310,87 @@ fn independent_common_parameter_vectors() {
         }
     }
 }
+
+#[test]
+fn quantum_exponent_is_numeric_semantics_not_scalar_scale() {
+    let mut v = sample();
+    let mut hashes = vec![];
+    for quantum in ["0.01", "0.010", "1E+2", "100"] {
+        v["numeric"]["output_quantum"] = json!(quantum);
+        let d = Definition::from_record(&v).unwrap();
+        assert_eq!(d.to_record()["numeric"]["output_quantum"], quantum);
+        hashes.push(d.fingerprint());
+    }
+    assert_ne!(hashes[0], hashes[1]);
+    assert_ne!(hashes[2], hashes[3]);
+    for (alias, canonical) in [("1e-2", "0.01"), ("10e-3", "0.010"), ("1e2", "1E+2")] {
+        v["numeric"]["output_quantum"] = json!(alias);
+        let a = Definition::from_record(&v).unwrap();
+        v["numeric"]["output_quantum"] = json!(canonical);
+        let b = Definition::from_record(&v).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.fingerprint(), b.fingerprint());
+    }
+}
+#[test]
+fn malformed_deep_values_reject_before_recursive_copy() {
+    const CHILD: &str = "ONLYALPHA_NESTED_RECORD_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "malformed_deep_values_reject_before_recursive_copy",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(
+            status.success(),
+            "malformed borrowed values must return errors, not abort"
+        );
+        return;
+    }
+    fn deep() -> Value {
+        let mut v = Value::Null;
+        for _ in 0..20000 {
+            v = Value::Array(vec![v]);
+        }
+        v
+    }
+    for pointer in [
+        "/parameters/parameter/value",
+        "/numeric/output_quantum",
+        "/warmup/ready_condition",
+    ] {
+        let mut v = sample();
+        *v.pointer_mut(pointer).unwrap() = deep();
+        assert!(Definition::from_record(&v).is_err());
+        std::mem::forget(v);
+    }
+    for pointer in [
+        "/parameters/0/default/value",
+        "/parameters/0/enum_values",
+        "/numeric/output_quantum",
+    ] {
+        let mut v = type_record();
+        *v.pointer_mut(pointer).unwrap() = deep();
+        assert!(TypeDefinition::from_record(&v).is_err());
+        std::mem::forget(v);
+    }
+    let t = TypeDefinition::from_record(&type_record()).unwrap();
+    let mut v = sample();
+    v["warmup"]["ready_condition"] = deep();
+    assert!(
+        t.resolve(&json!({}), &v["input_bindings"], &v["warmup"])
+            .is_err()
+    );
+    std::mem::forget(v);
+    let mut v = sample();
+    v["input_bindings"]["close"]["source"] = deep();
+    assert!(
+        t.resolve(&json!({}), &v["input_bindings"], &v["warmup"])
+            .is_err()
+    );
+    std::mem::forget(v);
+}

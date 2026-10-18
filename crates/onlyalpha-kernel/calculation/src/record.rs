@@ -92,6 +92,24 @@ pub(crate) fn decimal(s: &str) -> Result<String> {
     }
     Ok(normalized)
 }
+// Unlike ordinary scalar values, a quantum's exponent determines quantize semantics.
+pub(crate) fn quantum(s: &str) -> Result<String> {
+    decimal(s)?;
+    let value = BigDecimal::from_str(s).map_err(|_| err("FINITE_DECIMAL_REQUIRED"))?;
+    let (coefficient, scale) = value.as_bigint_and_exponent();
+    if coefficient <= BigInt::from(0) {
+        return Err(err("POSITIVE_QUANTUM_REQUIRED"));
+    }
+    let output = if scale < 0 {
+        format!("{coefficient}E+{}", scale.unsigned_abs())
+    } else {
+        value.to_plain_string()
+    };
+    if output.len() > LIMIT {
+        return Err(err("DECIMAL_BUDGET"));
+    }
+    Ok(output)
+}
 pub(crate) fn scalar(v: &Value) -> Result<Value> {
     let m = object(v, &["type", "value"])?;
     let t = text(&m["type"])?;

@@ -104,16 +104,64 @@ fn numeric(v: &Value) -> Result<Value> {
     name(&v["representation"])?;
     name(&v["rounding"])?;
     positive(&v["precision"])?;
-    let mut n = v.clone();
-    if !v["output_quantum"].is_null() {
-        let quantum = decimal(text(&v["output_quantum"])?)?;
-        if quantum == "0" || quantum.starts_with('-') {
-            return Err(err("POSITIVE_QUANTUM_REQUIRED"));
-        }
-        n["output_quantum"] = json!(quantum);
-    }
-    Ok(n)
+    let quantum = if v["output_quantum"].is_null() {
+        Value::Null
+    } else {
+        json!(quantum(text(&v["output_quantum"])?)?)
+    };
+    Ok(
+        json!({"representation":v["representation"], "precision":v["precision"], "rounding":v["rounding"], "output_quantum":quantum}),
+    )
 }
+fn validate_warmup(v: &Value) -> Result<()> {
+    let warmup = object(
+        v,
+        &[
+            "minimum_observations",
+            "ready_condition",
+            "pre_ready_output",
+            "initialization",
+        ],
+    )?;
+    positive(&warmup["minimum_observations"])?;
+    for field in ["ready_condition", "initialization"] {
+        let description = text(&warmup[field])?;
+        if description.trim().is_empty() || description.chars().any(char::is_control) {
+            return Err(err("EXPLICIT_WARMUP_REQUIRED"));
+        }
+    }
+    member(&warmup["pre_ready_output"], &["NULL", "PARTIAL"])?;
+    Ok(())
+}
+fn validate_bindings(v: &Value, inputs: &Value) -> Result<()> {
+    let bindings = map(v)?;
+    let inputs = array(inputs)?;
+    if bindings.len() != inputs.len()
+        || inputs
+            .iter()
+            .any(|p| !bindings.contains_key(p["name"].as_str().expect("validated port")))
+    {
+        return Err(err("EXACT_INPUT_BINDINGS_REQUIRED"));
+    }
+    for binding in bindings.values() {
+        object(binding, &["node_fingerprint", "output_name", "source"])?;
+        name(&binding["output_name"])?;
+        match (
+            binding["node_fingerprint"].is_null(),
+            binding["source"].is_null(),
+        ) {
+            (false, true) => {
+                digest(&binding["node_fingerprint"])?;
+            }
+            (true, false) => {
+                name(&binding["source"])?;
+            }
+            _ => return Err(err("EXACT_SOURCE_REQUIRED")),
+        }
+    }
+    Ok(())
+}
+
 fn common(v: &Value) -> Result<TypeReference> {
     let r = reference(v)?;
     ports(&v["inputs"], false)?;
@@ -169,52 +217,16 @@ impl Definition {
             return Err(err("DEFINITION_SCHEMA_REQUIRED"));
         }
         let reference = common(v)?;
+        let parameters = scalars(&v["parameters"])?;
+        let extensions = scalars(&v["extensions"])?;
+        let numeric = numeric(&v["numeric"])?;
+        validate_warmup(&v["warmup"])?;
+        validate_bindings(&v["input_bindings"], &v["inputs"])?;
+        // Every nested leaf is validated before copying the caller-owned record.
         let mut normalized = v.clone();
-        normalized["parameters"] = scalars(&v["parameters"])?;
-        normalized["extensions"] = scalars(&v["extensions"])?;
-        normalized["numeric"] = numeric(&v["numeric"])?;
-        let warmup = object(
-            &v["warmup"],
-            &[
-                "minimum_observations",
-                "ready_condition",
-                "pre_ready_output",
-                "initialization",
-            ],
-        )?;
-        positive(&warmup["minimum_observations"])?;
-        for field in ["ready_condition", "initialization"] {
-            let description = text(&warmup[field])?;
-            if description.trim().is_empty() || description.chars().any(char::is_control) {
-                return Err(err("EXPLICIT_WARMUP_REQUIRED"));
-            }
-        }
-        member(&warmup["pre_ready_output"], &["NULL", "PARTIAL"])?;
-        let bindings = map(&v["input_bindings"])?;
-        let inputs = array(&v["inputs"])?;
-        if bindings.len() != inputs.len()
-            || inputs
-                .iter()
-                .any(|p| !bindings.contains_key(p["name"].as_str().expect("validated port")))
-        {
-            return Err(err("EXACT_INPUT_BINDINGS_REQUIRED"));
-        }
-        for binding in bindings.values() {
-            object(binding, &["node_fingerprint", "output_name", "source"])?;
-            name(&binding["output_name"])?;
-            match (
-                binding["node_fingerprint"].is_null(),
-                binding["source"].is_null(),
-            ) {
-                (false, true) => {
-                    digest(&binding["node_fingerprint"])?;
-                }
-                (true, false) => {
-                    name(&binding["source"])?;
-                }
-                _ => return Err(err("EXACT_SOURCE_REQUIRED")),
-            }
-        }
+        normalized["parameters"] = parameters;
+        normalized["extensions"] = extensions;
+        normalized["numeric"] = numeric;
         let result = Self {
             record: normalized,
             reference,
@@ -287,9 +299,11 @@ impl TypeDefinition {
         if reference.kind() == "FACTOR" && v["execution_shape"] != v["factor_kind"] {
             return Err(err("EXECUTION_SHAPE_CONFLICT"));
         }
+        let parameters = parameters::schema(&v["parameters"])?;
+        let numeric = numeric(&v["numeric"])?;
         let mut record = v.clone();
-        record["parameters"] = parameters::schema(&v["parameters"])?;
-        record["numeric"] = numeric(&v["numeric"])?;
+        record["parameters"] = parameters;
+        record["numeric"] = numeric;
         Ok(Self { record, reference })
     }
     pub fn reference(&self) -> &TypeReference {
@@ -304,6 +318,8 @@ impl TypeDefinition {
         input_bindings: &Value,
         warmup: &Value,
     ) -> Result<Definition> {
+        validate_bindings(input_bindings, &self.record["inputs"])?;
+        validate_warmup(warmup)?;
         let mut d = self.record.clone();
         let m = d.as_object_mut().expect("validated type");
         m.remove("execution_shape");

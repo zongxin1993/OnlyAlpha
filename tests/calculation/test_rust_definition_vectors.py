@@ -75,3 +75,17 @@ def test_common_parameter_normalization(row: dict[str, object]) -> None:
             schema.normalize(row["provided"])
     else:
         assert schema.normalize(row["provided"])["value"] == scalar(row["expected"])
+
+
+@pytest.mark.parametrize(
+    ("quantum", "value", "expected"),
+    [("0.01", "1.234", "1.23"), ("0.010", "1.234", "1.234"), ("1E+2", "1234.56", "1.2E+3"), ("100", "1234.56", "1235")],
+)
+def test_quantum_exponent_has_distinct_canonical_execution_results(quantum: str, value: str, expected: str) -> None:
+    from decimal import Decimal
+
+    from onlyalpha.calculation.decimal_execution import only_quantize_decimal
+    from onlyalpha.calculation.definition import OnlyNumericDefinition
+
+    numeric = OnlyNumericDefinition(output_quantum=Decimal(quantum), rounding="ROUND_HALF_EVEN")
+    assert str(only_quantize_decimal(numeric, Decimal(value))) == expected
