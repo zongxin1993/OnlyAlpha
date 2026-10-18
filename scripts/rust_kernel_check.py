@@ -66,6 +66,9 @@ CLOCK_DEPENDENCIES = {
 }
 
 
+MARKET_DATA_STATE_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
+
+
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
 
 
@@ -75,6 +78,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
+        "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data_state",
     }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
@@ -128,6 +132,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == EVENT_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-market-data-state"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == MARKET_DATA_STATE_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -139,6 +150,10 @@ def validate_workspace(root: Path) -> None:
 
         event = tomllib.loads((root / modules["onlyalpha-event"] / "Cargo.toml").read_text())
         if event.get("dependencies") != EVENT_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        state = tomllib.loads((root / modules["onlyalpha-market-data-state"] / "Cargo.toml").read_text())
+        if state.get("dependencies") != MARKET_DATA_STATE_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
