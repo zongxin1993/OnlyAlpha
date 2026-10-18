@@ -1,7 +1,7 @@
 # Rust Event module design
 
-Status: PROPOSED — the owner approved the Event migration scope and requested implementation; this concrete audited design
-awaits review. This document specifies the construction, not module completion or Runtime admission. The Constitution,
+Status: OWNER-APPROVED DESIGN — the owner confirmed this written design by requesting continuation after its review handoff.
+This document specifies the construction, not module completion or Runtime admission. The Constitution,
 `docs/event.md`, ADRs 0004, 0009, 0048 and 0139 remain authoritative.
 
 ## Goal and authority
