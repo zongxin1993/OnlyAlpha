@@ -21,6 +21,8 @@ RUST_MODULES = frozenset(
     {
         "onlyalpha-domain",
         "onlyalpha-calculation",
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
         "onlyalpha-kernel",
         "onlyalpha-clock",
         "onlyalpha-event",

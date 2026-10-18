@@ -885,3 +885,13 @@ def test_nested_market_data_manifests_are_environment_inputs(tmp_path: Path) -> 
     assert str(manifest.relative_to(tmp_path)) in before
     manifest.write_text(manifest.read_text() + 'version="0.10.10"\n')
     assert dev_verification.environment_inputs(tmp_path) != before
+
+
+def test_infrastructure_cargo_manifest_is_an_environment_input(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    manifest = tmp_path / "packages/onlyalpha-calculation-worker/Cargo.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('[package]\nname="onlyalpha-calculation-worker"\n')
+    admitted = dev_verification.environment_inputs(tmp_path)
+    manifest.write_text(manifest.read_text() + "# dependency change\n")
+    assert dev_verification.environment_inputs(tmp_path) != admitted

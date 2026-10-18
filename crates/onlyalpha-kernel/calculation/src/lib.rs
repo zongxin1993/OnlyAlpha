@@ -1,11 +1,14 @@
-//! Immutable Calculation contracts. No algorithm, execution or readiness authority.
+//! Calculation definitions and pure scoped execution ownership.
+//! No algorithm, transport, readiness inference or official Runtime admission.
 //! Definition component schema3 is not admitted to Python Definition2 or official Runtime.
 mod definition;
+mod execution;
 mod graph;
 mod parameters;
 mod record;
 mod registry;
 pub use definition::{Definition, TypeDefinition, TypeReference};
+pub use execution::{ExecutionBinding, ExecutionCursor, MAX_BATCH, PreparedBatch};
 pub use graph::Graph;
 pub use registry::{Backend, Registration, Registry};
 #[derive(Clone, Debug, PartialEq, Eq)]

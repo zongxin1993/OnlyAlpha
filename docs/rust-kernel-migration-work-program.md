@@ -307,3 +307,10 @@ independently buildable library. It does not move concrete indicators/factors ou
 Its versioned Definition3 identity correction is not Python Definition2 wire/hash admission. The next integration dependencies
 remain exact calculation/plugin execution, scoped state/readiness, then MarketData/Cluster composition. Consult the
 [responsibility map](rust-kernel-development.md#calculation-responsibility-map) and existing R3-R8 migration gates.
+
+The scoped execution cursor remains in Calculation; the actual Python plugin process and Rust client live in
+`packages/onlyalpha-calculation-worker/`, with canonical Gateway messages. Refer to the
+[execution boundary design](superpowers/specs/2026-10-18-rust-calculation-worker-design.md) for lifecycle, exact binding,
+checkpoint admission and UNKNOWN behavior. This isolated comparison does not activate a Runtime participant or authorize
+historic data conversion. Subsequent MarketData/Cluster composition must consume the same ordered facts, exact generation
+and formally owned durable checkpoints; callback-to-RPC substitution by itself is not integration closure.

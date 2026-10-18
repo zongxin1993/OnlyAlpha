@@ -9,6 +9,10 @@ FROM rust-tools AS rust-manifests
 WORKDIR /rust-source
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
+COPY packages/onlyalpha-gateway-protocol/Cargo.toml ./packages/onlyalpha-gateway-protocol/Cargo.toml
+COPY packages/onlyalpha-gateway-protocol/rust/ ./packages/onlyalpha-gateway-protocol/rust/
+COPY packages/onlyalpha-calculation-worker/Cargo.toml ./packages/onlyalpha-calculation-worker/Cargo.toml
+COPY packages/onlyalpha-calculation-worker/rust/ ./packages/onlyalpha-calculation-worker/rust/
 
 FROM rust-manifests AS rust-dependency-resolution
 RUN CARGO_NET_RETRY=0 cargo update --workspace

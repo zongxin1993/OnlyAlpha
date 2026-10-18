@@ -534,3 +534,17 @@ def test_rust_changes_select_offline_kernel_checks(path: str) -> None:
     assert "rust-kernel" in [check.value for check in plan.impact.checks]
     assert plan.impact.static_plan is not None
     assert plan.impact.static_plan.version_sync_required == (path in {"Cargo.toml", "Cargo.lock"})
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-gateway-protocol/Cargo.toml",
+        "contracts/gateway/v1/onlyalpha_gateway_protocol/v1/calculation.proto",
+        "scripts/gateway_protocol.py",
+    ],
+)
+def test_gateway_wire_and_manifest_changes_select_rust_projection_consumers(path: str) -> None:
+    plan = _plan(path)
+    assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+    assert OnlyTestLane.CALCULATION in plan.impact.lanes

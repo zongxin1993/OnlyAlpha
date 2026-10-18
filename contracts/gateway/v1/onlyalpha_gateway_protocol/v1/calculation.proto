@@ -1,0 +1,54 @@
+syntax = "proto3";
+package onlyalpha.gateway.v1;
+
+// Private managed-process lane, not an external Runtime control API.
+// Framing/limits/owning JSON records: docs/superpowers/specs/2026-10-18-rust-calculation-worker-design.md.
+message CalculationEmpty {}
+message CalculationResolve { bytes parameters_json = 1; }
+message CalculationCreate {
+  bytes binding_json = 1;
+  bytes definition_json = 2;
+  bytes bar_type_json = 3;
+  bytes parameters_json = 4;
+  string source_fingerprint = 5;
+}
+message CalculationInstance { string scope = 1; uint64 revision = 2; }
+message CalculationUpdate {
+  CalculationInstance instance = 1;
+  repeated bytes bars_json = 2;
+  string input_digest = 3;
+}
+message CalculationRestore {
+  CalculationInstance instance = 1;
+  bytes checkpoint_json = 2;
+  string expected_sha256 = 3;
+}
+message CalculationRequest {
+  uint32 protocol_version = 1;
+  string generation = 2;
+  uint64 sequence = 3;
+  oneof operation {
+    CalculationEmpty handshake = 10;
+    CalculationResolve resolve = 11;
+    CalculationCreate create = 12;
+    CalculationUpdate update = 13;
+    CalculationInstance reset = 14;
+    CalculationInstance checkpoint = 15;
+    CalculationRestore restore = 16;
+    CalculationInstance close = 17;
+  }
+}
+message CalculationError { string code = 1; }
+message CalculationRecord { bytes record_json = 1; }
+message CalculationResponse {
+  uint32 protocol_version = 1;
+  string generation = 2;
+  uint64 sequence = 3;
+  string artifact_fingerprint = 4;
+  // Diagnostic only; excluded from calculation identities and state.
+  uint64 diagnostic_compute_ns = 5;
+  oneof outcome {
+    CalculationRecord result = 10;
+    CalculationError error = 11;
+  }
+}

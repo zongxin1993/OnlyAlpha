@@ -178,8 +178,22 @@ CORE_RECOVERY = (OnlyTestLane.CORE_FULL, OnlyTestLane.RECOVERY, OnlyTestLane.SIM
 IMPACT_RULES = (
     VerificationImpactRule(
         "rust-kernel",
-        ("crates/onlyalpha-kernel/", "test-data/predicate/"),
-        ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/rust_kernel_check.py"),
+        (
+            "crates/onlyalpha-kernel/",
+            "test-data/predicate/",
+            "packages/onlyalpha-calculation-worker/",
+            "packages/onlyalpha-gateway-protocol/rust/",
+            "contracts/gateway/v1/",
+        ),
+        (
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            "scripts/rust_kernel_check.py",
+            "scripts/calculation_worker_check.py",
+            "packages/onlyalpha-gateway-protocol/Cargo.toml",
+            "scripts/gateway_protocol.py",
+        ),
         (OnlyTestLane.CALCULATION,),
         (OnlyReleaseCheck.RUST_KERNEL,),
         VerificationEscalation.COMPONENT,

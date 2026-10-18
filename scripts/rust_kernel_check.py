@@ -49,7 +49,7 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "5b640f52cbcb0afc623fd1755692efee625a444ec9dbd17e0869eafba4f6a03f"
+REGISTRY_LOCK_SHA256 = "e104762637d3cf056b29589973a7f7c7b848fcb50e89f7d823897ea92c3b7089"
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -82,6 +82,20 @@ DELIVERY_DEPENDENCIES = {
     "onlyalpha-market-data-construction": {"path": "../construction"},
 }
 
+PROTOCOL_DEPENDENCIES = {
+    "prost": {"version": "=0.14.4"},
+    "prost-build": {"version": "=0.14.4", "optional": True},
+    "prost-types": {"version": "=0.14.4", "optional": True},
+}
+WORKER_DEPENDENCIES = {
+    "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
+    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
+    "onlyalpha-gateway-protocol": {"path": "../onlyalpha-gateway-protocol"},
+    "prost": {"version": "=0.14.4"},
+    "sha2": DOMAIN_DEPENDENCIES["sha2"],
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+}
+
 CALCULATION_DEPENDENCIES = {name: DOMAIN_DEPENDENCIES[name] for name in ("bigdecimal", "sha2", "serde_json")}
 
 
@@ -92,6 +106,8 @@ def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
         "onlyalpha-calculation": "crates/onlyalpha-kernel/calculation",
+        "onlyalpha-gateway-protocol": "packages/onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker": "packages/onlyalpha-calculation-worker",
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
@@ -179,6 +195,16 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == CALCULATION_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name in {"onlyalpha-gateway-protocol", "onlyalpha-calculation-worker"}
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config
+                        == (PROTOCOL_DEPENDENCIES if name == "onlyalpha-gateway-protocol" else WORKER_DEPENDENCIES).get(
+                            alias
+                        )
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -202,6 +228,17 @@ def validate_workspace(root: Path) -> None:
 
         delivery = tomllib.loads((root / modules["onlyalpha-market-data-delivery"] / "Cargo.toml").read_text())
         if delivery.get("dependencies") != DELIVERY_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        for component, dependencies in (
+            ("onlyalpha-gateway-protocol", PROTOCOL_DEPENDENCIES),
+            ("onlyalpha-calculation-worker", WORKER_DEPENDENCIES),
+        ):
+            component_manifest = tomllib.loads((root / modules[component] / "Cargo.toml").read_text())
+            if component_manifest.get("dependencies") != dependencies:
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        protocol = tomllib.loads((root / modules["onlyalpha-gateway-protocol"] / "Cargo.toml").read_text())
+        if protocol.get("features") != {"codegen": ["dep:prost-build", "dep:prost-types"]}:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
         calculation = tomllib.loads((root / modules["onlyalpha-calculation"] / "Cargo.toml").read_text())
@@ -399,18 +436,44 @@ def validate_calculation_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_infrastructure_sources(root: Path) -> None:
+    for component in ("onlyalpha-gateway-protocol", "onlyalpha-calculation-worker"):
+        area = root / "packages" / component
+        manifest = tomllib.loads((area / "Cargo.toml").read_text())
+        if (
+            (area / "build.rs").exists()
+            or manifest.get("package", {}).get("build", False) is not False
+            or manifest.get("lib") != {"path": "rust/lib.rs"}
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        for path in area.rglob("*.rs"):
+            if (
+                path.is_symlink()
+                or _hidden_rust_input(path.read_text())
+                or re.search(r"\binclude_(?:str|bytes)\s*!", path.read_text())
+            ):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def module_directory(module: str) -> str:
     return "market_data/" + module.removeprefix("market_data_") if module.startswith("market_data_") else module
+
+
+def module_path(module: str) -> Path:
+    if module in {"gateway_protocol", "calculation_worker"}:
+        return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
+    return Path("crates/onlyalpha-kernel") / module_directory(module)
 
 
 def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -> Path:
     destination.mkdir(parents=True)
     for module in modules:
-        relative = Path("crates/onlyalpha-kernel") / module_directory(module)
+        relative = module_path(module)
         shutil.copytree(root / relative, destination / relative)
         data = Path("test-data") / module.replace("_", "-")
-        shutil.copytree(root / data, destination / data)
-    members = [f"crates/onlyalpha-kernel/{module_directory(module)}" for module in modules]
+        if module not in {"gateway_protocol", "calculation_worker"}:
+            shutil.copytree(root / data, destination / data)
+    members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
         r"(?m)^members\s*=.*$", "members = " + json.dumps(members), (root / "Cargo.toml").read_text(), count=1
     )
@@ -492,6 +555,14 @@ def isolated_calculation(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("calculation",))
 
 
+def isolated_gateway_protocol(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("gateway_protocol",))
+
+
+def isolated_calculation_worker(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "calculation", "gateway_protocol", "calculation_worker"))
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -514,8 +585,12 @@ def main() -> int:
     validate_construction_sources(ROOT)
     validate_delivery_sources(ROOT)
     validate_calculation_sources(ROOT)
+    validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/gateway_protocol.py"), "check-rust"], cwd=ROOT, env=env, check=True
+    )
     for guard in (
         "scripts/domain_unicode_tables.py",
         "scripts/domain_timezone_data.py",
@@ -532,6 +607,8 @@ def main() -> int:
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
         ("calculation", isolated_calculation),
+        ("gateway-protocol", isolated_gateway_protocol),
+        ("calculation-worker", isolated_calculation_worker),
         ("domain", isolated_domain),
         ("clock", isolated_clock),
         ("event", isolated_event),
@@ -561,6 +638,7 @@ def main() -> int:
                 ]
                 print(f"{name.upper()}_ISOLATED", " ".join(command), flush=True)
                 subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):
         raise ValueError("RUST_KERNEL_SOURCE_CHANGED")
 

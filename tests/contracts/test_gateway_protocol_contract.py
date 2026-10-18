@@ -41,7 +41,7 @@ def test_gateway_protocol_generation_is_stable_and_current(tmp_path: Path) -> No
     second_files = sorted(path.relative_to(second) for path in second.rglob("*") if path.is_file())
     assert first_files == second_files
     assert all((first / path).read_bytes() == (second / path).read_bytes() for path in first_files)
-    assert gateway_protocol.check() == "5cb5005475e24019669a8658a5189b9d6321488f3e3c675bdc0195b826dfd67e"
+    assert gateway_protocol.check() == "520b5dfe6ab94bd991dde90a39740ecd02c3bff4ea9361259d31e9932ad0e1ef"
 
 
 @pytest.mark.contract
@@ -162,3 +162,11 @@ def teardown_module() -> None:
     for path in Path(".").glob("contract_pb2*.py"):
         path.unlink()
     shutil.rmtree("__pycache__", ignore_errors=True)
+
+
+def test_python_projection_check_does_not_require_a_host_rust_toolchain(monkeypatch) -> None:
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Python Gateway checks must not acquire Linux Rust tooling")
+
+    monkeypatch.setattr(gateway_protocol, "rust_projection", unexpected)
+    assert len(gateway_protocol.check()) == 64

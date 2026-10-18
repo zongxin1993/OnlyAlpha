@@ -122,6 +122,7 @@ LANES = {
         (
             "tests/calculation",
             "tests/indicator",
+            "packages/onlyalpha-calculation-worker/tests",
             "tests/plugin/test_calculation_plugin_discovery.py",
             "tests/plugin/test_entry_point_discovery.py",
             "tests/plugin/test_quant_asset_catalog.py",

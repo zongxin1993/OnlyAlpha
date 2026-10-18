@@ -1,0 +1,20 @@
+[package]
+name = "onlyalpha-gateway-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[lib]
+path = "rust/lib.rs"
+[lints]
+workspace = true
+[features]
+codegen = ["dep:prost-build", "dep:prost-types"]
+[dependencies]
+prost = { version = "=0.14.4" }
+prost-build = { version = "=0.14.4", optional = true }
+prost-types = { version = "=0.14.4", optional = true }
+[[bin]]
+name = "gateway-codegen"
+path = "rust/codegen.rs"
+required-features = ["codegen"]

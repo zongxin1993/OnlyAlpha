@@ -16,11 +16,14 @@ from pathlib import Path
 from google.protobuf import descriptor_pb2
 
 ROOT = Path(__file__).resolve().parents[1]
+# Keep the existing direct-file CLI able to import its owning tool package.
+sys.path.insert(0, str(ROOT))
 CONTRACT_ROOT = ROOT / "contracts/gateway/v1"
 PROTO_PACKAGE_ROOT = Path("onlyalpha_gateway_protocol/v1")
 PROJECTION_ROOT = ROOT / "packages/onlyalpha-gateway-protocol/src"
 DESCRIPTOR = PROJECTION_ROOT / PROTO_PACKAGE_ROOT / "descriptor.pb"
 EXPECTED_SOURCES = (
+    PROTO_PACKAGE_ROOT / "calculation.proto",
     PROTO_PACKAGE_ROOT / "common.proto",
     PROTO_PACKAGE_ROOT / "error.proto",
     PROTO_PACKAGE_ROOT / "gateway.proto",
@@ -137,6 +140,40 @@ def _generate_temporary() -> tuple[Path, tempfile.TemporaryDirectory[str]]:
     return root, temporary
 
 
+def rust_projection(descriptor: Path, output: Path) -> Path:
+    """Project only the trusted canonical descriptor with the pinned offline generator."""
+    import os
+
+    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
+
+    artifacts = ROOT / "test-results/gateway-rust-codegen"
+    env = compiler_environment(os.environ, artifacts / "target")
+    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
+    output.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "cargo",
+            "run",
+            "-p",
+            "onlyalpha-gateway-protocol",
+            "--bin",
+            "gateway-codegen",
+            "--features",
+            "codegen",
+            "--frozen",
+            "--offline",
+            "-j1",
+            "--",
+            str(descriptor),
+            str(output),
+        ],
+        cwd=ROOT,
+        env=env,
+        check=True,
+    )
+    return output / "onlyalpha.gateway.v1.rs"
+
+
 def write() -> None:
     candidate, temporary = _generate_temporary()
     try:
@@ -170,6 +207,20 @@ def check() -> str:
     finally:
         temporary.cleanup()
     return identity
+
+
+def check_rust(*, write_projection: bool = False) -> str:
+    candidate, temporary = _generate_temporary()
+    try:
+        projected = rust_projection(candidate / PROTO_PACKAGE_ROOT / "descriptor.pb", candidate / "rust")
+        destination = ROOT / "packages/onlyalpha-gateway-protocol/rust/generated.rs"
+        if write_projection:
+            shutil.copyfile(projected, destination)
+        if projected.read_bytes() != destination.read_bytes():
+            raise ValueError("generated Rust Gateway protocol is stale")
+        return hashlib.sha256(projected.read_bytes()).hexdigest()
+    finally:
+        temporary.cleanup()
 
 
 def _walk_messages(
@@ -256,31 +307,33 @@ def compatibility_errors(
 
     old_enums = {name: enum for item in baseline.file for name, enum in _walk_enums(item).items()}
     new_enums = {name: enum for item in candidate.file for name, enum in _walk_enums(item).items()}
-    for name, old in sorted(old_enums.items()):
-        current = new_enums.get(name)
-        if current is None:
+    for name, old_enum in sorted(old_enums.items()):
+        current_enum = new_enums.get(name)
+        if current_enum is None:
             errors.append(f"enum removed: {name}")
             continue
-        current_by_name = {value.name: value for value in current.value}
-        current_by_number: dict[int, list[str]] = {}
-        for value in current.value:
-            current_by_number.setdefault(value.number, []).append(value.name)
-        for value in old.value:
-            replacement = current_by_name.get(value.name)
-            if replacement is None:
-                reused = current_by_number.get(value.number)
-                if reused is None:
+        enum_by_name = {value.name: value for value in current_enum.value}
+        enum_by_number: dict[int, list[str]] = {}
+        for value in current_enum.value:
+            enum_by_number.setdefault(value.number, []).append(value.name)
+        for value in old_enum.value:
+            enum_replacement = enum_by_name.get(value.name)
+            if enum_replacement is None:
+                enum_reused = enum_by_number.get(value.number)
+                if enum_reused is None:
                     errors.append(f"enum value removed: {name}.{value.name} ({value.number})")
                 else:
                     errors.append(
-                        f"enum value number reused: {name}.{value.name} ({value.number}) -> {sorted(reused)!r}"
+                        f"enum value number reused: {name}.{value.name} ({value.number}) -> {sorted(enum_reused)!r}"
                     )
                 continue
-            if replacement.number != value.number:
-                errors.append(f"enum value number changed: {name}.{value.name} {value.number} -> {replacement.number}")
-        old_reserved_names = set(old.reserved_name)
-        old_reserved_numbers = _reserved_enum_numbers(old)
-        for value in current.value:
+            if enum_replacement.number != value.number:
+                errors.append(
+                    f"enum value number changed: {name}.{value.name} {value.number} -> {enum_replacement.number}"
+                )
+        old_reserved_names = set(old_enum.reserved_name)
+        old_reserved_numbers = _reserved_enum_numbers(old_enum)
+        for value in current_enum.value:
             if value.name in old_reserved_names:
                 errors.append(f"reserved enum value name reused: {name}.{value.name}")
             if value.number in old_reserved_numbers:
@@ -299,15 +352,15 @@ def compatibility_errors(
                 continue
             current_methods = {method.name: method for method in current_service.method}
             for method in service.method:
-                replacement = current_methods.get(method.name)
+                method_replacement = current_methods.get(method.name)
                 qualified = f"{old_file.package}.{service.name}.{method.name}"
-                if replacement is None:
+                if method_replacement is None:
                     errors.append(f"RPC removed: {qualified}")
                 elif (
-                    replacement.input_type,
-                    replacement.output_type,
-                    replacement.client_streaming,
-                    replacement.server_streaming,
+                    method_replacement.input_type,
+                    method_replacement.output_type,
+                    method_replacement.client_streaming,
+                    method_replacement.server_streaming,
                 ) != (
                     method.input_type,
                     method.output_type,
@@ -387,6 +440,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("write")
     subparsers.add_parser("check")
+    subparsers.add_parser("check-rust")
+    subparsers.add_parser("write-rust")
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--base", required=True)
     lane_parser = subparsers.add_parser("verify-lane")
@@ -399,6 +454,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"GATEWAY PROTOCOL WRITTEN: {identity}")
         elif args.command == "check":
             print(f"GATEWAY PROTOCOL CURRENT: {check()}")
+        elif args.command in {"check-rust", "write-rust"}:
+            print(f"RUST GATEWAY PROJECTION CURRENT: {check_rust(write_projection=args.command == 'write-rust')}")
         elif args.command == "verify":
             identity, errors = verify(args.base)
             if errors:

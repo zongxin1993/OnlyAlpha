@@ -94,6 +94,8 @@ def test_delivery_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_pat
     for name in (
         "Cargo.toml",
         "Cargo.lock",
+        "packages/onlyalpha-gateway-protocol/Cargo.toml",
+        "packages/onlyalpha-calculation-worker/Cargo.toml",
         *[
             f"crates/onlyalpha-kernel/{module_directory(area)}/Cargo.toml"
             for area in (

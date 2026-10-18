@@ -334,3 +334,26 @@ identities. Python Definition2 and its official consumers are untouched referenc
 writer/reader, a history migration, a Runtime Generation or an execution/readiness capability. Do not infer schema2 hash parity,
 full Python-module equivalence, product activation or scientific Evidence from these common semantic vectors. Actual promotion
 requires the existing exact consumer/history and Runtime admission gates. See the [design](superpowers/specs/2026-10-18-rust-calculation-foundation-design.md).
+
+### Scoped Calculation execution and managed Python worker
+
+`calculation/src/execution.rs` owns exact execution bindings, ordered prepared batches and a cursor committed only by complete
+matching receipts. It has no Domain, process, plugin or transport dependency and never infers algorithm readiness. Six exact
+fingerprints bind generation, worker artifact, component Definition3, native Definition2, native implementation and input context;
+instance scope is explicit. These identity domains remain distinct.
+
+`packages/onlyalpha-calculation-worker/` owns the Python process and Rust client/transport. It invokes the existing registered
+SMA plugin, preserves native implementation identity, applies an explicit canonical Decimal context, and validates candidate
+updates/restores before replacing state. Canonical Protobuf authoring/projections remain under the existing Gateway ownership.
+The inherited same-host channel has no public listener; timeout/cancel/crash poisons its owner as UNKNOWN, with no retry/fallback.
+Exact generation admission, checkpoint persistence, historical materialization and official Runtime integration remain their
+existing owners' responsibilities. Process isolation is not authorization or a security sandbox.
+
+See the [execution design](superpowers/specs/2026-10-18-rust-calculation-worker-design.md). `scripts/calculation_worker_check.py`
+compares actual Rust/Python processes, independently expected SMA results and fresh-process continuation in both profiles; it
+reports startup, backend and whole-client batch timing separately. This technical command is not a human business entry point,
+Shipping Web UI acceptance, durable service upgrade proof, product-latency claim or Runtime activation.
+
+Generate Python projections with `scripts/gateway_protocol.py write`; generate Rust projections in the admitted Linux tool
+environment with `scripts/gateway_protocol.py write-rust`. The Rust canonical lane checks the Rust projection; the existing
+Gateway lane checks Python bytes and additive wire compatibility.

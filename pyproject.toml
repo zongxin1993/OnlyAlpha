@@ -55,6 +55,7 @@ dev = [
     "onlyalpha-plugin-targets",
     "onlyalpha-http-server",
     "onlyalpha-gateway-protocol",
+    "onlyalpha-calculation-worker",
     "onlyalpha-authoring-execution-worker",
     "onlyalpha-runtime-generation-manager",
     "onlyalpha-agent-orchestrator",
@@ -86,6 +87,7 @@ members = [
     "plugs/onlyalpha-plugin-targets",
     "packages/onlyalpha-http-server",
     "packages/onlyalpha-gateway-protocol",
+    "packages/onlyalpha-calculation-worker",
     "packages/onlyalpha-authoring-execution-worker",
     "packages/onlyalpha-runtime-generation-manager",
     "packages/onlyalpha-agent-orchestrator",
@@ -130,6 +132,7 @@ files = [
     "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
     "packages/onlyalpha-http-server/src/onlyalpha_http_server",
     "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
+    "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
     "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager",
     "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator",
@@ -150,6 +153,7 @@ onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-http-server = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
+onlyalpha-calculation-worker = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
 onlyalpha-runtime-generation-manager = { workspace = true }
 onlyalpha-agent-orchestrator = { workspace = true }
@@ -172,6 +176,7 @@ testpaths = [
     "plugs/onlyalpha-plugin-targets/tests",
     "packages/onlyalpha-http-server/tests",
     "packages/onlyalpha-gateway-protocol/tests",
+    "packages/onlyalpha-calculation-worker/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
     "packages/onlyalpha-runtime-generation-manager/tests",
     "packages/onlyalpha-agent-orchestrator/tests",
