@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/onlyalpha-kernel/domain", "crates/onlyalpha-kernel/core", "crates/onlyalpha-kernel/clock"]
+members = ["crates/onlyalpha-kernel/domain", "crates/onlyalpha-kernel/core", "crates/onlyalpha-kernel/clock", "crates/onlyalpha-kernel/event"]
 resolver = "3"
 
 [workspace.package]
-version = "0.10.9"
+version = "0.10.10"
 edition = "2024"
 rust-version = "1.99.1"
 publish = false

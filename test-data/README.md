@@ -11,6 +11,7 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 | `conformance/` | cn_a_share_production 冻结数据集 | `tests/conformance/cn_a_share_production` |
 | `contracts/` | Research advisory bundle 合同样例 | `tests/application`、`tests/contracts` |
 | `domain/` | Python/Rust Domain 共享独立参考向量（含时间精度和区间运算） | `tests/domain`、Rust Domain tests；[职责映射](../docs/rust-kernel-development.md#time-responsibility-map) |
+| `event/` | Python/Rust Event 独立记录与投递动作向量 | `tests/event/test_rust_event_vectors.py`、Rust Event conformance |
 | `external_plugins/` | `onlyalpha-test-plugin` 可安装 distribution | uv workspace editable；`scripts/version_sync.py` |
 | `legacy_macd/` | 跨区域共享 cluster 配置基线 | 多个引擎/恢复测试 |
 | `miniqmt/` | MiniQMT 冻结历史数据 | `tests/conformance/cn_a_share_cash` |

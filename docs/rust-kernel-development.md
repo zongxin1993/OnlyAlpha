@@ -160,7 +160,9 @@ The root Cargo workspace selects independent members inside it:
 ```text
 crates/onlyalpha-kernel/
 ├── domain/  # package onlyalpha-domain: canonical Domain types and pure operations
-└── core/    # package onlyalpha-kernel: the existing canonical semantic library
+├── core/    # package onlyalpha-kernel: the existing Predicate semantic library
+├── clock/   # package onlyalpha-clock: mutable Clock/Timer mechanics
+└── event/   # package onlyalpha-event: immutable envelopes and serial observation
 ```
 
 Each member owns its `Cargo.toml`, `src/lib.rs` and tests. Thus `src/onlyalpha/domain/identifiers.py` corresponds to
@@ -254,3 +256,19 @@ use Rust std; the fixed toolchain and existing registry-closure digest remain au
 It builds Domain with Clock absent, and Clock with only Domain plus declared registry dependencies; the Predicate library,
 Runtime, application and Python production source are absent from those isolated source closures. Both isolated modules run
 under debug/release. Independent Clock fixtures live in `test-data/clock/`; Python common-reference tests remain under `tests/clock/`.
+
+
+## Event responsibility and isolation map
+
+`event/model.py` and its record conversion correspond to Rust Event `model.rs` / `record.rs`; Python `bus.py` corresponds to
+Rust `bus.rs`, with capability and bounded-diagnostic responsibilities separated into `capabilities.rs` / `diagnostics.rs`.
+Python marker subclasses add no independent semantics; Rust retains their stable event-type values without duplicating empty
+classes. `event/ports.py` corresponds to interface-only `ports.rs`; actual Runtime Router/Gate/Outbox owners are unchanged.
+
+Event -> Domain is the only local dependency. Exact direct `num-bigint` and `serde_json` versions/features reuse the existing
+reviewed 40-node registry closure. The owner is intentionally non-Send; immutable Event values can traverse owning ingress
+boundaries. There is no event worker, hidden time/random input, Clock/Predicate edge or new deployment boundary.
+The canonical Rust gate checks Event-specific source/dependency rules and builds/tests Event+Domain with other modules and
+application source absent, in debug/release. It continues to verify independent Domain and Clock closures. Shared expectations
+live under `test-data/event/`; their Python consumer exercises the actual current implementation only for correct common cases.
+See the [owning Event Contract](event.md) and [selected design](superpowers/specs/2026-10-18-rust-event-design.md).

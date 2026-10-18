@@ -60,12 +60,12 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     from scripts.rust_kernel_check import validate_workspace
 
     (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock"]\n'
+        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event"]\n'
     )
     (tmp_path / "Cargo.lock").write_text(
-        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n'
+        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n'
     )
-    for name in ("domain", "core", "clock"):
+    for name in ("domain", "core", "clock", "event"):
         path = tmp_path / f"crates/onlyalpha-kernel/{name}/Cargo.toml"
         path.parent.mkdir(parents=True)
         path.write_text(f'[package]\nname="onlyalpha-{"kernel" if name == "core" else name}"\n')
@@ -75,6 +75,7 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     for dependency in (
         'onlyalpha-kernel = { path = "../onlyalpha-kernel" }',
         'onlyalpha-clock = { path = "../clock" }',
+        'onlyalpha-event = { path = "../event" }',
         'alias = { package = "onlyalpha-kernel", path = "../onlyalpha-kernel" }',
         'serde = "1"',
     ):
@@ -102,6 +103,7 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         "crates/onlyalpha-kernel/domain/Cargo.toml",
         "crates/onlyalpha-kernel/core/Cargo.toml",
         "crates/onlyalpha-kernel/clock/Cargo.toml",
+        "crates/onlyalpha-kernel/event/Cargo.toml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +115,18 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
     with pytest.raises(ValueError, match="DEPENDENCY_REVIEW"):
         validate_workspace(tmp_path)
     lock.write_text(original)
+    event = tmp_path / "crates/onlyalpha-kernel/event/Cargo.toml"
+    original_event = event.read_text()
+    for altered in (
+        original_event.replace('path = "../domain"', 'path = "../clock"'),
+        original_event.replace("onlyalpha-domain =", "alias ="),
+        original_event.replace("default-features = false", "default-features = true"),
+        original_event + '\n[dev-dependencies]\nonlyalpha-clock = { path = "../clock" }\n',
+    ):
+        event.write_text(altered)
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            validate_workspace(tmp_path)
+    event.write_text(original_event)
     domain = tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml"
     domain.write_text(
         domain.read_text().replace('"std", "arbitrary_precision"', '"std", "arbitrary_precision", "unbounded_depth"')
@@ -189,7 +203,12 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
     from scripts.rust_kernel_check import ROOT
 
     members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
-    expected = {"domain": "onlyalpha-domain", "core": "onlyalpha-kernel", "clock": "onlyalpha-clock"}
+    expected = {
+        "domain": "onlyalpha-domain",
+        "core": "onlyalpha-kernel",
+        "clock": "onlyalpha-clock",
+        "event": "onlyalpha-event",
+    }
     assert set(members) == {f"crates/onlyalpha-kernel/{area}" for area in expected}
     for area, name in expected.items():
         manifest = ROOT / f"crates/onlyalpha-kernel/{area}/Cargo.toml"

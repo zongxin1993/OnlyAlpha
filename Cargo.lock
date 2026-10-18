@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-clock"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-domain"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "bigdecimal",
  "jiff",
@@ -226,8 +226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-event"
+version = "0.10.10"
+dependencies = [
+ "num-bigint",
+ "onlyalpha-domain",
+ "serde_json",
+]
+
+[[package]]
 name = "onlyalpha-kernel"
-version = "0.10.9"
+version = "0.10.10"
 
 [[package]]
 name = "portable-atomic"

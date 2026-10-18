@@ -66,11 +66,15 @@ CLOCK_DEPENDENCIES = {
 }
 
 
+EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
+
+
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
+        "onlyalpha-event": "crates/onlyalpha-kernel/event",
     }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
@@ -117,6 +121,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == CLOCK_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-event"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == EVENT_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -124,6 +135,10 @@ def validate_workspace(root: Path) -> None:
     if registry:
         clock = tomllib.loads((root / modules["onlyalpha-clock"] / "Cargo.toml").read_text())
         if clock.get("dependencies") != CLOCK_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+        event = tomllib.loads((root / modules["onlyalpha-event"] / "Cargo.toml").read_text())
+        if event.get("dependencies") != EVENT_DEPENDENCIES:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -215,6 +230,34 @@ def validate_clock_sources(root: Path) -> None:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_event_sources(root: Path) -> None:
+    event = root / "crates/onlyalpha-kernel/event"
+    manifest_path = event / "Cargo.toml"
+    if (event / "build.rs").exists():
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if manifest_path.exists():
+        manifest = tomllib.loads(manifest_path.read_text())
+        if (
+            manifest.get("package", {}).get("build", False) is not False
+            or manifest.get("lib", {}).get("path", "src/lib.rs") != "src/lib.rs"
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    permitted = {'"../../../../test-data/event/records-v2.jsonl"', '"../../../../test-data/event/delivery-v1.jsonl"'}
+    for path in event.rglob("*.rs"):
+        text = path.read_text()
+        if path.is_symlink() or _hidden_rust_input(text):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        for macro in re.finditer(r"\b(include_str|include_bytes)\s*!\s*\(([^)]*)\)", text):
+            if path.parent != event / "tests" or macro[1] != "include_str" or macro[2].strip() not in permitted:
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        code = re.sub(r"(?m)^\s*//.*$", "", text)
+        if path.is_relative_to(event / "src") and re.search(
+            r"\b(?:SystemTime|Instant|UNIX_EPOCH|Condvar|thread|sleep|new_v4|new_v7|random|File|TcpStream|UdpSocket|Command|getrandom)\b|\bstd\s*::\s*(?:time|fs|net|process|env)\b|\buse\s+std\s*::\s*\{[^;]*\b(?:time|fs|net|process|env)\b",
+            code,
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -> Path:
     destination.mkdir(parents=True)
     for module in modules:
@@ -248,6 +291,10 @@ def isolated_clock(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "clock"))
 
 
+def isolated_event(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "event"))
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -265,6 +312,7 @@ def main() -> int:
     validate_workspace(ROOT)
     validate_domain_sources(ROOT)
     validate_clock_sources(ROOT)
+    validate_event_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -281,7 +329,7 @@ def main() -> int:
     for command in build_commands(target):
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
-    for name, materialize in (("domain", isolated_domain), ("clock", isolated_clock)):
+    for name, materialize in (("domain", isolated_domain), ("clock", isolated_clock), ("event", isolated_event)):
         with tempfile.TemporaryDirectory(prefix=f"{name}-isolated-", dir=artifacts) as directory:
             manifest = materialize(ROOT, Path(directory) / "source")
             isolated_env = dict(env, CARGO_TARGET_DIR=str(Path(directory) / "target"))

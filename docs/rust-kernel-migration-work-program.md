@@ -74,6 +74,21 @@ queue or virtual-only subset the complete Clock module. Compare correct common P
 Clock+Domain isolated closure and Domain-without-Clock isolation, affected guard/version/consumer checks and bounded independent
 review. Current-scope unresolved High/Critical blocks module acceptance; library evidence is not Backtest/SIM/LIVE admission.
 
+## Complete Event module construction
+
+Use the [Event Contract](event.md), ADRs 0004/0009/0048 and the
+[owner-approved Event design](superpowers/specs/2026-10-18-rust-event-design.md). Audit Python model/bus/ports/view and direct
+Router/Gate consumers before implementation; known reference defects never define expected Rust results.
+
+Construct one isolated Event library: explicit identities/time/scope, owned immutable payload/current records, scoped FIFO,
+observer registration/cancellation, exact backpressure/prefix/atomic outcomes, restricted serial dispatch, failures, quiescent
+close/drop, bounded visible diagnostics and interface-only publication ports. Router/Gate/Outbox and official Runtime remain
+outside this unit. Preserve historical readers/artifacts and do not activate a new official writer.
+
+Prove independent shared common vectors and corrected adversarial/capability/lifecycle semantics, exact edge/source admission,
+Event+Domain isolated debug/release builds, affected Python consumer/static/version checks and bounded independent review.
+A matching corpus does not certify all Python behavior, persistent recovery, cross-platform support or Runtime admission.
+
 ## Dependency order
 
 ```text
