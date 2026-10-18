@@ -60,8 +60,18 @@ DOMAIN_DEPENDENCIES = {
 }
 
 
+CLOCK_DEPENDENCIES = {
+    "onlyalpha-domain": {"path": "../domain"},
+    "num-bigint": {"version": "=0.4.8", "default-features": False, "features": ["std"]},
+}
+
+
 def validate_workspace(root: Path) -> None:
-    modules = {"onlyalpha-domain": "crates/onlyalpha-kernel/domain", "onlyalpha-kernel": "crates/onlyalpha-kernel/core"}
+    modules = {
+        "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
+        "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
+        "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
+    }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
     if set(workspace["members"]) != set(modules.values()):
@@ -69,7 +79,7 @@ def validate_workspace(root: Path) -> None:
     packages = tomllib.loads((root / "Cargo.lock").read_text())["package"]
     local = [item for item in packages if "source" not in item]
     registry = sorted((item for item in packages if "source" in item), key=lambda item: (item["name"], item["version"]))
-    if len(local) != 2 or {item["name"] for item in local} != expected:
+    if len(local) != len(expected) or {item["name"] for item in local} != expected:
         raise ValueError("RUST_KERNEL_DEPENDENCY_REVIEW_REQUIRED")
     domain = tomllib.loads((root / "crates/onlyalpha-kernel/domain/Cargo.toml").read_text())
     if registry:
@@ -100,10 +110,21 @@ def validate_workspace(root: Path) -> None:
                         and dependency == "onlyalpha-domain"
                         and config == {"path": "../domain"}
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-clock"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == CLOCK_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if registry:
+        clock = tomllib.loads((root / modules["onlyalpha-clock"] / "Cargo.toml").read_text())
+        if clock.get("dependencies") != CLOCK_DEPENDENCIES:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
 def prepare_cargo_home(registry: Path, home: Path) -> None:
@@ -114,6 +135,10 @@ def prepare_cargo_home(registry: Path, home: Path) -> None:
         shutil.rmtree(home)
     home.mkdir(parents=True)
     shutil.copytree(registry, home / "registry")
+
+
+def _hidden_rust_input(text: str) -> bool:
+    return bool(re.search(r"#\s*\[\s*(?:path\s*=|cfg_attr\b)|\b(?:include|env|option_env)\s*!", text))
 
 
 def validate_domain_sources(root: Path) -> None:
@@ -140,10 +165,12 @@ def validate_domain_sources(root: Path) -> None:
         "../../../../test-data/domain/timezone-v1.jsonl",
         "../../../../test-data/domain/calendar-boundaries-v1.jsonl",
         "../../../../test-data/domain/bar-identity-v3.jsonl",
+        "../../../../test-data/domain/instant-conversion-v1.tsv",
+        "../../../../test-data/domain/time-ranges-v1.jsonl",
     }
     for path in domain.rglob("*.rs"):
         text = path.read_text()
-        if path.is_symlink() or re.search(r"#\s*\[\s*path\s*=|\b(?:include|env|option_env)\s*!", text):
+        if path.is_symlink() or _hidden_rust_input(text):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         for macro in re.finditer(r"\b(include_str|include_bytes)\s*!\s*\(([^)]*)\)", text):
             argument = macro[2].strip()
@@ -155,23 +182,70 @@ def validate_domain_sources(root: Path) -> None:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
-def isolated_domain(root: Path, destination: Path) -> Path:
-    """Materialize only the declared Domain source/test/dependency closure."""
+def validate_clock_sources(root: Path) -> None:
+    """Keep native effects and undeclared source inputs outside deterministic Clock modules."""
+    clock = root / "crates/onlyalpha-kernel/clock"
+    if (clock / "build.rs").exists():
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    manifest_path = clock / "Cargo.toml"
+    if manifest_path.exists():
+        manifest = tomllib.loads(manifest_path.read_text())
+        if (
+            manifest.get("package", {}).get("build", False) is not False
+            or manifest.get("lib", {}).get("path", "src/lib.rs") != "src/lib.rs"
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    for path in clock.rglob("*.rs"):
+        text = path.read_text()
+        if path.is_symlink() or _hidden_rust_input(text):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        for macro in re.finditer(r"\b(include_str|include_bytes)\s*!\s*\(\s*([^)]*)\)", text):
+            if not (
+                path.parent == clock / "tests"
+                and macro[1] == "include_str"
+                and macro[2].strip()
+                in {'"../../../../test-data/clock/timers-v1.tsv"', '"../../../../test-data/clock/lifecycle-v1.tsv"'}
+            ):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        if path.is_relative_to(clock / "src") and path != clock / "src/native.rs":
+            if re.search(
+                r"\b(?:SystemTime|Instant|UNIX_EPOCH|Condvar|thread|sleep)\b|\bstd\s*::\s*time\b|\buse\s+std\s*::\s*\{[^;]*\btime\b",
+                text,
+            ):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
+def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -> Path:
     destination.mkdir(parents=True)
-    shutil.copytree(root / "crates/onlyalpha-kernel/domain", destination / "crates/onlyalpha-kernel/domain")
-    shutil.copytree(root / "test-data/domain", destination / "test-data/domain")
-    manifest = (root / "Cargo.toml").read_text()
-    manifest = re.sub(r"(?m)^members\s*=.*$", 'members = ["crates/onlyalpha-kernel/domain"]', manifest, count=1)
+    for module in modules:
+        relative = Path("crates/onlyalpha-kernel") / module
+        shutil.copytree(root / relative, destination / relative)
+        data = Path("test-data") / module
+        shutil.copytree(root / data, destination / data)
+    members = [f"crates/onlyalpha-kernel/{module}" for module in modules]
+    manifest = re.sub(
+        r"(?m)^members\s*=.*$", "members = " + json.dumps(members), (root / "Cargo.toml").read_text(), count=1
+    )
     (destination / "Cargo.toml").write_text(manifest)
     shutil.copyfile(root / "rust-toolchain.toml", destination / "rust-toolchain.toml")
     chunks = (root / "Cargo.lock").read_text().split("\n[[package]]\n")
-    retained = [
-        chunk
-        for chunk in chunks[1:]
-        if tomllib.loads("[[package]]\n" + chunk)["package"][0]["name"] != "onlyalpha-kernel"
-    ]
+    retained = []
+    for chunk in chunks[1:]:
+        package = tomllib.loads("[[package]]\n" + chunk)["package"][0]
+        if "source" in package or package["name"] in {f"onlyalpha-{module}" for module in modules}:
+            retained.append(chunk)
     (destination / "Cargo.lock").write_text(chunks[0] + "".join("\n[[package]]\n" + chunk for chunk in retained))
     return destination / "Cargo.toml"
+
+
+def isolated_domain(root: Path, destination: Path) -> Path:
+    """Materialize Domain without Kernel/Clock, application or undeclared source."""
+    return _isolated_modules(root, destination, ("domain",))
+
+
+def isolated_clock(root: Path, destination: Path) -> Path:
+    """Materialize Clock and its declared Domain closure; never the Predicate/application tree."""
+    return _isolated_modules(root, destination, ("domain", "clock"))
 
 
 def main() -> int:
@@ -190,6 +264,7 @@ def main() -> int:
         raise ValueError("RUST_KERNEL_TOOLCHAIN_MISMATCH")
     validate_workspace(ROOT)
     validate_domain_sources(ROOT)
+    validate_clock_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -206,28 +281,29 @@ def main() -> int:
     for command in build_commands(target):
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
-    with tempfile.TemporaryDirectory(prefix="domain-isolated-", dir=artifacts) as directory:
-        manifest = isolated_domain(ROOT, Path(directory) / "source")
-        isolated_env = dict(env, CARGO_TARGET_DIR=str(Path(directory) / "target"))
-        for profile in ([], ["--release"]):
-            command = [
-                "cargo",
-                "test",
-                "--manifest-path",
-                str(manifest),
-                "-p",
-                "onlyalpha-domain",
-                "--frozen",
-                "--offline",
-                "--target",
-                target,
-                "-j1",
-                *profile,
-                "--",
-                "--test-threads=1",
-            ]
-            print("DOMAIN_ISOLATED", " ".join(command), flush=True)
-            subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
+    for name, materialize in (("domain", isolated_domain), ("clock", isolated_clock)):
+        with tempfile.TemporaryDirectory(prefix=f"{name}-isolated-", dir=artifacts) as directory:
+            manifest = materialize(ROOT, Path(directory) / "source")
+            isolated_env = dict(env, CARGO_TARGET_DIR=str(Path(directory) / "target"))
+            for profile in ([], ["--release"]):
+                command = [
+                    "cargo",
+                    "test",
+                    "--manifest-path",
+                    str(manifest),
+                    "-p",
+                    f"onlyalpha-{name}",
+                    "--frozen",
+                    "--offline",
+                    "--target",
+                    target,
+                    "-j1",
+                    *profile,
+                    "--",
+                    "--test-threads=1",
+                ]
+                print(f"{name.upper()}_ISOLATED", " ".join(command), flush=True)
+                subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
     if before != source_inputs(ROOT):
         raise ValueError("RUST_KERNEL_SOURCE_CHANGED")
 

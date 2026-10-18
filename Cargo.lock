@@ -206,8 +206,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-clock"
+version = "0.10.9"
+dependencies = [
+ "num-bigint",
+ "onlyalpha-domain",
+]
+
+[[package]]
 name = "onlyalpha-domain"
-version = "0.10.8"
+version = "0.10.9"
 dependencies = [
  "bigdecimal",
  "jiff",
@@ -219,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-kernel"
-version = "0.10.8"
+version = "0.10.9"
 
 [[package]]
 name = "portable-atomic"

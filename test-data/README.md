@@ -7,8 +7,10 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 | --- | --- | --- |
 | `binance/public_archive_certification/` | immutable Binance golden 数据清单 | 部署认证测试消费 |
 | `clickhouse/` | ClickHouse 存储策略配置样例 | 当前无代码消费者，保留待集成 |
+| `clock/` | Python/Rust Clock 独立顺序/整数参考向量 | `tests/clock`、Rust Clock tests |
 | `conformance/` | cn_a_share_production 冻结数据集 | `tests/conformance/cn_a_share_production` |
 | `contracts/` | Research advisory bundle 合同样例 | `tests/application`、`tests/contracts` |
+| `domain/` | Python/Rust Domain 共享独立参考向量（含时间精度和区间运算） | `tests/domain`、Rust Domain tests；[职责映射](../docs/rust-kernel-development.md#time-responsibility-map) |
 | `external_plugins/` | `onlyalpha-test-plugin` 可安装 distribution | uv workspace editable；`scripts/version_sync.py` |
 | `legacy_macd/` | 跨区域共享 cluster 配置基线 | 多个引擎/恢复测试 |
 | `miniqmt/` | MiniQMT 冻结历史数据 | `tests/conformance/cn_a_share_cash` |

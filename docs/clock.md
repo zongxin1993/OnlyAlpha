@@ -16,7 +16,8 @@ Clock 不判断交易日、Session、午休、夜盘或 DST，也不依赖 Engin
 ## 3. 接口
 
 `OnlyClock` 提供读取、`schedule_at/after/every`、取消、查询和幂等关闭。旧 `now()` 是
-`now_utc()` 的兼容别名。`OnlyClockView` 只代理读取和调度，不提供推进或关闭权限，供 Cluster 使用。
+`now_utc()` 的兼容别名。`OnlyClockView` 只代理时间读取，不提供注册、推进、恢复或关闭权限，供 Cluster 使用。
+Timer 注册/取消经 owning Runtime 的 scoped TimerService 提供，不能从读取视图获得控制能力。
 
 ## 4. Virtual 与 Backtest
 
@@ -27,8 +28,15 @@ deadline，完成所有 `deadline <= target` 的 Timer（包括回调中新建�
 `OnlyBacktestClock` 复用 Virtual 的确定性实现，但语义是历史事件驱动；只有 Backtest Runtime
 持有它的控制接口。它是单线程对象，不承诺并发推进安全。
 
-快照描述时间、sequence 和 Timer 状态，但 Python callback 不可可靠序列化。当前只允许恢复不含
-活跃 callback 的 time-only snapshot；含活跃 Timer 时明确失败。
+快照不序列化 callback。Python 的 `restore` 只接受 time-only snapshot；`restore_with_registered_callbacks`
+用于 owning Runtime 已重新注册 callback 的恢复路径。恢复正式工作仍受 Runtime checkpoint、exact implementation /
+Generation、输入与已提交 effects 的 owning Authority 约束，不能由 Clock 单独认证。
+
+完整恢复 Contract 要求保存所有已用 Timer ID、不可变注册定义（含首次 deadline）、注册 sequence、触发次数、当前时间和失败。
+终态记录仍保留 ID 预留；无缺口的完整注册序列与状态/计数/首次 deadline 必须一致。先验证完整候选状态及精确 callback
+绑定，再一次替换；任何失败不得改变原状态。同一逻辑生命周期不能释放或重新定义已用 ID。活跃分派和 callback 中禁止恢复。
+Python 当前 checkpoint 的活跃 Timer 列表不能被当作完整 lifetime-ID authority；新的 Rust typed snapshot 不声称与之兼容，
+也不能从不完整历史猜测丢失的 ID。实际 Runtime 接入/历史恢复需要另行验证，不得自动 fallback 或改业务数据。
 
 ## 5. Timer 模型与顺序
 
@@ -74,3 +82,31 @@ Research Job / Plan 定义，可以复用纯时间原语，但不得为满足 Tr
 已知限制：Virtual/Backtest 单线程；callback 不可随快照恢复；未公开 FIXED_DELAY 注册 API；Live callback
 在 scheduler thread 串行执行，长 callback 会延迟后续 Timer；惰性删除项在 pop 时清理，尚无主动 heap
 压缩指标；未实现跨进程 Timer 持久化或 EventBus 适配。
+
+## 10. Rust module and capability boundary
+
+Rust Clock is an independent `crates/onlyalpha-kernel/clock/` library (package `onlyalpha-clock`), with Clock -> Domain as its
+sole local dependency. Domain retains immutable time/interval semantics. The existing `core/` Predicate crate is a separate
+responsibility. Source/dependency-closure builds and explicit guards reject reverse imports and hidden inputs.
+
+The Rust scheduler and virtual driver receive explicit exact integer instants and controls; only `native.rs` reads OS time,
+waits or creates a scheduler worker. Virtual callbacks receive `VirtualClockContext`, whose private owner reference cannot be
+extracted, replaced or advanced; nested callbacks have the same capability restriction. Query, register, cancel and request-close
+remain supported. Read-only views and Timer handles expose only their defined capabilities. Runtime controls advance/restore.
+
+A dispatch/completion token is local bookkeeping, owner-bound and single-use. Rejected/stale/foreign completion leaves state
+unchanged. Callback errors and unwind panics are structured failures, stop failed recurrence, and do not turn other Timers off.
+Callbacks and captured-resource destruction run outside scheduler locks. Cancellation releases callback resources without
+releasing lifetime-ID reservations. Virtual close during dispatch cancels remaining work and reports the last observed time;
+it does not report an unvisited advance target as reached.
+
+The native driver determines eligibility from exact monotonic anchors and then orders the eligible set by business deadline and
+registration sequence. A wall jump must not let an ineligible heap head block eligible work. Native wait chunks are capped at
+one day only as a representable OS transport wait; the original deadline/anchor remains exact and is re-evaluated after waking.
+Native close requests keep `Closing` visible; only actual worker join permits the owner to report `Closed`. A blocked callback
+remains unfinished; no detach or forced success is allowed. Callback-safe control requests close without self-join.
+
+Rust snapshots are typed module state, not a newly admitted persistent Runtime wire protocol. The full Clock validation boundary
+covers pure scheduling, virtual advancement, restore, capabilities, native samples/driver and lifecycle under debug/release and
+isolated builds. Shared Python/Rust vectors exercise correct common semantics; diagnosed Python deviations do not become expected
+Rust results or a claim of full parity. Library validation never activates Rust for official Runtime work.

@@ -8,8 +8,9 @@
 
 ## Context
 
-The owner selects Rust as the long-term implementation of stable Trading Kernel semantics, after the corresponding Python modules
-are stable. Python/Rust coexistence is a bounded migration technique, not a permanent promise to maintain two Kernels. Highly
+The owner selects Rust as the long-term implementation of stable Trading Kernel semantics, after the corresponding canonical
+Contracts and independent expected behavior have been audited. Python/Rust coexistence is a bounded migration technique,
+not a permanent promise to maintain two Kernels. Highly
 variable indicators, factors and research authoring remain Python-oriented. Market rules, DataSources and Brokers remain plugins,
 regardless of language; their SDK/platform constraints determine implementation language.
 
@@ -33,8 +34,10 @@ receives the same explicit inputs and isolated initial state; it cannot submit o
 stores or publish competing Evidence. Comparison results are diagnostic observations with exact provenance, not trading Authority.
 No automatic fallback, mid-work rebinding, latest-version selection or second mutable authority is introduced.
 
-Python is initially the official implementation. Rust modules enter comparison only after their Python Contract and relevant
-correctness/recovery behavior are stable. Stability is established per module, not by waiting for the entire product to finish.
+Python is initially the official implementation. Rust modules enter comparison after their audited canonical Contract and relevant
+correctness/recovery expectations are established. Known Python defects are classified against those expectations; they are not
+copied or made normative. Current official execution safety and trustworthy comparison still require their necessary fixes.
+Contract stability is established per module, not by waiting for the entire product or Python structural cleanup to finish.
 The first complete Rust-owned product slice is Backtest; SIM follows, then LIVE under its existing human authorization gates.
 Deployment staging never creates Runtime-specific economic semantics. Running work retains its exact binding; new-work activation
 and draining follow ADR 0117. A long-lived Runtime handover needs explicit validated checkpoint/reconciliation semantics before
@@ -75,8 +78,14 @@ The owner selects complete functional modules, beginning with Python `src/onlyal
 as migration delivery units. Internal types and operations may be implemented in small steps, but passing a few primitive/vector
 slices is not completion of a module. Each selected module first inventories all public responsibilities, methods, dependencies,
 identity/serialization rules, invariants, error behavior and applicable persistence/recovery obligations. Audit the Python
-implementation against the Constitution and owning Contracts before treating it as a comparison reference. Correct real defects
-with regression tests at their owning boundary; do not reproduce a Python bug or silently weaken acceptance to obtain parity.
+implementation against the Constitution and owning Contracts before treating it as a comparison reference. Record corrected
+semantics and regression cases at their owning boundary; do not reproduce a Python bug or silently weaken acceptance
+to obtain parity. Python is a temporary comparison reference, not a required directory or behavior template. Correct Python only
+where current official execution correctness/safety or trustworthy comparison requires it; structural cleanup of the retiring
+implementation is not a migration prerequisite. Design the Rust responsibility/dependency boundaries from the audited Contract,
+correcting unsuitable Python module divisions rather than mirroring them. Classify known Python deviations explicitly instead
+of claiming false parity. Rust remains the sole maintained Kernel target after the existing R8 retirement gates; retained exact
+artifacts/history and Python-oriented algorithms/plugins keep their existing boundaries.
 Unresolved identity, numerical-policy, history or authority decisions block dependent implementation, not unrelated preparation.
 
 Major Rust functional modules use separate library crates when their independent build/test and dependency enforcement require

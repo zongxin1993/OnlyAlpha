@@ -53,6 +53,16 @@ impl OnlyTimestamp {
     pub fn to_unix_seconds(&self) -> BigInt {
         self.unix_nanos.div_floor(&BigInt::from(1_000_000_000_u32))
     }
+    /// Reject precision loss; the nanosecond instant remains authoritative.
+    pub fn to_datetime_exact(&self) -> Result<OnlyUtcDateTime, OnlyDomainError> {
+        if !self.unix_nanos.is_multiple_of(&BigInt::from(1000_u32)) {
+            return Err(invalid(
+                "datetime cannot represent sub-microsecond nanoseconds",
+            ));
+        }
+        self.to_datetime()
+    }
+    /// Explicit lossy projection, flooring signed nanoseconds to microseconds.
     pub fn to_datetime(&self) -> Result<OnlyUtcDateTime, OnlyDomainError> {
         let micros = self
             .to_unix_micros()

@@ -1,0 +1,4 @@
+# id	initial	target	timers	expected events
+ordering	0	20	later,ONCE,20,-;same-a,ONCE,10,-;same-b,ONCE,10,-;periodic,RATE,5,5	periodic,5,4,1;same-a,10,2,1;same-b,10,3,1;periodic,10,4,2;periodic,15,4,3;later,20,1,1;periodic,20,4,4
+negative	-10	0	one,ONCE,-3,-;periodic,RATE,-8,4	periodic,-8,2,1;periodic,-4,2,2;one,-3,1,1;periodic,0,2,3
+huge	99999999999999999999999999999999999999990	99999999999999999999999999999999999999999	one,ONCE,99999999999999999999999999999999999999999,-	one,99999999999999999999999999999999999999999,1,1

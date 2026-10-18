@@ -11,6 +11,7 @@ pub mod value;
 
 pub mod trading;
 
+pub mod ranges;
 pub mod time;
 mod tzdb_rules;
 

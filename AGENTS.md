@@ -362,11 +362,26 @@ Ponytail 不拥有任务验收 Authority，不替代 Baseline Validation、risk-
 
 ### 3.5 Python / Rust 模块迁移
 
-按 ADR 0139，以完整功能模块作为迁移交付和隔离单位。每个模块先审计 Python 的职责、公开接口、依赖、边界、确定性、
-identity、序列化、错误及适用的恢复约束；源码不是高于 Constitution / Contract 的 oracle。真实缺陷先在 owning boundary
-增加回归并修正；未决数值、身份、历史或 Authority 设计阻塞依赖它的移植，禁止照搬 Bug 获取交叉验证一致。
+按 ADR 0139，以完整功能模块作为迁移交付和隔离单位。每个模块 MUST 先审计对应 Python 实现的职责、公开接口、依赖、
+边界、确定性、identity、序列化、错误及适用恢复语义，识别真实缺陷、职责混杂和不合理的模块划分；不得直接翻译源码。
+Constitution / owning Contract 是语义 Authority，Python 实现仅是迁移期的行为与交叉验证参考，不是正确性 oracle。
 
-主要 Rust 功能模块在有实际独立构建与依赖隔离要求时使用独立 library crate，内部按职责对应 Python 模块。
+Rust 是选定迁移范围内最终唯一维护的 Kernel 实现。Rust 的模块、目录与依赖应按经审计的合理职责设计，不要求复制 Python
+的文件、类、目录层级或历史包边界。发现 Python 划分不合理时，应在当前 Rust 实现中修正，并同步 owning Contract、职责映射
+和独立参考向量；不得为了外观一致而复制设计缺陷，也不为未来需求创建空目录或无实际作用的抽象。
+
+不以 Rust 迁移为由全面整理或修复即将退役的 Python 实现。Python 修改仅限当前仍在运行的正式链路所需 correctness / safety
+修复，或建立可信验证参考所必需的最小修改；单纯历史结构问题留在参考实现中，不要求先重构 Python 才能实现 Rust。
+发现缺陷必须在正确的 owning boundary 固化正确语义并增加回归；Python 与正确契约的已知差异必须显式分类，不能伪造两种实现
+全部一致、弱化断言或照搬 Bug。未决数值、身份、历史或 Authority 设计仍阻塞依赖它的移植。
+
+迁移期间当前获准的 Python Runtime 不因“参考实现”称呼而丧失其正式执行 Authority；Rust 验证也不自动获得正式写入权。
+完成逐模块验证与既有 R8 退役门槛后，删除被替代的 Python Kernel 实现，不承诺永久维护双内核。保留必要的 exact artifacts、
+immutable facts 和历史恢复能力；不得提前删除现行实现、绕过 admission 或自动 fallback。Python 指标、因子、研究编写和
+适合 Python 的插件不属于 Kernel 退役的当然删除范围。
+
+主要 Rust 功能模块在有实际独立构建与依赖隔离要求时使用独立 library crate，内部对齐经审计的 canonical 职责，
+不要求对应 Python 的历史包边界。
 独立构建 / 测试必须只需要本模块及声明的下层依赖，不依赖整个应用、数据库、行情或 Broker 环境；同时证明 package-selected
 和隔离 source/dependency closure 构建。机械检查允许依赖方向、禁止反向引用及环；编译器拒绝环不等于已禁止所有反向依赖。
 不得为每个源文件建立 crate / 服务，不得为隔离新增逐节点 RPC。Python 当前统一打包事实与模块隔离目标必须分开描述。

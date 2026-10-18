@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from scripts.rust_kernel_check import build_commands, compiler_environment
 
 
@@ -37,7 +39,7 @@ def test_compiler_environment_removes_ambient_flags_and_wrappers(tmp_path: Path)
     assert env["CARGO_TARGET_DIR"] == str(tmp_path)
 
 
-def test_rejected_host_cannot_leave_a_prior_build_receipt(monkeypatch, tmp_path: Path) -> None:
+def test_rejected_host_cannot_leave_a_prior_build_receipt(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     import pytest
 
     import scripts.rust_kernel_check as check
@@ -46,7 +48,7 @@ def test_rejected_host_cannot_leave_a_prior_build_receipt(monkeypatch, tmp_path:
     receipt.parent.mkdir(parents=True)
     receipt.write_text('{"prior":"build"}')
     monkeypatch.setattr(check, "ROOT", tmp_path)
-    monkeypatch.setattr(check.sys, "platform", "darwin")
+    monkeypatch.setattr("sys.platform", "darwin")
     with pytest.raises(ValueError, match="LINUX_REQUIRED"):
         check.main()
     assert not receipt.exists()
@@ -58,12 +60,12 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     from scripts.rust_kernel_check import validate_workspace
 
     (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core"]\n'
+        '[workspace]\nmembers=["crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock"]\n'
     )
     (tmp_path / "Cargo.lock").write_text(
-        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n'
+        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n'
     )
-    for name in ("domain", "core"):
+    for name in ("domain", "core", "clock"):
         path = tmp_path / f"crates/onlyalpha-kernel/{name}/Cargo.toml"
         path.parent.mkdir(parents=True)
         path.write_text(f'[package]\nname="onlyalpha-{"kernel" if name == "core" else name}"\n')
@@ -72,6 +74,7 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     original = manifest.read_text()
     for dependency in (
         'onlyalpha-kernel = { path = "../onlyalpha-kernel" }',
+        'onlyalpha-clock = { path = "../clock" }',
         'alias = { package = "onlyalpha-kernel", path = "../onlyalpha-kernel" }',
         'serde = "1"',
     ):
@@ -98,6 +101,7 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         "Cargo.lock",
         "crates/onlyalpha-kernel/domain/Cargo.toml",
         "crates/onlyalpha-kernel/core/Cargo.toml",
+        "crates/onlyalpha-kernel/clock/Cargo.toml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +156,7 @@ def test_domain_source_boundary_rejects_hidden_include_and_build_escapes(tmp_pat
     for escape in (
         'include!("/workspace/crates/onlyalpha-kernel/core/src/lib.rs");',
         '#[path="../../onlyalpha-kernel/src/lib.rs"] mod kernel;',
+        '#[cfg_attr(all(), path="../../core/src/lib.rs")] mod hidden;',
         'const INPUT: &str = env!("UNDECLARED_DOMAIN_INPUT");',
     ):
         source.write_text(escape)
@@ -184,7 +189,7 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
     from scripts.rust_kernel_check import ROOT
 
     members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
-    expected = {"domain": "onlyalpha-domain", "core": "onlyalpha-kernel"}
+    expected = {"domain": "onlyalpha-domain", "core": "onlyalpha-kernel", "clock": "onlyalpha-clock"}
     assert set(members) == {f"crates/onlyalpha-kernel/{area}" for area in expected}
     for area, name in expected.items():
         manifest = ROOT / f"crates/onlyalpha-kernel/{area}/Cargo.toml"

@@ -21,6 +21,13 @@ Trading Kernel or the authorization to rewrite the entire backend. For each sele
 5. Prove the selected Contract with independent vectors in both implementations, then apply the existing comparison/admission
    gates. Directory correspondence alone cannot establish equivalence, replace R1-R8 dependencies or authorize Python retirement.
 
+Correct Python code does not need structural relocation before Rust migration. Audit the selected Python slice, freeze its
+semantic Contract, implement it at the appropriate Rust boundary, and compare both against independent expectations. Retain
+Python paths while they are comparison implementations; change Python only for demonstrated correctness, safety or comparison
+validity needs. Retirement still follows R8 and preserves required artifacts/history; this policy does not retire Python-authored
+indicators/factors or language-appropriate plugins. See the [time responsibility map](rust-kernel-development.md#time-responsibility-map)
+for a concrete cross-package correspondence.
+
 Stable application/Infrastructure capabilities need their own bounded consumer and migration proof before Rust implementation;
 this program does not schedule a backend-wide rewrite. Algorithm authoring and market/plugin boundaries remain as defined in
 ADR 0139. Begin navigation from the [Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map), without
@@ -48,6 +55,24 @@ The selected unit covers the complete Domain public surface, not only a convenie
    retirement or LIVE permission follows from a Domain library build or matching corpus.
 
 These are future construction dependencies, not a completion ledger. The existing R0-R8 activation and retirement gates remain.
+
+## Complete Clock module construction
+
+Apply the owning [Clock Contract](clock.md), ADR 0008 and the [owner-approved Rust design](clock-rust-design.md).
+Audit Python `core.clock` and its direct checkpoint/Timer-service consumers before implementation. Keep Python production paths
+as reference implementations; classify defects against independent expectations, without requiring structural cleanup.
+
+**Modification map:** independent `crates/onlyalpha-kernel/clock/` library, pure scheduler/model/snapshot and virtual/capability
+modules, native sampled-time mechanics and one Linux OS driver. Update the exact Cargo/dependency/version graph, source guards,
+shared Clock vectors and package-selected/isolated build closures atomically. No Runtime activation or history conversion follows.
+
+**Deliverable:** complete registration/cancellation/query, ordering/fixed-rate/failure behavior, virtual control, restricted
+callbacks/views/handles, atomic complete-ID recovery, native time/worker lifecycle and callback-safe close. Do not call a pure
+queue or virtual-only subset the complete Clock module. Compare correct common Python behavior; never copy defects for parity.
+
+**Proof:** exact independent vectors and adversarial capability/restore/sample/lifecycle tests, debug/release/Clippy/format,
+Clock+Domain isolated closure and Domain-without-Clock isolation, affected guard/version/consumer checks and bounded independent
+review. Current-scope unresolved High/Critical blocks module acceptance; library evidence is not Backtest/SIM/LIVE admission.
 
 ## Dependency order
 
@@ -96,7 +121,7 @@ historical Integration reads without the installed type and fail-closed admissio
 all existing business data. Run affected canonical lanes, static/type/build checks and bounded independent review. Do not claim
 QMT removal from a grep count or by deleting failing shared tests.
 
-## R1 — Freeze each Python semantic slice and comparison inputs
+## R1 — Freeze each canonical semantic slice and comparison inputs
 
 **Modification map:** inspect `src/onlyalpha/runtime/trading/{kernel,builder,config,services,predicate}.py`, owning domain/value
 Contracts and directly affected transaction/recovery owners; reuse their existing tests before adding new fixture infrastructure.
@@ -105,10 +130,15 @@ Contracts and directly affected transaction/recovery owners; reuse their existin
 vectors attached to its owning Contract/tests. This is semantic test data, not a second task-status document. Select the first
 bounded module from real dependencies and stable behavior; do not port risk/order code from an unreviewed broad source snapshot.
 
-**Proof:** no unresolved Critical/High defects in the slice. Cover exact IDs and bytes, Decimal precision/rounding, boundary/overflow
+**Proof:** no unresolved Critical/High defects in the selected canonical Contract or accepted Rust implementation. Cover exact IDs
+and bytes, Decimal precision/rounding, boundary/overflow
 values, ordered and duplicate facts, denied/incomplete/unavailable/UNKNOWN outcomes, authority mutations, and relevant crash/replay
 cuts. Record semantic versions and immutable inputs; separately record each implementation artifact/generation identity. Any real
-Python bug is fixed and regression-tested under its own impact scope before that vector becomes the Rust comparison baseline.
+Python bug is diagnosed against the owning Contract and correct independent expected results. Fix Python under its own impact scope
+when current official execution correctness/safety or trustworthy comparison requires it; otherwise retain it only as a classified
+reference deviation. Incorrect Python outputs never become expected Rust results, and known mismatches cannot be reported as
+full cross-language parity. A reference deviation does not waive Runtime admission, history integrity or the selected Rust
+module's correctness/recovery gates.
 
 ## R2 — Linux toolchain plus the first canonical Rust module
 

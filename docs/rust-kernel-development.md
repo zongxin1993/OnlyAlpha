@@ -34,6 +34,41 @@ needed inside the Rust library. Create a nested Rust module only when actual res
 its real consumers atomically without old-path compatibility re-exports. New work binds the resulting exact implementation;
 existing work keeps its retained artifact. Source movement alone does not redefine semantic type/version identity.
 
+## Time responsibility map
+
+Migration aligns semantic responsibilities, not Python package paths. Existing Python paths remain in place until their
+implementation is retired; moving correct Python code solely to mirror Rust is not a prerequisite. Semantic defects still
+require an explicit Contract decision and the correctness fixes needed by affected consumers. Comparison targets the owning
+Contract and independent expected results, not unconditional equivalence to every legacy behavior.
+
+| Responsibility | Python implementation | Rust implementation |
+|---|---|---|
+| UTC normalization and absolute instant values | `domain.time`, `core.time` | `domain/src/time.rs` |
+| Exact nanoseconds to microsecond datetime | `core.time.only_unix_ns_to_datetime_utc` (default) | `OnlyTimestamp::to_datetime_exact` |
+| Explicit lossy datetime projection | `domain.time.OnlyTimestamp.to_datetime`, `core.time` with `allow_truncation=True` | `OnlyTimestamp::to_datetime` |
+| Immutable UTC half-open interval and interval algebra | `core.ranges` | `domain/src/ranges.rs` |
+| Mutable clock, advancement, Timer scheduling and lifecycle | `core.clock` | `clock/`: independent scheduler, virtual driver and native boundary |
+
+Strict projection rejects any sub-microsecond remainder. Explicit lossy projection floors signed nanoseconds to microseconds,
+including before the epoch. Neither silently changes the authoritative nanosecond value. Datetime results cover years 1..9999;
+unrepresentable inputs fail. Pure conversion never reads a clock. The shared `instant-conversion-v1.tsv` corpus exercises both
+Python conversion policies and Rust against independent boundary expectations. Rust's canonical UTC text parser remains strict;
+normalizing external aware datetime input is distinct from accepting noncanonical record text.
+
+Time ranges use UTC microsecond datetime endpoints and require `start < end`. Membership is `[start, end)`, touching ranges do
+not overlap, intersection can be empty, and subtraction returns ordered nonempty fragments. Merge sorts input and coalesces
+overlapping or touching ranges, including duplicates. Missing ranges subtract merged coverage from the requested interval;
+out-of-request coverage cannot extend the result. Operations are immutable and need no market, clock, Runtime, persistence or
+provider. `time-ranges-v1.jsonl` uses explicit integer microsecond offsets from the epoch for test transport only; it introduces
+no persistent record/schema or serialization compatibility promise. No new official writer or Runtime selection follows.
+
+The broad architectural term Core, Python's `onlyalpha.core` package, and the existing Rust `core` crate are not identical
+migration units. The Rust crate currently contains Predicate responsibilities. Do not place pure intervals there or merge
+Clock/thread/system-time behavior into Domain merely to make directory names correspond.
+
+The owner-approved [Rust Clock design](clock-rust-design.md) and [implementation plan](superpowers/plans/rust-clock.md)
+apply the owning [Clock Contract](clock.md). Building the library does not claim parity or Runtime admission.
+
 ## Toolchain and build boundary
 
 `rust-toolchain.toml` pins the official stable Rust 1.99.1 toolchain with rustfmt and Clippy. `deploy/Dockerfile.dev` obtains it from
@@ -207,3 +242,15 @@ A timezone resource version is immutable. An upgrade explicitly updates the pinn
 dataset manifest, lookup index and dataset identity together; review upstream changes, preserve licenses, and run the
 timezone/calendar cross-language tests and isolated Domain build. Do not modify individual zone bytes or use automatic
 system/upstream updates. Historical artifact identity and upgrade requirements continue to follow ADR 0140.
+
+## Clock build and dependency boundary
+
+`crates/onlyalpha-kernel/clock/` owns package `onlyalpha-clock`. Its local dependency is Domain. Its only direct registry dependency
+is `num-bigint = 0.4.8` (`default-features = false`, `std`), already present in the reviewed Domain registry closure. This direct
+edge introduces no new registry package/checksum, scheduler library or async runtime. Native synchronization/time/thread facilities
+use Rust std; the fixed toolchain and existing registry-closure digest remain authoritative build inputs.
+
+`rust_kernel_check.py` validates exact edges/features, the complete local release graph and native-effect/source include boundaries.
+It builds Domain with Clock absent, and Clock with only Domain plus declared registry dependencies; the Predicate library,
+Runtime, application and Python production source are absent from those isolated source closures. Both isolated modules run
+under debug/release. Independent Clock fixtures live in `test-data/clock/`; Python common-reference tests remain under `tests/clock/`.
