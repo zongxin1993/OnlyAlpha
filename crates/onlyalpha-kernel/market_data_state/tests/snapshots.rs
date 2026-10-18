@@ -86,7 +86,7 @@ fn restrict_never_widens_or_changes_owner() {
         .restrict("c".parse().unwrap(), &[a.clone(), a3.clone()], &a)
         .unwrap();
     let narrow = view
-        .restrict("c".parse().unwrap(), &[a.clone()], &a)
+        .restrict("c".parse().unwrap(), std::slice::from_ref(&a), &a)
         .unwrap();
     assert_eq!(narrow.visible_bar_types(), vec![a.clone()]);
     assert_eq!(narrow.series().len(), 1);
@@ -97,18 +97,18 @@ fn restrict_never_widens_or_changes_owner() {
             .is_err()
     );
     assert!(
-        view.restrict("sibling".parse().unwrap(), &[a.clone()], &a)
+        view.restrict("sibling".parse().unwrap(), std::slice::from_ref(&a), &a)
             .is_err()
     );
     let sibling = root
-        .restrict("sibling".parse().unwrap(), &[b.clone()], &b)
+        .restrict("sibling".parse().unwrap(), std::slice::from_ref(&b), &b)
         .unwrap();
     assert_eq!(sibling.series().len(), 1);
     assert_eq!(sibling.scope(), root.scope());
     let older = apply(&mut s, &[bar(A, 1, 4)], &a, 4);
     assert!(
         older
-            .restrict("c".parse().unwrap(), &[a3.clone()], &a3)
+            .restrict("c".parse().unwrap(), std::slice::from_ref(&a3), &a3)
             .is_err()
     );
 }
@@ -118,7 +118,7 @@ fn snapshot_survives_updates_without_alias() {
     let a = kind(A, 1);
     let old = apply(&mut s, &[bar(A, 1, 1)], &a, 1);
     let view = old
-        .restrict("c".parse().unwrap(), &[a.clone()], &a)
+        .restrict("c".parse().unwrap(), std::slice::from_ref(&a), &a)
         .unwrap();
     let mut detached = view.history(&a, 2).unwrap();
     detached.clear();

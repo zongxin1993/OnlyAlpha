@@ -245,8 +245,8 @@ def validate_clock_sources(root: Path) -> None:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
-def validate_event_sources(root: Path) -> None:
-    event = root / "crates/onlyalpha-kernel/event"
+def _validate_pure_sources(root: Path, area: str, permitted: set[str]) -> None:
+    event = root / "crates/onlyalpha-kernel" / area
     manifest_path = event / "Cargo.toml"
     if (event / "build.rs").exists():
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -257,7 +257,6 @@ def validate_event_sources(root: Path) -> None:
             or manifest.get("lib", {}).get("path", "src/lib.rs") != "src/lib.rs"
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-    permitted = {'"../../../../test-data/event/records-v2.jsonl"', '"../../../../test-data/event/delivery-v1.jsonl"'}
     for path in event.rglob("*.rs"):
         text = path.read_text()
         if path.is_symlink() or _hidden_rust_input(text):
@@ -273,12 +272,38 @@ def validate_event_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_event_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "event",
+        {
+            '"../../../../test-data/event/records-v2.jsonl"',
+            '"../../../../test-data/event/delivery-v1.jsonl"',
+        },
+    )
+
+
+def validate_market_data_state_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "market_data_state",
+        {
+            '"../../../../test-data/market-data-state/operations-v1.jsonl"',
+            '"../../../../test-data/market-data-state/records-v2.jsonl"',
+        },
+    )
+    for path in (root / "crates/onlyalpha-kernel/market_data_state/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?:clock|event|kernel|runtime|indicator|factor|provider|storage)\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -> Path:
     destination.mkdir(parents=True)
     for module in modules:
         relative = Path("crates/onlyalpha-kernel") / module
         shutil.copytree(root / relative, destination / relative)
-        data = Path("test-data") / module
+        data = Path("test-data") / module.replace("_", "-")
         shutil.copytree(root / data, destination / data)
     members = [f"crates/onlyalpha-kernel/{module}" for module in modules]
     manifest = re.sub(
@@ -290,7 +315,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
     retained = []
     for chunk in chunks[1:]:
         package = tomllib.loads("[[package]]\n" + chunk)["package"][0]
-        if "source" in package or package["name"] in {f"onlyalpha-{module}" for module in modules}:
+        if "source" in package or package["name"] in {"onlyalpha-" + module.replace("_", "-") for module in modules}:
             retained.append(chunk)
     (destination / "Cargo.lock").write_text(chunks[0] + "".join("\n[[package]]\n" + chunk for chunk in retained))
     return destination / "Cargo.toml"
@@ -308,6 +333,10 @@ def isolated_clock(root: Path, destination: Path) -> Path:
 
 def isolated_event(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "event"))
+
+
+def isolated_market_data_state(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "market_data_state"))
 
 
 def main() -> int:
@@ -328,6 +357,7 @@ def main() -> int:
     validate_domain_sources(ROOT)
     validate_clock_sources(ROOT)
     validate_event_sources(ROOT)
+    validate_market_data_state_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
     for guard in (
@@ -344,7 +374,12 @@ def main() -> int:
     for command in build_commands(target):
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
-    for name, materialize in (("domain", isolated_domain), ("clock", isolated_clock), ("event", isolated_event)):
+    for name, materialize in (
+        ("domain", isolated_domain),
+        ("clock", isolated_clock),
+        ("event", isolated_event),
+        ("market-data-state", isolated_market_data_state),
+    ):
         with tempfile.TemporaryDirectory(prefix=f"{name}-isolated-", dir=artifacts) as directory:
             manifest = materialize(ROOT, Path(directory) / "source")
             isolated_env = dict(env, CARGO_TARGET_DIR=str(Path(directory) / "target"))

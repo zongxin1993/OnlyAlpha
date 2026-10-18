@@ -271,3 +271,13 @@ or fault test, establish its failure, implement the smallest correct change, and
 Build tooling changes require environment/package checks; wire/persistence/authority changes require the actual affected high-risk
 proof. Do not run unrelated full-repository gates automatically. No progress checkboxes or PASS/READY ledger belongs in this file.
 The next unit starts only after its true prerequisites hold; publishing this work program is not permission to skip them.
+
+
+### Market Data State source navigation
+
+The audited bounded State responsibility uses `crates/onlyalpha-kernel/market_data_state/` (`onlyalpha-market-data-state`),
+with a sole local Domain edge. It covers atomic closed-Bar updates, immutable Runtime/Cluster queries and strict component
+checkpoint replacement. Construction, Pipeline/Dispatcher orchestration, calculation readiness and durable historical storage
+remain separate. See the [owning Contract](market_data_pipeline.md#rust-state-library-boundary) and
+[responsibility map](rust-kernel-development.md#market-data-state-responsibility-map). This library construction does not change
+the official Python participant, authorize activation/migration or record module completion.

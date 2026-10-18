@@ -1,0 +1,111 @@
+import shutil
+import tomllib
+from pathlib import Path
+
+import pytest
+
+from scripts import rust_kernel_check as check
+
+
+def test_state_rejects_hidden_inputs_native_effects_and_calculation_edges(tmp_path: Path) -> None:
+    source = tmp_path / "crates/onlyalpha-kernel/market_data_state/src/state.rs"
+    source.parent.mkdir(parents=True)
+    for forbidden in (
+        "use std::time::SystemTime;",
+        "use std::{time::Instant};",
+        "use std::thread;",
+        "use std::fs::File;",
+        "use std::net::TcpStream;",
+        "use std::process::Command;",
+        'fn input() {std::env::var("X");}',
+        "fn id() {uuid::Uuid::new_v4();}",
+        'include!("../../clock/src/lib.rs");',
+        '#[path="../../event/src/lib.rs"] mod event;',
+        '#[cfg_attr(all(),path="elsewhere.rs")] mod hidden;',
+        'const X:&str=env!("X");',
+        'const X:&str=include_str!("../../../../test-data/market-data-state/operations-v1.jsonl");',
+        "use onlyalpha_indicator::Value;",
+        "use onlyalpha_clock::OnlyClock;",
+    ):
+        source.write_text(forbidden)
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            check.validate_market_data_state_sources(tmp_path)
+    source.write_text("//! Snapshot has no worker and no trading readiness.\npub struct Snapshot;\n")
+    check.validate_market_data_state_sources(tmp_path)
+    (source.parent.parent / "build.rs").write_text("fn main() {}")
+    with pytest.raises(ValueError, match="BOUNDARY"):
+        check.validate_market_data_state_sources(tmp_path)
+
+
+def test_state_guard_permits_only_named_test_corpora(tmp_path: Path) -> None:
+    test = tmp_path / "crates/onlyalpha-kernel/market_data_state/tests/conformance.rs"
+    test.parent.mkdir(parents=True)
+    for name in ("operations-v1.jsonl", "records-v2.jsonl"):
+        test.write_text(f'const V:&str=include_str!("../../../../test-data/market-data-state/{name}");')
+        check.validate_market_data_state_sources(tmp_path)
+    for hidden in (
+        'include_bytes!("../../../../test-data/market-data-state/records-v2.jsonl")',
+        'include_str!("other.jsonl")',
+        'include_str!(concat!("x","y"))',
+    ):
+        test.write_text(f"const X: &str = {hidden};")
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            check.validate_market_data_state_sources(tmp_path)
+
+
+def test_state_isolated_closure_and_source_guard() -> None:
+    check.validate_market_data_state_sources(check.ROOT)
+
+
+def test_state_isolated_closure(tmp_path: Path) -> None:
+    manifest = check.isolated_market_data_state(check.ROOT, tmp_path / "isolated")
+    root = manifest.parent
+    assert set(tomllib.loads(manifest.read_text())["workspace"]["members"]) == {
+        "crates/onlyalpha-kernel/domain",
+        "crates/onlyalpha-kernel/market_data_state",
+    }
+    local = {row["name"] for row in tomllib.loads((root / "Cargo.lock").read_text())["package"] if "source" not in row}
+    assert local == {"onlyalpha-domain", "onlyalpha-market-data-state"}
+    assert (root / "test-data/market-data-state/operations-v1.jsonl").is_file()
+    for path in (
+        "crates/onlyalpha-kernel/core",
+        "crates/onlyalpha-kernel/clock",
+        "crates/onlyalpha-kernel/event",
+        "src/onlyalpha",
+        "plugs",
+        "packages",
+    ):
+        assert not (root / path).exists()
+
+
+def test_state_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_path: Path) -> None:
+    for name in (
+        "Cargo.toml",
+        "Cargo.lock",
+        *[
+            f"crates/onlyalpha-kernel/{area}/Cargo.toml"
+            for area in ("domain", "core", "clock", "event", "market_data_state")
+        ],
+    ):
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(check.ROOT / name, target)
+    manifest = tmp_path / "crates/onlyalpha-kernel/market_data_state/Cargo.toml"
+    original = manifest.read_text()
+    for mutation in (
+        original + 'onlyalpha-clock = {path="../clock"}\n',
+        original.replace(
+            'onlyalpha-domain = { path = "../domain" }', 'alias = {package="onlyalpha-domain",path="../domain"}'
+        ),
+        original.replace('features = ["std"]', 'features = ["std","rand"]'),
+        original + '[build-dependencies]\nonlyalpha-domain = {path="../domain"}\n',
+        original + "[target.'cfg(unix)'.dependencies]\nonlyalpha-domain = {path=\"../domain\"}\n",
+    ):
+        manifest.write_text(mutation)
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            check.validate_workspace(tmp_path)
+    manifest.write_text(original)
+    lower = tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml"
+    lower.write_text(lower.read_text() + 'onlyalpha-market-data-state = {path="../market_data_state"}\n')
+    with pytest.raises(ValueError, match="BOUNDARY"):
+        check.validate_workspace(tmp_path)

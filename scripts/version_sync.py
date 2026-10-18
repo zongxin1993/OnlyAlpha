@@ -17,7 +17,9 @@ from packaging.version import InvalidVersion, Version
 from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
-RUST_MODULES = frozenset({"onlyalpha-domain", "onlyalpha-kernel", "onlyalpha-clock", "onlyalpha-event", "onlyalpha-market-data-state"})
+RUST_MODULES = frozenset(
+    {"onlyalpha-domain", "onlyalpha-kernel", "onlyalpha-clock", "onlyalpha-event", "onlyalpha-market-data-state"}
+)
 TEST_DISTRIBUTION_PATHS = (
     Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml"),
     Path("test-data/runtime_factor_provider/pyproject.toml"),

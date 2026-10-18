@@ -33,12 +33,7 @@ fn object<'a>(
     Ok(row)
 }
 fn schema(row: &Map<String, Value>) -> Result<(), OnlyMarketDataStateError> {
-    if row["schema_version"]
-        .as_number()
-        .map(ToString::to_string)
-        .as_deref()
-        != Some("2")
-    {
+    if row["schema_version"].as_u64() != Some(2) {
         return Err(invalid("current schema 2 required"));
     }
     Ok(())
@@ -70,7 +65,11 @@ fn bar_type(value: &Value) -> Result<OnlyBarType, OnlyMarketDataStateError> {
     OnlyBarType::from_record(value).map_err(invalid)
 }
 fn series_record(series: &OnlyMarketDataSeriesSnapshot) -> Value {
-    json!({"bar_type":series.bar_type().to_record(),"version":number(series.version()),"history":series.history().iter().map(|b|b.to_record()).collect::<Vec<_>>()})
+    json!({
+        "bar_type": series.bar_type().to_record(),
+        "version": number(series.version()),
+        "history": series.history().iter().map(|bar| bar.to_record()).collect::<Vec<_>>()
+    })
 }
 fn parse_series(
     value: &Value,
@@ -109,7 +108,13 @@ fn parse_types(value: &Value) -> Result<BTreeMap<String, OnlyBarType>, OnlyMarke
 }
 impl OnlyMarketDataState {
     pub fn capture_checkpoint(&self) -> Value {
-        json!({"schema_version":2,"engine_id":self.scope.engine_id().value(),"runtime_id":self.scope.runtime_id().value(),"history_limit":self.history_limit,"series":self.series.values().map(|s|series_record(s)).collect::<Vec<_>>()})
+        json!({
+            "schema_version": 2,
+            "engine_id": self.scope.engine_id().value(),
+            "runtime_id": self.scope.runtime_id().value(),
+            "history_limit": self.history_limit,
+            "series": self.series.values().map(|series| series_record(series)).collect::<Vec<_>>()
+        })
     }
     pub fn restore_checkpoint(&mut self, value: &Value) -> Result<(), OnlyMarketDataStateError> {
         let row = object(
@@ -141,7 +146,19 @@ impl OnlyMarketDataState {
 }
 impl OnlyMarketDataSnapshot {
     pub fn to_record(&self) -> Value {
-        json!({"schema_version":2,"engine_id":self.scope.engine_id().value(),"runtime_id":self.scope.runtime_id().value(),"cluster_id":self.cluster_id.as_ref().map(|id|id.value()),"ts_event_ns":number(self.ts_event.unix_nanos()),"ts_init_ns":number(self.ts_init.unix_nanos()),"primary_bar_type":self.primary.to_record(),"visible_bar_types":self.visible.values().map(|t|t.to_record()).collect::<Vec<_>>(),"updated_bar_types":self.updated.iter().map(|k|self.visible[k].to_record()).collect::<Vec<_>>(),"series":self.series.values().map(|s|series_record(s)).collect::<Vec<_>>(),"quality_flags":self.quality_flags})
+        json!({
+            "schema_version": 2,
+            "engine_id": self.scope.engine_id().value(),
+            "runtime_id": self.scope.runtime_id().value(),
+            "cluster_id": self.cluster_id.as_ref().map(|id| id.value()),
+            "ts_event_ns": number(self.ts_event.unix_nanos()),
+            "ts_init_ns": number(self.ts_init.unix_nanos()),
+            "primary_bar_type": self.primary.to_record(),
+            "visible_bar_types": self.visible.values().map(|kind| kind.to_record()).collect::<Vec<_>>(),
+            "updated_bar_types": self.updated.iter().map(|key| self.visible[key].to_record()).collect::<Vec<_>>(),
+            "series": self.series.values().map(|series| series_record(series)).collect::<Vec<_>>(),
+            "quality_flags": self.quality_flags
+        })
     }
     pub fn from_record(value: &Value) -> Result<Self, OnlyMarketDataStateError> {
         let row = object(

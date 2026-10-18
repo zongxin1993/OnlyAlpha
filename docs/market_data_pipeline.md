@@ -62,6 +62,35 @@ Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败
 `OnlyMarketDataCache` 是 Trading Runtime 所有的可变内部真值，按 BarType 保存 latest closed、history 与单调 version。
 只有 Pipeline 可更新。Cluster 不获得 Cache 引用，只读取 Snapshot 中复制为 tuple/MappingProxy 的数据。
 
+### Rust State library boundary
+
+`crates/onlyalpha-kernel/market_data_state/` owns bounded closed-Bar state and immutable scoped queries, with Domain as its
+only local dependency. A non-Clone Runtime owner accepts explicit Engine/Runtime IDs, positive per-type history_limit
+(default 1024), closed unrevised end-time Bars, primary type, logical initialization time and quality flags. A complete batch
+and its snapshot validate before one replacement; failures never commit a prefix. Versions are lifetime arbitrary-precision
+integers, independent of retention. Historical acquisition init may follow the logical Backtest snapshot init.
+
+Runtime snapshots may contain multiple instruments; Cluster restriction selects one instrument and may include an
+unmaterialized secondary type. A selected local miss returns empty/zero, while an out-of-view query fails with Scope.
+Views only narrow within the same Cluster. Latest, primary/instrument/day/session derive from retained immutable Bars;
+there is no Indicator state or readiness/Source/Generation certification in this library.
+
+Current Rust component records use schema 2. Checkpoints contain exactly `schema_version`, `engine_id`, `runtime_id`,
+`history_limit`, `series`; each series contains `bar_type`, `version`, `history`. Snapshot records contain exactly
+`schema_version`, `engine_id`, `runtime_id`, `cluster_id`, `ts_event_ns`, `ts_init_ns`, `primary_bar_type`,
+`visible_bar_types`, `updated_bar_types`, `series`, `quality_flags`. IDs are strong Domain identifier strings, cluster_id
+is nullable, and times/versions are exact JSON integers. Domain records supply BarTypes and Bars. Map-like arrays use
+canonical Domain-record order, reject duplicates and preserve chronological history/quality-flag order. Every materialized
+series has positive version >= retained length; checkpoint history cannot exceed its declared limit. Restore validates
+all rows plus exact receiver owner/config before replacing state. It never unions, coerces, trims malformed imports or
+silently converts old records.
+
+This library is not admitted as a Runtime checkpoint participant. The actual Python `market-data.cache` participant remains
+schema 1; its registration, reader and stored artifacts are unchanged. Future activation requires separately authorized
+outer Generation/Source/Construction binding, historical migration/integrity and real restart/upgrade evidence. Cache-only
+restore and common Python/Rust vectors cannot certify these properties or a user-visible latency improvement.
+See the [selected design](superpowers/specs/2026-10-18-rust-market-data-state-design.md).
+
 ## 5. Indicator 与 Factor Ready Barrier
 
 Cluster Pipeline 按完整 Runtime/Cluster/Factor/Indicator Scope 更新匹配 BarType 的 Indicator，再按稳定依赖计划执行 Factor。Indicator/Factor Snapshot 的 Ready 与质量显式输出；Required Factor 未 Ready 时 Strategy 不执行。Runtime/Assembly 不识别具体指标，Strategy 不读 Indicator Registry。

@@ -180,7 +180,7 @@ fn snapshot_reader_revalidates_relations() {
         good
     );
     let view = root
-        .restrict("c".parse().unwrap(), &[a.clone()], &a)
+        .restrict("c".parse().unwrap(), std::slice::from_ref(&a), &a)
         .unwrap();
     let row = view.to_record();
     assert_eq!(row["series"].as_array().unwrap().len(), 1);

@@ -272,3 +272,19 @@ The canonical Rust gate checks Event-specific source/dependency rules and builds
 application source absent, in debug/release. It continues to verify independent Domain and Clock closures. Shared expectations
 live under `test-data/event/`; their Python consumer exercises the actual current implementation only for correct common cases.
 See the [owning Event Contract](event.md) and [selected design](superpowers/specs/2026-10-18-rust-event-design.md).
+
+
+## Market Data State responsibility map
+
+The Kernel umbrella's `market_data_state/` is package `onlyalpha-market-data-state`. Python `market_data/cache.py` corresponds
+to `state.rs`; immutable snapshot queries and restriction correspond to `snapshot.rs`; strict current records correspond to
+`record.rs`. This is a responsibility map, not a one-file/class translation: Pipeline/Construction/Dispatcher orchestration,
+Indicator/Factor state and durable market history retain their owning boundaries. `model.rs` defines only scope/config/errors.
+
+The only local edge is State -> Domain. The library reuses admitted exact num-bigint/serde_json features and adds no registry
+nodes. `rust-kernel` validates its pure source/dependency boundary and extracts Domain+State without Core/Clock/Event or
+Python/application/plugins. Both build profiles run the isolated closure. Independent common and schema-2 vectors live under
+`test-data/market-data-state/`; the Python consumer exercises only real common semantics. The owning
+[MarketData Contract](market_data_pipeline.md#rust-state-library-boundary) distinguishes component records from historical
+Source/Construction/Generation proof and official Python Runtime registration. No admission or full module/wire parity follows
+from a library build.

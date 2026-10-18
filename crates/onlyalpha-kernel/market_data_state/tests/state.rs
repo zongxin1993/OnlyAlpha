@@ -27,7 +27,7 @@ fn bounded_history_keeps_exact_lifetime_version() {
     let mut s = state(2);
     let k = kind(A, 1);
     let first = bar(A, 1, 1);
-    let saved = apply(&mut s, &[first.clone()], &k, 1);
+    let saved = apply(&mut s, std::slice::from_ref(&first), &k, 1);
     for end in [2, 3] {
         apply(&mut s, &[bar(A, 1, end)], &k, end);
     }

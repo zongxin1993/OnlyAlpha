@@ -24,3 +24,5 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 | `scenarios/` | 场景 YAML | `tests/market`、`tests/scenario` |
 | `web/` | Web E2E manifest | `scripts/prepare_web_e2e.py` |
 | `test-durations.json` | pytest 时长权威缓存 | `scripts/test_suite.py` 读写 |
+
+- [market-data-state](market-data-state/README.md): independent common state operations and strict schema-2 records; no whole-module Python parity or Runtime admission claim.

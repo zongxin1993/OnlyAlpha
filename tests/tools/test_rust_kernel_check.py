@@ -68,7 +68,8 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     for name in ("domain", "core", "clock", "event", "market_data_state"):
         path = tmp_path / f"crates/onlyalpha-kernel/{name}/Cargo.toml"
         path.parent.mkdir(parents=True)
-        path.write_text(f'[package]\nname="onlyalpha-{"kernel" if name == "core" else name.replace(chr(95), chr(45))}"\n')
+        package = "kernel" if name == "core" else name.replace("_", "-")
+        path.write_text(f'[package]\nname="onlyalpha-{package}"\n')
     validate_workspace(tmp_path)
     manifest = tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml"
     original = manifest.read_text()
