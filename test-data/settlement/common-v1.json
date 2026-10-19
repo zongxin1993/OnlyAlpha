@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "schema_version": 1,
+    "engine": "engine",
+    "runtime": "runtime",
+    "account": "account",
+    "gateway": "gateway",
+    "generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime_kind": "BACKTEST",
+    "cluster": "cluster",
+    "revision": "revision",
+    "instrument": "600000.XSHG",
+    "request": "request-1"
+  },
+  "order": "order",
+  "trade": "trade",
+  "currency": {
+    "schema_version": 1,
+    "code": "CNY",
+    "precision": 2,
+    "currency_type": "FIAT"
+  },
+  "side": "BUY",
+  "quantity": "4",
+  "gross_notional": "40.00",
+  "charges": "1.00",
+  "rebates": "0.00",
+  "trading_day": "2026-10-23",
+  "time": 1,
+  "calendar": {
+    "schema_version": 1,
+    "calendar_id": {
+      "schema_version": 1,
+      "value": "cash-calendar"
+    },
+    "venue_id": {
+      "schema_version": 1,
+      "value": "XSHG"
+    },
+    "timezone": {
+      "schema_version": 1,
+      "name": "UTC"
+    },
+    "sessions": [
+      {
+        "schema_version": 1,
+        "name": "all",
+        "opens_at": "00:00:00",
+        "closes_at": "00:00:00",
+        "session_type": "REGULAR",
+        "belongs_to_trading_day_offset": 0,
+        "allows_orders": true,
+        "allows_market_data": true
+      }
+    ],
+    "holidays": [
+      "2026-10-26"
+    ],
+    "weekend_days": [
+      5,
+      6
+    ],
+    "session_profile_id": null,
+    "special_schedules": [],
+    "calendar_version": 1,
+    "effective_from": "2026-01-01",
+    "effective_to": "2027-01-01"
+  },
+  "policy": {
+    "id": "cash-policy",
+    "version": "1",
+    "asset_booked": 0,
+    "asset_trade_available": 0,
+    "cash_booked": 0,
+    "cash_trade_available": 0,
+    "cash_withdrawable": 0,
+    "legal_settled": 0
+  },
+  "position": "position",
+  "position_cycle": 1,
+  "allocation": "allocation",
+  "allocation_cycle": 1,
+  "provenance": {
+    "reference": "source",
+    "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "instruction": "source-instruction"
+  }
+}

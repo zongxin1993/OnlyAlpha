@@ -7,6 +7,7 @@ publish.workspace = true
 [lints]
 workspace = true
 [dependencies]
+onlyalpha-settlement = { path = "../settlement" }
 onlyalpha-fee = { path = "../fee" }
 onlyalpha-domain = { path = "../domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }

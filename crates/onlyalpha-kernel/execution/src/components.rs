@@ -118,7 +118,7 @@ impl Components {
             ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
             risk: boundary(onlyalpha_risk::Manager::new(rc))?,
             config: config.clone(),
-            meta: json!({"schema_version":2,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"settlements":{},"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
+            meta: json!({"schema_version":3,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
             sequence: 0,
             pending: None,
         })
@@ -270,8 +270,8 @@ impl Components {
             3 => boundary(self.ledger.restore(&b, &h))?,
             4 => boundary(self.risk.restore(&b, &h))?,
             5 => {
-                if p["schema_version"] != 2 {
-                    return Err(err("EXECUTION_FEE_METADATA_SCHEMA"));
+                if p["schema_version"] != 3 {
+                    return Err(err("EXECUTION_ECONOMIC_METADATA_SCHEMA"));
                 }
                 let mut shape = p.clone();
                 shape["schema_version"] = json!(1);
@@ -282,7 +282,7 @@ impl Components {
                         "inputs",
                         "sources",
                         "fee_authority",
-                        "settlements",
+                        "settlement_authority",
                         "markets",
                         "valuations",
                         "last_runtime_sequence",
@@ -290,14 +290,7 @@ impl Components {
                         "marks",
                     ],
                 )?;
-                for f in [
-                    "orders",
-                    "inputs",
-                    "sources",
-                    "settlements",
-                    "markets",
-                    "valuations",
-                ] {
+                for f in ["orders", "inputs", "sources", "markets", "valuations"] {
                     if !p[f].is_object() {
                         return Err(err("EXECUTION_METADATA"));
                     }
@@ -309,6 +302,14 @@ impl Components {
                 boundary(fee.restore(
                     &p["fee_authority"],
                     &onlyalpha_fee::digest(&p["fee_authority"]),
+                ))?;
+                let mut settlement = boundary(onlyalpha_settlement::Authority::new(
+                    settlement_config(&self.config),
+                    512,
+                ))?;
+                boundary(settlement.restore(
+                    &p["settlement_authority"],
+                    &onlyalpha_settlement::digest(&p["settlement_authority"]),
                 ))?;
                 self.meta = p.clone();
             }
@@ -389,4 +390,19 @@ impl Components {
         self.pending = None;
         Ok(())
     }
+}
+
+pub(crate) fn settlement_config(config: &Value) -> Value {
+    let mut value = json!({"currency":config["currency"]});
+    for key in [
+        "engine",
+        "runtime",
+        "account",
+        "gateway",
+        "generation",
+        "runtime_kind",
+    ] {
+        value[key] = config[key].clone();
+    }
+    value
 }

@@ -758,3 +758,25 @@ fn saturated_history_keeps_broker_fills_and_fresh_recovery_available() {
     roundtrip(&mut m);
     assert_eq!(m.snapshot()["cash"], "989.00");
 }
+#[test]
+fn deferred_buy_credit_is_a_receivable_until_its_own_settlement() {
+    let mut m = manager();
+    m.apply(&reserve("r", "1.00", 1)).unwrap();
+    let mut v = trade(
+        "rebate",
+        Some("r"),
+        "BUY",
+        "1.00",
+        ("0.00", "2.00"),
+        2,
+        true,
+    );
+    v["payload"]["cash_withdrawable"] = json!(false);
+    m.apply(&v).unwrap();
+    assert_eq!(m.snapshot()["unsettled"], "1.00");
+    assert_eq!(m.snapshot()["withdrawable"], "1000.00");
+    roundtrip(&mut m);
+    m.apply(&cmd("maturity","SETTLE",3,json!({"schema_version":1,"instruction":"cash-maturity","source_trade":"rebate","amount":"1.00"}))).unwrap();
+    assert_eq!(m.snapshot()["withdrawable"], "1001.00");
+    roundtrip(&mut m);
+}

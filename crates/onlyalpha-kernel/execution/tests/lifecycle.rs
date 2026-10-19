@@ -1,3 +1,4 @@
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
 const ECONOMICS: &str = include_str!("../../../../test-data/execution/economics-v1.json");
 const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
 mod support;

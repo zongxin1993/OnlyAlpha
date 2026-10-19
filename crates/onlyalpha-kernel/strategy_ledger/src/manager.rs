@@ -179,6 +179,7 @@ impl Manager {
             ],
             "CASH_FLOW" => &[("cashflow", "cashflow"), ("source_fact", "source_fact")],
             "VALUATION" => &[("valuation", "valuation")],
+            "SETTLEMENT" => &[("settlement", "instruction")],
             _ => &[],
         };
         let aliases = fields
@@ -469,6 +470,27 @@ impl Manager {
                 self.orders.insert(id(&p["order"])?, c.into());
                 self.trades
                     .insert(id(&p["trade"])?, (c.into(), id(&p["order"])?));
+            }
+            "SETTLEMENT" => {
+                let line = l
+                    .lines
+                    .get_mut(&instrument(&p["instrument"])?)
+                    .ok_or_else(|| err("LEDGER_SETTLEMENT_ALLOCATION_UNKNOWN"))?;
+                if line.allocation.record(precision) != p["before"]
+                    || line.allocation.evidence != text(&p["before_evidence"])?
+                {
+                    return Err(err("LEDGER_SETTLEMENT_BEFORE_CONFLICT"));
+                }
+                let next = uint(&p["before"]["version"])?
+                    .checked_add(1)
+                    .ok_or_else(|| err("LEDGER_SETTLEMENT_VERSION"))?;
+                let mut unchanged = p["after"].clone();
+                unchanged["version"] = p["before"]["version"].clone();
+                if unchanged != p["before"] || p["after"]["version"] != next {
+                    return Err(err("LEDGER_SETTLEMENT_ECONOMIC_CHANGE"));
+                }
+                line.allocation.version = next;
+                line.allocation.evidence = text(&p["allocation_evidence"])?.into();
             }
             "VALUATION" => l.valuation(p, precision)?,
             _ => return Err(err("LEDGER_OP_UNSUPPORTED")),

@@ -19,6 +19,7 @@ def test_execution_module_is_present_with_exact_lower_layer_edges() -> None:
         "onlyalpha-strategy-ledger",
         "onlyalpha-risk",
         "onlyalpha-fee",
+        "onlyalpha-settlement",
     }
 
 

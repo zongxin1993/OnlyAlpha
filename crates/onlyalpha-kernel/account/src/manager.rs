@@ -249,14 +249,15 @@ impl Manager {
         let rebates = nonnegative(&p["rebates"], self.precision)?;
         let fee = &charges - &rebates;
         let realized = analytical(&p["realized_pnl_delta"])?;
-        match text(&p["side"])? {
+        let credit = match text(&p["side"])? {
             "BUY" => {
                 if realized != Decimal::zero() {
                     return Err(err("ACCOUNT_BUY_REALIZED_PNL"));
                 }
                 let debit = &notional + &fee;
                 self.consume(p, &(&notional + &charges))?;
-                self.state.cash -= debit;
+                self.state.cash -= &debit;
+                -debit
             }
             "SELL" => {
                 if !p["reservation"].is_null() {
@@ -264,11 +265,12 @@ impl Manager {
                 }
                 let credit = &notional - &fee;
                 self.state.cash += &credit;
-                if !boolean(&p["cash_withdrawable"])? && credit > Decimal::zero() {
-                    self.state.receivables.insert(id(&p["trade"])?, credit);
-                }
+                credit
             }
             _ => return Err(err("ACCOUNT_TRADE_SIDE")),
+        };
+        if !boolean(&p["cash_withdrawable"])? && credit > Decimal::zero() {
+            self.state.receivables.insert(id(&p["trade"])?, credit);
         }
         self.state.realized += realized;
         self.state.fees += fee;

@@ -134,7 +134,7 @@ EXECUTION_DEPENDENCIES = {
     **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
     **{
         "onlyalpha-" + name.replace("_", "-"): {"path": "../" + name}
-        for name in ("order", "position", "account", "strategy_ledger", "risk", "fee")
+        for name in ("order", "position", "account", "strategy_ledger", "risk", "fee", "settlement")
     },
 }
 
@@ -157,6 +157,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-execution": "crates/onlyalpha-kernel/execution",
         "onlyalpha-broker": "crates/onlyalpha-kernel/broker",
         "onlyalpha-fee": "crates/onlyalpha-kernel/fee",
+        "onlyalpha-settlement": "crates/onlyalpha-kernel/settlement",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -288,7 +289,7 @@ def validate_workspace(root: Path) -> None:
                         and config == EXECUTION_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
-                        name in {"onlyalpha-broker", "onlyalpha-fee"}
+                        name in {"onlyalpha-broker", "onlyalpha-fee", "onlyalpha-settlement"}
                         and section is manifest
                         and kind == "dependencies"
                         and alias == dependency
@@ -342,6 +343,12 @@ def validate_workspace(root: Path) -> None:
     if (
         registry
         and tomllib.loads((root / modules["onlyalpha-fee"] / "Cargo.toml").read_text()).get("dependencies")
+        != BROKER_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-settlement"] / "Cargo.toml").read_text()).get("dependencies")
         != BROKER_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -662,16 +669,29 @@ def validate_fee_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_settlement_sources(root: Path) -> None:
+    _validate_pure_sources(root, "settlement", {'"../../../../test-data/settlement/common-v1.json"'})
+    for path in (root / "crates/onlyalpha-kernel/settlement/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_execution_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
         "execution",
-        {'"../../../../test-data/execution/domain-inputs.json"', '"../../../../test-data/execution/economics-v1.json"'},
+        {
+            '"../../../../test-data/execution/domain-inputs.json"',
+            '"../../../../test-data/execution/economics-v1.json"',
+            '"../../../../test-data/settlement/common-v1.json"',
+        },
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b)[a-z_]+\b", code
+            r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b|settlement\b)[a-z_]+\b",
+            code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
@@ -837,11 +857,26 @@ def isolated_fee(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "fee"))
 
 
+def isolated_settlement(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "settlement"))
+
+
 def isolated_execution(root: Path, destination: Path) -> Path:
     return _isolated_modules(
         root,
         destination,
-        ("domain", "order", "position", "account", "strategy_ledger", "risk", "broker", "fee", "execution"),
+        (
+            "domain",
+            "order",
+            "position",
+            "account",
+            "strategy_ledger",
+            "risk",
+            "broker",
+            "fee",
+            "settlement",
+            "execution",
+        ),
     )
 
 
@@ -1044,6 +1079,33 @@ def check_fee_reference(root: Path, env: dict[str, str], target: str) -> None:
         compare_native(root, executable)
 
 
+def check_settlement_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.settlement_reference_check import compare_native
+
+    for profile in ([], ["--release"]):
+        subprocess.run(
+            [
+                "cargo",
+                "build",
+                "-p",
+                "onlyalpha-settlement",
+                "--example",
+                "reference",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        executable = Path(env["CARGO_TARGET_DIR"]) / target / ("release" if profile else "debug") / "examples/reference"
+        compare_native(root, executable)
+
+
 def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.execution_reference_check import check_fixture, compare_native_outputs
 
@@ -1123,6 +1185,7 @@ def main() -> int:
     validate_execution_sources(ROOT)
     validate_broker_sources(ROOT)
     validate_fee_sources(ROOT)
+    validate_settlement_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -1150,6 +1213,7 @@ def main() -> int:
         ("execution", isolated_execution),
         ("broker", isolated_broker),
         ("fee", isolated_fee),
+        ("settlement", isolated_settlement),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -1193,6 +1257,7 @@ def main() -> int:
     check_execution_reference(ROOT, env, target)
     check_broker_reference(ROOT, env, target)
     check_fee_reference(ROOT, env, target)
+    check_settlement_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

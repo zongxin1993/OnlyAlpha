@@ -77,6 +77,7 @@ impl Components {
             "ACCEPT" => candidate.accept(input)?,
             "CANCEL" => candidate.cancel(input)?,
             "FILL" => candidate.fill(input)?,
+            "SETTLEMENT_MATURITY" => candidate.settlement_maturity(input)?,
             "TERMINAL" => candidate.terminal(input)?,
             _ => return Err(err("EXECUTION_OPERATION")),
         };
@@ -290,6 +291,9 @@ impl Components {
         if p["market"]["verdict"] != "ACCEPT" || p["market"]["request_digest"] != hash(r) {
             return Err(err("EXECUTION_MARKET_ADMISSION"));
         }
+        let mut settlement_owner = self.settlement_owner()?;
+        boundary(settlement_owner.admit_order(json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":inst,"request":r["request_id"]["value"]}),order,side,text(&r["quantity"]["value"])?,u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_|err("EXECUTION_QUANTITY_PRECISION"))?))?;
+        self.meta["settlement_authority"] = settlement_owner.checkpoint();
         self.economic_source("markets", &p["market"])?;
         if boundary(self.ledger.snapshot(cluster))?["status"] == "CREATED" {
             self.ledger_apply(&self.ledger_command(
@@ -518,8 +522,8 @@ impl Components {
                 "trade",
                 "currency",
                 "model",
-                "quantity_bucket",
-                "cash_withdrawable",
+                "calendar",
+                "policy",
                 "gross_notional",
                 "rounding",
                 "scope",
@@ -587,12 +591,29 @@ impl Components {
                 return Err(err("EXECUTION_ECONOMIC_PROOF_SCOPE"));
             }
         }
-        if settlement["model"] != "GENERIC_T0_CASH"
-            || settlement["quantity_bucket"] != "SETTLED"
-            || settlement["cash_withdrawable"] != true
-        {
+        if settlement["model"] != "CASH_SETTLEMENT" {
             return Err(err("EXECUTION_SETTLEMENT_UNAVAILABLE"));
         }
+        let schedule = boundary(onlyalpha_settlement::resolve_schedule(
+            &settlement["calendar"],
+            &settlement["policy"],
+            text(&input["trading_day"])?,
+        ))?;
+        // These existing cash consumers book immediately. Other shapes need explicit owning support.
+        if ["asset_booked", "cash_booked", "cash_trade_available"]
+            .iter()
+            .any(|k| schedule[k] != input["trading_day"])
+        {
+            return Err(err("EXECUTION_SETTLEMENT_ECONOMIC_SHAPE_UNSUPPORTED"));
+        }
+        let initial_bucket = if relation["side"] == "BUY"
+            && schedule["asset_trade_available"] != input["trading_day"]
+        {
+            "UNSETTLED"
+        } else {
+            "SETTLED"
+        };
+        let cash_withdrawable = schedule["cash_withdrawable"] == input["trading_day"];
         fp(&fee["policy"])?;
         let mut fee_owner = boundary(onlyalpha_fee::Manager::new(
             json!({"engine":self.config["engine"],"runtime":self.config["runtime"],"account":self.config["account"],"gateway":self.config["gateway"],"runtime_kind":self.config["runtime_kind"],"generation":self.config["generation"]}),
@@ -606,15 +627,6 @@ impl Components {
         let charges = money(&nonnegative(&application["charges"])?, self.precision)?;
         let rebates = money(&nonnegative(&application["rebates"])?, self.precision)?;
         self.meta["fee_authority"] = fee_owner.checkpoint();
-        for (family, proof) in [("settlements", settlement)] {
-            for f in ["instruction", "source_ref"] {
-                let alias = format!("{f}:{}", text(&proof[f])?);
-                if self.meta[family].get(&alias).is_some() {
-                    return Err(err("EXECUTION_ECONOMIC_PROOF_ALIAS"));
-                }
-                self.meta[family][alias] = json!(hash(proof));
-            }
-        }
         let before_order = boundary(self.order.get(cluster, order))?.to_record();
         let qp = before_order["quantity"]["precision"].clone();
         let pp = before_order["price"]["precision"].clone();
@@ -643,7 +655,7 @@ impl Components {
             Err(e) => return Err(Error(e.to_string())),
         };
         let before_account = self.account.snapshot();
-        let fact=self.position_apply(&self.command(input,"TRADE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",hash(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":"SETTLED","terminal_fill":terminal}),0))?;
+        let fact=self.position_apply(&self.command(input,"TRADE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",hash(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal}),0))?;
         let allocation = boundary(self.position.cluster(cluster, inst))?;
         let pos = boundary(self.position.account(inst))?;
         let rd = exact(&fact["realized_pnl"])?;
@@ -672,11 +684,11 @@ impl Components {
         let account_market_delta = &new_market - &old_market;
         let unrealized = &new_market - total_cost;
         let ledger_before = if let Some(b) = before_alloc {
-            json!({"schema_version":1,"identity":b["id"],"cycle":b["cycle"],"realized_exact":exact_record(&exact(&b["realized_exact"])? ,self.precision),"quantity":b["quantity"],"cost":exact_record(&exact(&b["cost"])? ,self.precision),"realized":exact_record(&exact(&b["realized_pnl"])? ,self.precision),"version":b["version"]})
+            allocation_witness(&b, self.precision)?
         } else {
             json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":money(&BigDecimal::zero(),self.precision)?,"quantity":"0","cost":money(&BigDecimal::zero(),self.precision)?,"realized":money(&BigDecimal::zero(),self.precision)?,"version":0})
         };
-        let ledger_after = json!({"schema_version":1,"identity":allocation["id"],"cycle":allocation["cycle"],"realized_exact":exact_record(&exact(&allocation["realized_exact"])? ,self.precision),"quantity":allocation["quantity"],"cost":exact_record(&exact(&allocation["cost"])? ,self.precision),"realized":exact_record(&exact(&allocation["realized_pnl"])? ,self.precision),"version":allocation["version"]});
+        let ledger_after = allocation_witness(&allocation, self.precision)?;
         self.ledger_apply(&self.ledger_command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"fee_instruction":fee["instruction"],"source_sequence":input["runtime_sequence"],"side":relation["side"],"instrument":inst,"notional":notional_s,"charges":charges,"rebates":rebates,"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"before":ledger_before,"after":ledger_after,"allocation_evidence":hash(&allocation),"mark":valuation["mark"],"multiplier":"1"}),0))?;
         let mut rounding_adjustment = BigDecimal::zero();
         for cluster in self.config["profiles"]
@@ -687,7 +699,13 @@ impl Components {
             rounding_adjustment +=
                 exact(&boundary(self.ledger.snapshot(cluster))?["realized_rounding_adjustment"])?;
         }
-        self.account_apply(&self.command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"sequence":input["runtime_sequence"],"side":relation["side"],"notional":notional_s,"fee_instruction":fee["instruction"],"charges":charges,"rebates":rebates,"realized_pnl_delta":exact_record(&rd,self.precision),"position_evidence":hash(&pos),"market_value_delta":money(&account_market_delta,self.precision)?,"unrealized_pnl":exact_record(&unrealized,self.precision),"realized_rounding_adjustment":exact_record(&rounding_adjustment,self.precision),"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"cash_withdrawable":true}),0))?;
+        self.account_apply(&self.command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"sequence":input["runtime_sequence"],"side":relation["side"],"notional":notional_s,"fee_instruction":fee["instruction"],"charges":charges,"rebates":rebates,"realized_pnl_delta":exact_record(&rd,self.precision),"position_evidence":hash(&pos),"market_value_delta":money(&account_market_delta,self.precision)?,"unrealized_pnl":exact_record(&unrealized,self.precision),"realized_rounding_adjustment":exact_record(&rounding_adjustment,self.precision),"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"cash_withdrawable":cash_withdrawable}),0))?;
+        let instruction = boundary(onlyalpha_settlement::compile(
+            json!({"schema_version":1,"scope":settlement["scope"],"order":order,"trade":p["trade"],"currency":self.config["currency"],"side":relation["side"],"quantity":p["quantity"],"gross_notional":notional_s,"charges":charges,"rebates":rebates,"trading_day":input["trading_day"],"time":input["time"],"calendar":settlement["calendar"],"policy":settlement["policy"],"position":pos["id"],"position_cycle":pos["cycle"],"allocation":allocation["id"],"allocation_cycle":allocation["cycle"],"provenance":{"reference":settlement["source_ref"],"fingerprint":settlement["source_digest"],"instruction":settlement["instruction"]}}),
+        ))?;
+        let mut owner = self.settlement_owner()?;
+        boundary(owner.register(&instruction))?;
+        self.meta["settlement_authority"] = owner.checkpoint();
         self.risk_apply(&self.risk_command(input,"FILL",json!({"schema_version":1,"order":order,"trade":p["trade"],"source_ref":input["source_ref"],"quantity":p["quantity"],"notional":notional_s,"final_fill":terminal}),0))?;
         Ok(())
     }
@@ -718,4 +736,68 @@ impl Components {
         self.risk_apply(&self.risk_command(input,"TERMINAL",json!({"schema_version":1,"order":order,"outcome":outcome,"source_ref":input["source_ref"]}),0))?;
         Ok(())
     }
+}
+
+impl Components {
+    fn settlement_owner(&self) -> Result<onlyalpha_settlement::Authority, Error> {
+        let mut owner = boundary(onlyalpha_settlement::Authority::new(
+            crate::components::settlement_config(&self.config),
+            512,
+        ))?;
+        boundary(owner.restore(
+            &self.meta["settlement_authority"],
+            &onlyalpha_settlement::digest(&self.meta["settlement_authority"]),
+        ))?;
+        Ok(owner)
+    }
+    fn settlement_maturity(&mut self, input: &Value) -> Result<(), Error> {
+        let p = &input["payload"];
+        row(p, &["instruction", "expected_version"])?;
+        let mut owner = self.settlement_owner()?;
+        let id = text(&p["instruction"])?;
+        let before = boundary(owner.snapshot(id))?;
+        if before["version"] != p["expected_version"] {
+            return Err(err("EXECUTION_SETTLEMENT_PRECONDITION"));
+        }
+        let original = &before["instruction"]["input"];
+        if original["scope"]["cluster"] != input["cluster"]
+            || original["scope"]["revision"] != input["revision"]
+        {
+            return Err(err("EXECUTION_SETTLEMENT_SCOPE"));
+        }
+        let effect = boundary(owner.mature(
+            id,
+            text(&input["trading_day"])?,
+            input["time"].clone(),
+            uint(&p["expected_version"])?,
+        ))?
+        .record();
+        let quantity = nonnegative(&effect["asset_quantity"])?;
+        if !quantity.is_zero() {
+            let instrument = text(&original["scope"]["instrument"])?;
+            let position = boundary(self.position.account(instrument))?;
+            let allocation = boundary(self.position.cluster(text(&input["cluster"])?, instrument))?;
+            if position["id"] != effect["position"]
+                || position["cycle"] != effect["position_cycle"]
+                || allocation["id"] != effect["allocation"]
+                || allocation["cycle"] != effect["allocation_cycle"]
+            {
+                return Err(err("EXECUTION_SETTLEMENT_LIFECYCLE"));
+            }
+            self.position_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instrument":instrument,"trading_day":input["trading_day"],"source":effect["id"],"buckets":[{"schema_version":1,"cluster":input["cluster"],"quantity":effect["asset_quantity"]}]}),0))?;
+            let after = boundary(self.position.cluster(text(&input["cluster"])?, instrument))?;
+            self.ledger_apply(&self.ledger_command(input,"SETTLEMENT",json!({"schema_version":1,"instruction":effect["id"],"instrument":instrument,"before":allocation_witness(&allocation,self.precision)?,"after":allocation_witness(&after,self.precision)?,"before_evidence":hash(&allocation),"allocation_evidence":hash(&after)}),0))?;
+        }
+        if !nonnegative(&effect["cash_amount"])?.is_zero() {
+            self.account_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instruction":effect["id"],"source_trade":effect["trade"],"amount":effect["cash_amount"]}),0))?;
+        }
+        self.meta["settlement_authority"] = owner.checkpoint();
+        Ok(())
+    }
+}
+
+fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
+    Ok(
+        json!({"schema_version":1,"identity":a["id"],"cycle":a["cycle"],"realized_exact":exact_record(&exact(&a["realized_exact"])?,p),"quantity":a["quantity"],"cost":exact_record(&exact(&a["cost"])?,p),"realized":exact_record(&exact(&a["realized_pnl"])?,p),"version":a["version"]}),
+    )
 }

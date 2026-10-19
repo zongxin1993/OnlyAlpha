@@ -72,8 +72,11 @@ pub fn fill(n: u64, ordinal: u64, quantity: &str, price: &str, charges: &str) ->
     let mut v = input(
         n,
         "FILL",
-        json!({"schema_version":1,"order":order(ordinal),"trade":format!("trade-{n}"),"venue_trade":format!("venue-trade-{n}"),"venue_order":format!("venue-{ordinal}"),"quantity":quantity,"price":price,"fees":{"schema_version":1,"instruction":format!("fee-{n}"),"source_ref":format!("fee-source-{n}"),"policy":policy,"order":order(ordinal),"trade":format!("trade-{n}"),"currency":config()["currency"],"charge_target":charges,"rebate_target":"0.00"},"settlement":{"schema_version":1,"instruction":format!("settlement-{n}"),"source_ref":format!("settlement-source-{n}"),"order":order(ordinal),"trade":format!("trade-{n}"),"currency":config()["currency"],"model":"GENERIC_T0_CASH","quantity_bucket":"SETTLED","cash_withdrawable":true,"gross_notional":settlement_money(price,quantity),"rounding":"HALF_EVEN"},"valuation":{"schema_version":1,"source_ref":format!("valuation-source-{n}"),"currency":config()["currency"],"mark":price}}),
+        json!({"schema_version":1,"order":order(ordinal),"trade":format!("trade-{n}"),"venue_trade":format!("venue-trade-{n}"),"venue_order":format!("venue-{ordinal}"),"quantity":quantity,"price":price,"fees":{"schema_version":1,"instruction":format!("fee-{n}"),"source_ref":format!("fee-source-{n}"),"policy":policy,"order":order(ordinal),"trade":format!("trade-{n}"),"currency":config()["currency"],"charge_target":charges,"rebate_target":"0.00"},"settlement":{"schema_version":1,"instruction":format!("settlement-{n}"),"source_ref":format!("settlement-source-{n}"),"order":order(ordinal),"trade":format!("trade-{n}"),"currency":config()["currency"],"model":"CASH_SETTLEMENT","gross_notional":settlement_money(price,quantity),"rounding":"HALF_EVEN"},"valuation":{"schema_version":1,"source_ref":format!("valuation-source-{n}"),"currency":config()["currency"],"mark":price}}),
     );
+    let template: Value = serde_json::from_str(super::SETTLEMENT_FIXTURE).unwrap();
+    v["payload"]["settlement"]["calendar"] = template["calendar"].clone();
+    v["payload"]["settlement"]["policy"] = template["policy"].clone();
     let scope = json!({"schema_version":1,"engine":v["engine"],"runtime":v["runtime"],"account":v["account"],"gateway":v["gateway"],"generation":v["generation"],"runtime_kind":v["runtime_kind"],"cluster":v["cluster"],"revision":v["revision"],"instrument":"600000.XSHG","request":format!("request-{ordinal}")});
     for (key, family) in [
         ("fees", "ORDER_FEE_ACCRUAL"),

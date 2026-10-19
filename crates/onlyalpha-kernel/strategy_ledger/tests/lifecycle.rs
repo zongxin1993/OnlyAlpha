@@ -887,3 +887,50 @@ fn allocation_cycle_restarts_preserve_lifetime_realized_and_exact_owner() {
     assert_eq!(snapshot(&m, "c1")["status"], "ACTIVE");
     roundtrip(&mut m);
 }
+#[test]
+fn settlement_refreshes_only_the_exact_non_economic_allocation_witness() {
+    let mut m = opened();
+    let before = m.state()["ledgers"]["c1"]["lines"]["BTCUSDT.BINANCE"]["allocation"].clone();
+    let mut after = before.clone();
+    after["version"] = json!(2);
+    let v = command(
+        "c1",
+        "settlement",
+        5,
+        "SETTLEMENT",
+        json!({"schema_version":1,"instruction":"maturity","instrument":"BTCUSDT.BINANCE","before":before,"after":after,"before_evidence":"b".repeat(64),"allocation_evidence":"c".repeat(64)}),
+    );
+    let economics = snapshot(&m, "c1");
+    assert_eq!(m.apply(&v).unwrap().status, Status::Applied);
+    assert_eq!(snapshot(&m, "c1")["cash"], economics["cash"]);
+    assert_eq!(snapshot(&m, "c1")["equity"], economics["equity"]);
+    roundtrip(&mut m);
+}
+
+#[test]
+fn settlement_cannot_change_economics_owner_or_skip_versions() {
+    for field in [
+        "quantity",
+        "cost",
+        "realized",
+        "realized_exact",
+        "version",
+        "identity",
+        "cycle",
+    ] {
+        let mut m = opened();
+        let before = m.state()["ledgers"]["c1"]["lines"]["BTCUSDT.BINANCE"]["allocation"].clone();
+        let mut after = before.clone();
+        after["version"] = json!(2);
+        after[field] = if field == "identity" {
+            json!("foreign")
+        } else if field == "version" || field == "cycle" {
+            json!(99)
+        } else {
+            json!("999")
+        };
+        let cp = m.checkpoint().unwrap();
+        assert!(m.apply(&command("c1","bad-settlement",5,"SETTLEMENT",json!({"schema_version":1,"instruction":"bad-maturity","instrument":"BTCUSDT.BINANCE","before":before,"after":after,"before_evidence":"b".repeat(64),"allocation_evidence":"c".repeat(64)}))).is_err());
+        assert_eq!(m.checkpoint().unwrap(), cp);
+    }
+}

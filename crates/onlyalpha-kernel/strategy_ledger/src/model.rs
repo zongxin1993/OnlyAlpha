@@ -544,6 +544,18 @@ pub(crate) fn normalize(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
                 "fee_instruction",
             ],
         ),
+        "SETTLEMENT" => (
+            &[
+                "instruction",
+                "instrument",
+                "before",
+                "after",
+                "before_evidence",
+                "allocation_evidence",
+            ],
+            &[],
+            &["instruction"],
+        ),
         "VALUATION" => (
             &["valuation", "economic_version", "version", "lines"],
             &[],
@@ -578,6 +590,14 @@ pub(crate) fn normalize(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
             }
             for k in ["mark", "multiplier"] {
                 r.insert(k.into(), json!(positive(&r[k])?.to_plain_string()));
+            }
+        }
+        "SETTLEMENT" => {
+            instrument(&r["instrument"])?;
+            fingerprint(&r["before_evidence"])?;
+            fingerprint(&r["allocation_evidence"])?;
+            for k in ["before", "after"] {
+                r.insert(k.into(), normalize_allocation(&r[k], p)?);
             }
         }
         "FEE" => {
