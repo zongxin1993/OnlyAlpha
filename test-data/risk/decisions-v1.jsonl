@@ -1,0 +1,3 @@
+{"case":"within_limit","quantity":"10","limit":"10","mode":"ENFORCING","outcome":"ACCEPT","observations":0}
+{"case":"above_limit","quantity":"11","limit":"10","mode":"ENFORCING","outcome":"REJECT","observations":0}
+{"case":"observed_limit","quantity":"11","limit":"10","mode":"OBSERVING","outcome":"ACCEPT","observations":1}

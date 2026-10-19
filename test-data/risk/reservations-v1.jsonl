@@ -1,0 +1,2 @@
+{"case":"partial_then_cancel","fills":[{"quantity":"4","notional":"36","complete":false}],"release":true,"expected":{"state":"RELEASED","consumed_quantity":"4","consumed_notional":"36.00","released_quantity":"6","released_notional":"64.00"}}
+{"case":"full_at_budget","fills":[{"quantity":"4","notional":"40","complete":false},{"quantity":"6","notional":"60","complete":true}],"release":false,"expected":{"state":"CONSUMED","consumed_quantity":"10","consumed_notional":"100.00","released_quantity":"0","released_notional":"0.00"}}

@@ -349,3 +349,7 @@ The isolated Account component is `crates/onlyalpha-kernel/account/`; [Account](
 ### Strategy Ledger source navigation
 
 The isolated virtual-account library resides in `crates/onlyalpha-kernel/strategy_ledger/`. Its [owning contract](strategy_ledger.md#rust-component-ownership-and-recovery-boundary) separates Cluster attribution from consolidated Account and Position cost authority. Risk and durable Execution transaction/reconciliation composition consume normalized immutable inputs in later admission work; R3–R8 activation/history gates remain unchanged.
+
+### Risk source navigation
+
+`crates/onlyalpha-kernel/risk/` owns bounded risk decisions, explicit profiles and scoped risk exposure lifecycle, depending only on Domain. See [Risk](risk.md#rust-component-ownership-and-recovery-boundary). Subsequent Execution composition must preserve exact Order/Request/Trade relationships, resolve net capacity versus same-owner holds explicitly, authenticate source admissions and commit Account/Position/Ledger/Risk effects atomically with durable replay/reconciliation. An ACCEPT or isolated checkpoint is not official Runtime, submission, upgrade or LIVE admission; existing R3-R8 gates remain unchanged.

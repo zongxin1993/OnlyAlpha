@@ -14,6 +14,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-risk"
+version = "0.10.10"
+dependencies = [
+ "bigdecimal",
+ "num-bigint",
+ "onlyalpha-domain",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

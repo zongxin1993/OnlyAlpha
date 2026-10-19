@@ -414,3 +414,7 @@ durable cross-authority transaction and economic projection remain separate; no 
 ## Strategy Ledger responsibility map
 
 `strategy_ledger/` groups fixed capital, Cluster cash/fee entries, order holds, attributed Position inputs, exact linear valuation, immutable equity points and atomic complete replay. It depends locally only on Domain; Account, Position, Order, Fee, Risk and Runtime retain their own authorities. Python `strategy_ledger/manager.py`, `entities.py`, `valuation.py` and formal `execution/reducers/trade_accounting.py` are classified references, not an obligation to copy defective module boundaries. See [Strategy Ledger](strategy_ledger.md#rust-component-ownership-and-recovery-boundary).
+
+## Risk responsibility map
+
+`crates/onlyalpha-kernel/risk/` groups pure models, immutable evidence/decision pipeline, scoped manager/query, risk exposure reservation/control lifecycle and candidate recovery in one Domain-only crate. The audited Python reference is `onlyalpha.risk` plus Execution's actual reservation reducer. Source guards, isolated dependency closure and common native/Python vectors are part of the Rust canonical lane. See [Risk owning boundary](risk.md#rust-component-ownership-and-recovery-boundary); Risk holds never become Account cash or Position/Allocation authority. Future Execution composition supplies admitted owning views and one durable transaction; independent libraries do not establish that closure.
