@@ -33,6 +33,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-strategy",
         "onlyalpha-order",
         "onlyalpha-position",
+        "onlyalpha-account",
     }
 )
 TEST_DISTRIBUTION_PATHS = (

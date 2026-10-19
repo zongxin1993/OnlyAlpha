@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +108,7 @@ ORDER_DEPENDENCIES = {
 }
 
 POSITION_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
+ACCOUNT_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 
 WORKER_DEPENDENCIES = {
     "onlyalpha-strategy": {"path": "../../crates/onlyalpha-kernel/strategy"},
@@ -138,6 +139,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-strategy": "crates/onlyalpha-kernel/strategy",
         "onlyalpha-order": "crates/onlyalpha-kernel/order",
         "onlyalpha-position": "crates/onlyalpha-kernel/position",
+        "onlyalpha-account": "crates/onlyalpha-kernel/account",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -248,7 +250,7 @@ def validate_workspace(root: Path) -> None:
                         and config == STRATEGY_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
-                        name in {"onlyalpha-order", "onlyalpha-position"}
+                        name in {"onlyalpha-order", "onlyalpha-position", "onlyalpha-account"}
                         and section is manifest
                         and kind == "dependencies"
                         and alias == dependency
@@ -260,6 +262,12 @@ def validate_workspace(root: Path) -> None:
         registry
         and tomllib.loads((root / modules["onlyalpha-position"] / "Cargo.toml").read_text()).get("dependencies")
         != POSITION_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-account"] / "Cargo.toml").read_text()).get("dependencies")
+        != ACCOUNT_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -531,6 +539,14 @@ def validate_position_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_account_sources(root: Path) -> None:
+    _validate_pure_sources(root, "account", {'"../../../../test-data/account/cash-v1.jsonl"'})
+    for path in (root / "crates/onlyalpha-kernel/account/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_calculation_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -677,6 +693,10 @@ def isolated_position(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "position"))
 
 
+def isolated_account(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "account"))
+
+
 def isolated_strategy(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "calculation", "market_data_construction", "strategy"))
 
@@ -718,16 +738,19 @@ def isolated_calculation_worker(root: Path, destination: Path) -> Path:
     )
 
 
-def check_order_reference(root: Path, env: dict[str, str], target: str) -> None:
-    from scripts.order_reference_check import check_fixture, compare_native_outputs
-
-    check_fixture()
+def _check_component_reference(
+    root: Path,
+    env: dict[str, str],
+    target: str,
+    module: str,
+    compare: Callable[[list[dict[str, object]]], None],
+) -> None:
     for profile in ([], ["--release"]):
         command = [
             "cargo",
             "test",
             "-p",
-            "onlyalpha-order",
+            f"onlyalpha-{module}",
             "--test",
             "lifecycle",
             "--target",
@@ -745,46 +768,31 @@ def check_order_reference(root: Path, env: dict[str, str], target: str) -> None:
         result = subprocess.run(command, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         print(result.stdout, flush=True)
         result.check_returncode()
-        prefix = "ORDER_VECTOR_OUTPUT "
+        prefix = f"{module.upper()}_VECTOR_OUTPUT "
         rows = [line.split(prefix, 1)[1] for line in result.stdout.splitlines() if prefix in line]
         if len(rows) != 1:
-            raise ValueError("ORDER_NATIVE_COMPARISON_OUTPUT_MISSING")
-        compare_native_outputs(json.loads(rows[0]))
-        print("ORDER_PYTHON_NATIVE_COMMON_VECTORS_PASS", flush=True)
+            raise ValueError(f"{module.upper()}_NATIVE_COMPARISON_OUTPUT_MISSING")
+        compare(json.loads(rows[0]))
+        print(f"{module.upper()}_PYTHON_NATIVE_COMMON_VECTORS_PASS", flush=True)
+
+
+def check_order_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.order_reference_check import check_fixture, compare_native_outputs
+
+    check_fixture()
+    _check_component_reference(root, env, target, "order", compare_native_outputs)
 
 
 def check_position_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.position_reference_check import compare_native_outputs
 
-    for profile in ([], ["--release"]):
-        command = [
-            "cargo",
-            "test",
-            "-p",
-            "onlyalpha-position",
-            "--test",
-            "lifecycle",
-            "--target",
-            target,
-            "--frozen",
-            "--offline",
-            "-j1",
-            *profile,
-            "common_vector_outputs",
-            "--",
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ]
-        result = subprocess.run(command, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        print(result.stdout, flush=True)
-        result.check_returncode()
-        prefix = "POSITION_VECTOR_OUTPUT "
-        rows = [line.split(prefix, 1)[1] for line in result.stdout.splitlines() if prefix in line]
-        if len(rows) != 1:
-            raise ValueError("POSITION_NATIVE_COMPARISON_OUTPUT_MISSING")
-        compare_native_outputs(json.loads(rows[0]))
-        print("POSITION_PYTHON_NATIVE_COMMON_VECTORS_PASS", flush=True)
+    _check_component_reference(root, env, target, "position", compare_native_outputs)
+
+
+def check_account_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.account_reference_check import compare_native_outputs
+
+    _check_component_reference(root, env, target, "account", compare_native_outputs)
 
 
 def main() -> int:
@@ -813,6 +821,7 @@ def main() -> int:
     validate_strategy_sources(ROOT)
     validate_order_sources(ROOT)
     validate_position_sources(ROOT)
+    validate_account_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -834,6 +843,7 @@ def main() -> int:
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
+        ("account", isolated_account),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -871,6 +881,7 @@ def main() -> int:
                 print(f"{name.upper()}_ISOLATED", " ".join(command), flush=True)
                 subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
     check_position_reference(ROOT, env, target)
+    check_account_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

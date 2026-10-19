@@ -406,3 +406,7 @@ durable cross-authority transaction and economic projection remain separate; no 
 ## Position responsibility map
 
 `position/` is one crate grouping account Position, Cluster Allocation/Unallocated, sell Reservation, explicit settlement/restrictions, Broker comparison and fresh recovery. Internal files separate these responsibilities without additional crates or services. Its only local edge is Domain; no Order, Risk, Account, Strategy, Broker or Infrastructure import is permitted. The [owning boundary](position.md#rust-component-ownership-and-recovery-boundary) preserves the later durable cross-authority transaction and formal Runtime admission gates.
+
+## Account responsibility map
+
+`account/` groups cash state, exact order cash Reservations, incremental authoritative fee/Position inputs, settlement facts, valuation/Broker observations and atomic recovery in one crate. Its only local dependency is Domain. Python `account/manager.py` and formal `execution/reducers/trade_accounting.py` provide classified reference behavior; `account/funding.py` policy derivation and report/performance orchestration are not copied into this market-agnostic cash state owner. There is no reverse dependency on Order, Position, Strategy Ledger, Risk, Broker or Infrastructure. See [Account](account.md#rust-component-ownership-and-recovery-boundary).

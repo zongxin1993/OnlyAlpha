@@ -341,3 +341,7 @@ formal Runtime activation, successful submission or evidence of absent venue eff
 ### Position source navigation
 
 The isolated Position component resides in `crates/onlyalpha-kernel/position/`. Its one candidate commit covers account/attribution conservation and sell-hold ownership. See [Position](position.md#rust-component-ownership-and-recovery-boundary). Account cash, Strategy Ledger, Risk and durable execution/reconciliation orchestration remain separately owned; R3-R8 activation/history gates are unchanged.
+
+### Account source navigation
+
+The isolated Account component is `crates/onlyalpha-kernel/account/`; [Account](account.md#rust-component-ownership-and-recovery-boundary) owns its scope and reference deviations. Strategy Ledger, Risk, fee accrual and durable execution orchestration retain distinct owners. Later integration consumes typed immutable inputs rather than calling another Manager's internal state; R3–R8 activation/history gates remain unchanged.

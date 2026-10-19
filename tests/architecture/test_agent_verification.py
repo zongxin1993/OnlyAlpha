@@ -537,6 +537,7 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "test-data/strategy/decisions-v2.jsonl",
         "test-data/order/domain-inputs.json",
         "test-data/position/lifecycle-v1.jsonl",
+        "test-data/account/cash-v1.jsonl",
     ],
 )
 def test_rust_changes_select_offline_kernel_checks(path: str) -> None:

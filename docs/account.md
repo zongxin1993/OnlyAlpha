@@ -16,7 +16,8 @@ Research Runtime 不拥有 formal trading Account 或 Strategy Ledger；研究�
 cash_balance >= 0
 frozen_cash >= 0
 unsettled_cash >= 0
-available_cash = cash_balance - frozen_cash - unsettled_cash
+trade_available_cash = cash_balance - frozen_cash
+withdrawable_cash = trade_available_cash - unsettled_cash
 equity = cash_balance + position_market_value
 ```
 
@@ -37,3 +38,17 @@ Reservation 前。Account Manager 事实经 Processor 缓冲，不会在后续 R
 # Close PnL 输入
 
 Account 不计算平仓 PnL。它只消费 Planner 已由 Cluster Allocation 成本归因得到的 `realized_pnl_delta`；Runtime 对账比较 Account 与所有 Strategy Ledger 的聚合值。
+
+## Rust component ownership and recovery boundary
+
+`crates/onlyalpha-kernel/account/` is an isolated Domain-dependent CASH account component. It consumes normalized fee instruction totals and Position-attributed PnL; it never recomputes fee schedules, position costs or realized PnL. Account, Strategy Ledger and external Broker facts keep distinct Authorities. Cash-backed BUY consumes gross notional plus charges from its exact Reservation; rebates credit cash separately. SELL never consumes a buy Reservation. An explicit Order terminal_fill controls release of excess authority. Uncertain submit/cancel preserves holds, and reconciliation blocks new reserves/withdrawals while valid fills and observations continue.
+
+The actual cash identities are `trade_available = ledger_cash - order_reserved_cash`, `withdrawable = trade_available - unsettled_receivable_cash`, `equity = ledger_cash + position_market_value`. This distinguishes the two availability views rather than using ambiguous available_cash shorthand. This component conservatively reserves and withdraws against withdrawable cash; market-specific settlement reuse is not inferred. Explicit source-bound settlement instructions consume recorded receivables. No hardcoded currency, venue, trading day or settlement date occurs.
+
+Config/commands/checkpoints are closed schema1 records. Exact scope, currency precision, full-payload receipt conflicts, signed times, ordered trade/Broker sequences, valuation economic basis and bounded resources are checked before candidate commit. Broker snapshots only compare; unverified or stale proof cannot overwrite economics or clear stale-trade blocks. Canonical checkpoints bind the complete journal/state and replay into a fresh owner before atomic replacement. See the [component design](superpowers/specs/2026-10-19-rust-account-design.md) for input limits and errors.
+
+Python direct Manager and the formal Execution reducer are separate reference paths. Direct Manager's ID-only dedup, incomplete receipt restoration and mutation-before-validation are audited deviations, not expected Rust behavior. Literal cash vectors compare actual Python common economics and the formal reducer with native Rust in both profiles. Rust does not introduce a second official writer, Runtime admission, durable cross-authority transaction, business history migration, Shipping UI acceptance or deployment certification. Margin/futures/FX/fee accrual/funding-policy derivation and reporting orchestration retain their owning boundaries and future admission tests.
+
+Signed net Trade effects are accepted when the final cash invariants hold: charge/rebate components remain nonnegative, but fees can exceed sale proceeds and rebates can exceed purchase cost. A nonpositive sale net creates no positive unsettled receivable. A Fill proves submission even without an earlier send callback and can never permit NOT_SENT release of remaining authority. The input coefficient bound applies after canonical currency-precision padding, so every admitted config is readable by its checkpoint reader.
+
+Reference distinction: the Python formal reducer adds a signed cash delta to unsettled receivables when a SELL is not withdrawable; a net-negative sale would violate its nonnegative receivable model. Rust instead records the real signed cash outflow without fabricating a negative settlement claim. This case has an independent Rust invariant test; it is not claimed as Python parity.

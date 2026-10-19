@@ -1,13 +1,18 @@
 """Cluster-scoped immutable Position Context and Risk views."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId, OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.position.enums import OnlyPositionMode, OnlyPositionSide
 from onlyalpha.position.models import OnlyPositionAllocationSnapshot, OnlyPositionSnapshot
 from onlyalpha.position.queries import OnlyPositionQueryService
-from onlyalpha.risk.ports import OnlyPositionRiskSnapshot
+
+if TYPE_CHECKING:
+    from onlyalpha.risk.ports import OnlyPositionRiskSnapshot
 
 
 class OnlyAccountPositionQueryView:
@@ -78,6 +83,8 @@ class OnlyAccountPositionRiskView:
         snapshot = self._query.account(account_id, instrument_id, position_side, position_mode)
         if snapshot is None:
             return None
+        from onlyalpha.risk.ports import OnlyPositionRiskSnapshot
+
         return OnlyPositionRiskSnapshot(
             account_id,
             instrument_id,
@@ -111,6 +118,8 @@ class OnlyClusterPositionRiskView:
         effective = allocation.available_quantity
         if account.available_quantity.value < effective.value:
             effective = account.available_quantity
+        from onlyalpha.risk.ports import OnlyPositionRiskSnapshot
+
         return OnlyPositionRiskSnapshot(
             account_id,
             instrument_id,
