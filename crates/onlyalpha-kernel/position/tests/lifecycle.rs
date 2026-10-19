@@ -580,3 +580,42 @@ fn signed_historical_time_initializes_from_first_input_and_recovers() {
     assert!(m.apply(&stale).is_err());
     assert_eq!(before, m.state());
 }
+
+#[test]
+fn saturated_history_keeps_fills_close_and_recovery_available() {
+    let mut m = manager();
+    m.apply(&trade("opening", Some("a"), "BUY", "10.00", "2", 0))
+        .unwrap();
+    m.apply(&reserve("hold", "a", "2", 1)).unwrap();
+    for n in 2..=4098 {
+        m.apply(&cmd(
+            &format!("tick-{n}"),
+            "TICK",
+            n,
+            json!({"schema_version":1}),
+        ))
+        .unwrap();
+    }
+    m.apply(&close("closing", "a", "11.00", "2", 5000, true))
+        .unwrap();
+    roundtrip(&mut m);
+    assert_eq!(m.account("BTCUSDT.BINANCE").unwrap()["quantity"], "0");
+}
+
+#[test]
+fn cumulative_realized_money_preserves_the_final_currency_remainder() {
+    let mut m = manager();
+    m.apply(&trade("a", Some("a"), "BUY", "3.34", "1", 1))
+        .unwrap();
+    m.apply(&trade("b", Some("a"), "BUY", "3.33", "2", 2))
+        .unwrap();
+    m.apply(&reserve("r", "a", "3", 3)).unwrap();
+    m.apply(&close("c1", "a", "3.33", "1", 4, false)).unwrap();
+    m.apply(&close("c2", "a", "3.33", "1", 5, false)).unwrap();
+    m.apply(&close("c3", "a", "3.33", "1", 6, true)).unwrap();
+    assert_eq!(
+        m.account("BTCUSDT.BINANCE").unwrap()["realized_pnl"],
+        "-0.01"
+    );
+    roundtrip(&mut m);
+}

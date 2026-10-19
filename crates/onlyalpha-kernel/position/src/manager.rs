@@ -181,6 +181,21 @@ impl Manager {
         let allocations:Vec<_>=self.state.allocations.iter().map(|((c,i),b)|json!({"cluster":if c.is_empty(){Value::Null}else{json!(c)},"instrument":i,"snapshot":b.record(&self.instruments[i],if c.is_empty(){Decimal::zero()}else{self.cluster_available(c,i).expect("validated state")},self.blocked(i)).expect("validated state")})).collect();
         json!({"sequence":self.state.sequence,"now":if self.state.journal.is_empty() {Value::Null} else {json!(self.state.now.to_string())},"accounts":accounts,"allocations":allocations,"history":self.state.history,"reservations":self.state.reservations.values().map(Reservation::record).collect::<Vec<_>>(),"restrictions":self.state.restrictions,"brokers":self.state.brokers,"stale":self.state.stale,"watermarks":self.state.watermarks.iter().map(|(i,(s,t,id))|json!([i,s,t.to_string(),id])).collect::<Vec<_>>(),"receipts":self.state.receipts,"commands":self.state.commands})
     }
+    /// New-risk admission only. Existing accepted observations and close processing must continue.
+    pub fn admit_new_risk(&self) -> Result<(), Error> {
+        if self.state.journal.len() >= MAX_JOURNAL
+            || serde_json::to_vec(&self.state.journal)?.len() > MAX_JOURNAL_BYTES
+            || self.state.allocations.len() + self.state.history.len() > 256
+            || self.state.reservations.len() > 512
+            || serde_json::to_vec(&self.state())?.len() > 8 * 1024 * 1024
+        {
+            return Err(err("POSITION_CAPACITY"));
+        }
+        if self.checkpoint()?.0.len() > MAX_CHECKPOINT {
+            return Err(err("POSITION_CAPACITY"));
+        }
+        Ok(())
+    }
     pub fn apply(&mut self, command: &Value) -> Result<Outcome, Error> {
         if command.to_string().len() > 16384 {
             return Err(err("POSITION_COMMAND_BOUND"));
@@ -262,14 +277,6 @@ impl Manager {
             .insert(command_id.clone(), signature.clone());
         candidate.state.journal.push(command.clone());
         candidate.validate()?;
-        if candidate.state.journal.len() > MAX_JOURNAL
-            || serde_json::to_vec(&candidate.state.journal)?.len() > MAX_JOURNAL_BYTES
-            || candidate.state.allocations.len() + candidate.state.history.len() > 256
-            || candidate.state.reservations.len() > 512
-            || serde_json::to_vec(&candidate.state())?.len() > 8 * 1024 * 1024
-        {
-            return Err(err("POSITION_CAPACITY"));
-        }
         let fact = json!({"schema_version":1,"config":self.config,"sequence":candidate.state.sequence,"command_id":command_id,"cause":r["cause"],"input_fingerprint":signature,"outcome":if status==Status::Stale{"STALE_OBSERVED"}else{"APPLIED"},"details":details,"realized_pnl":details.get("realized_pnl").cloned().unwrap_or(Value::Null)});
         *self = candidate;
         Ok(Outcome {
@@ -440,12 +447,14 @@ impl Manager {
                 return Err(err("POSITION_CLOSE_SCOPE_OR_QUANTITY"));
             }
             released = release_cost(&a.cost, &a.qty, &quantity, spec.qp)?;
-            realized = (&price * &quantity - &released) * &spec.multiplier;
-            realized = realized.with_scale_round(
+            let exact_delta = (&price * &quantity - &released) * &spec.multiplier;
+            let target = (&a.realized_exact + &exact_delta).with_scale_round(
                 i64::from(self.currency.precision()),
                 bigdecimal::RoundingMode::HalfEven,
             );
+            realized = target - &a.realized;
             for b in [a, b] {
+                b.realized_exact += &exact_delta;
                 b.qty -= &quantity;
                 b.settled -= &quantity;
                 b.cost -= &released;
@@ -632,7 +641,14 @@ impl Manager {
                 if instrument != i {
                     continue;
                 }
-                for d in [&b.qty, &b.settled, &b.cost, &b.realized, &b.fees] {
+                for d in [
+                    &b.qty,
+                    &b.settled,
+                    &b.cost,
+                    &b.realized,
+                    &b.realized_exact,
+                    &b.fees,
+                ] {
                     bounded(d, false)?;
                 }
                 if b.qty < Decimal::zero()
@@ -650,7 +666,14 @@ impl Manager {
             if quantity != a.qty || settled != a.settled || cost != a.cost {
                 return Err(err("POSITION_CONSERVATION"));
             }
-            for d in [&a.qty, &a.settled, &a.cost, &a.realized, &a.fees] {
+            for d in [
+                &a.qty,
+                &a.settled,
+                &a.cost,
+                &a.realized,
+                &a.realized_exact,
+                &a.fees,
+            ] {
                 bounded(d, false)?;
             }
             self.account(i)?;

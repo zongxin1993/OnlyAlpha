@@ -6,7 +6,11 @@ fn config() -> Value {
 fn manager() -> Manager {
     Manager::new(config()).unwrap()
 }
-fn cmd(id: &str, op: &str, t: i64, p: Value) -> Value {
+fn cmd(id: &str, op: &str, t: i64, mut p: Value) -> Value {
+    if matches!(op, "TRADE" | "VALUATION") {
+        p["realized_rounding_adjustment"] = json!("0.00");
+    }
+
     json!({"schema_version":1,"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":"generation","command_id":id,"cause":"a".repeat(64),"time":t,"op":op,"payload":p})
 }
 fn reserve(id: &str, amount: &str, t: i64) -> Value {
@@ -731,4 +735,26 @@ fn canonical_monetary_boundary_is_recoverable_or_rejected_at_admission() {
     let mut c = config();
     c["initial_cash"] = json!("1".repeat(127));
     assert!(Manager::new(c).is_err());
+}
+
+#[test]
+fn saturated_history_keeps_broker_fills_and_fresh_recovery_available() {
+    let mut m = manager();
+    m.apply(&reserve("r", "100.00", 0)).unwrap();
+    for n in 1..=4097 {
+        let s = m.snapshot();
+        m.apply(&cmd(&format!("obs-{n}"),"BROKER",n,json!({"schema_version":1,"snapshot":format!("snapshot-{n}"),"sequence":n,"basis_sequence":s["sequence"],"quality":"VERIFIED","cash":s["cash"],"reserved":s["reserved"],"trade_available":s["trade_available"],"withdrawable":s["withdrawable"],"equity":s["equity"]}))).unwrap();
+    }
+    m.apply(&trade(
+        "fill",
+        Some("r"),
+        "BUY",
+        "10.00",
+        ("1.00", "0.00"),
+        5000,
+        true,
+    ))
+    .unwrap();
+    roundtrip(&mut m);
+    assert_eq!(m.snapshot()["cash"], "989.00");
 }

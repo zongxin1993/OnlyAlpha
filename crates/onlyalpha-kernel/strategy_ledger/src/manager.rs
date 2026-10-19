@@ -13,6 +13,7 @@ pub struct Manager {
     pub(crate) orders: BTreeMap<String, String>,
     // Only booked Trades establish the relation used by fee adjustments.
     pub(crate) trades: BTreeMap<String, (String, String)>,
+    pub(crate) allocation_owners: BTreeMap<String, Value>,
     pub(crate) journal: Vec<Value>,
     pub(crate) timeline: Vec<Value>,
     pub(crate) sequence: u64,
@@ -75,6 +76,7 @@ impl Manager {
             aliases: BTreeMap::new(),
             orders: BTreeMap::new(),
             trades: BTreeMap::new(),
+            allocation_owners: BTreeMap::new(),
             journal: vec![],
             timeline: vec![],
             sequence: 0,
@@ -99,7 +101,7 @@ impl Manager {
         Ok(v)
     }
     pub fn state(&self) -> Value {
-        json!({"schema_version":1,"config":self.config,"ledgers":self.ledgers.iter().map(|(k,v)|(k.clone(),v.record(self.precision))).collect::<BTreeMap<_,_>>(),"receipts":self.receipts,"aliases":self.aliases,"orders":self.orders,"trades":self.trades,"timeline":self.timeline,"sequence":self.sequence,"time":self.now.as_ref().map(|n|serde_json::from_str::<Value>(&n.to_string()).expect("integer")),"trading_day":self.trading_day,"day_index":self.day_index})
+        json!({"schema_version":1,"config":self.config,"ledgers":self.ledgers.iter().map(|(k,v)|(k.clone(),v.record(self.precision))).collect::<BTreeMap<_,_>>(),"receipts":self.receipts,"aliases":self.aliases,"orders":self.orders,"trades":self.trades,"timeline":self.timeline,"allocation_owners":self.allocation_owners,"sequence":self.sequence,"time":self.now.as_ref().map(|n|serde_json::from_str::<Value>(&n.to_string()).expect("integer")),"trading_day":self.trading_day,"day_index":self.day_index})
     }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
         if input.to_string().len() > 65536 {
@@ -149,14 +151,16 @@ impl Manager {
                 Status::Conflict
             }));
         }
-        if self.journal.len() >= MAX_COMMANDS
-            || self
-                .journal
-                .iter()
-                .map(|v| v.to_string().len())
-                .sum::<usize>()
-                + cmd.to_string().len()
-                > 8 * 1024 * 1024
+        let admission = matches!(op, "RESERVE" | "ACTIVATE");
+        if admission
+            && (self.journal.len() >= MAX_COMMANDS
+                || self
+                    .journal
+                    .iter()
+                    .map(|v| v.to_string().len())
+                    .sum::<usize>()
+                    + cmd.to_string().len()
+                    > 8 * 1024 * 1024)
         {
             return Err(err("LEDGER_JOURNAL_BOUND"));
         }
@@ -268,11 +272,18 @@ impl Manager {
             candidate.aliases.insert(a, sh.clone());
         }
         candidate.journal.push(cmd);
-        if candidate.aliases.len() > 16384 {
+        if admission && candidate.aliases.len() > 16384 {
             return Err(err("LEDGER_ALIAS_BOUND"));
         }
         // Reuse the owning checkpoint encoder/bound, so every accepted state is recoverable.
-        candidate.checkpoint()?;
+        if admission {
+            for l in candidate.ledgers.values() {
+                l.validate_admission()?;
+            }
+            if candidate.checkpoint()?.0.len() > MAX_CHECKPOINT {
+                return Err(err("LEDGER_CHECKPOINT_BOUND"));
+            }
+        }
         let fact = if status == Status::Duplicate {
             None
         } else {
@@ -292,6 +303,18 @@ impl Manager {
         sequence: u64,
     ) -> Result<Status, Error> {
         let precision = self.precision;
+        if op == "TRADE" {
+            let identity = id(&p["after"]["identity"])?;
+            let owner = json!([c, p["instrument"], p["after"]["cycle"]]);
+            if self
+                .allocation_owners
+                .get(&identity)
+                .is_some_and(|old| old != &owner)
+            {
+                return Err(err("LEDGER_ALLOCATION_OWNER_CONFLICT"));
+            }
+            self.allocation_owners.insert(identity, owner);
+        }
         let l = self.ledgers.get_mut(c).expect("scope");
         if l.lifecycle == "CLOSED" {
             return Err(err("LEDGER_CLOSED"));
@@ -391,8 +414,10 @@ impl Manager {
                         r.unknown = true;
                         r.cancel_pending = true;
                     } else {
-                        if !matches!(observed, "NOT_SENT" | "CANCELLED" | "REJECTED" | "EXPIRED")
-                            || (observed == "NOT_SENT" && r.sent)
+                        if !matches!(
+                            observed,
+                            "NOT_SENT" | "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED"
+                        ) || (observed == "NOT_SENT" && r.sent)
                         {
                             return Err(err("LEDGER_RELEASE_UNPROVEN"));
                         }

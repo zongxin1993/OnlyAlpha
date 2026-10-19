@@ -137,6 +137,31 @@ pub(crate) fn nonnegative(v: &Value, p: u8) -> Result<D, Error> {
     }
     Ok(n)
 }
+pub(crate) fn analytical(v: &Value) -> Result<D, Error> {
+    let s = v
+        .as_str()
+        .filter(|s| s.len() <= 1100)
+        .ok_or_else(|| err("ACCOUNT_ANALYTICAL_INPUT"))?;
+    let raw = D::from_str(s).map_err(|_| err("ACCOUNT_ANALYTICAL_INPUT"))?;
+    let (c, scale) = raw.as_bigint_and_exponent();
+    if c.to_string().len() > 1024 || !(-512..=512).contains(&scale) {
+        return Err(err("ACCOUNT_ANALYTICAL_BOUND"));
+    }
+    let n: OnlyDecimal = s.parse()?;
+    let d = D::from_str(&n.to_string()).map_err(|_| err("ACCOUNT_ANALYTICAL_INPUT"))?;
+    let (c, scale) = d.as_bigint_and_exponent();
+    if c.to_string().len() > 1024 || !(-512..=512).contains(&scale) {
+        return Err(err("ACCOUNT_ANALYTICAL_BOUND"));
+    }
+    if d.normalized().to_plain_string().len() > 1024 {
+        return Err(err("ACCOUNT_ANALYTICAL_BOUND"));
+    }
+    Ok(d)
+}
+pub(crate) fn analytical_record(d: &D, p: u8) -> String {
+    let scale = d.normalized().as_bigint_and_exponent().1.max(i64::from(p));
+    d.with_scale(scale).to_plain_string()
+}
 pub(crate) fn formatted(d: &D, p: u8) -> String {
     d.with_scale(i64::from(p)).to_plain_string()
 }
@@ -165,6 +190,7 @@ impl Reservation {
 pub(crate) struct State {
     pub cash: D,
     pub realized: D,
+    pub realized_rounding_adjustment: D,
     pub unrealized: D,
     pub fees: D,
     pub market_value: D,
@@ -189,6 +215,7 @@ impl State {
         Self {
             cash,
             realized: D::zero(),
+            realized_rounding_adjustment: D::zero(),
             unrealized: D::zero(),
             fees: D::zero(),
             market_value: D::zero(),
@@ -233,6 +260,7 @@ impl State {
             &self.cash,
             &self.market_value,
             &self.realized,
+            &self.realized_rounding_adjustment,
             &self.unrealized,
             &self.fees,
         ] {
@@ -241,6 +269,18 @@ impl State {
                 return Err(err("ACCOUNT_ARITHMETIC_BOUND"));
             }
         }
+        for r in self.reservations.values() {
+            if r.original != &r.remaining + &r.consumed + &r.released
+                || [&r.original, &r.remaining, &r.consumed, &r.released]
+                    .iter()
+                    .any(|v| *v < &D::zero())
+            {
+                return Err(err("ACCOUNT_RESERVATION_CONSERVATION"));
+            }
+        }
+        Ok(())
+    }
+    pub fn validate_admission(&self) -> Result<(), Error> {
         if self.reservations.len() > 512
             || self.receivables.len() > 1024
             || self.semantic.len() > 8192
@@ -256,19 +296,10 @@ impl State {
                 return Err(err("ACCOUNT_SEMANTIC_FAMILY_BOUND"));
             }
         }
-        for r in self.reservations.values() {
-            if r.original != &r.remaining + &r.consumed + &r.released
-                || [&r.original, &r.remaining, &r.consumed, &r.released]
-                    .iter()
-                    .any(|v| *v < &D::zero())
-            {
-                return Err(err("ACCOUNT_RESERVATION_CONSERVATION"));
-            }
-        }
         Ok(())
     }
     pub fn snapshot(&self, p: u8) -> Value {
-        json!({"cash":formatted(&self.cash,p),"reserved":formatted(&self.reserved(),p),"unsettled":formatted(&self.unsettled(),p),"trade_available":formatted(&self.available(),p),"withdrawable":formatted(&self.withdrawable(),p),"market_value":formatted(&self.market_value,p),"equity":formatted(&(&self.cash+&self.market_value),p),"realized_pnl":formatted(&self.realized,p),"unrealized_pnl":formatted(&self.unrealized,p),"fees":formatted(&self.fees,p),"sequence":self.sequence,"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence,"position_evidence":self.position_evidence,"status":if self.flags.is_empty(){"ACTIVE"}else{"RECONCILING"},"flags":self.flags,"time":self.now.as_ref().map(|t|serde_json::from_str::<Value>(&t.to_string()).expect("validated integer"))})
+        json!({"cash":formatted(&self.cash,p),"reserved":formatted(&self.reserved(),p),"unsettled":formatted(&self.unsettled(),p),"trade_available":formatted(&self.available(),p),"withdrawable":formatted(&self.withdrawable(),p),"market_value":formatted(&self.market_value,p),"equity":formatted(&(&self.cash+&self.market_value),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.realized_rounding_adjustment,p),"unrealized_pnl":analytical_record(&self.unrealized,p),"fees":formatted(&self.fees,p),"sequence":self.sequence,"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence,"position_evidence":self.position_evidence,"status":if self.flags.is_empty(){"ACTIVE"}else{"RECONCILING"},"flags":self.flags,"time":self.now.as_ref().map(|t|serde_json::from_str::<Value>(&t.to_string()).expect("validated integer"))})
     }
 }
 pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
@@ -328,6 +359,7 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
                 "position_evidence",
                 "market_value_delta",
                 "unrealized_pnl",
+                "realized_rounding_adjustment",
                 "reservation",
                 "terminal_fill",
                 "cash_withdrawable",
@@ -339,6 +371,7 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
                 "realized_pnl_delta",
                 "market_value_delta",
                 "unrealized_pnl",
+                "realized_rounding_adjustment",
             ],
             &[
                 "trade",
@@ -366,6 +399,7 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
                 "position_evidence",
                 "market_value",
                 "unrealized_pnl",
+                "realized_rounding_adjustment",
             ],
             &["market_value", "unrealized_pnl"],
             &["valuation"],
@@ -398,8 +432,32 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
         id(&r[*f])?;
     }
     for f in amounts {
-        let n = money(&r[*f], p)?;
-        r.insert((*f).into(), json!(formatted(&n, p)));
+        let n = if matches!(
+            *f,
+            "realized_pnl_delta" | "unrealized_pnl" | "realized_rounding_adjustment"
+        ) {
+            analytical(&r[*f])?
+        } else {
+            money(&r[*f], p)?
+        };
+        r.insert(
+            (*f).into(),
+            json!(if matches!(
+                *f,
+                "realized_pnl_delta" | "unrealized_pnl" | "realized_rounding_adjustment"
+            ) {
+                analytical_record(&n, p)
+            } else {
+                formatted(&n, p)
+            }),
+        );
+    }
+    if matches!(op, "TRADE" | "VALUATION") {
+        let value = analytical(&r["realized_rounding_adjustment"])?;
+        r.insert(
+            "realized_rounding_adjustment".into(),
+            json!(analytical_record(&value, p)),
+        );
     }
     match op {
         "TRADE" => {
@@ -438,4 +496,32 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
         _ => {}
     }
     Ok(Value::Object(r))
+}
+
+pub(crate) fn checkpoint_row<'a>(
+    v: &'a Value,
+    fields: &[&str],
+) -> Result<&'a serde_json::Map<String, Value>, Error> {
+    let r = v
+        .as_object()
+        .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
+    if r.get("schema_version").and_then(Value::as_u64) != Some(2)
+        || r.len() != fields.len() + 1
+        || fields.iter().any(|f| !r.contains_key(*f))
+    {
+        return Err(err("COMPONENT_CHECKPOINT_SCHEMA"));
+    }
+    Ok(r)
+}
+
+#[cfg(test)]
+mod analytical_boundary_tests {
+    #[test]
+    fn extreme_exponent_is_rejected_before_domain_arithmetic() {
+        let result = std::panic::catch_unwind(|| {
+            super::analytical(&serde_json::json!("1E+9223372036854775807"))
+        });
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_err());
+    }
 }

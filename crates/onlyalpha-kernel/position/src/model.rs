@@ -232,6 +232,7 @@ pub(crate) struct Book {
     pub settled: D,
     pub cost: D,
     pub realized: D,
+    pub realized_exact: D,
     pub fees: D,
     pub cycle: u64,
     pub version: u64,
@@ -247,6 +248,7 @@ impl Book {
             settled: D::zero(),
             cost: D::zero(),
             realized: D::zero(),
+            realized_exact: D::zero(),
             fees: D::zero(),
             cycle,
             version: 0,
@@ -262,7 +264,7 @@ impl Book {
             json!(ratio(&self.cost, &self.qty, i64::from(spec.pp))?.to_plain_string())
         };
         Ok(
-            json!({"id":self.id,"quantity":number(&self.qty),"settled":number(&self.settled),"unsettled":number(&(&self.qty-&self.settled)),"cost":number(&self.cost),"average":average,"realized_pnl":number(&self.realized),"fees":number(&self.fees),"cycle":self.cycle,"version":self.version,"opened":self.opened.to_string(),"updated":self.updated.to_string(),"closed":self.closed.as_ref().map(ToString::to_string),"status":if self.qty.is_zero(){"CLOSED"}else if blocked{"RECONCILING"}else{"OPEN"},"available":number(&available)}),
+            json!({"id":self.id,"quantity":number(&self.qty),"settled":number(&self.settled),"unsettled":number(&(&self.qty-&self.settled)),"cost":number(&self.cost),"average":average,"realized_pnl":number(&self.realized),"realized_exact":number(&self.realized_exact),"fees":number(&self.fees),"cycle":self.cycle,"version":self.version,"opened":self.opened.to_string(),"updated":self.updated.to_string(),"closed":self.closed.as_ref().map(ToString::to_string),"status":if self.qty.is_zero(){"CLOSED"}else if blocked{"RECONCILING"}else{"OPEN"},"available":number(&available)}),
         )
     }
 }
@@ -303,4 +305,20 @@ pub(crate) struct State {
     pub journal: Vec<Value>,
     pub sequence: u64,
     pub now: BigInt,
+}
+
+pub(crate) fn checkpoint_row<'a>(
+    v: &'a Value,
+    fields: &[&str],
+) -> Result<&'a serde_json::Map<String, Value>, Error> {
+    let r = v
+        .as_object()
+        .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
+    if r.get("schema_version").and_then(Value::as_u64) != Some(2)
+        || r.len() != fields.len() + 1
+        || fields.iter().any(|f| !r.contains_key(*f))
+    {
+        return Err(err("COMPONENT_CHECKPOINT_SCHEMA"));
+    }
+    Ok(r)
 }

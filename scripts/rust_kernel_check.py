@@ -127,6 +127,15 @@ CALCULATION_DEPENDENCIES = {name: DOMAIN_DEPENDENCIES[name] for name in ("bigdec
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
 
 
+EXECUTION_DEPENDENCIES = {
+    **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
+    **{
+        "onlyalpha-" + name.replace("_", "-"): {"path": "../" + name}
+        for name in ("order", "position", "account", "strategy_ledger", "risk")
+    },
+}
+
+
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
@@ -142,6 +151,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-account": "crates/onlyalpha-kernel/account",
         "onlyalpha-strategy-ledger": "crates/onlyalpha-kernel/strategy_ledger",
         "onlyalpha-risk": "crates/onlyalpha-kernel/risk",
+        "onlyalpha-execution": "crates/onlyalpha-kernel/execution",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -265,6 +275,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == ORDER_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-execution"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == EXECUTION_DEPENDENCIES.get(alias)
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if (
@@ -289,6 +306,12 @@ def validate_workspace(root: Path) -> None:
         registry
         and tomllib.loads((root / modules["onlyalpha-risk"] / "Cargo.toml").read_text()).get("dependencies")
         != ACCOUNT_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-execution"] / "Cargo.toml").read_text()).get("dependencies")
+        != EXECUTION_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -588,6 +611,18 @@ def validate_risk_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_execution_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "execution",
+        {'"../../../../test-data/execution/domain-inputs.json"', '"../../../../test-data/execution/economics-v1.json"'},
+    )
+    for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_calculation_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -738,6 +773,12 @@ def isolated_account(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "account"))
 
 
+def isolated_execution(root: Path, destination: Path) -> Path:
+    return _isolated_modules(
+        root, destination, ("domain", "order", "position", "account", "strategy_ledger", "risk", "execution")
+    )
+
+
 def isolated_risk(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "risk"))
 
@@ -850,6 +891,47 @@ def check_strategy_ledger_reference(root: Path, env: dict[str, str], target: str
     _check_component_reference(root, env, target, "strategy-ledger", compare_native_outputs)
 
 
+def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.execution_reference_check import check_fixture, compare_native_outputs
+
+    check_fixture()
+    for profile in ([], ["--release"]):
+        result = subprocess.run(
+            [
+                "cargo",
+                "test",
+                "-p",
+                "onlyalpha-execution",
+                "--test",
+                "lifecycle",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+                "common_reference_outputs",
+                "--",
+                "--nocapture",
+                "--test-threads=1",
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        lines = [
+            line.split("EXECUTION_COMMON_JSON ", 1)[1]
+            for line in result.stdout.splitlines()
+            if "EXECUTION_COMMON_JSON " in line
+        ]
+        if len(lines) != 1:
+            raise ValueError("EXECUTION_NATIVE_REFERENCE_OUTPUT_MISSING")
+        compare_native_outputs(json.loads(lines[0]))
+        print("EXECUTION_ACTUAL_PYTHON_RUST_COMMON_PASS", profile, flush=True)
+
+
 def check_risk_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.risk_reference_check import compare_native_outputs
 
@@ -885,6 +967,7 @@ def main() -> int:
     validate_account_sources(ROOT)
     validate_strategy_ledger_sources(ROOT)
     validate_risk_sources(ROOT)
+    validate_execution_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -909,6 +992,7 @@ def main() -> int:
         ("account", isolated_account),
         ("strategy-ledger", isolated_strategy_ledger),
         ("risk", isolated_risk),
+        ("execution", isolated_execution),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -949,6 +1033,7 @@ def main() -> int:
     check_account_reference(ROOT, env, target)
     check_strategy_ledger_reference(ROOT, env, target)
     check_risk_reference(ROOT, env, target)
+    check_execution_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

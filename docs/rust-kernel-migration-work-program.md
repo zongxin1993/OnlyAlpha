@@ -353,3 +353,7 @@ The isolated virtual-account library resides in `crates/onlyalpha-kernel/strateg
 ### Risk source navigation
 
 `crates/onlyalpha-kernel/risk/` owns bounded risk decisions, explicit profiles and scoped risk exposure lifecycle, depending only on Domain. See [Risk](risk.md#rust-component-ownership-and-recovery-boundary). Subsequent Execution composition must preserve exact Order/Request/Trade relationships, resolve net capacity versus same-owner holds explicitly, authenticate source admissions and commit Account/Position/Ledger/Risk effects atomically with durable replay/reconciliation. An ACCEPT or isolated checkpoint is not official Runtime, submission, upgrade or LIVE admission; existing R3-R8 gates remain unchanged.
+
+### Execution source navigation
+
+`crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.

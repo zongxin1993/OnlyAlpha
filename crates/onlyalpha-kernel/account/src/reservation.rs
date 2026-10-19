@@ -96,7 +96,7 @@ impl Manager {
                 r.released += &r.remaining;
                 r.remaining = Decimal::zero();
             }
-            "CANCELLED" | "REJECTED" | "EXPIRED" => {
+            "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED" => {
                 r.released += &r.remaining;
                 r.remaining = Decimal::zero();
                 r.unknown = false;

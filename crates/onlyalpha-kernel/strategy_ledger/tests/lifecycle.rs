@@ -6,7 +6,23 @@ fn config() -> Value {
 fn manager() -> Manager {
     Manager::new(config()).unwrap()
 }
-fn command(cluster: &str, id: &str, seq: u64, op: &str, payload: Value) -> Value {
+fn command(cluster: &str, id: &str, seq: u64, op: &str, mut payload: Value) -> Value {
+    if op == "TRADE" {
+        for field in ["before", "after"] {
+            let a = &mut payload[field];
+            let version = a["version"].as_u64().unwrap();
+            if a.get("identity").is_none() {
+                a["identity"] = if version == 0 {
+                    Value::Null
+                } else {
+                    json!(format!("allocation-{cluster}"))
+                };
+                a["cycle"] = json!(if version == 0 { 0 } else { 1 });
+                a["realized_exact"] = a["realized"].clone();
+            }
+        }
+    }
+
     json!({"schema_version":1,"engine":"e","runtime":"r","account":"a","generation":"g","cluster":cluster,"command_id":id,"cause":"a".repeat(64),"time":0,"runtime_sequence":seq,"trading_day":"2026-10-19","day_index":1,"op":op,"payload":payload})
 }
 fn active() -> Manager {
@@ -560,6 +576,7 @@ fn every_open_line_is_required_and_duplicates_are_invalid() {
         "10",
     );
     t["payload"]["instrument"] = json!("ETHUSDT.BINANCE");
+    t["payload"]["after"]["identity"] = json!("allocation-c1-eth");
     m.apply(&t).unwrap();
     let mut v = valuation("c1", "v", 7, 2, 1, "10");
     let s = m.state();
@@ -821,5 +838,52 @@ fn offsetting_external_flows_keep_daily_return_absent_until_new_day() {
     m.apply(&next).unwrap();
     assert_eq!(snapshot(&m, "c1")["daily_return"], "0.00000000");
     assert!(snapshot(&m, "c1")["simple_return"].is_null());
+    roundtrip(&mut m);
+}
+
+#[test]
+fn saturated_history_keeps_existing_trade_and_fresh_recovery_available() {
+    let mut m = active();
+    m.apply(&reserve("c1", "r1", 3, "100")).unwrap();
+    for n in 4..=4100 {
+        m.apply(&command("c1",&format!("flow-{n}"),n,"CASH_FLOW",json!({"schema_version":1,"cashflow":format!("cashflow-{n}"),"source_fact":format!("source-{n}"),"amount":"0.00"}))).unwrap();
+    }
+    m.apply(&buy(
+        "c1",
+        "fill",
+        5000,
+        "r1",
+        allocation("0", "0", "0", 0),
+        allocation("1", "10", "0", 1),
+        "10",
+    ))
+    .unwrap();
+    roundtrip(&mut m);
+    assert_eq!(snapshot(&m, "c1")["cash"], "989.00");
+}
+
+#[test]
+fn allocation_cycle_restarts_preserve_lifetime_realized_and_exact_owner() {
+    let mut m = opened();
+    let old = allocation("10", "100", "0", 1);
+    let closed = allocation("0", "0", "10", 2);
+    m.apply(&command("c1","sell",5,"TRADE",json!({"schema_version":1,"trade":"sell","execution":"sell-x","venue_trade":"sell-v","order":"sell-order","fee_instruction":"sell-fee","source_sequence":5,"side":"SELL","instrument":"BTCUSDT.BINANCE","notional":"110.00","charges":"1.00","rebates":"0.00","reservation":null,"terminal_fill":true,"before":old,"after":closed,"allocation_evidence":"b".repeat(64),"mark":"11","multiplier":"1"}))).unwrap();
+    m.apply(&reserve("c1", "r2", 6, "100")).unwrap();
+    let mut after = allocation("1", "10", "0", 1);
+    after["identity"] = json!("new-cycle-allocation");
+    after["cycle"] = json!(2);
+    after["realized_exact"] = json!("0.00");
+    m.apply(&buy(
+        "c1",
+        "new-buy",
+        7,
+        "r2",
+        allocation("0", "0", "10", 2),
+        after,
+        "10",
+    ))
+    .unwrap();
+    assert_eq!(snapshot(&m, "c1")["realized_pnl"], "10.00");
+    assert_eq!(snapshot(&m, "c1")["status"], "ACTIVE");
     roundtrip(&mut m);
 }

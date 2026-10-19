@@ -135,6 +135,31 @@ pub(crate) fn nonnegative(v: &Value, p: u8) -> Result<D, Error> {
     }
     Ok(n)
 }
+pub(crate) fn analytical(v: &Value) -> Result<D, Error> {
+    let s = v
+        .as_str()
+        .filter(|s| s.len() <= 1100)
+        .ok_or_else(|| err("LEDGER_ANALYTICAL_INPUT"))?;
+    let raw = D::from_str(s).map_err(|_| err("LEDGER_ANALYTICAL_INPUT"))?;
+    let (c, scale) = raw.as_bigint_and_exponent();
+    if c.to_string().len() > 1024 || !(-512..=512).contains(&scale) {
+        return Err(err("LEDGER_ANALYTICAL_BOUND"));
+    }
+    let n: OnlyDecimal = s.parse()?;
+    let d = D::from_str(&n.to_string()).map_err(|_| err("LEDGER_ANALYTICAL_INPUT"))?;
+    let (c, scale) = d.as_bigint_and_exponent();
+    if c.to_string().len() > 1024 || !(-512..=512).contains(&scale) {
+        return Err(err("LEDGER_ANALYTICAL_BOUND"));
+    }
+    if d.normalized().to_plain_string().len() > 1024 {
+        return Err(err("LEDGER_ANALYTICAL_BOUND"));
+    }
+    Ok(d)
+}
+pub(crate) fn analytical_record(d: &D, p: u8) -> String {
+    let scale = d.normalized().as_bigint_and_exponent().1.max(i64::from(p));
+    d.with_scale(scale).to_plain_string()
+}
 pub(crate) fn formatted(d: &D, p: u8) -> String {
     d.with_scale(i64::from(p)).to_plain_string()
 }
@@ -184,6 +209,9 @@ pub(crate) fn day(v: &Value) -> Result<(), Error> {
 }
 #[derive(Clone)]
 pub(crate) struct Allocation {
+    pub identity: Option<String>,
+    pub cycle: u64,
+    pub realized_exact: D,
     pub quantity: D,
     pub cost: D,
     pub realized: D,
@@ -193,6 +221,9 @@ pub(crate) struct Allocation {
 impl Allocation {
     pub fn empty() -> Self {
         Self {
+            identity: None,
+            cycle: 0,
+            realized_exact: D::zero(),
             quantity: D::zero(),
             cost: D::zero(),
             realized: D::zero(),
@@ -201,7 +232,7 @@ impl Allocation {
         }
     }
     pub fn record(&self, p: u8) -> Value {
-        json!({"schema_version":1,"quantity":self.quantity.normalized().to_plain_string(),"cost":formatted(&self.cost,p),"realized":formatted(&self.realized,p),"version":self.version})
+        json!({"schema_version":1,"quantity":self.quantity.normalized().to_plain_string(),"identity":self.identity,"cycle":self.cycle,"realized_exact":analytical_record(&self.realized_exact,p),"cost":analytical_record(&self.cost,p),"realized":analytical_record(&self.realized,p),"version":self.version})
     }
 }
 #[derive(Clone)]
@@ -214,7 +245,7 @@ pub(crate) struct Line {
 }
 impl Line {
     pub fn record(&self, p: u8) -> Value {
-        json!({"allocation":self.allocation.record(p),"allocation_evidence":self.allocation.evidence,"mark":self.mark.normalized().to_plain_string(),"multiplier":self.multiplier.normalized().to_plain_string(),"market_value":formatted(&self.market,p),"unrealized":formatted(&self.unrealized,p)})
+        json!({"allocation":self.allocation.record(p),"allocation_evidence":self.allocation.evidence,"mark":self.mark.normalized().to_plain_string(),"multiplier":self.multiplier.normalized().to_plain_string(),"market_value":formatted(&self.market,p),"unrealized":analytical_record(&self.unrealized,p)})
     }
 }
 #[derive(Clone)]
@@ -225,6 +256,7 @@ pub(crate) struct Ledger {
     pub external_occurred: bool,
     pub day_flow_occurred: bool,
     pub realized: D,
+    pub rounding_residual: D,
     pub fees: D,
     pub lifecycle: String,
     pub flags: BTreeSet<String>,
@@ -254,6 +286,7 @@ impl Ledger {
             external_occurred: false,
             day_flow_occurred: false,
             realized: D::zero(),
+            rounding_residual: D::zero(),
             fees: D::zero(),
             lifecycle: "CREATED".into(),
             flags: BTreeSet::new(),
@@ -288,8 +321,16 @@ impl Ledger {
     pub fn equity(&self) -> D {
         &self.cash + self.market()
     }
+    pub fn rounding_adjustment(&self) -> D {
+        self.rounding_residual.clone()
+    }
     pub fn pnl_equity(&self) -> D {
-        &self.initial + &self.external + &self.realized + self.unrealized() - &self.fees
+        &self.initial
+            + &self.external
+            + &self.realized
+            + self.unrealized()
+            + self.rounding_adjustment()
+            - &self.fees
     }
     pub fn status(&self) -> &str {
         if self.lifecycle == "CLOSED" {
@@ -331,12 +372,15 @@ impl Ledger {
         self.high_water = self.high_water.clone().max(self.equity());
         self.max_drawdown = self.max_drawdown.clone().min(self.drawdown());
     }
+    pub fn validate_admission(&self) -> Result<(), Error> {
+        if self.reservations.len() > 512 || self.lines.len() > 256 {
+            return Err(err("LEDGER_RESOURCE_BOUND"));
+        }
+        Ok(())
+    }
     pub fn validate(&self) -> Result<(), Error> {
         if self.cash < D::zero() || self.available() < D::zero() {
             return Err(err("LEDGER_CASH_CONSERVATION"));
-        }
-        if self.reservations.len() > 512 || self.lines.len() > 256 {
-            return Err(err("LEDGER_RESOURCE_BOUND"));
         }
         for d in [
             &self.cash,
@@ -366,25 +410,60 @@ impl Ledger {
     }
     pub fn snapshot(&self, p: u8) -> Value {
         let daily = self.equity() - &self.day_start - (&self.external - &self.day_external);
-        json!({"status":self.status(),"lifecycle":self.lifecycle,"flags":self.flags,"initial_capital":formatted(&self.initial,p),"cash":formatted(&self.cash,p),"external_cash_flow":formatted(&self.external,p),"reserved":formatted(&self.reserved(),p),"available":formatted(&self.available(),p),"position_cost":formatted(&self.cost(),p),"market_value":formatted(&self.market(),p),"realized_pnl":formatted(&self.realized,p),"unrealized_pnl":formatted(&self.unrealized(),p),"fees":formatted(&self.fees,p),"equity":formatted(&self.equity(),p),"pnl_equity":formatted(&self.pnl_equity(),p),"net_pnl":formatted(&(&self.realized+self.unrealized()-&self.fees),p),"simple_return":if self.external_occurred{None}else{Self::ratio(self.equity()-&self.initial,&self.initial)},"high_water_mark":formatted(&self.high_water,p),"drawdown":formatted(&self.drawdown(),8),"maximum_drawdown":formatted(&self.max_drawdown,8),"day_start_equity":formatted(&self.day_start,p),"daily_pnl":formatted(&daily,p),"daily_return":if self.day_flow_occurred{None}else{Self::ratio(daily,&self.day_start)},"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence})
+        json!({"status":self.status(),"lifecycle":self.lifecycle,"flags":self.flags,"initial_capital":formatted(&self.initial,p),"cash":formatted(&self.cash,p),"external_cash_flow":formatted(&self.external,p),"reserved":formatted(&self.reserved(),p),"available":formatted(&self.available(),p),"position_cost":analytical_record(&self.cost(),p),"market_value":formatted(&self.market(),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.rounding_adjustment(),p),"unrealized_pnl":analytical_record(&self.unrealized(),p),"fees":formatted(&self.fees,p),"equity":formatted(&self.equity(),p),"pnl_equity":formatted(&self.pnl_equity(),p),"net_pnl":formatted(&(&self.realized+self.unrealized()+self.rounding_adjustment()-&self.fees),p),"simple_return":if self.external_occurred{None}else{Self::ratio(self.equity()-&self.initial,&self.initial)},"high_water_mark":formatted(&self.high_water,p),"drawdown":formatted(&self.drawdown(),8),"maximum_drawdown":formatted(&self.max_drawdown,8),"day_start_equity":formatted(&self.day_start,p),"daily_pnl":formatted(&daily,p),"daily_return":if self.day_flow_occurred{None}else{Self::ratio(daily,&self.day_start)},"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence})
     }
     pub fn record(&self, p: u8) -> Value {
         json!({"snapshot":self.snapshot(p),"reservations":self.reservations.iter().map(|(k,v)|(k.clone(),v.record(p))).collect::<BTreeMap<_,_>>(),"lines":self.lines.iter().map(|(k,v)|(k.clone(),v.record(p))).collect::<BTreeMap<_,_>>(),"external_occurred":self.external_occurred,"day_flow_occurred":self.day_flow_occurred,"day_external":formatted(&self.day_external,p),"entries":self.entries,"fee_entries":self.fee_entries})
     }
 }
 pub(crate) fn normalize_allocation(v: &Value, p: u8) -> Result<Value, Error> {
-    let mut r = row(v, &["quantity", "cost", "realized", "version"])?.clone();
+    let mut r = row(
+        v,
+        &[
+            "quantity",
+            "cost",
+            "realized",
+            "version",
+            "identity",
+            "cycle",
+            "realized_exact",
+        ],
+    )?
+    .clone();
     let q = decimal(&r["quantity"])?;
-    let c = nonnegative(&r["cost"], p)?;
-    if q < D::zero() || (q == D::zero() && c != D::zero()) {
+    let c = analytical(&r["cost"])?;
+    if q < D::zero() || c < D::zero() || (q == D::zero() && c != D::zero()) {
         return Err(err("LEDGER_ALLOCATION_QUANTITY_COST"));
     }
     r.insert("quantity".into(), json!(q.to_plain_string()));
-    r.insert("cost".into(), json!(formatted(&c, p)));
+    r.insert("cost".into(), json!(analytical_record(&c, p)));
     r.insert(
         "realized".into(),
-        json!(formatted(&money(&r["realized"], p)?, p)),
+        json!(analytical_record(&analytical(&r["realized"])?, p)),
     );
+    let version = uint(&r["version"])?;
+    let cycle = uint(&r["cycle"])?;
+    let exact = analytical(&r["realized_exact"])?;
+    let realized = analytical(&r["realized"])?;
+    if cycle == 0 {
+        if !r["identity"].is_null()
+            || version != 0
+            || q != D::zero()
+            || c != D::zero()
+            || realized != D::zero()
+            || exact != D::zero()
+        {
+            return Err(err("LEDGER_EMPTY_ALLOCATION_PROOF"));
+        }
+    } else {
+        id(&r["identity"])?;
+        if version == 0
+            || realized != exact.with_scale_round(i64::from(p), bigdecimal::RoundingMode::HalfEven)
+        {
+            return Err(err("LEDGER_REALIZED_TARGET"));
+        }
+    }
+    r.insert("realized_exact".into(), json!(analytical_record(&exact, p)));
     uint(&r["version"])?;
     Ok(Value::Object(r))
 }
@@ -525,4 +604,32 @@ pub(crate) fn normalize(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
         _ => {}
     }
     Ok(Value::Object(r))
+}
+
+pub(crate) fn checkpoint_row<'a>(
+    v: &'a Value,
+    fields: &[&str],
+) -> Result<&'a serde_json::Map<String, Value>, Error> {
+    let r = v
+        .as_object()
+        .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
+    if r.get("schema_version").and_then(Value::as_u64) != Some(2)
+        || r.len() != fields.len() + 1
+        || fields.iter().any(|f| !r.contains_key(*f))
+    {
+        return Err(err("COMPONENT_CHECKPOINT_SCHEMA"));
+    }
+    Ok(r)
+}
+
+#[cfg(test)]
+mod analytical_boundary_tests {
+    #[test]
+    fn extreme_exponent_is_rejected_before_domain_arithmetic() {
+        let result = std::panic::catch_unwind(|| {
+            super::analytical(&serde_json::json!("1E+9223372036854775807"))
+        });
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_err());
+    }
 }

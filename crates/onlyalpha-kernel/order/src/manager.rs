@@ -543,7 +543,7 @@ impl Manager {
             &entity.creation,
             &entity.outcome,
         )?;
-        self.capacity(size, &entity.snapshot)?;
+        self.capacity(size, &entity.snapshot, false)?;
         // All validation, arithmetic and result construction precede the single owned commit.
         if let Some(v) = venue {
             self.venues.insert(
@@ -561,9 +561,16 @@ impl Manager {
         self.commit(value, size);
         Ok(result)
     }
-    fn capacity(&self, size: usize, snapshot: &OnlyOrderSnapshot) -> Result<(), Error> {
-        if self.journal.len() >= MAX_JOURNAL
-            || self.journal_bytes + size + 1 > MAX_JOURNAL_BYTES
+    fn capacity(
+        &self,
+        size: usize,
+        snapshot: &OnlyOrderSnapshot,
+        increasing: bool,
+    ) -> Result<(), Error> {
+        if (increasing
+            && (self.journal.len() >= MAX_JOURNAL
+                || self.journal_bytes + size + 1 > MAX_JOURNAL_BYTES
+                || self.checkpoint()?.0.len() + size > MAX_CHECKPOINT))
             || snapshot.to_record().to_string().len() > 65536
         {
             return Err(err("ORDER_CAPACITY_EXHAUSTED"));
@@ -640,7 +647,9 @@ impl Manager {
         {
             return Err(err("ORDER_EXPIRY_INVALID"));
         }
-        if self.creation.len() >= MAX_ORDERS {
+        if self.creation.len() >= MAX_ORDERS
+            && request.to_record()["execution_intent"]["position_effect"] != "CLOSE"
+        {
             return Err(err("ORDER_CAPACITY_EXHAUSTED"));
         }
         let runtime = OnlyRuntimeId::new(
@@ -698,7 +707,11 @@ impl Manager {
             funding_plan: None,
             execution_intent: request.execution_intent().clone(),
         })?;
-        self.capacity(size, &s)?;
+        self.capacity(
+            size,
+            &s,
+            request.to_record()["execution_intent"]["position_effect"] != "CLOSE",
+        )?;
         let result = self.prepare_result("CREATE", &s, value, &identity, "NOT_DISPATCHED")?;
         self.requests
             .insert(request.request_id().to_string(), order.to_string());

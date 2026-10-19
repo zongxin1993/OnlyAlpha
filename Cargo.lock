@@ -14,6 +14,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-execution"
+version = "0.10.10"
+dependencies = [
+ "bigdecimal",
+ "onlyalpha-account",
+ "onlyalpha-domain",
+ "onlyalpha-order",
+ "onlyalpha-position",
+ "onlyalpha-risk",
+ "onlyalpha-strategy-ledger",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "onlyalpha-risk"
 version = "0.10.10"
 dependencies = [

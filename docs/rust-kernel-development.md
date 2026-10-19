@@ -418,3 +418,7 @@ durable cross-authority transaction and economic projection remain separate; no 
 ## Risk responsibility map
 
 `crates/onlyalpha-kernel/risk/` groups pure models, immutable evidence/decision pipeline, scoped manager/query, risk exposure reservation/control lifecycle and candidate recovery in one Domain-only crate. The audited Python reference is `onlyalpha.risk` plus Execution's actual reservation reducer. Source guards, isolated dependency closure and common native/Python vectors are part of the Rust canonical lane. See [Risk owning boundary](risk.md#rust-component-ownership-and-recovery-boundary); Risk holds never become Account cash or Position/Allocation authority. Future Execution composition supplies admitted owning views and one durable transaction; independent libraries do not establish that closure.
+
+### Execution source navigation
+
+`crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.

@@ -79,15 +79,17 @@ impl Manager {
                 Status::Conflict
             }));
         }
-        if self.state.journal.len() >= MAX_COMMANDS
-            || self
-                .state
-                .journal
-                .iter()
-                .map(|v| v.to_string().len())
-                .sum::<usize>()
-                + command.to_string().len()
-                > 4 * 1024 * 1024
+        let admission = matches!(op, "RESERVE" | "CASH_CHANGE");
+        if admission
+            && (self.state.journal.len() >= MAX_COMMANDS
+                || self
+                    .state
+                    .journal
+                    .iter()
+                    .map(|v| v.to_string().len())
+                    .sum::<usize>()
+                    + command.to_string().len()
+                    > 4 * 1024 * 1024)
         {
             return Err(err("ACCOUNT_JOURNAL_BOUND"));
         }
@@ -151,6 +153,13 @@ impl Manager {
         }
         candidate.state.journal.push(command);
         candidate.state.validate()?;
+        if admission {
+            candidate.state.validate_admission()?;
+            if candidate.checkpoint()?.0.len() > MAX_CHECKPOINT {
+                return Err(err("ACCOUNT_CHECKPOINT_BOUND"));
+            }
+        }
+
         let fact = if status == Status::Applied {
             Some(
                 json!({"schema_version":1,"sequence":candidate.state.sequence,"cause":input["cause"],"op":op,"snapshot":candidate.snapshot()}),
@@ -217,7 +226,9 @@ impl Manager {
                     return Err(err("ACCOUNT_VALUATION_BASIS"));
                 }
                 self.state.market_value = nonnegative(&p["market_value"], self.precision)?;
-                self.state.unrealized = money(&p["unrealized_pnl"], self.precision)?;
+                self.state.unrealized = analytical(&p["unrealized_pnl"])?;
+                self.state.realized_rounding_adjustment =
+                    analytical(&p["realized_rounding_adjustment"])?;
                 self.state.valuation_version = v;
                 self.state.position_evidence = Some(text(&p["position_evidence"])?.into());
             }
@@ -237,7 +248,7 @@ impl Manager {
         let charges = nonnegative(&p["charges"], self.precision)?;
         let rebates = nonnegative(&p["rebates"], self.precision)?;
         let fee = &charges - &rebates;
-        let realized = money(&p["realized_pnl_delta"], self.precision)?;
+        let realized = analytical(&p["realized_pnl_delta"])?;
         match text(&p["side"])? {
             "BUY" => {
                 if realized != Decimal::zero() {
@@ -262,7 +273,8 @@ impl Manager {
         self.state.realized += realized;
         self.state.fees += fee;
         self.state.market_value += money(&p["market_value_delta"], self.precision)?;
-        self.state.unrealized = money(&p["unrealized_pnl"], self.precision)?;
+        self.state.unrealized = analytical(&p["unrealized_pnl"])?;
+        self.state.realized_rounding_adjustment = analytical(&p["realized_rounding_adjustment"])?;
         self.state.position_evidence = Some(text(&p["position_evidence"])?.into());
         self.state.trade_sequence = Some(seq);
         self.state.economic_version += 1;

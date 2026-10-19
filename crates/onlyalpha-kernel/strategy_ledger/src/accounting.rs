@@ -25,25 +25,44 @@ impl Ledger {
         }
         let a = &p["after"];
         let quantity = decimal(&a["quantity"])?;
-        let cost = nonnegative(&a["cost"], precision)?;
-        let realized = money(&a["realized"], precision)?;
+        let cost = analytical(&a["cost"])?;
+        let realized = analytical(&a["realized"])?;
         let version = uint(&a["version"])?;
-        if version <= existing.version {
-            return Err(err("LEDGER_ALLOCATION_VERSION"));
+        let cycle = uint(&a["cycle"])?;
+        let identity = id(&a["identity"])?.to_owned();
+        let realized_exact = analytical(&a["realized_exact"])?;
+        let new_cycle = cycle != existing.cycle;
+        if new_cycle {
+            if existing.quantity != Decimal::zero()
+                || existing.cycle.checked_add(1) != Some(cycle)
+                || existing.identity.as_ref() == Some(&identity)
+                || version != 1
+                || realized != Decimal::zero()
+                || realized_exact != Decimal::zero()
+            {
+                return Err(err("LEDGER_ALLOCATION_CYCLE"));
+            }
+        } else if existing.identity.as_ref() != Some(&identity) || version <= existing.version {
+            return Err(err("LEDGER_ALLOCATION_VERSION_OR_IDENTITY"));
         }
         let notional = nonnegative(&p["notional"], precision)?;
-        if notional == Decimal::zero() {
-            return Err(err("LEDGER_NOTIONAL_REQUIRED"));
-        }
         let charges = nonnegative(&p["charges"], precision)?;
         let rebates = nonnegative(&p["rebates"], precision)?;
         let fee = &charges - &rebates;
-        let rd = &realized - &existing.realized;
+        let rd = if new_cycle {
+            Decimal::zero()
+        } else {
+            &realized - &existing.realized
+        };
         let buy = text(&p["side"])? == "BUY";
         if buy {
             if quantity <= existing.quantity
-                || cost != &existing.cost + &notional
+                || cost <= existing.cost
+                || (&cost - &existing.cost)
+                    .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven)
+                    != notional
                 || rd != Decimal::zero()
+                || (!new_cycle && realized_exact != existing.realized_exact)
             {
                 return Err(err("LEDGER_BUY_ALLOCATION_RELATION"));
             }
@@ -80,12 +99,23 @@ impl Ledger {
             if !p["reservation"].is_null()
                 || quantity >= existing.quantity
                 || cost > existing.cost
-                || rd != &notional - (&existing.cost - &cost)
+                || new_cycle
+                || &realized_exact - &existing.realized_exact + (&existing.cost - &cost)
+                    <= Decimal::zero()
+                || (&realized_exact - &existing.realized_exact + (&existing.cost - &cost))
+                    .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven)
+                    != notional
             {
                 return Err(err("LEDGER_SELL_ALLOCATION_RELATION"));
             }
             self.cash += &notional - &fee;
         }
+        // Residual is accumulated from validated trade deltas, independently of the equity invariant.
+        self.rounding_residual += if buy {
+            &cost - &existing.cost - &notional
+        } else {
+            &notional - (&existing.cost - &cost) - &rd
+        };
         self.realized += rd;
         self.fees += &fee;
         self.trade_sequence = Some(uint(&p["source_sequence"])?);
@@ -106,6 +136,9 @@ impl Ledger {
             inst,
             Line {
                 allocation: Allocation {
+                    identity: Some(identity),
+                    cycle,
+                    realized_exact,
                     quantity,
                     cost,
                     realized,

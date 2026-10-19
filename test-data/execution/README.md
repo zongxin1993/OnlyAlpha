@@ -1,0 +1,3 @@
+# Execution reference inputs
+
+Controlled hermetic inputs, never real market/account/deployment evidence. `domain-inputs.json` is generated from the actual Python Order/Fee factories by `python scripts/execution_reference_check.py --write-fixture`; `check_fixture()` fails closed on drift. `economics-v1.json` contains independent hand-derived nonzero cumulative-fee cash/cost expectations consumed by native real-component tests. The actual Python execution processor common subset is checked separately; implementation/provenance identities are intentionally distinct. Fractional cumulative-PnL corrections are Rust-specific regressions, not claims of Python equivalence.

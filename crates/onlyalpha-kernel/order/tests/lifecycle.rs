@@ -602,3 +602,30 @@ fn noncanonical_event_alias_cannot_apply_a_second_fill_fresh_or_restored() {
         assert_eq!(m.checkpoint().unwrap(), before);
     }
 }
+
+#[test]
+fn saturated_history_keeps_existing_order_observation_and_fills_recoverable() {
+    let mut m = Manager::new(config()).unwrap();
+    let mut c = create();
+    c["request"]["quantity"]["value"] = json!("5000");
+    m.apply(&c).unwrap();
+    let mut f = fee();
+    f["contract"]["funding"]["principal_reservation"]["amount"] = json!("50000.00");
+    f["contract"]["funding"]["total_reservation"]["amount"] = json!("50000.00");
+    m.apply(&f).unwrap();
+    m.apply(&local("BEGIN_SUBMIT", 2)).unwrap();
+    for n in 1..=4097 {
+        assert_eq!(
+            m.apply(&fill(n, "10.00", "1")).unwrap().result,
+            ApplyResult::Applied
+        );
+    }
+    assert_eq!(
+        m.apply(&fill(4098, "10.00", "903")).unwrap().result,
+        ApplyResult::Applied
+    );
+    let (b, h) = m.checkpoint().unwrap();
+    let mut fresh = Manager::new(config()).unwrap();
+    fresh.restore(&b, &h).unwrap();
+    assert_eq!(fresh.checkpoint().unwrap(), (b, h));
+}
