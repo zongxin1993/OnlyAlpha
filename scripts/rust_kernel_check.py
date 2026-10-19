@@ -140,6 +140,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-order": "crates/onlyalpha-kernel/order",
         "onlyalpha-position": "crates/onlyalpha-kernel/position",
         "onlyalpha-account": "crates/onlyalpha-kernel/account",
+        "onlyalpha-strategy-ledger": "crates/onlyalpha-kernel/strategy_ledger",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -250,7 +251,8 @@ def validate_workspace(root: Path) -> None:
                         and config == STRATEGY_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
-                        name in {"onlyalpha-order", "onlyalpha-position", "onlyalpha-account"}
+                        name
+                        in {"onlyalpha-order", "onlyalpha-position", "onlyalpha-account", "onlyalpha-strategy-ledger"}
                         and section is manifest
                         and kind == "dependencies"
                         and alias == dependency
@@ -267,6 +269,12 @@ def validate_workspace(root: Path) -> None:
     if (
         registry
         and tomllib.loads((root / modules["onlyalpha-account"] / "Cargo.toml").read_text()).get("dependencies")
+        != ACCOUNT_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-strategy-ledger"] / "Cargo.toml").read_text()).get("dependencies")
         != ACCOUNT_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -547,6 +555,14 @@ def validate_account_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_strategy_ledger_sources(root: Path) -> None:
+    _validate_pure_sources(root, "strategy_ledger", {'"../../../../test-data/strategy-ledger/valuation-v1.jsonl"'})
+    for path in (root / "crates/onlyalpha-kernel/strategy_ledger/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_calculation_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -697,6 +713,10 @@ def isolated_account(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "account"))
 
 
+def isolated_strategy_ledger(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "strategy_ledger"))
+
+
 def isolated_strategy(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "calculation", "market_data_construction", "strategy"))
 
@@ -795,6 +815,12 @@ def check_account_reference(root: Path, env: dict[str, str], target: str) -> Non
     _check_component_reference(root, env, target, "account", compare_native_outputs)
 
 
+def check_strategy_ledger_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.strategy_ledger_reference_check import compare_native_outputs
+
+    _check_component_reference(root, env, target, "strategy-ledger", compare_native_outputs)
+
+
 def main() -> int:
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -822,6 +848,7 @@ def main() -> int:
     validate_order_sources(ROOT)
     validate_position_sources(ROOT)
     validate_account_sources(ROOT)
+    validate_strategy_ledger_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -844,6 +871,7 @@ def main() -> int:
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
         ("account", isolated_account),
+        ("strategy-ledger", isolated_strategy_ledger),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -882,6 +910,7 @@ def main() -> int:
                 subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
     check_position_reference(ROOT, env, target)
     check_account_reference(ROOT, env, target)
+    check_strategy_ledger_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

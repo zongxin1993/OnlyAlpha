@@ -410,3 +410,7 @@ durable cross-authority transaction and economic projection remain separate; no 
 ## Account responsibility map
 
 `account/` groups cash state, exact order cash Reservations, incremental authoritative fee/Position inputs, settlement facts, valuation/Broker observations and atomic recovery in one crate. Its only local dependency is Domain. Python `account/manager.py` and formal `execution/reducers/trade_accounting.py` provide classified reference behavior; `account/funding.py` policy derivation and report/performance orchestration are not copied into this market-agnostic cash state owner. There is no reverse dependency on Order, Position, Strategy Ledger, Risk, Broker or Infrastructure. See [Account](account.md#rust-component-ownership-and-recovery-boundary).
+
+## Strategy Ledger responsibility map
+
+`strategy_ledger/` groups fixed capital, Cluster cash/fee entries, order holds, attributed Position inputs, exact linear valuation, immutable equity points and atomic complete replay. It depends locally only on Domain; Account, Position, Order, Fee, Risk and Runtime retain their own authorities. Python `strategy_ledger/manager.py`, `entities.py`, `valuation.py` and formal `execution/reducers/trade_accounting.py` are classified references, not an obligation to copy defective module boundaries. See [Strategy Ledger](strategy_ledger.md#rust-component-ownership-and-recovery-boundary).

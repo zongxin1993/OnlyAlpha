@@ -345,3 +345,7 @@ The isolated Position component resides in `crates/onlyalpha-kernel/position/`. 
 ### Account source navigation
 
 The isolated Account component is `crates/onlyalpha-kernel/account/`; [Account](account.md#rust-component-ownership-and-recovery-boundary) owns its scope and reference deviations. Strategy Ledger, Risk, fee accrual and durable execution orchestration retain distinct owners. Later integration consumes typed immutable inputs rather than calling another Manager's internal state; R3–R8 activation/history gates remain unchanged.
+
+### Strategy Ledger source navigation
+
+The isolated virtual-account library resides in `crates/onlyalpha-kernel/strategy_ledger/`. Its [owning contract](strategy_ledger.md#rust-component-ownership-and-recovery-boundary) separates Cluster attribution from consolidated Account and Position cost authority. Risk and durable Execution transaction/reconciliation composition consume normalized immutable inputs in later admission work; R3–R8 activation/history gates remain unchanged.
