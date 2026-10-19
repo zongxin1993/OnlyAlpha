@@ -1,0 +1,26 @@
+from pathlib import Path
+
+import pytest
+
+from scripts import rust_kernel_check as check
+
+
+def test_position_declares_and_extracts_only_its_semantic_closure(tmp_path: Path) -> None:
+    check.validate_position_sources(check.ROOT)
+    root = check.isolated_position(check.ROOT, tmp_path / "isolated").parent
+    assert (root / "crates/onlyalpha-kernel/position/Cargo.toml").is_file()
+    assert (root / "crates/onlyalpha-kernel/domain/Cargo.toml").is_file()
+    assert not (root / "crates/onlyalpha-kernel/strategy").exists()
+    assert not (root / "packages").exists()
+
+
+@pytest.mark.parametrize(
+    "code",
+    ("use std::fs::File;", "use onlyalpha_risk::Risk;", "use onlyalpha_strategy::Program;", "use std::time::Instant;"),
+)
+def test_position_rejects_effects_and_reverse_layers(tmp_path: Path, code: str) -> None:
+    source = tmp_path / "crates/onlyalpha-kernel/position/src/lib.rs"
+    source.parent.mkdir(parents=True)
+    source.write_text(code)
+    with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
+        check.validate_position_sources(tmp_path)

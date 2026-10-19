@@ -32,6 +32,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-market-data-pipeline",
         "onlyalpha-strategy",
         "onlyalpha-order",
+        "onlyalpha-position",
     }
 )
 TEST_DISTRIBUTION_PATHS = (

@@ -337,3 +337,7 @@ library. See the [owning boundary](order.md#rust-component-canonical-lifecycle-a
 [design](superpowers/specs/2026-10-19-rust-order-design.md). Subsequent Position/Allocation, Account/Ledger, Risk and execution-transaction
 work must preserve owning authorities and ordered economic effects. An isolated Order transition is not durable execution closure,
 formal Runtime activation, successful submission or evidence of absent venue effects. R3-R8 gates continue to apply.
+
+### Position source navigation
+
+The isolated Position component resides in `crates/onlyalpha-kernel/position/`. Its one candidate commit covers account/attribution conservation and sell-hold ownership. See [Position](position.md#rust-component-ownership-and-recovery-boundary). Account cash, Strategy Ledger, Risk and durable execution/reconciliation orchestration remain separately owned; R3-R8 activation/history gates are unchanged.

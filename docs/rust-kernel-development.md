@@ -402,3 +402,7 @@ See the [owning Strategy boundary](strategy.md#rust-decision-component-boundary)
 submission uncertainty and complete fresh restoration. Its source dependencies never point to Strategy, Risk, Position, Account,
 Broker or Infrastructure. Owning Contract: [Order](order.md#rust-component-canonical-lifecycle-and-recovery). Actual broker submission,
 durable cross-authority transaction and economic projection remain separate; no component outcome confers Runtime admission.
+
+## Position responsibility map
+
+`position/` is one crate grouping account Position, Cluster Allocation/Unallocated, sell Reservation, explicit settlement/restrictions, Broker comparison and fresh recovery. Internal files separate these responsibilities without additional crates or services. Its only local edge is Domain; no Order, Risk, Account, Strategy, Broker or Infrastructure import is permitted. The [owning boundary](position.md#rust-component-ownership-and-recovery-boundary) preserves the later durable cross-authority transaction and formal Runtime admission gates.

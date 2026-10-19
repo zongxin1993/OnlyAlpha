@@ -184,6 +184,7 @@ IMPACT_RULES = (
             "test-data/market-data-pipeline/",
             "test-data/strategy/",
             "test-data/order/",
+            "test-data/position/",
             "packages/onlyalpha-calculation-worker/",
             "packages/onlyalpha-gateway-protocol/rust/",
             "contracts/gateway/v1/",
