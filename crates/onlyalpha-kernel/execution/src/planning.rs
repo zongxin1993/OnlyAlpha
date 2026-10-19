@@ -377,7 +377,7 @@ impl Components {
             json!({"schema_version":1,"order":order,"stage":"SENT"}),
             3,
         ))?;
-        self.meta["orders"][order] = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"],"charge_target":"0.00","rebate_target":"0.00","fee_policy":null});
+        self.meta["orders"][order] = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
         Ok(())
     }
     fn submission(&mut self, input: &Value) -> Result<(), Error> {
@@ -594,19 +594,19 @@ impl Components {
             return Err(err("EXECUTION_SETTLEMENT_UNAVAILABLE"));
         }
         fp(&fee["policy"])?;
-        if !relation["fee_policy"].is_null() && relation["fee_policy"] != fee["policy"] {
-            return Err(err("EXECUTION_FEE_POLICY_CONFLICT"));
-        }
-        let target = nonnegative(&fee["charge_target"])?;
-        let rebate = nonnegative(&fee["rebate_target"])?;
-        let charges = &target - dec(&relation["charge_target"])?;
-        let rebates = &rebate - dec(&relation["rebate_target"])?;
-        if charges < BigDecimal::zero() || rebates < BigDecimal::zero() {
-            return Err(err("EXECUTION_FEE_TARGET_REGRESSION"));
-        }
-        let charges = money(&charges, self.precision)?;
-        let rebates = money(&rebates, self.precision)?;
-        for (family, proof) in [("fees", fee), ("settlements", settlement)] {
+        let mut fee_owner = boundary(onlyalpha_fee::Manager::new(
+            json!({"engine":self.config["engine"],"runtime":self.config["runtime"],"account":self.config["account"],"gateway":self.config["gateway"],"runtime_kind":self.config["runtime_kind"],"generation":self.config["generation"]}),
+            4096,
+        ))?;
+        boundary(fee_owner.restore(
+            &self.meta["fee_authority"],
+            &onlyalpha_fee::digest(&self.meta["fee_authority"]),
+        ))?;
+        let application = boundary(fee_owner.apply_admitted_target(fee))?.record();
+        let charges = money(&nonnegative(&application["charges"])?, self.precision)?;
+        let rebates = money(&nonnegative(&application["rebates"])?, self.precision)?;
+        self.meta["fee_authority"] = fee_owner.checkpoint();
+        for (family, proof) in [("settlements", settlement)] {
             for f in ["instruction", "source_ref"] {
                 let alias = format!("{f}:{}", text(&proof[f])?);
                 if self.meta[family].get(&alias).is_some() {
@@ -689,9 +689,6 @@ impl Components {
         }
         self.account_apply(&self.command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"sequence":input["runtime_sequence"],"side":relation["side"],"notional":notional_s,"fee_instruction":fee["instruction"],"charges":charges,"rebates":rebates,"realized_pnl_delta":exact_record(&rd,self.precision),"position_evidence":hash(&pos),"market_value_delta":money(&account_market_delta,self.precision)?,"unrealized_pnl":exact_record(&unrealized,self.precision),"realized_rounding_adjustment":exact_record(&rounding_adjustment,self.precision),"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"cash_withdrawable":true}),0))?;
         self.risk_apply(&self.risk_command(input,"FILL",json!({"schema_version":1,"order":order,"trade":p["trade"],"source_ref":input["source_ref"],"quantity":p["quantity"],"notional":notional_s,"final_fill":terminal}),0))?;
-        self.meta["orders"][order]["charge_target"] = fee["charge_target"].clone();
-        self.meta["orders"][order]["rebate_target"] = fee["rebate_target"].clone();
-        self.meta["orders"][order]["fee_policy"] = fee["policy"].clone();
         Ok(())
     }
     fn terminal(&mut self, input: &Value) -> Result<(), Error> {

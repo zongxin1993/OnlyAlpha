@@ -1,9 +1,9 @@
 [project]
 name = "onlyalpha-calculation-worker"
-version = "0.10.11"
+version = "0.10.12"
 description = "Exact managed Python calculation worker for the Rust comparison lane"
 requires-python = ">=3.12.0, <3.13.0"
-dependencies = ["onlyalpha==0.10.11", "onlyalpha-gateway-protocol==0.10.11", "onlyalpha-plugin-indicators==0.10.11", "onlyalpha-plugin-operators==0.10.11"]
+dependencies = ["onlyalpha==0.10.12", "onlyalpha-gateway-protocol==0.10.12", "onlyalpha-plugin-indicators==0.10.12", "onlyalpha-plugin-operators==0.10.12"]
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"

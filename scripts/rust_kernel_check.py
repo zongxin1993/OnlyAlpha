@@ -134,7 +134,7 @@ EXECUTION_DEPENDENCIES = {
     **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
     **{
         "onlyalpha-" + name.replace("_", "-"): {"path": "../" + name}
-        for name in ("order", "position", "account", "strategy_ledger", "risk")
+        for name in ("order", "position", "account", "strategy_ledger", "risk", "fee")
     },
 }
 
@@ -156,6 +156,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-risk": "crates/onlyalpha-kernel/risk",
         "onlyalpha-execution": "crates/onlyalpha-kernel/execution",
         "onlyalpha-broker": "crates/onlyalpha-kernel/broker",
+        "onlyalpha-fee": "crates/onlyalpha-kernel/fee",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -287,7 +288,7 @@ def validate_workspace(root: Path) -> None:
                         and config == EXECUTION_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
-                        name == "onlyalpha-broker"
+                        name in {"onlyalpha-broker", "onlyalpha-fee"}
                         and section is manifest
                         and kind == "dependencies"
                         and alias == dependency
@@ -335,6 +336,12 @@ def validate_workspace(root: Path) -> None:
     if (
         registry
         and tomllib.loads((root / modules["onlyalpha-broker"] / "Cargo.toml").read_text()).get("dependencies")
+        != BROKER_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-fee"] / "Cargo.toml").read_text()).get("dependencies")
         != BROKER_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -647,6 +654,14 @@ def validate_broker_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_fee_sources(root: Path) -> None:
+    _validate_pure_sources(root, "fee", {'"../../../../test-data/fee/common-v1.json"'})
+    for path in (root / "crates/onlyalpha-kernel/fee/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_execution_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -655,7 +670,9 @@ def validate_execution_sources(root: Path) -> None:
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
-        if re.search(r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b)[a-z_]+\b", code):
+        if re.search(
+            r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b)[a-z_]+\b", code
+        ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -717,7 +734,10 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             shutil.copytree(root / data, destination / data)
     members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
-        r"(?m)^members\s*=.*$", "members = " + json.dumps(members), (root / "Cargo.toml").read_text(), count=1
+        r"(?ms)^members\s*=\s*\[[^\]]*\]",
+        "members = " + json.dumps(members),
+        (root / "Cargo.toml").read_text(),
+        count=1,
     )
     (destination / "Cargo.toml").write_text(manifest)
     shutil.copyfile(root / "rust-toolchain.toml", destination / "rust-toolchain.toml")
@@ -813,9 +833,15 @@ def isolated_broker(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "broker"))
 
 
+def isolated_fee(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "fee"))
+
+
 def isolated_execution(root: Path, destination: Path) -> Path:
     return _isolated_modules(
-        root, destination, ("domain", "order", "position", "account", "strategy_ledger", "risk", "broker", "execution")
+        root,
+        destination,
+        ("domain", "order", "position", "account", "strategy_ledger", "risk", "broker", "fee", "execution"),
     )
 
 
@@ -991,6 +1017,33 @@ def check_broker_reference(root: Path, env: dict[str, str], target: str) -> None
                 raise ValueError("BROKER_CRASH_REPEATED_EXTERNAL_CALL")
 
 
+def check_fee_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.fee_reference_check import compare_native
+
+    for profile in ([], ["--release"]):
+        subprocess.run(
+            [
+                "cargo",
+                "build",
+                "-p",
+                "onlyalpha-fee",
+                "--example",
+                "reference",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        executable = Path(env["CARGO_TARGET_DIR"]) / target / ("release" if profile else "debug") / "examples/reference"
+        compare_native(root, executable)
+
+
 def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.execution_reference_check import check_fixture, compare_native_outputs
 
@@ -1069,6 +1122,7 @@ def main() -> int:
     validate_risk_sources(ROOT)
     validate_execution_sources(ROOT)
     validate_broker_sources(ROOT)
+    validate_fee_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -1095,6 +1149,7 @@ def main() -> int:
         ("risk", isolated_risk),
         ("execution", isolated_execution),
         ("broker", isolated_broker),
+        ("fee", isolated_fee),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -1137,6 +1192,7 @@ def main() -> int:
     check_risk_reference(ROOT, env, target)
     check_execution_reference(ROOT, env, target)
     check_broker_reference(ROOT, env, target)
+    check_fee_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

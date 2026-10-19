@@ -7,6 +7,7 @@ publish.workspace = true
 [lints]
 workspace = true
 [dependencies]
+onlyalpha-fee = { path = "../fee" }
 onlyalpha-domain = { path = "../domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }

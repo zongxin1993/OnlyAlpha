@@ -35,3 +35,14 @@ Order 创建时的 fee estimate/funding plan 属于同一次 Order planning oper
 risk-increasing MARKET 以该 operation 已解析的 explicit planning price 计算。Fee Resolver 不重新读取 mutable realtime state，生成的
 `funding_plan.principal_reservation` 必须与随后 Account/Strategy cash reservation 使用的 principal 完全一致。成交费用仍以 venue Fill
 事实和既有 Fee Authority 计算；planning price 不成为成交价 Authority。
+
+
+## Rust Fee component boundary
+
+`crates/onlyalpha-kernel/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
+
+Execution consumes Fee applications and freezes the Fee checkpoint in Execution metadata schema2 within the existing ordered commit. Its explicit admitted cumulative-target port remains subject to owning Runtime source authentication; an integrity digest does not prove producer authority. Aggregate targets do not manufacture detailed component evidence. Fee adjustment outputs are immutable instructions; they do not themselves write Account/Strategy Ledger state or authorize trading. Official full fee-reconciliation transaction admission remains an R3–R8 Runtime integration gate.
+
+The Python formula/rounding/accrual/reconciliation responsibilities are audited references; concrete factory/provisioning, policy selection, storage and Runtime transaction orchestration keep their existing owners. Split estimates use a conservative full-basis upper bound and reserve gross charges; no rebate offsets funding. Explicit zero rules do not require a meaningless split assumption. These are scoped correctness decisions, not claimed whole Python implementation parity. See the [design](superpowers/specs/2026-10-19-rust-fee-design.md).
+
+逐 Fill 的非零费用只在无 bounds、无 fixed term 且 FLOOR 舍入时可直接使用完整 Order basis 上界；其他逐 Fill 规则要求明确 maximum fill count。保守 maximum 使用完整 Order basis 的单 Fill target 乘该 count：每个非负 Fill basis 不超过完整 basis，公式、bounds 和 rounding 均单调，因此覆盖每个 Fill。该值是安全上界，并非最紧费用预测。缺失相关 liquidity 不构成 non-match。外部金额和 admitted target 必须精确符合货币精度。aggregate admission 缺失 broker/economic-time 查询证明时，typed query 明确 unavailable。

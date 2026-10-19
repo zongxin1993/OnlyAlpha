@@ -4,9 +4,9 @@ version = "0.9.9"
 description = "Test-only Factor provider fixture for OnlyAlpha"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "onlyalpha==0.10.11",
-    "onlyalpha-plugin-indicators==0.10.11",
-    "onlyalpha-plugin-operators==0.10.11",
+    "onlyalpha==0.10.12",
+    "onlyalpha-plugin-indicators==0.10.12",
+    "onlyalpha-plugin-operators==0.10.12",
 ]
 
 [project.entry-points."onlyalpha.calculations"]

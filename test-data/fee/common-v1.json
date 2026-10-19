@@ -1,0 +1,192 @@
+{
+  "catalog": {
+    "schema_version": 1,
+    "market_pack": {
+      "id": "market-pack",
+      "version": "1",
+      "families": [
+        "market-zero"
+      ]
+    },
+    "broker_contract": {
+      "id": "contract",
+      "version": "1",
+      "broker": "broker",
+      "account": "account",
+      "families": [
+        "commission"
+      ]
+    },
+    "schedules": [
+      {
+        "namespace": "MARKET",
+        "family": "market-zero",
+        "version": "1",
+        "from": 1,
+        "to": null,
+        "scope": {
+          "market": "GENERIC",
+          "venue": "XSHG",
+          "instrument_class": "CASH",
+          "currency": "USD"
+        },
+        "rules": [
+          {
+            "id": "zero",
+            "type": "EXCHANGE_FEE",
+            "authority": "MARKET",
+            "direction": "CHARGE",
+            "scope": "FILL",
+            "resolution": "ORDER_FIXED",
+            "terms": [
+              {
+                "kind": "FIXED",
+                "amount": "0"
+              }
+            ],
+            "minimum": null,
+            "maximum": null,
+            "quantum": "0.01",
+            "rounding": "HALF_EVEN",
+            "pipeline": "BOUNDS_THEN_ROUND",
+            "side": null,
+            "offset": null,
+            "liquidity": null
+          }
+        ]
+      },
+      {
+        "namespace": "BROKER",
+        "family": "commission",
+        "version": "1",
+        "from": 1,
+        "to": null,
+        "scope": {
+          "broker": "broker",
+          "account": "account",
+          "currency": "USD"
+        },
+        "rules": [
+          {
+            "id": "commission",
+            "type": "BROKER_COMMISSION",
+            "authority": "BROKER",
+            "direction": "CHARGE",
+            "scope": "ORDER_CUMULATIVE",
+            "resolution": "ORDER_FIXED",
+            "terms": [
+              {
+                "kind": "RATE",
+                "basis": "NOTIONAL",
+                "amount": "0.001"
+              }
+            ],
+            "minimum": "5",
+            "maximum": null,
+            "quantum": "0.01",
+            "rounding": "HALF_EVEN",
+            "pipeline": "BOUNDS_THEN_ROUND",
+            "side": null,
+            "offset": null,
+            "liquidity": null
+          }
+        ]
+      }
+    ]
+  },
+  "subject": {
+    "engine": "engine",
+    "runtime": "runtime",
+    "account": "account",
+    "broker": "broker",
+    "gateway": "gateway",
+    "generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime_kind": "BACKTEST",
+    "cluster": "cluster",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "order": "order",
+    "instrument": "TEST.XSHG",
+    "market": "GENERIC",
+    "venue": "XSHG",
+    "instrument_class": "CASH",
+    "currency": {
+      "schema_version": 1,
+      "code": "USD",
+      "precision": 2,
+      "currency_type": "FIAT"
+    },
+    "side": "BUY",
+    "offset": "OPEN"
+  },
+  "steps": [
+    {
+      "trade": "t1",
+      "time": 1,
+      "day": 1,
+      "fill": {
+        "notional": "1000",
+        "quantity": "1",
+        "contracts": "0",
+        "currency": "USD"
+      },
+      "cumulative": {
+        "notional": "1000",
+        "quantity": "1",
+        "contracts": "0",
+        "currency": "USD"
+      }
+    },
+    {
+      "trade": "t2",
+      "time": 2,
+      "day": 1,
+      "fill": {
+        "notional": "1000",
+        "quantity": "1",
+        "contracts": "0",
+        "currency": "USD"
+      },
+      "cumulative": {
+        "notional": "2000",
+        "quantity": "2",
+        "contracts": "0",
+        "currency": "USD"
+      }
+    },
+    {
+      "trade": "t3",
+      "time": 3,
+      "day": 1,
+      "fill": {
+        "notional": "5000",
+        "quantity": "1",
+        "contracts": "0",
+        "currency": "USD"
+      },
+      "cumulative": {
+        "notional": "7000",
+        "quantity": "3",
+        "contracts": "0",
+        "currency": "USD"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "scope": "ORDER_CUMULATIVE",
+      "expected": [
+        "5.00",
+        "0.00",
+        "2.00"
+      ]
+    },
+    {
+      "scope": "FILL",
+      "expected": [
+        "5.00",
+        "5.00",
+        "5.00"
+      ]
+    }
+  ]
+}

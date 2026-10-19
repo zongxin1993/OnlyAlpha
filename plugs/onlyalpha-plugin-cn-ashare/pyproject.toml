@@ -1,10 +1,10 @@
 [project]
 name = "onlyalpha-plugin-cn-ashare"
-version = "0.10.11"
+version = "0.10.12"
 description = "CN A-share Cash Market Product plugin for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.10.11"]
+dependencies = ["onlyalpha==0.10.12"]
 
 [project.entry-points."onlyalpha.market_products"]
 cn-ashare = "onlyalpha_plugin_cn_ashare.factory:OnlyCnAshareMarketProductFactory"

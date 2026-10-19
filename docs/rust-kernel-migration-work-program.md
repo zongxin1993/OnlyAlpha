@@ -364,3 +364,12 @@ normalize provider observations, preserve Execution v2 business identity across 
 dispatch on exact durable Ready intent, and reconcile only through complete owning application
 receipts plus current venue/local equality. Concrete Brokers, the official persistence writer,
 Runtime activation and shipping Web behavior remain separate gates under the existing roadmap.
+
+
+## Rust Fee component boundary
+
+`crates/onlyalpha-kernel/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
+
+Execution consumes Fee applications and freezes the Fee checkpoint in Execution metadata schema2 within the existing ordered commit. Its explicit admitted cumulative-target port remains subject to owning Runtime source authentication; an integrity digest does not prove producer authority. Aggregate targets do not manufacture detailed component evidence. Fee adjustment outputs are immutable instructions; they do not themselves write Account/Strategy Ledger state or authorize trading. Official full fee-reconciliation transaction admission remains an R3–R8 Runtime integration gate.
+
+The Python formula/rounding/accrual/reconciliation responsibilities are audited references; concrete factory/provisioning, policy selection, storage and Runtime transaction orchestration keep their existing owners. Split estimates use a conservative full-basis upper bound and reserve gross charges; no rebate offsets funding. Explicit zero rules do not require a meaningless split assumption. These are scoped correctness decisions, not claimed whole Python implementation parity. See the [design](superpowers/specs/2026-10-19-rust-fee-design.md).

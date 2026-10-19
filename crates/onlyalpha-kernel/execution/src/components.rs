@@ -117,8 +117,8 @@ impl Components {
             account: boundary(onlyalpha_account::Manager::new(ac))?,
             ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
             risk: boundary(onlyalpha_risk::Manager::new(rc))?,
-            config,
-            meta: json!({"schema_version":1,"orders":{},"inputs":{},"sources":{},"fees":{},"settlements":{},"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
+            config: config.clone(),
+            meta: json!({"schema_version":2,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"settlements":{},"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
             sequence: 0,
             pending: None,
         })
@@ -270,13 +270,18 @@ impl Components {
             3 => boundary(self.ledger.restore(&b, &h))?,
             4 => boundary(self.risk.restore(&b, &h))?,
             5 => {
+                if p["schema_version"] != 2 {
+                    return Err(err("EXECUTION_FEE_METADATA_SCHEMA"));
+                }
+                let mut shape = p.clone();
+                shape["schema_version"] = json!(1);
                 row(
-                    p,
+                    &shape,
                     &[
                         "orders",
                         "inputs",
                         "sources",
-                        "fees",
+                        "fee_authority",
                         "settlements",
                         "markets",
                         "valuations",
@@ -289,7 +294,6 @@ impl Components {
                     "orders",
                     "inputs",
                     "sources",
-                    "fees",
                     "settlements",
                     "markets",
                     "valuations",
@@ -298,6 +302,14 @@ impl Components {
                         return Err(err("EXECUTION_METADATA"));
                     }
                 }
+                let mut fee = boundary(onlyalpha_fee::Manager::new(
+                    json!({"engine":self.config["engine"],"runtime":self.config["runtime"],"account":self.config["account"],"gateway":self.config["gateway"],"runtime_kind":self.config["runtime_kind"],"generation":self.config["generation"]}),
+                    4096,
+                ))?;
+                boundary(fee.restore(
+                    &p["fee_authority"],
+                    &onlyalpha_fee::digest(&p["fee_authority"]),
+                ))?;
                 self.meta = p.clone();
             }
             _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
