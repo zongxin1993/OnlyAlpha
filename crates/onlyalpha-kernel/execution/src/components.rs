@@ -165,6 +165,39 @@ impl Components {
         }
         Ok(previous)
     }
+    /// Owning read for Broker composition: no snapshot is available from an unready lineage.
+    pub fn order_snapshot<S: crate::Store>(
+        &self,
+        store: &S,
+        cluster: &str,
+        order: &str,
+    ) -> Result<onlyalpha_domain::execution::OnlyOrderSnapshot, Error> {
+        self.ready_source(store)?;
+        boundary(self.order.get(cluster, order))
+    }
+    /// Current owning submission lifecycle, used with the Ready intent and Order snapshot.
+    /// A historical ADMIT alone cannot authorize a second external submit.
+    pub fn order_submission<S: crate::Store>(
+        &self,
+        store: &S,
+        cluster: &str,
+        order: &str,
+    ) -> Result<String, Error> {
+        self.ready_source(store)?;
+        Ok(boundary(self.order.submission(cluster, order))?.to_owned())
+    }
+    /// Exact Ready records through this component's applied head. These are read evidence,
+    /// never new CommitIntent authoring authority and never an unready Store tail.
+    pub fn ready_records<S: crate::Store>(&self, store: &S) -> Result<Vec<crate::Record>, Error> {
+        self.ready_source(store)?;
+        (1..=self.sequence)
+            .map(|n| {
+                store
+                    .get(n)?
+                    .ok_or_else(|| err("EXECUTION_READY_SOURCE_MISSING"))
+            })
+            .collect()
+    }
     pub fn state<S: crate::Store>(&self, store: &S) -> Result<Value, Error> {
         self.ready_source(store)?;
         Ok(

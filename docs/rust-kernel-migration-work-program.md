@@ -357,3 +357,10 @@ The isolated virtual-account library resides in `crates/onlyalpha-kernel/strateg
 ### Execution source navigation
 
 `crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
+
+
+Broker common semantics are specified in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`:
+normalize provider observations, preserve Execution v2 business identity across sessions, gate
+dispatch on exact durable Ready intent, and reconcile only through complete owning application
+receipts plus current venue/local equality. Concrete Brokers, the official persistence writer,
+Runtime activation and shipping Web behavior remain separate gates under the existing roadmap.

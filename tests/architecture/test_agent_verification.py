@@ -541,6 +541,8 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "test-data/strategy-ledger/valuation-v1.jsonl",
         "test-data/risk/decisions-v1.jsonl",
         "test-data/execution/economics-v1.json",
+        "test-data/broker/domain-inputs.json",
+        "scripts/broker_reference_check.py",
     ],
 )
 def test_rust_changes_select_offline_kernel_checks(path: str) -> None:

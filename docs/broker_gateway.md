@@ -29,3 +29,14 @@ Local 与 authoritative Venue snapshot；验证通过的 zero-delta 是合法收
 `PRESENT`、`ABSENT_PROVEN` 或 `INCONCLUSIVE`：只有 submit 的强负证明可以写入 reconciliation proof 并清除 UNKNOWN；它不生成
 Rejected/Cancelled/Expired 等 Venue fact，也不触发自动重发。cancel absence、5xx、timeout、归档/重置窗口及证明不足均保持
 UNKNOWN。外部身份冲突必须 fail closed。
+
+
+### Isolated Rust common protocol
+
+`crates/onlyalpha-kernel/broker` is the ADR 0139 library boundary for normalized observations,
+explicit ports, durable command evidence and receipt-bound reconciliation. Its owning journal
+and Runtime read ports are authority boundaries, not self-authenticating JSON/hash claims.
+The design is in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`.
+Provider SDKs, signing, network I/O, file adapters and venue rules remain outside this library.
+The native Execution consumer tests use its exact Ready reader; they do not activate an
+application Runtime, replace the unified Runtime Store, certify LIVE or close a Web product slice.

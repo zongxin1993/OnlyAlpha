@@ -422,3 +422,10 @@ durable cross-authority transaction and economic projection remain separate; no 
 ### Execution source navigation
 
 `crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
+
+
+Broker's standalone source closure contains Domain only. Execution has a test-only Broker edge
+for the real Ready-intent consumer test. `scripts/rust_kernel_check.py` runs both isolated closures,
+the actual Python Virtual Broker identity comparison and fresh-process dispatch crash cuts.
+The file and external-call adapters in Broker examples are technical test drivers, not official
+Runtime persistence or provider implementations. No current Python Broker path is retired.

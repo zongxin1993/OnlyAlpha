@@ -17,3 +17,14 @@ Broker Plugin -> BrokerInboundQueue -> ExecutionProcessor -> Order/Position/Ledg
 生产 Broker Factory 必须通过 `onlyalpha.brokers` entry-point group 加载，并在配置校验阶段声明所需 capability 与 durability
 依赖。Provider 凭据、endpoint、签名、错误码和 user stream wire contract 全部留在插件内；Core/Runtime 只消费 canonical
 Broker Port、Update、receipt 与 readiness 语义。
+
+
+### Isolated Rust common protocol
+
+`crates/onlyalpha-kernel/broker` is the ADR 0139 library boundary for normalized observations,
+explicit ports, durable command evidence and receipt-bound reconciliation. Its owning journal
+and Runtime read ports are authority boundaries, not self-authenticating JSON/hash claims.
+The design is in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`.
+Provider SDKs, signing, network I/O, file adapters and venue rules remain outside this library.
+The native Execution consumer tests use its exact Ready reader; they do not activate an
+application Runtime, replace the unified Runtime Store, certify LIVE or close a Web product slice.

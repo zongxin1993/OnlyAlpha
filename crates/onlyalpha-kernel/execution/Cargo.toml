@@ -16,3 +16,6 @@ onlyalpha-position = { path = "../position" }
 onlyalpha-account = { path = "../account" }
 onlyalpha-strategy-ledger = { path = "../strategy_ledger" }
 onlyalpha-risk = { path = "../risk" }
+
+[dev-dependencies]
+onlyalpha-broker = { path = "../broker" }

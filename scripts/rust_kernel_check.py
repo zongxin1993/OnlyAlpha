@@ -127,6 +127,9 @@ CALCULATION_DEPENDENCIES = {name: DOMAIN_DEPENDENCIES[name] for name in ("bigdec
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
 
 
+BROKER_DEPENDENCIES = {name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"}
+
+
 EXECUTION_DEPENDENCIES = {
     **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
     **{
@@ -152,6 +155,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-strategy-ledger": "crates/onlyalpha-kernel/strategy_ledger",
         "onlyalpha-risk": "crates/onlyalpha-kernel/risk",
         "onlyalpha-execution": "crates/onlyalpha-kernel/execution",
+        "onlyalpha-broker": "crates/onlyalpha-kernel/broker",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -282,6 +286,20 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == EXECUTION_DEPENDENCIES.get(alias)
                     )
+                    admitted = admitted or (
+                        name == "onlyalpha-broker"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == BROKER_DEPENDENCIES.get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-execution"
+                        and section is manifest
+                        and kind == "dev-dependencies"
+                        and alias == dependency == "onlyalpha-broker"
+                        and config == {"path": "../broker"}
+                    )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if (
@@ -312,6 +330,12 @@ def validate_workspace(root: Path) -> None:
         registry
         and tomllib.loads((root / modules["onlyalpha-execution"] / "Cargo.toml").read_text()).get("dependencies")
         != EXECUTION_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-broker"] / "Cargo.toml").read_text()).get("dependencies")
+        != BROKER_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -611,6 +635,18 @@ def validate_risk_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_broker_sources(root: Path) -> None:
+    _validate_pure_sources(
+        root,
+        "broker",
+        {'"../../../../test-data/broker/domain-inputs.json"', '"../../../../test-data/broker/virtual-v2.json"'},
+    )
+    for path in (root / "crates/onlyalpha-kernel/broker/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_execution_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -773,9 +809,13 @@ def isolated_account(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "account"))
 
 
+def isolated_broker(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "broker"))
+
+
 def isolated_execution(root: Path, destination: Path) -> Path:
     return _isolated_modules(
-        root, destination, ("domain", "order", "position", "account", "strategy_ledger", "risk", "execution")
+        root, destination, ("domain", "order", "position", "account", "strategy_ledger", "risk", "broker", "execution")
     )
 
 
@@ -891,6 +931,66 @@ def check_strategy_ledger_reference(root: Path, env: dict[str, str], target: str
     _check_component_reference(root, env, target, "strategy-ledger", compare_native_outputs)
 
 
+def check_broker_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.broker_reference_check import check_fixture, virtual_corpus
+
+    check_fixture()
+    cases = virtual_corpus()
+    actual = subprocess.check_output(
+        [
+            "cargo",
+            "run",
+            "-p",
+            "onlyalpha-broker",
+            "--example",
+            "identity",
+            "--frozen",
+            "--offline",
+            "--target",
+            target,
+            "-j1",
+        ],
+        cwd=root,
+        env=env,
+        text=True,
+        input=json.dumps(cases),
+    )
+    if json.loads(actual) != [{k: case[k] for k in ("identity", "fingerprint")} for case in cases]:
+        raise ValueError("BROKER_PYTHON_NATIVE_IDENTITY_CONFLICT")
+
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "-p",
+            "onlyalpha-broker",
+            "--example",
+            "restart",
+            "--frozen",
+            "--offline",
+            "--target",
+            target,
+            "-j1",
+        ],
+        cwd=root,
+        env=env,
+        check=True,
+    )
+    executable = Path(env["CARGO_TARGET_DIR"]) / target / "debug/examples/restart"
+    with tempfile.TemporaryDirectory(prefix="broker-restart-", dir=root / "test-results") as area:
+        for cut, expected_calls in ((1, 1), (2, 0), (3, 1), (4, 1)):
+            directory = Path(area) / str(cut)
+            fixture = root / "test-data/broker/domain-inputs.json"
+            interrupted = subprocess.run([str(executable), str(directory), str(cut), str(fixture)], cwd=root, env=env)
+            if interrupted.returncode != 77:
+                raise ValueError("BROKER_CRASH_CUT_NOT_REACHED")
+            subprocess.run([str(executable), str(directory), "0", str(fixture)], cwd=root, env=env, check=True)
+            calls = directory / "external-calls"
+            observed = len(calls.read_text().splitlines()) if calls.exists() else 0
+            if observed != expected_calls:
+                raise ValueError("BROKER_CRASH_REPEATED_EXTERNAL_CALL")
+
+
 def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.execution_reference_check import check_fixture, compare_native_outputs
 
@@ -968,6 +1068,7 @@ def main() -> int:
     validate_strategy_ledger_sources(ROOT)
     validate_risk_sources(ROOT)
     validate_execution_sources(ROOT)
+    validate_broker_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -993,6 +1094,7 @@ def main() -> int:
         ("strategy-ledger", isolated_strategy_ledger),
         ("risk", isolated_risk),
         ("execution", isolated_execution),
+        ("broker", isolated_broker),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -1034,6 +1136,7 @@ def main() -> int:
     check_strategy_ledger_reference(ROOT, env, target)
     check_risk_reference(ROOT, env, target)
     check_execution_reference(ROOT, env, target)
+    check_broker_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

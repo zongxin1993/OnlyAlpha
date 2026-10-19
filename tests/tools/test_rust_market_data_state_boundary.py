@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from scripts import rust_kernel_check as check
-from scripts.rust_kernel_check import module_directory
 
 
 def test_state_rejects_hidden_inputs_native_effects_and_calculation_edges(tmp_path: Path) -> None:
@@ -83,21 +82,10 @@ def test_state_manifest_cannot_smuggle_edges_features_or_build_inputs(tmp_path: 
     for name in (
         "Cargo.toml",
         "Cargo.lock",
-        "packages/onlyalpha-gateway-protocol/Cargo.toml",
-        "packages/onlyalpha-calculation-worker/Cargo.toml",
-        *[
-            f"crates/onlyalpha-kernel/{module_directory(area)}/Cargo.toml"
-            for area in (
-                "domain",
-                "core",
-                "clock",
-                "event",
-                "market_data_state",
-                "market_data_construction",
-                "market_data_delivery",
-                "calculation",
-            )
-        ],
+        *(
+            f"{member}/Cargo.toml"
+            for member in tomllib.loads((check.ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+        ),
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
