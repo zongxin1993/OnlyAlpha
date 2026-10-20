@@ -1,7 +1,7 @@
 use onlyalpha_account::{Manager, Status, digest};
 use serde_json::{Value, json};
 fn config() -> Value {
-    json!({"schema_version":1,"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":"generation","account_type":"CASH","currency":{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"},"initial_cash":"1000.00"})
+    json!({"schema_version":2,"position_configuration":"b".repeat(64),"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":"generation","account_type":"CASH","currency":{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"},"initial_cash":"1000.00"})
 }
 fn manager() -> Manager {
     Manager::new(config()).unwrap()
@@ -115,6 +115,12 @@ fn new_cash_owner_starts_without_hidden_time_and_rejects_bad_config() {
     assert!(m.snapshot()["time"].is_null());
     m.apply(&reserve("r", "10.00", -10)).unwrap();
     assert_eq!(m.snapshot()["time"], -10);
+    let mut c = config();
+    c["schema_version"] = json!(1);
+    assert!(Manager::new(c).is_err());
+    let mut c = config();
+    c.as_object_mut().unwrap().remove("position_configuration");
+    assert!(Manager::new(c).is_err());
     let mut c = config();
     c["account_type"] = json!("MARGIN");
     assert!(Manager::new(c).is_err());
@@ -264,35 +270,22 @@ fn stale_trade_is_observed_once_but_not_economically_applied_or_cleared() {
     assert_eq!(m.snapshot()["cash"], "890.00");
 }
 #[test]
-fn valuation_requires_current_financial_basis_and_increasing_version() {
+fn raw_derived_valuation_is_not_an_authoring_api() {
     let mut m = manager();
+    let before = m.state();
     let v = cmd(
         "val",
         "VALUATION",
         1,
-        json!({"schema_version":1,"valuation":"v1","version":1,"economic_version":0,"position_evidence":"b".repeat(64),"market_value":"0.00","unrealized_pnl":"0.00"}),
+        json!({"schema_version":1,"valuation":"v1","version":1,"economic_version":0,"position_evidence":"b".repeat(64),"market_value":"1000000.00","unrealized_pnl":"1000000.00"}),
     );
-    m.apply(&v).unwrap();
-    let s = m.state();
-    let mut bad = v.clone();
-    bad["command_id"] = json!("next");
-    bad["payload"]["valuation"] = json!("v2");
-    assert!(m.apply(&bad).is_err());
-    assert_eq!(m.state(), s);
-    let deposit = cmd(
-        "deposit",
-        "CASH_CHANGE",
-        2,
-        json!({"schema_version":1,"change":"c1","kind":"DEPOSIT","amount":"1.00","source_fact":"deposit-source"}),
+    assert_eq!(
+        m.apply(&v).unwrap_err().0,
+        "ACCOUNT_VALUATION_PRODUCER_REQUIRED"
     );
-    m.apply(&deposit).unwrap();
-    bad["time"] = json!(3);
-    bad["payload"]["version"] = json!(2);
-    assert!(m.apply(&bad).is_err());
-    bad["payload"]["economic_version"] = json!(1);
-    m.apply(&bad).unwrap();
-    roundtrip(&mut m);
+    assert_eq!(m.state(), before);
 }
+
 #[test]
 fn settlement_is_explicit_source_scoped_and_cannot_double_release() {
     let mut m = manager();

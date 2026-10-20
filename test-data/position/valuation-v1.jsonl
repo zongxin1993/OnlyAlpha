@@ -1,0 +1,6 @@
+{"case":"consolidated-distinct-cluster-costs","trades":[["a","10","2"],["b","20","2"]],"mark":"15","multiplier":"1","market":"60.00","unrealized":"0","python_common":true}
+{"case":"loss","trades":[["a","20","10"]],"mark":"10","multiplier":"1","market":"100.00","unrealized":"-100","python_common":true}
+{"case":"exact-cost-residual","trades":[["a","0.334","3"]],"mark":"0.335","multiplier":"1","market":"1.00","unrealized":"-0.002","python_common":false}
+{"case":"half-even-tie","trades":[["a","2.005","1"]],"mark":"2.015","multiplier":"1","market":"2.02","unrealized":"0.015","python_common":false}
+{"case":"explicit-multiplier","trades":[["a","2","3"]],"mark":"3","multiplier":"10","market":"90.00","unrealized":"30","python_common":true}
+{"case":"consolidated-rounding-before-cluster-sum","trades":[["a","0.01","1"],["b","0.01","1"]],"mark":"0.005","multiplier":"1","market":"0.01","unrealized":"-0.01","python_common":true}

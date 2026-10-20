@@ -55,7 +55,7 @@ impl Components {
         }
         let n = uint(&input["runtime_sequence"])?;
         if n == 0
-            || n > u64::MAX / 16
+            || n > u64::MAX / 64
             || n <= self.meta["last_runtime_sequence"].as_u64().unwrap_or(0)
         {
             return Err(err("EXECUTION_RUNTIME_SEQUENCE"));
@@ -77,6 +77,7 @@ impl Components {
             "ACCEPT" => candidate.accept(input)?,
             "CANCEL" => candidate.cancel(input)?,
             "FILL" => candidate.fill(input)?,
+            "VALUATION" => candidate.valuation(input)?,
             "SETTLEMENT_MATURITY" => candidate.settlement_maturity(input)?,
             "TERMINAL" => candidate.terminal(input)?,
             _ => return Err(err("EXECUTION_OPERATION")),
@@ -103,12 +104,18 @@ impl Components {
     pub(crate) fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
         json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":hash(input),"time":input["time"],"op":op,"payload":payload})
     }
-    fn ledger_command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
+    pub(crate) fn ledger_command(
+        &self,
+        input: &Value,
+        op: &str,
+        payload: Value,
+        suffix: u64,
+    ) -> Value {
         let mut c = self.command(input, op, payload, suffix);
         c.as_object_mut().expect("object").remove("gateway");
         c["cluster"] = input["cluster"].clone();
         c["runtime_sequence"] =
-            json!(input["runtime_sequence"].as_u64().expect("validated") * 16 + suffix);
+            json!(input["runtime_sequence"].as_u64().expect("validated") * 64 + suffix);
         c["trading_day"] = input["trading_day"].clone();
         c["day_index"] = input["day_index"].clone();
         c
@@ -153,7 +160,7 @@ impl Components {
         }
         Ok(())
     }
-    fn ledger_apply(&mut self, c: &Value) -> Result<(), Error> {
+    pub(crate) fn ledger_apply(&mut self, c: &Value) -> Result<(), Error> {
         if boundary(self.ledger.apply(c))?.status != onlyalpha_strategy_ledger::Status::Applied {
             return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
         }
@@ -314,7 +321,7 @@ impl Components {
         for f in ["quantity", "price", "notional", "fee", "cash_requirement"] {
             req[f] = json!(dec(&req[f])?.normalized().to_plain_string());
         }
-        let n = input["runtime_sequence"].as_u64().expect("validated") * 16;
+        let n = input["runtime_sequence"].as_u64().expect("validated") * 64;
         let envelope = |family: &str, data: Value| json!({"schema_version":1,"family":family,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"generation":input["generation"],"cluster":cluster,"instrument":inst,"revision":input["revision"],"source_ref":format!("{}-{family}",input["input_id"].as_str().expect("validated")),"version":n,"as_of_sequence":n,"source_digest":hash(&data),"data":data});
         // These owners contain only this composition's holds. Gross cash is BEFORE those same-owner holds.
         let account = self.account.snapshot();
@@ -807,7 +814,7 @@ impl Components {
     }
 }
 
-fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
+pub(crate) fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
     Ok(
         json!({"schema_version":1,"identity":a["id"],"cycle":a["cycle"],"realized_exact":exact_record(&exact(&a["realized_exact"])?,p),"quantity":a["quantity"],"cost":exact_record(&exact(&a["cost"])?,p),"realized":exact_record(&exact(&a["realized_pnl"])?,p),"version":a["version"]}),
     )

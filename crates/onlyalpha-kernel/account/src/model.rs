@@ -197,6 +197,7 @@ pub(crate) struct State {
     pub reservations: BTreeMap<String, Reservation>,
     pub margin: BTreeMap<String, Value>,
     pub margin_owner: Value,
+    pub position_trades: BTreeMap<String, Value>,
     pub receivables: BTreeMap<String, D>,
     pub receipts: BTreeMap<String, String>,
     pub semantic: BTreeMap<String, String>,
@@ -224,6 +225,7 @@ impl State {
             reservations: BTreeMap::new(),
             margin: BTreeMap::new(),
             margin_owner: Value::Null,
+            position_trades: BTreeMap::new(),
             receivables: BTreeMap::new(),
             receipts: BTreeMap::new(),
             semantic: BTreeMap::new(),
@@ -320,8 +322,13 @@ impl State {
     }
 }
 pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
+    if v["schema_version"] != 2 {
+        return Err(err("ACCOUNT_CONFIG_SCHEMA"));
+    }
+    let mut shape = v.clone();
+    shape["schema_version"] = json!(1);
     let r = row(
-        v,
+        &shape,
         &[
             "engine",
             "runtime",
@@ -331,11 +338,13 @@ pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
             "account_type",
             "currency",
             "initial_cash",
+            "position_configuration",
         ],
     )?;
     for f in ["engine", "runtime", "account", "gateway", "generation"] {
         id(&r[f])?;
     }
+    fingerprint(&r["position_configuration"])?;
     if text(&r["account_type"])? != "CASH" {
         return Err(err("ACCOUNT_UNSUPPORTED_TYPE"));
     }
@@ -413,19 +422,7 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
             &["amount"],
             &["instruction", "source_trade"],
         ),
-        "VALUATION" => (
-            &[
-                "valuation",
-                "version",
-                "economic_version",
-                "position_evidence",
-                "market_value",
-                "unrealized_pnl",
-                "realized_rounding_adjustment",
-            ],
-            &["market_value", "unrealized_pnl"],
-            &["valuation"],
-        ),
+        "VALUATION" => (&["position", "intent"], &[], &[]),
         "BROKER" => (
             &[
                 "snapshot",
@@ -474,7 +471,7 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
             }),
         );
     }
-    if matches!(op, "TRADE" | "VALUATION") {
+    if op == "TRADE" {
         let value = analytical(&r["realized_rounding_adjustment"])?;
         r.insert(
             "realized_rounding_adjustment".into(),
@@ -503,11 +500,6 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
                 return Err(err("ACCOUNT_INSTRUMENT_INVALID"));
             }
         }
-        "VALUATION" => {
-            uint(&r["version"])?;
-            uint(&r["economic_version"])?;
-            fingerprint(&r["position_evidence"])?;
-        }
         "BROKER" => {
             uint(&r["sequence"])?;
             uint(&r["basis_sequence"])?;
@@ -527,7 +519,7 @@ pub(crate) fn checkpoint_row<'a>(
     let r = v
         .as_object()
         .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
-    if r.get("schema_version").and_then(Value::as_u64) != Some(3)
+    if r.get("schema_version").and_then(Value::as_u64) != Some(4)
         || r.len() != fields.len() + 1
         || fields.iter().any(|f| !r.contains_key(*f))
     {

@@ -619,3 +619,42 @@ fn cumulative_realized_money_preserves_the_final_currency_remainder() {
     );
     roundtrip(&mut m);
 }
+
+fn valuation_intent(m: &Manager, version: u64, at: u64) -> Value {
+    json!({"schema_version":1,"valuation":format!("valuation-{version}"),"version":version,"economic_version":0,"position_evidence":m.checkpoint().unwrap().1,"time":at,"marks":[{"schema_version":1,"instrument":"BTCUSDT.BINANCE","mark":"12.00","family":"CLOSED_BAR","source_ref":format!("bar-{version}"),"version":version,"time":at,"as_of_sequence":at}]})
+}
+#[test]
+fn valuation_keeps_closed_and_reopened_cycles_and_old_source_replay_distinct() {
+    let mut m = manager();
+    m.apply(&trade("buy", Some("a"), "BUY", "10.00", "2", 1))
+        .unwrap();
+    let old = m.value(&valuation_intent(&m, 1, 2)).unwrap();
+    assert_eq!(old.record()["market_value"], "24.00");
+    m.apply(&reserve("hold", "a", "2", 3)).unwrap();
+    m.apply(&close("sell", "a", "11.00", "2", 4, true)).unwrap();
+    let closed = m.value(&valuation_intent(&m, 2, 5)).unwrap();
+    assert_eq!(closed.record()["market_value"], "0.00");
+    assert_eq!(closed.record()["unrealized_pnl"], "0");
+    m.apply(&trade("reopen", Some("a"), "BUY", "9.00", "1", 6))
+        .unwrap();
+    let again = m.value(&valuation_intent(&m, 3, 7)).unwrap();
+    assert_eq!(again.record()["market_value"], "12.00");
+    assert_eq!(again.record()["unrealized_pnl"], "3");
+    assert_eq!(
+        onlyalpha_position::ValuationEffect::rederive(&old.replay_input())
+            .unwrap()
+            .record(),
+        old.record()
+    );
+}
+#[test]
+fn consolidated_valuation_includes_unallocated_inventory_without_cluster_attribution() {
+    let mut m = manager();
+    m.apply(&trade("external", None, "BUY", "10.00", "2", 1))
+        .unwrap();
+    let before = m.state();
+    let effect = m.value(&valuation_intent(&m, 1, 2)).unwrap();
+    assert_eq!(effect.record()["market_value"], "24.00");
+    assert_eq!(effect.record()["unrealized_pnl"], "4");
+    assert_eq!(m.state(), before);
+}

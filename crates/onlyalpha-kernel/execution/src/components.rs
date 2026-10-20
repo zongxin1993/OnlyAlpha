@@ -96,6 +96,8 @@ impl Components {
         let mut ac = base.clone();
         ac["gateway"] = config["gateway"].clone();
         ac["currency"] = config["currency"].clone();
+        ac["schema_version"] = json!(2);
+        ac["position_configuration"] = json!(hash(&pc));
         ac["account_type"] = json!("CASH");
         ac["initial_cash"] = config["initial_cash"].clone();
         let mut lc = base.clone();
@@ -118,7 +120,7 @@ impl Components {
             ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
             risk: boundary(onlyalpha_risk::Manager::new(rc))?,
             config: config.clone(),
-            meta: json!({"schema_version":4,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
+            meta: json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}}),
             sequence: 0,
             pending: None,
         })
@@ -254,6 +256,13 @@ impl Components {
             }
             Some((text(&a[0])?.into(), i))
         };
+        if fresh
+            .pending
+            .as_ref()
+            .is_none_or(|(_, installed)| *installed == 6)
+        {
+            fresh.validate_valuation_metadata(&fresh.meta)?;
+        }
         if fresh.checkpoint()? != *v {
             return Err(err("EXECUTION_CHECKPOINT_NONCANONICAL"));
         }
@@ -270,7 +279,7 @@ impl Components {
             3 => boundary(self.ledger.restore(&b, &h))?,
             4 => boundary(self.risk.restore(&b, &h))?,
             5 => {
-                if p["schema_version"] != 4 {
+                if p["schema_version"] != 5 {
                     return Err(err("EXECUTION_ECONOMIC_METADATA_SCHEMA"));
                 }
                 let mut shape = p.clone();
@@ -289,6 +298,8 @@ impl Components {
                         "last_runtime_sequence",
                         "transactions",
                         "marks",
+                        "valuation_marks",
+                        "valuation_sources",
                     ],
                 )?;
                 for f in ["orders", "inputs", "sources", "markets", "valuations"] {
@@ -374,6 +385,9 @@ impl Components {
             }
             self.install_payload(i, &projection["result"])?;
         }
+        if i == 5 {
+            self.validate_valuation_metadata(&self.meta)?;
+        }
         self.pending = Some((p.id().into(), i + 1));
         Ok(())
     }
@@ -395,6 +409,7 @@ impl Components {
                 return Err(err("EXECUTION_COMPLETION_RESULT_CONFLICT"));
             }
         }
+        self.validate_valuation_metadata(&self.meta)?;
         self.sequence = p.sequence();
         self.pending = None;
         Ok(())

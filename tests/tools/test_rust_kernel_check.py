@@ -275,3 +275,36 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
         assert tomllib.loads(manifest.read_text())["package"]["name"] == name
     assert not (ROOT / "crates/onlyalpha-kernel/Cargo.toml").exists()
     assert not (ROOT / "crates/onlyalpha-domain").exists()
+
+
+def test_account_position_producer_edge_is_exact_and_cannot_admit_alias_or_reverse_edge(tmp_path: Path) -> None:
+    import shutil
+    import tomllib
+
+    import pytest
+
+    from scripts.rust_kernel_check import ROOT, validate_workspace
+
+    for name in ("Cargo.toml", "Cargo.lock"):
+        shutil.copyfile(ROOT / name, tmp_path / name)
+    members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+    for member in members:
+        destination = tmp_path / member / "Cargo.toml"
+        destination.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / member / "Cargo.toml", destination)
+    validate_workspace(tmp_path)
+    manifest = tmp_path / "crates/onlyalpha-kernel/account/Cargo.toml"
+    original = manifest.read_text()
+    for invalid in (
+        'position-alias = { package = "onlyalpha-position", path = "../position" }',
+        'onlyalpha-position = { path = "../strategy_ledger" }',
+        'onlyalpha-strategy-ledger = { path = "../strategy_ledger" }',
+    ):
+        manifest.write_text(original.replace('onlyalpha-position = { path = "../position" }', invalid))
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            validate_workspace(tmp_path)
+    manifest.write_text(original)
+    position = tmp_path / "crates/onlyalpha-kernel/position/Cargo.toml"
+    position.write_text(position.read_text() + '\nonlyalpha-account = { path = "../account" }\n')
+    with pytest.raises(ValueError, match="BOUNDARY"):
+        validate_workspace(tmp_path)

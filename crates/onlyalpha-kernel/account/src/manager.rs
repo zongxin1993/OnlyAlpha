@@ -39,13 +39,28 @@ impl Manager {
             .map(|r| r.record(self.precision))
     }
     pub fn state(&self) -> Value {
-        json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"margin":self.state.margin,"margin_owner":self.state.margin_owner,"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
+        json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"margin":self.state.margin,"margin_owner":self.state.margin_owner,"position_trades":self.state.position_trades,"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
     }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
+        if input["op"] == "VALUATION" {
+            return Err(err("ACCOUNT_VALUATION_PRODUCER_REQUIRED"));
+        }
         if input["op"] == "MARGIN" {
             return Err(err("ACCOUNT_MARGIN_PRODUCER_REQUIRED"));
         }
         self.apply_inner(input)
+    }
+    pub fn apply_valuation(
+        &mut self,
+        input: &Value,
+        effect: &onlyalpha_position::ValuationEffect,
+    ) -> Result<Outcome, Error> {
+        if input["op"] != "VALUATION" {
+            return Err(err("ACCOUNT_VALUATION_OP"));
+        }
+        let mut command = input.clone();
+        command["payload"] = effect.replay_input();
+        self.apply_inner(&command)
     }
     pub fn apply_margin(
         &mut self,
@@ -60,7 +75,13 @@ impl Manager {
         self.apply_inner(&command)
     }
     pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
-        if input.to_string().len() > 16384 {
+        if input.to_string().len()
+            > if input["op"] == "VALUATION" {
+                32 * 1024 * 1024
+            } else {
+                16384
+            }
+        {
             return Err(err("ACCOUNT_COMMAND_BOUND"));
         }
         let r = row(
@@ -129,7 +150,7 @@ impl Manager {
             ],
             "MARGIN" => vec![key("margin", text(&p["command"]["id"])?)],
             "SETTLE" => vec![key("settlement", text(&p["instruction"])?)],
-            "VALUATION" => vec![key("valuation", text(&p["valuation"])?)],
+            "VALUATION" => vec![key("valuation", text(&p["intent"]["valuation"])?)],
             "BROKER" => vec![key("broker", text(&p["snapshot"])?)],
             _ => vec![],
         };
@@ -157,6 +178,9 @@ impl Manager {
         } else {
             candidate.transition(op, p, &t)?
         };
+        if op == "TRADE" && status == Status::Applied {
+            candidate.state.position_trades.insert(id(&p["trade"])?,json!({"position_evidence":p["position_evidence"],"cause":command["cause"],"time":command["time"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["sequence"]}));
+        }
         if status != Status::Duplicate {
             candidate.state.sequence += 1;
             candidate.state.now = Some(
@@ -240,18 +264,38 @@ impl Manager {
                 self.state.economic_version += 1;
             }
             "VALUATION" => {
-                let v = uint(&p["version"])?;
+                let effect = onlyalpha_position::ValuationEffect::rederive(p)
+                    .map_err(|e| err(&e.to_string()))?;
+                let result = effect.record();
+                let intent = &result["intent"];
+                for f in [
+                    "engine",
+                    "runtime",
+                    "account",
+                    "gateway",
+                    "generation",
+                    "currency",
+                ] {
+                    if result["scope"][f] != self.config[f] {
+                        return Err(err("ACCOUNT_VALUATION_OWNER"));
+                    }
+                }
+                if result["configuration"] != self.config["position_configuration"]
+                    || result["trades"] != serde_json::to_value(&self.state.position_trades)?
+                {
+                    return Err(err("ACCOUNT_VALUATION_SOURCE_RELATION"));
+                }
+                let v = uint(&intent["version"])?;
                 if v <= self.state.valuation_version
-                    || uint(&p["economic_version"])? != self.state.economic_version
+                    || uint(&intent["economic_version"])? != self.state.economic_version
+                    || time(&intent["time"])? != *t
                 {
                     return Err(err("ACCOUNT_VALUATION_BASIS"));
                 }
-                self.state.market_value = nonnegative(&p["market_value"], self.precision)?;
-                self.state.unrealized = analytical(&p["unrealized_pnl"])?;
-                self.state.realized_rounding_adjustment =
-                    analytical(&p["realized_rounding_adjustment"])?;
+                self.state.market_value = nonnegative(&result["market_value"], self.precision)?;
+                self.state.unrealized = analytical(&result["unrealized_pnl"])?;
                 self.state.valuation_version = v;
-                self.state.position_evidence = Some(text(&p["position_evidence"])?.into());
+                self.state.position_evidence = Some(text(&intent["position_evidence"])?.into());
             }
             _ => return Err(err("ACCOUNT_OP_UNSUPPORTED")),
         }

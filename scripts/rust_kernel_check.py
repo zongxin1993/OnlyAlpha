@@ -265,9 +265,9 @@ def validate_workspace(root: Path) -> None:
                         name == "onlyalpha-account"
                         and section is manifest
                         and kind == "dependencies"
-                        and alias == "onlyalpha-margin"
+                        and alias in {"onlyalpha-margin", "onlyalpha-position"}
                         and dependency == alias
-                        and config == {"path": "../margin"}
+                        and config == {"path": "../" + alias.removeprefix("onlyalpha-")}
                     )
                     admitted = admitted or (
                         name == "onlyalpha-strategy"
@@ -322,7 +322,11 @@ def validate_workspace(root: Path) -> None:
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and tomllib.loads((root / modules["onlyalpha-account"] / "Cargo.toml").read_text()).get(
         "dependencies"
-    ) != {**ACCOUNT_DEPENDENCIES, "onlyalpha-margin": {"path": "../margin"}}:
+    ) != {
+        **ACCOUNT_DEPENDENCIES,
+        "onlyalpha-margin": {"path": "../margin"},
+        "onlyalpha-position": {"path": "../position"},
+    }:
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if (
         registry
@@ -643,7 +647,7 @@ def validate_account_sources(root: Path) -> None:
     )
     for path in (root / "crates/onlyalpha-kernel/account/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
-        if re.search(r"\bonlyalpha_(?!domain\b|margin\b)[a-z_]+\b", code):
+        if re.search(r"\bonlyalpha_(?!domain\b|margin\b|position\b)[a-z_]+\b", code):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -712,6 +716,7 @@ def validate_execution_sources(root: Path) -> None:
             '"../../../../test-data/execution/economics-v1.json"',
             '"../../../../test-data/settlement/common-v1.json"',
             '"../../../../test-data/margin/common-v1.json"',
+            '"../../../../test-data/position/valuation-order-contract.json"',
         },
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
@@ -873,7 +878,7 @@ def isolated_position(root: Path, destination: Path) -> Path:
 
 
 def isolated_account(root: Path, destination: Path) -> Path:
-    return _isolated_modules(root, destination, ("domain", "margin", "account"))
+    return _isolated_modules(root, destination, ("domain", "position", "margin", "account"))
 
 
 def isolated_broker(root: Path, destination: Path) -> Path:
@@ -1138,6 +1143,38 @@ def check_settlement_reference(root: Path, env: dict[str, str], target: str) -> 
         compare_native(root, executable)
 
 
+def check_valuation_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.valuation_reference_check import compare_native
+
+    data = (root / "test-data/position/valuation-v1.jsonl").read_text()
+    for profile in ([], ["--release"]):
+        subprocess.run(
+            [
+                "cargo",
+                "build",
+                "-p",
+                "onlyalpha-position",
+                "--example",
+                "valuation",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        executable = Path(env["CARGO_TARGET_DIR"]) / target / ("release" if profile else "debug") / "examples/valuation"
+        result = subprocess.run(
+            [str(executable)], input=data, capture_output=True, text=True, cwd=root, env=env, check=True
+        )
+        compare_native(root, json.loads(result.stdout))
+    print("VALUATION_REFERENCE_AND_REPLAY: PASS", flush=True)
+
+
 def check_margin_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.margin_reference_check import compare_native
 
@@ -1322,6 +1359,7 @@ def main() -> int:
     check_fee_reference(ROOT, env, target)
     check_settlement_reference(ROOT, env, target)
     check_margin_reference(ROOT, env, target)
+    check_valuation_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

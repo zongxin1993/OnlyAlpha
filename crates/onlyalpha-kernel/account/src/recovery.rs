@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 impl Manager {
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
         let bytes = serde_json::to_vec(
-            &json!({"schema_version":3,"config":self.config,"journal":self.state.journal,"state":self.state()}),
+            &json!({"schema_version":4,"config":self.config,"journal":self.state.journal,"state":self.state()}),
         )?;
         let hash = digest(&bytes);
         Ok((bytes, hash))

@@ -9,3 +9,4 @@ mod coordinator;
 pub use coordinator::{CommitIntent, Record, Store, coordinate, pending_events, recover};
 
 mod margin;
+mod valuation;
