@@ -54,7 +54,7 @@ available Allocation.
 
 ## Result
 
-`OnlyBacktestResult` implements the common `OnlyRuntimeResult` view. Schema v3 separates Account-authoritative
+`OnlyBacktestResult` implements the common `OnlyRuntimeResult` view. The current Python serializer (schema4) separates Account-authoritative
 `runtime_performance` from every Ledger-authoritative `cluster_performance`. It also contains the full Account and Cluster
 equity timelines, one `final_account`, final Position/Allocation/Ledger snapshots, committed facts, structured diagnostics,
 final Runtime/Ledger reconciliation and stable fingerprints. The ambiguous `performance` and `final_accounts` fields were
@@ -72,3 +72,5 @@ timelines. Replay-process counters, EventBus delivery order, Factor/Indicator di
 metadata and are not part of that fingerprint. `result_fingerprint` likewise excludes only execution-recovery diagnostics, while
 retaining failures, warnings and all economic result fields; this makes an interrupted/recovered run comparable with its
 uninterrupted product baseline without hiding business differences.
+
+The isolated native [Result / Final Seal](backtest_result.md) has its own explicit Execution-transcript completion boundary and artifact identity. It does not replace the admitted Python Backtest Runtime or certify R5.

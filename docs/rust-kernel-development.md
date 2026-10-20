@@ -463,3 +463,7 @@ Valuation lives inside `position/`, the existing canonical quantity/cost owner, 
 ## Runtime Portfolio Performance responsibility map
 
 Python `account/performance.py` is the classified reference for Account-owned timeline/summary. Rust `account/src/performance.rs` replays the complete owning journal; `execution/src/performance.rs` adds complete Ready source binding. Ledger performance remains with Strategy Ledger. See [the owning Contract](runtime_portfolio_performance.md); no new crate, persistence format or official Runtime admission follows.
+
+### Backtest Result responsibility mapping
+
+[Backtest Result / Final Seal](backtest_result.md) maps Python Result/RunPlan business assembly to a read-only Execution composition adapter. It reuses Account/Ledger owners and Ready-source proofs; it does not introduce a Runtime driver, result writer or Analytics/Artifact dependency.

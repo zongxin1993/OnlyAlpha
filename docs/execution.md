@@ -70,3 +70,5 @@ Native metadata schema5 includes the Margin owner. Explicit collateral declarati
 The source-bound read-only query `Components::reconcile` consumes the exact current complete Ready prefix and all configured Account/Cluster owners. It replays the canonical Fee producer from committed Fill inputs, checks aggregate economics plus complete Trade attribution, and returns immutable diagnostics without writing any owner. See [the owning Contract](runtime_ledger_reconciliation.md). A matching diagnostic does not grant Runtime/LIVE admission or silently absorb per-owner rounding differences.
 
 Account-authoritative [Runtime Portfolio Performance](runtime_portfolio_performance.md) uses the same complete Ready source guard and reconstructs its immutable timeline through the Account owner, without a new writer or Runtime/Backtest activation.
+
+[Backtest Result / Final Seal](backtest_result.md) is the source-bound read-only result adapter over this composition. Its explicit completion scope is Execution transcript closure, not official Runtime activation or market-driver exhaustion.

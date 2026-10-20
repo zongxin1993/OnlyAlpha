@@ -722,6 +722,7 @@ def validate_execution_sources(root: Path) -> None:
             '"../../../../test-data/margin/common-v1.json"',
             '"../../../../test-data/position/valuation-order-contract.json"',
             '"../../../../test-data/execution/reconciliation-v1.jsonl"',
+            '"../../../../test-data/execution/backtest-result-v1.jsonl"',
         },
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
@@ -1189,6 +1190,47 @@ def check_performance_reference(root: Path, env: dict[str, str], target: str) ->
     print("PERFORMANCE_PYTHON_NATIVE_COMMON_AND_LITERAL_VECTORS: PASS", flush=True)
 
 
+def check_backtest_result_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.backtest_result_reference_check import compare_native
+
+    for profile in ([], ["--release"]):
+        result = subprocess.run(
+            [
+                "cargo",
+                "test",
+                "-p",
+                "onlyalpha-execution",
+                "--test",
+                "backtest_result",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+                "--",
+                "--exact",
+                "common_vector_outputs",
+                "--nocapture",
+                "--test-threads=1",
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            print(result.stdout, result.stderr, flush=True)
+            result.check_returncode()
+        marker = "BACKTEST_RESULT_VECTOR_OUTPUT "
+        rows = [line.split(marker, 1)[1] for line in result.stdout.splitlines() if marker in line]
+        if len(rows) != 1:
+            raise ValueError("BACKTEST_RESULT_REFERENCE_OUTPUT")
+        compare_native(root, json.loads(rows[0]))
+    print("BACKTEST_RESULT_PYTHON_COMMON_AND_NATIVE_LITERALS: PASS", flush=True)
+
+
 def check_reconciliation_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.reconciliation_reference_check import compare_native
 
@@ -1449,6 +1491,7 @@ def main() -> int:
     check_valuation_reference(ROOT, env, target)
     check_reconciliation_reference(ROOT, env, target)
     check_performance_reference(ROOT, env, target)
+    check_backtest_result_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

@@ -344,24 +344,42 @@ impl Ledger {
     pub fn ready(&self) -> bool {
         self.status() == "ACTIVE"
     }
-    pub fn ratio(n: D, d: &D) -> Option<String> {
+    // One explicit precision8 HALF_EVEN boundary; intermediate division precision
+    // must not erase a tail that determines the final rounding direction.
+    fn rounded_ratio(n: D, d: &D) -> Option<D> {
         if d <= &D::zero() {
-            None
-        } else {
-            Some(
-                (n / d)
-                    .with_scale_round(8, bigdecimal::RoundingMode::HalfEven)
-                    .to_plain_string(),
-            )
+            return None;
         }
+        let (mut a, sa) = n.as_bigint_and_exponent();
+        let (mut b, sb) = d.as_bigint_and_exponent();
+        let shift = 8 + sb - sa;
+        let exponent = u32::try_from(shift.unsigned_abs()).expect("bounded Ledger scales");
+        let power = BigInt::from(10).pow(exponent);
+        if shift >= 0 {
+            a *= power;
+        } else {
+            b *= power;
+        }
+        let negative = a < BigInt::zero();
+        if negative {
+            a = -a;
+        }
+        let mut q = &a / &b;
+        let twice = (&a % &b) * 2;
+        if twice > b || (twice == b && &q % 2 != BigInt::zero()) {
+            q += 1;
+        }
+        if negative {
+            q = -q;
+        }
+        Some(D::new(q, 8))
+    }
+    pub fn ratio(n: D, d: &D) -> Option<String> {
+        Self::rounded_ratio(n, d).map(|v| v.to_plain_string())
     }
     pub fn drawdown(&self) -> D {
-        if self.high_water > D::zero() {
-            (&self.equity() / &self.high_water - D::from(1))
-                .with_scale_round(8, bigdecimal::RoundingMode::HalfEven)
-        } else {
-            D::zero()
-        }
+        Self::rounded_ratio(self.equity() - &self.high_water, &self.high_water)
+            .unwrap_or_else(D::zero)
     }
     pub fn refresh(&mut self) {
         if self.equity() != self.pnl_equity() {
@@ -644,6 +662,36 @@ pub(crate) fn checkpoint_row<'a>(
 
 #[cfg(test)]
 mod analytical_boundary_tests {
+    #[test]
+    fn ratios_round_once_at_precision8_and_keep_nonpositive_base_policy() {
+        use super::{D, Ledger};
+        use std::str::FromStr;
+        for (n, d, expected) in [
+            ("1", "200000000", "0.00000000"),
+            ("3", "200000000", "0.00000002"),
+            ("-3", "200000000", "-0.00000002"),
+            ("-1", "200000000", "0.00000000"),
+            ("1", "12", "0.08333333"),
+        ] {
+            assert_eq!(
+                Ledger::ratio(D::from_str(n).unwrap(), &D::from_str(d).unwrap()).as_deref(),
+                Some(expected)
+            );
+        }
+        for base in ["0", "-1"] {
+            assert_eq!(Ledger::ratio(D::from(1), &D::from_str(base).unwrap()), None);
+        }
+        let initial = D::from_str(&format!("3{}.00", "0".repeat(120))).unwrap();
+        let fee = D::from_str(&format!("15{}.01", "0".repeat(111))).unwrap();
+        assert_eq!(
+            Ledger::ratio(fee.clone(), &initial).as_deref(),
+            Some("0.00000001")
+        );
+        assert_eq!(
+            Ledger::ratio(-fee, &initial).as_deref(),
+            Some("-0.00000001")
+        );
+    }
     #[test]
     fn extreme_exponent_is_rejected_before_domain_arithmetic() {
         let result = std::panic::catch_unwind(|| {

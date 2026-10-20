@@ -16,3 +16,6 @@ pub use reconciliation::LedgerReconciliation;
 
 mod performance;
 pub use performance::RuntimePerformance;
+
+mod backtest_result;
+pub use backtest_result::BacktestResult;

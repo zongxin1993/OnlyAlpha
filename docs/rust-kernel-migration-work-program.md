@@ -400,3 +400,7 @@ See [Margin Contract](margin_model.md#rust-margin-responsibility-and-consumer-bo
 ### Runtime Portfolio Performance responsibility boundary
 
 [Runtime Portfolio Performance](runtime_portfolio_performance.md) derives the shared Account path and exact summary from complete owner history, with Execution Ready source binding. Cluster performance remains Ledger-owned. Result/final-seal and official R3–R8 admission consume this in later integration; this diagnostic does not activate a Runtime.
+
+### Backtest Result / Final Seal responsibility boundary
+
+[Backtest Result / Final Seal](backtest_result.md) consumes the exact Ready transcript, owning performance and final reconciliation. Caller-declared immutable manifest closure is explicitly scoped to Execution input facts; formal R5 admission must additionally prove market replay, Broker/Event drain, persistence/lifecycle and the Shipping Web UI flow. Result construction does not activate Rust or waive R3–R8.
