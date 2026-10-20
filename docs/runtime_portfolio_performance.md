@@ -1,0 +1,39 @@
+# Runtime Portfolio Performance
+
+## Authority and responsibility
+
+Account alone owns consolidated cash/equity. `onlyalpha_account::Manager::performance(&OnlyTimestamp)` rebuilds the complete Account path with its existing local journal reducer and verifies the resulting exact checkpoint against the current owner. It returns a private-field immutable `Performance` with detached `record()` and canonical `encode()` reads. It accepts no authored snapshot series, mutable database query, selected history suffix or public derived-result decoder. It neither writes accounting state nor creates a durable authority. The independently built Account library retains only its existing Domain/Position/Margin dependencies.
+
+`onlyalpha_execution::Components::performance(store, &OnlyTimestamp)` returns a private-field `RuntimePerformance`. It requires the same complete current Ready source used by Runtime Ledger Reconciliation: no pending prefix, exact Store head, complete transaction-cause index, contiguous immutable predecessor/result lineage from configured genesis, and all current owner checkpoint hashes. The existing owning source guard is shared by these two real consumers. Missing, unready, stale, corrupted, foreign or unavailable sources return errors; an unexplained current balance does not establish a historical path. The existing serialized immutable Store contract remains required; hashes are not external producer authentication.
+
+Account performance is always Account-authoritative. Cluster performance remains Ledger-authoritative. A Cluster's return/drawdown, first registration or weighted summary cannot substitute for the Account equity path. Performance is independent of the read-only reconciliation conclusion: a valid Account path can be reported while Account/Ledger economics differ. Neither result implies successful Backtest seal, Runtime READY or execution permission.
+
+## Occurrences, history and time
+
+Genesis timestamp is a mandatory explicit semantic input, included in result identity; the query never samples wall time or infers creation time from the first Trade. A genesis later than any recorded Account source is rejected. No new official Runtime creation/admission contract is introduced: its future caller must bind this explicit input through its owning immutable configuration/work identity.
+
+The complete journal is replayed in owning order, including each supported accepted state change, Trade, valuation, settlement, Margin, external cash flow and Broker observation. Each non-duplicate outcome retains a distinct timeline sequence and the Account sequence, effective monotonic owner time, original source time, command identity, upstream cause, exact command hash, outcome and full scoped Account snapshot. Same-time occurrences are retained. Late admissible observations retain original source time without sorting or rewriting history. Direct duplicates and semantic duplicates cannot create another economic/timeline occurrence; the complete checkpoint still binds their receipt history. Non-economic state/quality changes remain visible rather than being mistaken for a profit.
+
+Reconstruction uses a local new owner. Returned snapshots and previously returned results remain unchanged when the original Account later changes. There is no mutable point alias, separate timeline writer/cache, checkpoint format or schema migration. Current valid Account state and all required history determine the same canonical bytes after checkpoint restore and fresh-process Execution replay. This library evidence does not certify a real deployment upgrade or service restart.
+
+## Economics and numerical policy
+
+Summary exposes initial/final equity, authoritative realized/unrealized PnL and fees, net PnL, cumulative external cash flow plus its occurrence flag, simple return, high-water mark, current/max drawdown, point count and accumulated quality flags. `valuation_count` counts all accepted timeline points including genesis, not only market valuation commands. Net PnL is final equity minus initial equity minus external cash flow; no cost, fee or mark is recalculated. Exact Account analytical PnL fields retain their owning precision. Current cash Account rejects negative cash/market value and therefore negative equity at its owning boundary; this query does not relax that constraint or invent unsupported histories.
+
+Rates use exact integer quotient/remainder and 8-decimal HALF_EVEN rounding. No binary float, ambient Decimal context, default BigDecimal division precision, tolerance or platform-sized quantity changes meaning. A non-positive initial equity makes simple return unavailable with a quality flag. A non-positive running high-water mark makes that point's drawdown unavailable; the flag is retained, and maximum drawdown remains unavailable until at least one positive-base comparison exists. Current supported initial capital is nonnegative.
+
+An applied deposit/withdrawal records both signed cash delta and occurrence. Once external flow has occurred, simple return stays unavailable with `EXTERNAL_CASH_FLOW_REQUIRES_TWR`, including offsetting flows whose cumulative net is zero. Drawdown is explicitly labelled `ACCOUNT_EQUITY`: it describes the raw equity path including flows, not a TWR/MWR or flow-adjusted investment return. This module introduces neither TWR/MWR nor a silent zero/NaN substitute.
+
+Account semantic identity is `ACCOUNT_PERFORMANCE@1`; Runtime wrapper identity is `RUNTIME_PORTFOLIO_PERFORMANCE@1`. Schema1 output binds exact configuration/scope, explicit genesis input, Account checkpoint, complete ordered timeline and summary. Runtime output additionally binds Generation, exact head transaction/payload and all owning checkpoints through the existing source record. AP/RPP identities hash the entire respective record before its id field. Release numbers do not replace exact Kernel artifact admission.
+
+## References and admission boundary
+
+Python `account/performance.py`, its Trading Kernel observer and Backtest final result consumer are audited comparison references under ADR0034/0023/0139. Shared independent literals exercise actual native owners and the actual Python projector on its correct common subset. Comparison normalizes typed decimal rendering only after proving exact numeric equality; it discards no source/authority fields from a claim of full record equivalence, because no such whole-record parity is claimed.
+
+Known Python reference deviations are classified: simple-return gating looks only at net external flow, zero high-water handling returns a zero drawdown, decimal operations use ambient context, and checkpoint restoration is not staged atomically. These are not Rust expected behavior. Python is not structurally refactored by this task; its currently admitted production authority remains intact.
+
+The owning Execution contract currently admits Trade/valuation/settlement/Margin and existing lifecycle facts, but not a new independent external-cash-flow or fee-adjustment transaction. Account performance covers its complete admitted Account command vocabulary; this task does not pretend an isolated Account flow test is official Execution transaction admission. Future transaction families must join their real owning composition and complete-source/replay contracts together.
+
+Formal Rust Runtime activation, Backtest Result/final seal, SIM/LIVE, Python retirement, history migration, Shipping Web UI and report/artifact export remain separate gates. No Sharpe, FIFO trade statistics, win rate, FX or new provider rules are introduced.
+
+[Nautilus issue2701](https://github.com/nautechsystems/nautilus_trader/issues/2701) motivates immutable historical-point/detached-result tests. Existing FP-STORAGE-001 motivates complete history, missing-fact rejection and real-file/new-process reconstruction. Upstream mutable snapshots, float statistics and date-only collapsing are not adopted.

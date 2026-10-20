@@ -459,3 +459,7 @@ Account 的 Margin writer 仅接受 `onlyalpha_margin::Effect`，不接受可写
 ## Valuation responsibility map
 
 Valuation lives inside `position/`, the existing canonical quantity/cost owner, rather than a new crate. Its opaque source-derived effect is consumed by Account; Execution binds the current Position checkpoint and complete immutable mark set, then atomically revalues Account and every Cluster Ledger without creating a Fill or cash flow. See [Valuation contract](valuation.md) for exact residuals, version/time/source watermarks, schema2 Account config, schema4 Account checkpoint and schema5 Execution replay, and R3–R8 boundaries.
+
+## Runtime Portfolio Performance responsibility map
+
+Python `account/performance.py` is the classified reference for Account-owned timeline/summary. Rust `account/src/performance.rs` replays the complete owning journal; `execution/src/performance.rs` adds complete Ready source binding. Ledger performance remains with Strategy Ledger. See [the owning Contract](runtime_portfolio_performance.md); no new crate, persistence format or official Runtime admission follows.

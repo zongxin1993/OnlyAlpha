@@ -136,6 +136,24 @@ fn partial_fill_cancel_and_real_close_release_only_their_collateral() {
         h.state().unwrap()["account"]["snapshot"]["occupied_margin"],
         "0.00"
     );
+
+    let performance = h
+        .components
+        .performance(
+            &h.store,
+            &onlyalpha_domain::time::OnlyTimestamp::from_unix_nanos(0.into()),
+        )
+        .unwrap()
+        .record();
+    let points = performance["performance"]["timeline"].as_array().unwrap();
+    let last = points.iter().rfind(|p| p["source"] == "MARGIN").unwrap();
+    assert_eq!(last["snapshot"]["occupied_margin"], "0.00");
+    assert_eq!(last["snapshot"]["reserved_margin"], "0.00");
+    assert!(points.iter().any(|p| p["source"] == "RELEASE"));
+    assert_eq!(
+        performance["performance"]["summary"]["final_equity"],
+        h.state().unwrap()["account"]["snapshot"]["equity"]
+    );
 }
 #[test]
 fn missing_funding_and_wrong_trade_proofs_fail_before_any_state_change() {

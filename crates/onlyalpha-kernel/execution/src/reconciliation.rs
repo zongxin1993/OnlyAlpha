@@ -22,23 +22,20 @@ impl LedgerReconciliation {
     }
 }
 impl Components {
-    /// Final-barrier/recovery diagnostic. An incomplete source is an error, not MATCHED.
-    pub fn reconcile<S: Store>(&self, store: &S) -> Result<LedgerReconciliation, Error> {
+    // Shared complete-source guard for read-only Execution projections. The Store owns immutable records.
+    pub(crate) fn verified_source<S: Store, F: FnMut(&Record) -> Result<(), Error>>(
+        &self,
+        store: &S,
+        mut visit: F,
+    ) -> Result<Value, Error> {
         self.ready_source(store)?;
-        let checkpoint = &self.meta["fee_authority"];
-        let mut fee_owner = boundary(onlyalpha_fee::Manager::new(
-            checkpoint["config"].clone(),
-            usize::try_from(uint(&checkpoint["capacity"])?)
-                .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?,
-        ))?;
-        let mut expected = BTreeMap::new();
         let mut head = Value::Null;
         let mut time = Value::Null;
         let owners = self.payloads()?;
         if object(&self.meta["transactions"])?.len() as u64 != self.sequence {
             return Err(err("RECONCILIATION_TRANSACTION_COMPLETENESS"));
         }
-        // Capture the exact same immutable prefix used for fee attribution below.
+        // Capture one exact immutable prefix for the consumer and source identity.
         let mut predecessor: Vec<_> = Self::new(self.config.clone())?
             .payloads()?
             .iter()
@@ -65,7 +62,26 @@ impl Components {
                 }
                 *previous = text(&projection["result_hash"])?.to_owned();
             }
-            record_fee(&self.config, &record, &mut fee_owner, &mut expected)?;
+            let input = prepared.input();
+            for k in [
+                "engine",
+                "runtime",
+                "account",
+                "gateway",
+                "generation",
+                "runtime_kind",
+            ] {
+                if input[k] != self.config[k] {
+                    return Err(err("RECONCILIATION_FACT_SCOPE"));
+                }
+            }
+            let cluster = text(&input["cluster"])?;
+            if self.config["profiles"].get(cluster).is_none()
+                || input["revision"] != self.config["profiles"][cluster]["revision"]
+            {
+                return Err(err("RECONCILIATION_FACT_CLUSTER"));
+            }
+            visit(&record)?;
             head =
                 json!({"transaction":prepared.id(),"payload_hash":prepared.value["payload_hash"]});
             time = prepared.input()["time"].clone();
@@ -73,6 +89,25 @@ impl Components {
         if predecessor != owners.iter().map(hash).collect::<Vec<_>>() {
             return Err(err("RECONCILIATION_SOURCE_HEAD"));
         }
+        Ok(
+            json!({"configuration":hash(&self.config),"sequence":self.sequence,
+            "time":time,"head":head,
+            "owners":COMPONENTS.iter().zip(&owners).map(|(name,cp)|json!({"component":name,"checkpoint":hash(cp)})).collect::<Vec<_>>()}),
+        )
+    }
+    /// Final-barrier/recovery diagnostic. An incomplete source is an error, not MATCHED.
+    pub fn reconcile<S: Store>(&self, store: &S) -> Result<LedgerReconciliation, Error> {
+        let checkpoint = &self.meta["fee_authority"];
+        let mut fee_owner = boundary(onlyalpha_fee::Manager::new(
+            checkpoint["config"].clone(),
+            usize::try_from(uint(&checkpoint["capacity"])?)
+                .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?,
+        ))?;
+        let mut expected = BTreeMap::new();
+        let source = self.verified_source(store, |record| {
+            record_fee(record, &mut fee_owner, &mut expected)
+        })?;
+        let owners = self.payloads()?;
         if fee_owner.checkpoint() != *checkpoint {
             return Err(err("RECONCILIATION_FEE_HISTORY_UNAVAILABLE"));
         }
@@ -95,9 +130,6 @@ impl Components {
         .into_iter()
         .map(|k| (k.into(), self.config[k].clone()))
         .collect();
-        let source = json!({"configuration":hash(&self.config),"sequence":self.sequence,
-            "time":time,"head":head,
-            "owners":COMPONENTS.iter().zip(&owners).map(|(name,cp)|json!({"component":name,"checkpoint":hash(cp)})).collect::<Vec<_>>()});
         let mut value = json!({"schema_version":1,"semantic_version":"RUNTIME_LEDGER_RECONCILIATION@1",
             "scope":scope,"cluster_ids":self.config["capitals"].as_object().expect("validated capitals").keys().collect::<Vec<_>>(),"source":source,"trade_count":expected.len(),
             "status":if differences.is_empty(){"MATCHED"}else{"MISMATCHED"},"totals":totals,"differences":differences});
@@ -108,30 +140,12 @@ impl Components {
 
 // Reuse the owning Fee reducer: cumulative targets are not incremental Trade fees.
 fn record_fee(
-    config: &Value,
     record: &Record,
     owner: &mut onlyalpha_fee::Manager,
     expected: &mut BTreeMap<String, Value>,
 ) -> Result<(), Error> {
     let input = record.prepared().input();
-    for k in [
-        "engine",
-        "runtime",
-        "account",
-        "gateway",
-        "generation",
-        "runtime_kind",
-    ] {
-        if input[k] != config[k] {
-            return Err(err("RECONCILIATION_FACT_SCOPE"));
-        }
-    }
     let cluster = text(&input["cluster"])?;
-    if config["profiles"].get(cluster).is_none()
-        || input["revision"] != config["profiles"][cluster]["revision"]
-    {
-        return Err(err("RECONCILIATION_FACT_CLUSTER"));
-    }
     if input["op"] != "FILL" {
         return Ok(());
     }

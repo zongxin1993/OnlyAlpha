@@ -6,3 +6,6 @@ mod recovery;
 mod reservation;
 pub use manager::Manager;
 pub use model::{Error, Outcome, Status, digest};
+
+mod performance;
+pub use performance::Performance;

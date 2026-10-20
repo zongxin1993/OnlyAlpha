@@ -396,3 +396,7 @@ See [Margin Contract](margin_model.md#rust-margin-responsibility-and-consumer-bo
 ### Runtime Ledger Reconciliation responsibility boundary
 
 [Runtime Ledger Reconciliation](runtime_ledger_reconciliation.md) belongs to the existing Execution composition as a source-bound read-only diagnostic. It consumes the complete current Ready prefix, Account and all configured Cluster Ledger projections, and canonical Fee producer replay. Its result may support later Backtest final seal and recovery admission, but does not activate Rust or waive R3–R8. It never balances a discrepancy or replaces the accounting owners.
+
+### Runtime Portfolio Performance responsibility boundary
+
+[Runtime Portfolio Performance](runtime_portfolio_performance.md) derives the shared Account path and exact summary from complete owner history, with Execution Ready source binding. Cluster performance remains Ledger-owned. Result/final-seal and official R3–R8 admission consume this in later integration; this diagnostic does not activate a Runtime.

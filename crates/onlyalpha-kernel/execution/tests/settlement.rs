@@ -122,6 +122,22 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     let mut duplicate = maturity(10, &buy, 2, "2026-10-21");
     duplicate["time"] = json!(9);
     assert!(h.prepare(&duplicate).is_err());
+
+    let performance = h
+        .components
+        .performance(
+            &h.store,
+            &onlyalpha_domain::time::OnlyTimestamp::from_unix_nanos(0.into()),
+        )
+        .unwrap()
+        .record();
+    let points = performance["performance"]["timeline"].as_array().unwrap();
+    let settled = points.iter().rfind(|p| p["source"] == "SETTLE").unwrap();
+    assert_eq!(settled["snapshot"]["withdrawable"], "1006.00");
+    assert_eq!(
+        performance["performance"]["summary"]["final_equity"],
+        "1006.00"
+    );
 }
 #[test]
 fn maturity_commit_cuts_preserve_one_effect_and_wrong_scope_is_atomic() {
