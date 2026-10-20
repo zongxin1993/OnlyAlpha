@@ -717,6 +717,7 @@ def validate_execution_sources(root: Path) -> None:
             '"../../../../test-data/settlement/common-v1.json"',
             '"../../../../test-data/margin/common-v1.json"',
             '"../../../../test-data/position/valuation-order-contract.json"',
+            '"../../../../test-data/execution/reconciliation-v1.jsonl"',
         },
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
@@ -1143,6 +1144,47 @@ def check_settlement_reference(root: Path, env: dict[str, str], target: str) -> 
         compare_native(root, executable)
 
 
+def check_reconciliation_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.reconciliation_reference_check import compare_native
+
+    for profile in ([], ["--release"]):
+        result = subprocess.run(
+            [
+                "cargo",
+                "test",
+                "-p",
+                "onlyalpha-execution",
+                "--test",
+                "reconciliation",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+                "--",
+                "--exact",
+                "common_vector_outputs",
+                "--nocapture",
+                "--test-threads=1",
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            print(result.stdout, result.stderr, flush=True)
+            result.check_returncode()
+        marker = "RECONCILIATION_VECTOR_OUTPUT "
+        rows = [line.split(marker, 1)[1] for line in result.stdout.splitlines() if marker in line]
+        if len(rows) != 1:
+            raise ValueError("RECONCILIATION_REFERENCE_OUTPUT")
+        compare_native(root, json.loads(rows[0]))
+    print("RECONCILIATION_PYTHON_NATIVE_COMMON_AND_LITERAL_VECTORS: PASS", flush=True)
+
+
 def check_valuation_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.valuation_reference_check import compare_native
 
@@ -1360,6 +1402,7 @@ def main() -> int:
     check_settlement_reference(ROOT, env, target)
     check_margin_reference(ROOT, env, target)
     check_valuation_reference(ROOT, env, target)
+    check_reconciliation_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

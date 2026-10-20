@@ -64,3 +64,7 @@ Rust cash Settlement now consumes explicit Calendar/policy input and owns regist
 Native metadata schema5 includes the Margin owner. Explicit collateral declarations join ADMIT/FILL/TERMINAL atomically; UNKNOWN/cancel request do not release, actual closing Trade relations determine lifecycle-bound release. The existing six projection groups and Store authority remain. See [Margin](margin_model.md#rust-margin-responsibility-and-consumer-boundary) for capability and source-admission boundaries.
 
 `VALUATION` freezes a complete current Position source and explicit mark facts in one no-Fill transaction, updates Account via opaque source-derived effects, and revalues all Cluster Ledgers against their own complete Allocation relation. Account checkpoint schema4 and Execution metadata schema5 reject raw/old shapes without fallback. See [Valuation](valuation.md). No Runtime activation or business-history migration is implied.
+
+## Rust Runtime Ledger Reconciliation
+
+The source-bound read-only query `Components::reconcile` consumes the exact current complete Ready prefix and all configured Account/Cluster owners. It replays the canonical Fee producer from committed Fill inputs, checks aggregate economics plus complete Trade attribution, and returns immutable diagnostics without writing any owner. See [the owning Contract](runtime_ledger_reconciliation.md). A matching diagnostic does not grant Runtime/LIVE admission or silently absorb per-owner rounding differences.

@@ -392,3 +392,7 @@ See [Margin Contract](margin_model.md#rust-margin-responsibility-and-consumer-bo
 ### Valuation responsibility boundary
 
 [Valuation](valuation.md) groups source-derived marking in the Position library with typed Account consumption and an independent Execution barrier. Runtime Ledger Reconciliation consumes those distinct Account and Cluster projections; it must preserve per-owner rounding and cannot silently repair discrepancies. Official Runtime composition and complete Backtest admission remain subject to R3–R8.
+
+### Runtime Ledger Reconciliation responsibility boundary
+
+[Runtime Ledger Reconciliation](runtime_ledger_reconciliation.md) belongs to the existing Execution composition as a source-bound read-only diagnostic. It consumes the complete current Ready prefix, Account and all configured Cluster Ledger projections, and canonical Fee producer replay. Its result may support later Backtest final seal and recovery admission, but does not activate Rust or waive R3–R8. It never balances a discrepancy or replaces the accounting owners.

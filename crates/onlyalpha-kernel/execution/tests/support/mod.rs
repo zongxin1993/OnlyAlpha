@@ -170,7 +170,7 @@ impl Harness {
     pub fn state(&self) -> Result<Value, Error> {
         self.components.state(&self.store)
     }
-    pub fn install_projection(&mut self, p: &Prepared, i: usize) -> Result<(), Error> {
+    pub fn commit_only(&mut self, p: &Prepared) -> Result<(), Error> {
         if self.store.get(p.sequence())?.is_none() {
             self.store.unknown_commit = true;
             let result = onlyalpha_execution::coordinate(&mut self.store, &mut self.components, p);
@@ -179,6 +179,10 @@ impl Harness {
                 return Err(Error("TEST_COMMIT_FAULT_NOT_OBSERVED".into()));
             }
         }
+        Ok(())
+    }
+    pub fn install_projection(&mut self, p: &Prepared, i: usize) -> Result<(), Error> {
+        self.commit_only(p)?;
         self.components.install_projection(&self.store, p, i)
     }
     pub fn complete(&mut self, p: &Prepared) -> Result<(), Error> {
