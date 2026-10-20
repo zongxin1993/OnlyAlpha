@@ -4,8 +4,9 @@ version = 4
 
 [[package]]
 name = "onlyalpha-account"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
+ "onlyalpha-margin",
  "bigdecimal",
  "num-bigint",
  "onlyalpha-domain",
@@ -15,13 +16,14 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-execution"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "onlyalpha-account",
  "onlyalpha-broker",
  "onlyalpha-domain",
  "onlyalpha-fee",
+ "onlyalpha-margin",
  "onlyalpha-settlement",
  "onlyalpha-order",
  "onlyalpha-position",
@@ -33,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-risk"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -372,7 +374,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "onlyalpha-broker"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -382,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-fee"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -392,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-settlement"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -402,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "serde_json",
@@ -411,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation-worker"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "onlyalpha-market-data-pipeline",
  "onlyalpha-strategy",
@@ -425,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-clock"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -433,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-domain"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "jiff",
@@ -445,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-event"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -454,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-gateway-protocol"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "prost",
  "prost-build",
@@ -463,11 +465,22 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-kernel"
-version = "0.10.13"
+version = "0.10.14"
+
+[[package]]
+name = "onlyalpha-margin"
+version = "0.10.14"
+dependencies = [
+ "bigdecimal",
+ "num-bigint",
+ "onlyalpha-domain",
+ "serde_json",
+ "sha2",
+]
 
 [[package]]
 name = "onlyalpha-market-data-construction"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -477,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-delivery"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -488,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-state"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -497,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-order"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -508,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-position"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -519,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy-ledger"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -530,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",
@@ -835,7 +848,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "onlyalpha-market-data-pipeline"
-version = "0.10.13"
+version = "0.10.14"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",

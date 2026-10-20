@@ -29,6 +29,10 @@ pub fn input(n: u64, op: &str, payload: Value) -> Value {
     c["source_ref"] = json!(format!("source-{n}"));
     c["op"] = json!(op);
     c["payload"] = payload;
+    if matches!(op, "ADMIT" | "FILL" | "TERMINAL") {
+        c["payload"]["collateral"] =
+            json!({"schema_version":1,"kind":"NONE","instruction":null,"close_allocation":null});
+    }
     c
 }
 pub fn open(n: u64, side: &str) -> Value {

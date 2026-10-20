@@ -59,3 +59,6 @@ Generic T0 monetary inputs explicitly bind currency, resolved notional and HALF_
 Market and valuation source references identify immutable evidence occurrences within their respective family. Reuse for a new request, watermark or payload is rejected. Positive quantity/exact gross can resolve to zero currency settlement; this does not make the Fill absent or waive price/quantity/settlement proof.
 
 Rust cash Settlement now consumes explicit Calendar/policy input and owns registration plus `SETTLEMENT_MATURITY` through the existing coordinator; metadata schema3 replaces the former settlement alias-only map. See [Settlement](settlement_model.md#rust-settlement-responsibility-and-admission-boundary) for supported economic shapes, preserved resource bounds and deferred activation/history gates.
+
+
+Native metadata schema4 includes the Margin owner. Explicit collateral declarations join ADMIT/FILL/TERMINAL atomically; UNKNOWN/cancel request do not release, actual closing Trade relations determine lifecycle-bound release. The existing six projection groups and Store authority remain. See [Margin](margin_model.md#rust-margin-responsibility-and-consumer-boundary) for capability and source-admission boundaries.

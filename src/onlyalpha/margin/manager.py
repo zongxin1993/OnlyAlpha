@@ -207,6 +207,7 @@ class OnlyMarginManager:
     def _apply_release(self, instruction: OnlyMarginInstruction) -> OnlyMarginRecord:
         scope = self._instruction_scope(instruction)
         scope_occupied, scope_maintenance = self._occupied.get(scope, (Decimal(0), Decimal(0)))
+        closing_trade = bool(instruction.source_trade_id)
         candidates = tuple(
             state
             for _, state in sorted(self._states.items())
@@ -215,9 +216,16 @@ class OnlyMarginManager:
             and state.currency.code == instruction.currency
             and state.position_side.value == instruction.position_side
             and self._margin_scope(state) == scope
-            and (state.reserved > 0 or state.occupied > 0)
+            and (
+                (closing_trade and state.occupied > 0)
+                or (
+                    not closing_trade
+                    and str(state.source_order_id) == instruction.source_order_id
+                    and state.reserved > 0
+                )
+            )
         )
-        releasable = sum((state.reserved + state.occupied for state in candidates), Decimal(0))
+        releasable = sum((state.occupied if closing_trade else state.reserved for state in candidates), Decimal(0))
         if instruction.amount > releasable:
             raise ValueError("margin release exceeds reserved and occupied authority")
         remaining = instruction.amount
@@ -225,9 +233,9 @@ class OnlyMarginManager:
         for state in candidates:
             if remaining == 0:
                 break
-            from_reserved = min(state.reserved, remaining)
+            from_reserved = Decimal(0) if closing_trade else min(state.reserved, remaining)
             remaining -= from_reserved
-            from_occupied = min(state.occupied, remaining)
+            from_occupied = min(state.occupied, remaining) if closing_trade else Decimal(0)
             remaining -= from_occupied
             if from_reserved + from_occupied == 0:
                 continue

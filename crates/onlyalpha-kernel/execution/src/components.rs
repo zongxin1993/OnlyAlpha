@@ -118,7 +118,7 @@ impl Components {
             ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
             risk: boundary(onlyalpha_risk::Manager::new(rc))?,
             config: config.clone(),
-            meta: json!({"schema_version":3,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
+            meta: json!({"schema_version":4,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{}}),
             sequence: 0,
             pending: None,
         })
@@ -270,7 +270,7 @@ impl Components {
             3 => boundary(self.ledger.restore(&b, &h))?,
             4 => boundary(self.risk.restore(&b, &h))?,
             5 => {
-                if p["schema_version"] != 3 {
+                if p["schema_version"] != 4 {
                     return Err(err("EXECUTION_ECONOMIC_METADATA_SCHEMA"));
                 }
                 let mut shape = p.clone();
@@ -283,6 +283,7 @@ impl Components {
                         "sources",
                         "fee_authority",
                         "settlement_authority",
+                        "margin_authority",
                         "markets",
                         "valuations",
                         "last_runtime_sequence",
@@ -310,6 +311,14 @@ impl Components {
                 boundary(settlement.restore(
                     &p["settlement_authority"],
                     &onlyalpha_settlement::digest(&p["settlement_authority"]),
+                ))?;
+                let mut margin = boundary(onlyalpha_margin::Manager::new(
+                    settlement_config(&self.config),
+                    512,
+                ))?;
+                boundary(margin.restore(
+                    &p["margin_authority"],
+                    &onlyalpha_margin::digest(&p["margin_authority"]),
                 ))?;
                 self.meta = p.clone();
             }

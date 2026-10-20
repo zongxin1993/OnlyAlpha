@@ -40,6 +40,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-broker",
         "onlyalpha-fee",
         "onlyalpha-settlement",
+        "onlyalpha-margin",
     }
 )
 TEST_DISTRIBUTION_PATHS = (

@@ -20,6 +20,7 @@ def test_execution_module_is_present_with_exact_lower_layer_edges() -> None:
         "onlyalpha-risk",
         "onlyalpha-fee",
         "onlyalpha-settlement",
+        "onlyalpha-margin",
     }
 
 

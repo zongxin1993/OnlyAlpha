@@ -195,6 +195,8 @@ pub(crate) struct State {
     pub fees: D,
     pub market_value: D,
     pub reservations: BTreeMap<String, Reservation>,
+    pub margin: BTreeMap<String, Value>,
+    pub margin_owner: Value,
     pub receivables: BTreeMap<String, D>,
     pub receipts: BTreeMap<String, String>,
     pub semantic: BTreeMap<String, String>,
@@ -220,6 +222,8 @@ impl State {
             fees: D::zero(),
             market_value: D::zero(),
             reservations: BTreeMap::new(),
+            margin: BTreeMap::new(),
+            margin_owner: Value::Null,
             receivables: BTreeMap::new(),
             receipts: BTreeMap::new(),
             semantic: BTreeMap::new(),
@@ -245,8 +249,20 @@ impl State {
     pub fn unsettled(&self) -> D {
         self.receivables.values().cloned().sum()
     }
+    pub fn margin_total(&self, field: &str) -> D {
+        self.margin
+            .values()
+            .map(|v| {
+                v[field]
+                    .as_str()
+                    .expect("validated margin")
+                    .parse::<D>()
+                    .expect("validated money")
+            })
+            .sum()
+    }
     pub fn available(&self) -> D {
-        &self.cash - self.reserved()
+        &self.cash - self.reserved() - self.margin_total("reserved") - self.margin_total("occupied")
     }
     pub fn withdrawable(&self) -> D {
         self.available() - self.unsettled()
@@ -281,7 +297,8 @@ impl State {
         Ok(())
     }
     pub fn validate_admission(&self) -> Result<(), Error> {
-        if self.reservations.len() > 512
+        if self.margin.len() > 512
+            || self.reservations.len() > 512
             || self.receivables.len() > 1024
             || self.semantic.len() > 8192
         {
@@ -299,7 +316,7 @@ impl State {
         Ok(())
     }
     pub fn snapshot(&self, p: u8) -> Value {
-        json!({"cash":formatted(&self.cash,p),"reserved":formatted(&self.reserved(),p),"unsettled":formatted(&self.unsettled(),p),"trade_available":formatted(&self.available(),p),"withdrawable":formatted(&self.withdrawable(),p),"market_value":formatted(&self.market_value,p),"equity":formatted(&(&self.cash+&self.market_value),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.realized_rounding_adjustment,p),"unrealized_pnl":analytical_record(&self.unrealized,p),"fees":formatted(&self.fees,p),"sequence":self.sequence,"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence,"position_evidence":self.position_evidence,"status":if self.flags.is_empty(){"ACTIVE"}else{"RECONCILING"},"flags":self.flags,"time":self.now.as_ref().map(|t|serde_json::from_str::<Value>(&t.to_string()).expect("validated integer"))})
+        json!({"reserved_margin":formatted(&self.margin_total("reserved"),p),"occupied_margin":formatted(&self.margin_total("occupied"),p),"released_margin":formatted(&self.margin_total("released"),p),"maintenance_required":formatted(&self.margin_total("maintenance"),p),"available_margin":formatted(&self.available(),p),"cash":formatted(&self.cash,p),"reserved":formatted(&self.reserved(),p),"unsettled":formatted(&self.unsettled(),p),"trade_available":formatted(&self.available(),p),"withdrawable":formatted(&self.withdrawable(),p),"market_value":formatted(&self.market_value,p),"equity":formatted(&(&self.cash+&self.market_value),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.realized_rounding_adjustment,p),"unrealized_pnl":analytical_record(&self.unrealized,p),"fees":formatted(&self.fees,p),"sequence":self.sequence,"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence,"position_evidence":self.position_evidence,"status":if self.flags.is_empty(){"ACTIVE"}else{"RECONCILING"},"flags":self.flags,"time":self.now.as_ref().map(|t|serde_json::from_str::<Value>(&t.to_string()).expect("validated integer"))})
     }
 }
 pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
@@ -331,6 +348,11 @@ pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
 }
 pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
     let (fields, amounts, ids): (&[&str], &[&str], &[&str]) = match op {
+        "MARGIN" => (
+            &["config", "capacity", "before_hash", "command", "after_hash"],
+            &[],
+            &[],
+        ),
         "CASH_CHANGE" => (
             &["change", "kind", "amount", "source_fact"],
             &["amount"],
@@ -505,7 +527,7 @@ pub(crate) fn checkpoint_row<'a>(
     let r = v
         .as_object()
         .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
-    if r.get("schema_version").and_then(Value::as_u64) != Some(2)
+    if r.get("schema_version").and_then(Value::as_u64) != Some(3)
         || r.len() != fields.len() + 1
         || fields.iter().any(|f| !r.contains_key(*f))
     {

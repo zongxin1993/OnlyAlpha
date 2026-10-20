@@ -100,7 +100,7 @@ impl Components {
             json!({"schema_version":1,"transaction_id":tx,"config_hash":hash(&self.config),"sequence":sequence,"predecessor":self.sequence,"input":input,"projections":projections,"events":[{"schema_version":1,"event_id":format!("{tx}-EVENT-1"),"transaction_id":tx,"sequence":sequence,"input":input}]}),
         )
     }
-    fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
+    pub(crate) fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
         json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":hash(input),"time":input["time"],"op":op,"payload":payload})
     }
     fn ledger_command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
@@ -147,7 +147,7 @@ impl Components {
         }
         Ok(o.snapshot.map(|s| s.to_record()).unwrap_or(Value::Null))
     }
-    fn account_apply(&mut self, c: &Value) -> Result<(), Error> {
+    pub(crate) fn account_apply(&mut self, c: &Value) -> Result<(), Error> {
         if boundary(self.account.apply(c))?.status != onlyalpha_account::Status::Applied {
             return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
         }
@@ -173,7 +173,7 @@ impl Components {
         }
         Ok(o.decision)
     }
-    fn relation(&self, input: &Value) -> Result<Value, Error> {
+    pub(crate) fn relation(&self, input: &Value) -> Result<Value, Error> {
         let order = id(&input["payload"]["order"])?;
         let r = self.meta["orders"]
             .get(order)
@@ -195,7 +195,14 @@ impl Components {
         let p = &input["payload"];
         row(
             p,
-            &["request", "fee_contract", "fee_budget", "market", "order"],
+            &[
+                "request",
+                "fee_contract",
+                "fee_budget",
+                "market",
+                "order",
+                "collateral",
+            ],
         )?;
         bound_decimal_leaves(&p["request"])?;
         bound_decimal_leaves(&p["fee_contract"])?;
@@ -382,6 +389,7 @@ impl Components {
             3,
         ))?;
         self.meta["orders"][order] = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
+        self.admit_collateral(input)?;
         Ok(())
     }
     fn submission(&mut self, input: &Value) -> Result<(), Error> {
@@ -484,6 +492,7 @@ impl Components {
                 "fees",
                 "settlement",
                 "valuation",
+                "collateral",
             ],
         )?;
         let relation = self.relation(input)?;
@@ -707,11 +716,12 @@ impl Components {
         boundary(owner.register(&instruction))?;
         self.meta["settlement_authority"] = owner.checkpoint();
         self.risk_apply(&self.risk_command(input,"FILL",json!({"schema_version":1,"order":order,"trade":p["trade"],"source_ref":input["source_ref"],"quantity":p["quantity"],"notional":notional_s,"final_fill":terminal}),0))?;
+        self.fill_collateral(input)?;
         Ok(())
     }
     fn terminal(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
-        row(p, &["order", "outcome"])?;
+        row(p, &["order", "outcome", "collateral"])?;
         let relation = self.relation(input)?;
         let order = text(&p["order"])?;
         let outcome = text(&p["outcome"])?;
@@ -734,6 +744,7 @@ impl Components {
             self.position_apply(&self.command(input,"RELEASE",json!({"schema_version":1,"order":order,"cluster":input["cluster"],"broker_confirmed":true}),0))?;
         }
         self.risk_apply(&self.risk_command(input,"TERMINAL",json!({"schema_version":1,"order":order,"outcome":outcome,"source_ref":input["source_ref"]}),0))?;
+        self.terminal_collateral(input)?;
         Ok(())
     }
 }

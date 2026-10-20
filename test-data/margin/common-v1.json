@@ -1,0 +1,993 @@
+{
+  "config": {
+    "engine": "engine",
+    "runtime": "runtime",
+    "account": "account",
+    "gateway": "gateway",
+    "generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime_kind": "BACKTEST",
+    "currency": {
+      "schema_version": 1,
+      "code": "CNY",
+      "precision": 2,
+      "currency_type": "FIAT"
+    }
+  },
+  "reserve": {
+    "schema_version": 1,
+    "id": "command-1",
+    "scope": {
+      "schema_version": 1,
+      "engine": "engine",
+      "runtime": "runtime",
+      "account": "account",
+      "gateway": "gateway",
+      "generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime_kind": "BACKTEST",
+      "cluster": "cluster",
+      "revision": "revision",
+      "instrument": "600000.XSHG",
+      "request": "request-1"
+    },
+    "reservation": null,
+    "source_order": "opening-order",
+    "source_trade": null,
+    "source_ref": "source-1",
+    "source_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mode": "CROSS",
+    "isolation": null,
+    "position_side": "LONG",
+    "action": "RESERVE",
+    "quantity": "3",
+    "quantity_precision": 0,
+    "amount": "1.00",
+    "maintenance": "0.00",
+    "time": 1,
+    "expected_version": 0,
+    "before_hash": null
+  },
+  "fee_contracts": {
+    "2": {
+      "binding": {
+        "schema_version": 3,
+        "runtime_id": {
+          "schema_version": 1,
+          "value": "runtime"
+        },
+        "account_id": {
+          "schema_version": 1,
+          "value": "account"
+        },
+        "cluster_id": {
+          "schema_version": 1,
+          "value": "cluster"
+        },
+        "order_id": {
+          "schema_version": 1,
+          "value": "runtime-ORDER-000002"
+        },
+        "instrument_id": {
+          "schema_version": 1,
+          "symbol": {
+            "schema_version": 1,
+            "value": "600000"
+          },
+          "venue": {
+            "schema_version": 1,
+            "value": "XSHG"
+          }
+        },
+        "market_product_id": "TEST_ZERO_FEE",
+        "market_product_version": "1",
+        "market_fee_pack": {
+          "schema_version": 1,
+          "pack_id": "TEST_ZERO_MARKET_FEES",
+          "pack_version": "1",
+          "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "broker_fee_contract": {
+          "schema_version": 1,
+          "contract_id": "TEST_ZERO_BROKER_FEES",
+          "contract_version": "1",
+          "broker_id": "TEST_BROKER",
+          "account_scope": {
+            "schema_version": 1,
+            "scope_type": "EXACT_ACCOUNT",
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            }
+          },
+          "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "applicability_scope": {
+          "schema_version": 2,
+          "market_product_id": "TEST_ZERO_FEE",
+          "market": "TEST",
+          "venue": "TEST",
+          "instrument_class": "CASH",
+          "broker_id": "TEST_BROKER",
+          "account_id": {
+            "schema_version": 1,
+            "value": "account"
+          },
+          "instrument_id": {
+            "schema_version": 1,
+            "symbol": {
+              "schema_version": 1,
+              "value": "600000"
+            },
+            "venue": {
+              "schema_version": 1,
+              "value": "XSHG"
+            }
+          },
+          "charge_currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          },
+          "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+        },
+        "order_fixed_schedules": [],
+        "fill_effective_families": [],
+        "charge_currency": {
+          "schema_version": 1,
+          "code": "CNY",
+          "precision": 2,
+          "currency_type": "FIAT"
+        },
+        "bound_at": {
+          "schema_version": 1,
+          "unix_nanos": 4
+        },
+        "fingerprint": "77a7cfa6a831adde1dd85bced59178c18fe738f2f0488aff0bb21b9bbe534f24"
+      },
+      "estimate": {
+        "schema_version": 2,
+        "expected": {
+          "schema_version": 2,
+          "assessment_id": "test-zero-fee",
+          "subject": {
+            "schema_version": 1,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000002"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            }
+          },
+          "trade_id": null,
+          "components": [],
+          "total_charges": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "total_rebates": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "policy_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "resolution_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "local_finality": "MODEL_CONFIRMED",
+          "binding": {
+            "schema_version": 3,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000002"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            },
+            "market_product_id": "TEST_ZERO_FEE",
+            "market_product_version": "1",
+            "market_fee_pack": {
+              "schema_version": 1,
+              "pack_id": "TEST_ZERO_MARKET_FEES",
+              "pack_version": "1",
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "broker_fee_contract": {
+              "schema_version": 1,
+              "contract_id": "TEST_ZERO_BROKER_FEES",
+              "contract_version": "1",
+              "broker_id": "TEST_BROKER",
+              "account_scope": {
+                "schema_version": 1,
+                "scope_type": "EXACT_ACCOUNT",
+                "account_id": {
+                  "schema_version": 1,
+                  "value": "account"
+                }
+              },
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "applicability_scope": {
+              "schema_version": 2,
+              "market_product_id": "TEST_ZERO_FEE",
+              "market": "TEST",
+              "venue": "TEST",
+              "instrument_class": "CASH",
+              "broker_id": "TEST_BROKER",
+              "account_id": {
+                "schema_version": 1,
+                "value": "account"
+              },
+              "instrument_id": {
+                "schema_version": 1,
+                "symbol": {
+                  "schema_version": 1,
+                  "value": "600000"
+                },
+                "venue": {
+                  "schema_version": 1,
+                  "value": "XSHG"
+                }
+              },
+              "charge_currency": {
+                "schema_version": 1,
+                "code": "CNY",
+                "precision": 2,
+                "currency_type": "FIAT"
+              },
+              "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+            },
+            "order_fixed_schedules": [],
+            "fill_effective_families": [],
+            "charge_currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            },
+            "bound_at": {
+              "schema_version": 1,
+              "unix_nanos": 4
+            },
+            "fingerprint": "77a7cfa6a831adde1dd85bced59178c18fe738f2f0488aff0bb21b9bbe534f24"
+          }
+        },
+        "maximum": {
+          "schema_version": 2,
+          "assessment_id": "test-zero-fee",
+          "subject": {
+            "schema_version": 1,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000002"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            }
+          },
+          "trade_id": null,
+          "components": [],
+          "total_charges": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "total_rebates": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "policy_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "resolution_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "local_finality": "MODEL_CONFIRMED",
+          "binding": {
+            "schema_version": 3,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000002"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            },
+            "market_product_id": "TEST_ZERO_FEE",
+            "market_product_version": "1",
+            "market_fee_pack": {
+              "schema_version": 1,
+              "pack_id": "TEST_ZERO_MARKET_FEES",
+              "pack_version": "1",
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "broker_fee_contract": {
+              "schema_version": 1,
+              "contract_id": "TEST_ZERO_BROKER_FEES",
+              "contract_version": "1",
+              "broker_id": "TEST_BROKER",
+              "account_scope": {
+                "schema_version": 1,
+                "scope_type": "EXACT_ACCOUNT",
+                "account_id": {
+                  "schema_version": 1,
+                  "value": "account"
+                }
+              },
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "applicability_scope": {
+              "schema_version": 2,
+              "market_product_id": "TEST_ZERO_FEE",
+              "market": "TEST",
+              "venue": "TEST",
+              "instrument_class": "CASH",
+              "broker_id": "TEST_BROKER",
+              "account_id": {
+                "schema_version": 1,
+                "value": "account"
+              },
+              "instrument_id": {
+                "schema_version": 1,
+                "symbol": {
+                  "schema_version": 1,
+                  "value": "600000"
+                },
+                "venue": {
+                  "schema_version": 1,
+                  "value": "XSHG"
+                }
+              },
+              "charge_currency": {
+                "schema_version": 1,
+                "code": "CNY",
+                "precision": 2,
+                "currency_type": "FIAT"
+              },
+              "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+            },
+            "order_fixed_schedules": [],
+            "fill_effective_families": [],
+            "charge_currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            },
+            "bound_at": {
+              "schema_version": 1,
+              "unix_nanos": 4
+            },
+            "fingerprint": "77a7cfa6a831adde1dd85bced59178c18fe738f2f0488aff0bb21b9bbe534f24"
+          }
+        },
+        "reservation_charge": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "estimated_rebate": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "assumptions_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "funding": {
+        "schema_version": 1,
+        "order_id": {
+          "schema_version": 1,
+          "value": "runtime-ORDER-000002"
+        },
+        "principal_reservation": {
+          "schema_version": 1,
+          "amount": "40.00",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "fee_reservation": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "total_reservation": {
+          "schema_version": 1,
+          "amount": "40.00",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "binding_fingerprint": "77a7cfa6a831adde1dd85bced59178c18fe738f2f0488aff0bb21b9bbe534f24",
+        "estimate_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "3": {
+      "binding": {
+        "schema_version": 3,
+        "runtime_id": {
+          "schema_version": 1,
+          "value": "runtime"
+        },
+        "account_id": {
+          "schema_version": 1,
+          "value": "account"
+        },
+        "cluster_id": {
+          "schema_version": 1,
+          "value": "cluster"
+        },
+        "order_id": {
+          "schema_version": 1,
+          "value": "runtime-ORDER-000003"
+        },
+        "instrument_id": {
+          "schema_version": 1,
+          "symbol": {
+            "schema_version": 1,
+            "value": "600000"
+          },
+          "venue": {
+            "schema_version": 1,
+            "value": "XSHG"
+          }
+        },
+        "market_product_id": "TEST_ZERO_FEE",
+        "market_product_version": "1",
+        "market_fee_pack": {
+          "schema_version": 1,
+          "pack_id": "TEST_ZERO_MARKET_FEES",
+          "pack_version": "1",
+          "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "broker_fee_contract": {
+          "schema_version": 1,
+          "contract_id": "TEST_ZERO_BROKER_FEES",
+          "contract_version": "1",
+          "broker_id": "TEST_BROKER",
+          "account_scope": {
+            "schema_version": 1,
+            "scope_type": "EXACT_ACCOUNT",
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            }
+          },
+          "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "applicability_scope": {
+          "schema_version": 2,
+          "market_product_id": "TEST_ZERO_FEE",
+          "market": "TEST",
+          "venue": "TEST",
+          "instrument_class": "CASH",
+          "broker_id": "TEST_BROKER",
+          "account_id": {
+            "schema_version": 1,
+            "value": "account"
+          },
+          "instrument_id": {
+            "schema_version": 1,
+            "symbol": {
+              "schema_version": 1,
+              "value": "600000"
+            },
+            "venue": {
+              "schema_version": 1,
+              "value": "XSHG"
+            }
+          },
+          "charge_currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          },
+          "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+        },
+        "order_fixed_schedules": [],
+        "fill_effective_families": [],
+        "charge_currency": {
+          "schema_version": 1,
+          "code": "CNY",
+          "precision": 2,
+          "currency_type": "FIAT"
+        },
+        "bound_at": {
+          "schema_version": 1,
+          "unix_nanos": 7
+        },
+        "fingerprint": "05205dadb7d6bb49700dbdea0ffdb4d6daaf6aa4dd81a3389b3a6b2ca73b715b"
+      },
+      "estimate": {
+        "schema_version": 2,
+        "expected": {
+          "schema_version": 2,
+          "assessment_id": "test-zero-fee",
+          "subject": {
+            "schema_version": 1,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000003"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            }
+          },
+          "trade_id": null,
+          "components": [],
+          "total_charges": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "total_rebates": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "policy_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "resolution_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "local_finality": "MODEL_CONFIRMED",
+          "binding": {
+            "schema_version": 3,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000003"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            },
+            "market_product_id": "TEST_ZERO_FEE",
+            "market_product_version": "1",
+            "market_fee_pack": {
+              "schema_version": 1,
+              "pack_id": "TEST_ZERO_MARKET_FEES",
+              "pack_version": "1",
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "broker_fee_contract": {
+              "schema_version": 1,
+              "contract_id": "TEST_ZERO_BROKER_FEES",
+              "contract_version": "1",
+              "broker_id": "TEST_BROKER",
+              "account_scope": {
+                "schema_version": 1,
+                "scope_type": "EXACT_ACCOUNT",
+                "account_id": {
+                  "schema_version": 1,
+                  "value": "account"
+                }
+              },
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "applicability_scope": {
+              "schema_version": 2,
+              "market_product_id": "TEST_ZERO_FEE",
+              "market": "TEST",
+              "venue": "TEST",
+              "instrument_class": "CASH",
+              "broker_id": "TEST_BROKER",
+              "account_id": {
+                "schema_version": 1,
+                "value": "account"
+              },
+              "instrument_id": {
+                "schema_version": 1,
+                "symbol": {
+                  "schema_version": 1,
+                  "value": "600000"
+                },
+                "venue": {
+                  "schema_version": 1,
+                  "value": "XSHG"
+                }
+              },
+              "charge_currency": {
+                "schema_version": 1,
+                "code": "CNY",
+                "precision": 2,
+                "currency_type": "FIAT"
+              },
+              "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+            },
+            "order_fixed_schedules": [],
+            "fill_effective_families": [],
+            "charge_currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            },
+            "bound_at": {
+              "schema_version": 1,
+              "unix_nanos": 7
+            },
+            "fingerprint": "05205dadb7d6bb49700dbdea0ffdb4d6daaf6aa4dd81a3389b3a6b2ca73b715b"
+          }
+        },
+        "maximum": {
+          "schema_version": 2,
+          "assessment_id": "test-zero-fee",
+          "subject": {
+            "schema_version": 1,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000003"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            }
+          },
+          "trade_id": null,
+          "components": [],
+          "total_charges": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "total_rebates": {
+            "schema_version": 1,
+            "amount": "0",
+            "currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            }
+          },
+          "policy_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "resolution_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "local_finality": "MODEL_CONFIRMED",
+          "binding": {
+            "schema_version": 3,
+            "runtime_id": {
+              "schema_version": 1,
+              "value": "runtime"
+            },
+            "account_id": {
+              "schema_version": 1,
+              "value": "account"
+            },
+            "cluster_id": {
+              "schema_version": 1,
+              "value": "cluster"
+            },
+            "order_id": {
+              "schema_version": 1,
+              "value": "runtime-ORDER-000003"
+            },
+            "instrument_id": {
+              "schema_version": 1,
+              "symbol": {
+                "schema_version": 1,
+                "value": "600000"
+              },
+              "venue": {
+                "schema_version": 1,
+                "value": "XSHG"
+              }
+            },
+            "market_product_id": "TEST_ZERO_FEE",
+            "market_product_version": "1",
+            "market_fee_pack": {
+              "schema_version": 1,
+              "pack_id": "TEST_ZERO_MARKET_FEES",
+              "pack_version": "1",
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "broker_fee_contract": {
+              "schema_version": 1,
+              "contract_id": "TEST_ZERO_BROKER_FEES",
+              "contract_version": "1",
+              "broker_id": "TEST_BROKER",
+              "account_scope": {
+                "schema_version": 1,
+                "scope_type": "EXACT_ACCOUNT",
+                "account_id": {
+                  "schema_version": 1,
+                  "value": "account"
+                }
+              },
+              "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "applicability_scope": {
+              "schema_version": 2,
+              "market_product_id": "TEST_ZERO_FEE",
+              "market": "TEST",
+              "venue": "TEST",
+              "instrument_class": "CASH",
+              "broker_id": "TEST_BROKER",
+              "account_id": {
+                "schema_version": 1,
+                "value": "account"
+              },
+              "instrument_id": {
+                "schema_version": 1,
+                "symbol": {
+                  "schema_version": 1,
+                  "value": "600000"
+                },
+                "venue": {
+                  "schema_version": 1,
+                  "value": "XSHG"
+                }
+              },
+              "charge_currency": {
+                "schema_version": 1,
+                "code": "CNY",
+                "precision": 2,
+                "currency_type": "FIAT"
+              },
+              "fingerprint": "8b0d538ccb8e52139436e025f580afbf89d94c655edf1a2669f57972610689d5"
+            },
+            "order_fixed_schedules": [],
+            "fill_effective_families": [],
+            "charge_currency": {
+              "schema_version": 1,
+              "code": "CNY",
+              "precision": 2,
+              "currency_type": "FIAT"
+            },
+            "bound_at": {
+              "schema_version": 1,
+              "unix_nanos": 7
+            },
+            "fingerprint": "05205dadb7d6bb49700dbdea0ffdb4d6daaf6aa4dd81a3389b3a6b2ca73b715b"
+          }
+        },
+        "reservation_charge": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "estimated_rebate": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "assumptions_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "funding": {
+        "schema_version": 1,
+        "order_id": {
+          "schema_version": 1,
+          "value": "runtime-ORDER-000003"
+        },
+        "principal_reservation": {
+          "schema_version": 1,
+          "amount": "48.00",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "fee_reservation": {
+          "schema_version": 1,
+          "amount": "0",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "total_reservation": {
+          "schema_version": 1,
+          "amount": "48.00",
+          "currency": {
+            "schema_version": 1,
+            "code": "CNY",
+            "precision": 2,
+            "currency_type": "FIAT"
+          }
+        },
+        "binding_fingerprint": "05205dadb7d6bb49700dbdea0ffdb4d6daaf6aa4dd81a3389b3a6b2ca73b715b",
+        "estimate_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  }
+}

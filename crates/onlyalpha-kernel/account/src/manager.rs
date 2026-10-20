@@ -39,9 +39,27 @@ impl Manager {
             .map(|r| r.record(self.precision))
     }
     pub fn state(&self) -> Value {
-        json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
+        json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"margin":self.state.margin,"margin_owner":self.state.margin_owner,"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
     }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
+        if input["op"] == "MARGIN" {
+            return Err(err("ACCOUNT_MARGIN_PRODUCER_REQUIRED"));
+        }
+        self.apply_inner(input)
+    }
+    pub fn apply_margin(
+        &mut self,
+        input: &Value,
+        effect: &onlyalpha_margin::Effect,
+    ) -> Result<Outcome, Error> {
+        if input["op"] != "MARGIN" {
+            return Err(err("ACCOUNT_MARGIN_OP"));
+        }
+        let mut command = input.clone();
+        command["payload"] = effect.replay_input();
+        self.apply_inner(&command)
+    }
+    pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
         if input.to_string().len() > 16384 {
             return Err(err("ACCOUNT_COMMAND_BOUND"));
         }
@@ -79,7 +97,8 @@ impl Manager {
                 Status::Conflict
             }));
         }
-        let admission = matches!(op, "RESERVE" | "CASH_CHANGE");
+        let admission = matches!(op, "RESERVE" | "CASH_CHANGE")
+            || (op == "MARGIN" && command["payload"]["command"]["action"] == "RESERVE");
         if admission
             && (self.state.journal.len() >= MAX_COMMANDS
                 || self
@@ -108,6 +127,7 @@ impl Manager {
                 key("cashflow", text(&p["cashflow"])?),
                 key("source_fact", text(&p["source_fact"])?),
             ],
+            "MARGIN" => vec![key("margin", text(&p["command"]["id"])?)],
             "SETTLE" => vec![key("settlement", text(&p["instruction"])?)],
             "VALUATION" => vec![key("valuation", text(&p["valuation"])?)],
             "BROKER" => vec![key("broker", text(&p["snapshot"])?)],
@@ -175,6 +195,7 @@ impl Manager {
             return Err(err("ACCOUNT_TIME_REGRESSION"));
         }
         match op {
+            "MARGIN" => self.margin_effect(p)?,
             "RESERVE" => self.reserve(p)?,
             "STAGE" => self.stage(p)?,
             "RELEASE" => return self.release(p),
@@ -281,5 +302,65 @@ impl Manager {
         self.state.trade_sequence = Some(seq);
         self.state.economic_version += 1;
         Ok(Status::Applied)
+    }
+}
+
+impl Manager {
+    fn margin_effect(&mut self, proof: &Value) -> Result<(), Error> {
+        let mut owner = onlyalpha_margin::Manager::new(
+            proof["config"].clone(),
+            usize::try_from(uint(&proof["capacity"])?)
+                .map_err(|_| err("ACCOUNT_MARGIN_CAPACITY"))?,
+        )
+        .map_err(|e| err(&e.to_string()))?;
+        if !self.state.margin_owner.is_null() {
+            let cp = &self.state.margin_owner;
+            owner
+                .restore(cp, &onlyalpha_margin::digest(cp))
+                .map_err(|e| err(&e.to_string()))?;
+        }
+        if proof["before_hash"] != onlyalpha_margin::digest(&owner.checkpoint()) {
+            return Err(err("ACCOUNT_MARGIN_PRODUCER_BEFORE"));
+        }
+        let effect = owner
+            .apply(&proof["command"])
+            .map_err(|e| err(&e.to_string()))?;
+        if proof["after_hash"] != onlyalpha_margin::digest(&owner.checkpoint()) {
+            return Err(err("ACCOUNT_MARGIN_PRODUCER_AFTER"));
+        }
+        let result = effect.record();
+        self.margin_projection(
+            &json!({"before":result["projection_before"],"after":result["projection_after"]}),
+        )?;
+        self.state.margin_owner = owner.checkpoint();
+        Ok(())
+    }
+    // Only called with a projection re-derived by the canonical Margin producer.
+    // Margin owns decimal/conservation/version/quantity checks; Account owns
+    // owner/currency binding and account-wide funding admission.
+    fn margin_projection(&mut self, p: &Value) -> Result<(), Error> {
+        let after = &p["after"];
+        for field in ["engine", "runtime", "account", "gateway", "generation"] {
+            if after["scope"][field] != self.config[field] {
+                return Err(err("ACCOUNT_MARGIN_OWNER"));
+            }
+        }
+        if after["currency"] != self.config["currency"] {
+            return Err(err("ACCOUNT_MARGIN_CONTEXT"));
+        }
+        let key = text(&after["id"])?;
+        let before = self.state.margin.get(key).cloned().unwrap_or(Value::Null);
+        if p["before"] != before {
+            return Err(err("ACCOUNT_MARGIN_BEFORE"));
+        }
+        if before.is_null()
+            && (!self.state.flags.is_empty()
+                || nonnegative(&after["reserved"], self.precision)? > self.state.withdrawable())
+        {
+            return Err(err("ACCOUNT_MARGIN_ADMISSION"));
+        }
+        self.state.margin.insert(key.into(), after.clone());
+        self.state.economic_version += 1;
+        Ok(())
     }
 }

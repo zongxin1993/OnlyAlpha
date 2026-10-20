@@ -134,7 +134,7 @@ EXECUTION_DEPENDENCIES = {
     **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
     **{
         "onlyalpha-" + name.replace("_", "-"): {"path": "../" + name}
-        for name in ("order", "position", "account", "strategy_ledger", "risk", "fee", "settlement")
+        for name in ("order", "position", "account", "strategy_ledger", "risk", "fee", "settlement", "margin")
     },
 }
 
@@ -158,6 +158,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-broker": "crates/onlyalpha-kernel/broker",
         "onlyalpha-fee": "crates/onlyalpha-kernel/fee",
         "onlyalpha-settlement": "crates/onlyalpha-kernel/settlement",
+        "onlyalpha-margin": "crates/onlyalpha-kernel/margin",
         "onlyalpha-market-data-state": "crates/onlyalpha-kernel/market_data/state",
         "onlyalpha-market-data-construction": "crates/onlyalpha-kernel/market_data/construction",
         "onlyalpha-market-data-delivery": "crates/onlyalpha-kernel/market_data/delivery",
@@ -261,6 +262,14 @@ def validate_workspace(root: Path) -> None:
                         and config == PIPELINE_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
+                        name == "onlyalpha-account"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == "onlyalpha-margin"
+                        and dependency == alias
+                        and config == {"path": "../margin"}
+                    )
+                    admitted = admitted or (
                         name == "onlyalpha-strategy"
                         and section is manifest
                         and kind == "dependencies"
@@ -275,6 +284,7 @@ def validate_workspace(root: Path) -> None:
                             "onlyalpha-account",
                             "onlyalpha-strategy-ledger",
                             "onlyalpha-risk",
+                            "onlyalpha-margin",
                         }
                         and section is manifest
                         and kind == "dependencies"
@@ -310,11 +320,9 @@ def validate_workspace(root: Path) -> None:
         != POSITION_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-    if (
-        registry
-        and tomllib.loads((root / modules["onlyalpha-account"] / "Cargo.toml").read_text()).get("dependencies")
-        != ACCOUNT_DEPENDENCIES
-    ):
+    if registry and tomllib.loads((root / modules["onlyalpha-account"] / "Cargo.toml").read_text()).get(
+        "dependencies"
+    ) != {**ACCOUNT_DEPENDENCIES, "onlyalpha-margin": {"path": "../margin"}}:
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if (
         registry
@@ -350,6 +358,12 @@ def validate_workspace(root: Path) -> None:
         registry
         and tomllib.loads((root / modules["onlyalpha-settlement"] / "Cargo.toml").read_text()).get("dependencies")
         != BROKER_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    if (
+        registry
+        and tomllib.loads((root / modules["onlyalpha-margin"] / "Cargo.toml").read_text()).get("dependencies")
+        != ACCOUNT_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if registry and domain.get("dependencies") != DOMAIN_DEPENDENCIES:
@@ -622,10 +636,14 @@ def validate_position_sources(root: Path) -> None:
 
 
 def validate_account_sources(root: Path) -> None:
-    _validate_pure_sources(root, "account", {'"../../../../test-data/account/cash-v1.jsonl"'})
+    _validate_pure_sources(
+        root,
+        "account",
+        {'"../../../../test-data/account/cash-v1.jsonl"', '"../../../../test-data/margin/common-v1.json"'},
+    )
     for path in (root / "crates/onlyalpha-kernel/account/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
-        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+        if re.search(r"\bonlyalpha_(?!domain\b|margin\b)[a-z_]+\b", code):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
@@ -677,6 +695,14 @@ def validate_settlement_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+def validate_margin_sources(root: Path) -> None:
+    _validate_pure_sources(root, "margin", {'"../../../../test-data/margin/common-v1.json"'})
+    for path in (root / "crates/onlyalpha-kernel/margin/src").rglob("*.rs"):
+        code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if re.search(r"\bonlyalpha_(?!domain\b)[a-z_]+\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_execution_sources(root: Path) -> None:
     _validate_pure_sources(
         root,
@@ -685,12 +711,13 @@ def validate_execution_sources(root: Path) -> None:
             '"../../../../test-data/execution/domain-inputs.json"',
             '"../../../../test-data/execution/economics-v1.json"',
             '"../../../../test-data/settlement/common-v1.json"',
+            '"../../../../test-data/margin/common-v1.json"',
         },
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b|settlement\b)[a-z_]+\b",
+            r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b|settlement\b|margin\b)[a-z_]+\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -846,7 +873,7 @@ def isolated_position(root: Path, destination: Path) -> Path:
 
 
 def isolated_account(root: Path, destination: Path) -> Path:
-    return _isolated_modules(root, destination, ("domain", "account"))
+    return _isolated_modules(root, destination, ("domain", "margin", "account"))
 
 
 def isolated_broker(root: Path, destination: Path) -> Path:
@@ -859,6 +886,10 @@ def isolated_fee(root: Path, destination: Path) -> Path:
 
 def isolated_settlement(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("domain", "settlement"))
+
+
+def isolated_margin(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("domain", "margin"))
 
 
 def isolated_execution(root: Path, destination: Path) -> Path:
@@ -875,6 +906,7 @@ def isolated_execution(root: Path, destination: Path) -> Path:
             "broker",
             "fee",
             "settlement",
+            "margin",
             "execution",
         ),
     )
@@ -1106,6 +1138,35 @@ def check_settlement_reference(root: Path, env: dict[str, str], target: str) -> 
         compare_native(root, executable)
 
 
+def check_margin_reference(root: Path, env: dict[str, str], target: str) -> None:
+    from scripts.margin_reference_check import compare_native
+
+    for profile in ([], ["--release"]):
+        subprocess.run(
+            [
+                "cargo",
+                "build",
+                "-p",
+                "onlyalpha-margin",
+                "--example",
+                "margin_reference",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        executable = (
+            Path(env["CARGO_TARGET_DIR"]) / target / ("release" if profile else "debug") / "examples/margin_reference"
+        )
+        compare_native(root, executable)
+
+
 def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
     from scripts.execution_reference_check import check_fixture, compare_native_outputs
 
@@ -1186,6 +1247,7 @@ def main() -> int:
     validate_broker_sources(ROOT)
     validate_fee_sources(ROOT)
     validate_settlement_sources(ROOT)
+    validate_margin_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     before = source_inputs(ROOT)
@@ -1214,6 +1276,7 @@ def main() -> int:
         ("broker", isolated_broker),
         ("fee", isolated_fee),
         ("settlement", isolated_settlement),
+        ("margin", isolated_margin),
         ("position", isolated_position),
         ("order", isolated_order),
         ("strategy", isolated_strategy),
@@ -1258,6 +1321,7 @@ def main() -> int:
     check_broker_reference(ROOT, env, target)
     check_fee_reference(ROOT, env, target)
     check_settlement_reference(ROOT, env, target)
+    check_margin_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
     subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):

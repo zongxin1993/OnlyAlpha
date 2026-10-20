@@ -780,3 +780,97 @@ fn deferred_buy_credit_is_a_receivable_until_its_own_settlement() {
     assert_eq!(m.snapshot()["withdrawable"], "1001.00");
     roundtrip(&mut m);
 }
+
+#[test]
+fn collateral_projection_changes_availability_without_changing_cash_or_equity() {
+    let f: Value =
+        serde_json::from_str(include_str!("../../../../test-data/margin/common-v1.json")).unwrap();
+    let mut c = config();
+    c["generation"] = f["config"]["generation"].clone();
+    c["currency"] = f["config"]["currency"].clone();
+    let mut m = Manager::new(c.clone()).unwrap();
+    let mut owner = onlyalpha_margin::Manager::new(f["config"].clone(), 16).unwrap();
+    let mut reserve = f["reserve"].clone();
+    reserve["quantity"] = json!("4");
+    reserve["amount"] = json!("100.00");
+    let effect = owner.apply(&reserve).unwrap();
+    let state = effect.record()["after"].clone();
+    let envelope = |n: u64| {
+        let mut v = cmd(&format!("margin-{n}"), "MARGIN", n as i64, Value::Null);
+        v["generation"] = c["generation"].clone();
+        v
+    };
+    m.apply_margin(&envelope(1), &effect).unwrap();
+    assert_eq!(m.snapshot()["withdrawable"], "900.00");
+    assert_eq!(m.snapshot()["cash"], "1000.00");
+    assert_eq!(m.snapshot()["equity"], "1000.00");
+    let mut occupy = reserve.clone();
+    occupy["id"] = json!("occupy");
+    occupy["source_ref"] = json!("source-occupy");
+    occupy["source_trade"] = json!("trade");
+    occupy["reservation"] = state["id"].clone();
+    occupy["action"] = json!("OCCUPY");
+    occupy["quantity"] = json!("2");
+    occupy["amount"] = json!("60.00");
+    occupy["maintenance"] = json!("48.00");
+    occupy["expected_version"] = json!(1);
+    occupy["before_hash"] = json!(onlyalpha_margin::digest(&state));
+    occupy["time"] = json!(2);
+    // Equal money projections do not authorize a different quantity history.
+    let mut alternate = onlyalpha_margin::Manager::new(f["config"].clone(), 16).unwrap();
+    let mut other_reserve = reserve.clone();
+    other_reserve["quantity"] = json!("2");
+    let prior = alternate.apply(&other_reserve).unwrap().record()["after"].clone();
+    let mut other_occupy = occupy.clone();
+    other_occupy["quantity"] = json!("1");
+    other_occupy["before_hash"] = json!(onlyalpha_margin::digest(&prior));
+    let forged = alternate.apply(&other_occupy).unwrap();
+    let before = m.checkpoint().unwrap();
+    assert!(m.apply_margin(&envelope(2), &forged).is_err());
+    assert_eq!(m.checkpoint().unwrap(), before);
+    let mut raw_after = state.clone();
+    for key in ["reserved", "occupied", "maintenance"] {
+        raw_after[key] = json!("0.00");
+    }
+    raw_after["released"] = json!("100.00");
+    raw_after["version"] = json!(2);
+    let mut raw = envelope(2);
+    raw["payload"] =
+        json!({"schema_version":1,"instruction":"forged-release","before":state,"after":raw_after});
+    assert!(m.apply(&raw).is_err());
+    assert_eq!(m.checkpoint().unwrap(), before);
+    let effect = owner.apply(&occupy).unwrap();
+    m.apply_margin(&envelope(2), &effect).unwrap();
+    assert_eq!(m.snapshot()["occupied_margin"], "60.00");
+    assert_eq!(m.snapshot()["withdrawable"], "900.00");
+    let cp = m.checkpoint().unwrap();
+    let mut fresh = Manager::new(c).unwrap();
+    fresh.restore(&cp.0, &cp.1).unwrap();
+    assert_eq!(fresh.state(), m.state());
+    for field in ["before_hash", "after_hash"] {
+        let mut bad: Value = serde_json::from_slice(&cp.0).unwrap();
+        bad["journal"][1]["payload"][field] = json!("a".repeat(64));
+        let bytes = serde_json::to_vec(&bad).unwrap();
+        let prior = fresh.checkpoint().unwrap();
+        assert!(fresh.restore(&bytes, &digest(&bytes)).is_err());
+        assert_eq!(fresh.checkpoint().unwrap(), prior);
+    }
+}
+
+#[test]
+fn raw_derived_margin_projection_is_not_an_authorable_command() {
+    let mut m = manager();
+    let scope = json!({"schema_version":1,"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":"generation","runtime_kind":"BACKTEST","cluster":"cluster","revision":"revision","instrument":"600000.XSHG","request":"request"});
+    let a = json!({"schema_version":1,"id":"margin-reservation","scope":scope,"order":"opening","currency":config()["currency"],"mode":"CROSS","isolation":null,"position_side":"LONG","original":"100.00","reserved":"100.00","occupied":"0.00","released":"0.00","maintenance":"0.00","version":1});
+    let before = m.checkpoint().unwrap();
+    assert!(
+        m.apply(&cmd(
+            "forged",
+            "MARGIN",
+            1,
+            json!({"schema_version":1,"instruction":"forged-effect","before":null,"after":a})
+        ))
+        .is_err()
+    );
+    assert_eq!(m.checkpoint().unwrap(), before);
+}

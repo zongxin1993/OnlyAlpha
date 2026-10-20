@@ -10,6 +10,7 @@ def test_account_declares_and_extracts_only_its_semantic_closure(tmp_path: Path)
     root = check.isolated_account(check.ROOT, tmp_path / "isolated").parent
     assert (root / "crates/onlyalpha-kernel/account/Cargo.toml").is_file()
     assert (root / "crates/onlyalpha-kernel/domain/Cargo.toml").is_file()
+    assert (root / "crates/onlyalpha-kernel/margin/Cargo.toml").is_file()
     assert not (root / "crates/onlyalpha-kernel/strategy").exists()
     assert not (root / "packages").exists()
 
