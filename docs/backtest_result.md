@@ -59,3 +59,5 @@ Reference differences are explicit: Python BacktestStatus currently has only COM
 FP-STORAGE-001 (RQAlpha479) motivates complete source closure and missing-history rejection. [Nautilus2701](https://github.com/nautechsystems/nautilus_trader/issues/2701) motivates detached historical snapshots and direct owning consumer tests. Mutable point aliases, current-balance-only recovery and report float/clock defaults are rejected.
 
 Formal Runtime admission, official end-of-replay producer, Product API/Web integration, Artifact/Report export, FIFO analytics, SIM/LIVE, Python retirement and deployment/history migration remain separate owning work.
+
+The [native Replay Driver](rust-backtest-replay.md) can additionally bind its finite market/control stream and verify passive Broker/Event drain. Its nested Backtest Result remains an `EXECUTION_TRANSCRIPT`; neither native library proof alone grants formal Runtime/Evidence publication authority.

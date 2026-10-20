@@ -153,6 +153,18 @@ impl Worker {
         }
         Ok(value)
     }
+    pub fn binding(&self) -> (&str, &str) {
+        (&self.generation, &self.artifact)
+    }
+    /// Closed pure simulation adapter, retaining this worker's exact identity and failure bounds.
+    pub fn exchange_replay(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.exchange(
+            calculation_request::Operation::Replay(onlyalpha_gateway_protocol::BacktestExternal {
+                request_json: request.to_string().into_bytes(),
+            }),
+            deadline,
+        )
+    }
     pub fn exchange(
         &mut self,
         operation: calculation_request::Operation,

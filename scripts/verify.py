@@ -195,6 +195,8 @@ IMPACT_RULES = (
             "test-data/margin/",
             "packages/onlyalpha-calculation-worker/",
             "packages/onlyalpha-runtime-persistence/",
+            "packages/onlyalpha-backtest-driver/",
+            "scripts/backtest_replay_check.py",
             "packages/onlyalpha-gateway-protocol/rust/",
             "contracts/gateway/v1/",
         ),

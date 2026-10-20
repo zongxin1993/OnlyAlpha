@@ -160,6 +160,23 @@ RUNTIME_PERSISTENCE_DEPENDENCIES = {
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
     "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
 }
+BACKTEST_DRIVER_DEPENDENCIES = {
+    "onlyalpha-runtime-persistence": {"path": "../onlyalpha-runtime-persistence"},
+    "onlyalpha-calculation-worker": {"path": "../onlyalpha-calculation-worker"},
+    **{
+        name: {"path": "../../crates/onlyalpha-kernel/" + directory}
+        for name, directory in {
+            "onlyalpha-clock": "clock",
+            "onlyalpha-domain": "domain",
+            "onlyalpha-execution": "execution",
+            "onlyalpha-strategy": "strategy",
+            "onlyalpha-market-data-pipeline": "market_data/pipeline",
+        }.items()
+    },
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+}
+BACKTEST_DRIVER_TEST_DEPENDENCIES = {"onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"}}
+
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
     "onlyalpha-risk": {"path": "../../crates/onlyalpha-kernel/risk"},
@@ -174,6 +191,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-gateway-protocol": "packages/onlyalpha-gateway-protocol",
         "onlyalpha-calculation-worker": "packages/onlyalpha-calculation-worker",
         "onlyalpha-runtime-persistence": "packages/onlyalpha-runtime-persistence",
+        "onlyalpha-backtest-driver": "packages/onlyalpha-backtest-driver",
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
@@ -202,6 +220,12 @@ def validate_workspace(root: Path) -> None:
     registry = sorted((item for item in packages if "source" in item), key=lambda item: (item["name"], item["version"]))
     if len(local) != len(expected) or {item["name"] for item in local} != expected:
         raise ValueError("RUST_KERNEL_DEPENDENCY_REVIEW_REQUIRED")
+    driver = tomllib.loads((root / modules["onlyalpha-backtest-driver"] / "Cargo.toml").read_text())
+    if registry and (
+        driver.get("dependencies") != BACKTEST_DRIVER_DEPENDENCIES
+        or driver.get("dev-dependencies") != BACKTEST_DRIVER_TEST_DEPENDENCIES
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     domain = tomllib.loads((root / "crates/onlyalpha-kernel/domain/Cargo.toml").read_text())
     if registry:
         digest = hashlib.sha256(json.dumps(registry, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -351,6 +375,18 @@ def validate_workspace(root: Path) -> None:
                             RUNTIME_PERSISTENCE_DEPENDENCIES
                             if kind == "dependencies"
                             else RUNTIME_PERSISTENCE_TEST_DEPENDENCIES
+                        ).get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-backtest-driver"
+                        and section is manifest
+                        and kind in {"dependencies", "dev-dependencies"}
+                        and alias == dependency
+                        and config
+                        == (
+                            BACKTEST_DRIVER_DEPENDENCIES
+                            if kind == "dependencies"
+                            else BACKTEST_DRIVER_TEST_DEPENDENCIES
                         ).get(alias)
                     )
                     if not admitted:
@@ -795,7 +831,12 @@ def validate_calculation_sources(root: Path) -> None:
 
 
 def validate_infrastructure_sources(root: Path) -> None:
-    for component in ("onlyalpha-gateway-protocol", "onlyalpha-calculation-worker", "onlyalpha-runtime-persistence"):
+    for component in (
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
+        "onlyalpha-runtime-persistence",
+        "onlyalpha-backtest-driver",
+    ):
         area = root / "packages" / component
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (
@@ -804,7 +845,7 @@ def validate_infrastructure_sources(root: Path) -> None:
             or manifest.get("lib") != {"path": "rust/lib.rs"}
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-        sources = area / "rust" if component == "onlyalpha-runtime-persistence" else area
+        sources = area / "rust" if component in {"onlyalpha-runtime-persistence", "onlyalpha-backtest-driver"} else area
         for path in sources.rglob("*.rs"):
             if (
                 path.is_symlink()
@@ -819,7 +860,7 @@ def module_directory(module: str) -> str:
 
 
 def module_path(module: str) -> Path:
-    if module in {"gateway_protocol", "calculation_worker", "runtime_persistence"}:
+    if module in {"gateway_protocol", "calculation_worker", "runtime_persistence", "backtest_driver"}:
         return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
     return Path("crates/onlyalpha-kernel") / module_directory(module)
 
@@ -830,7 +871,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
         relative = module_path(module)
         shutil.copytree(root / relative, destination / relative)
         data = Path("test-data") / module.replace("_", "-")
-        if module not in {"gateway_protocol", "calculation_worker", "runtime_persistence"}:
+        if module not in {"gateway_protocol", "calculation_worker", "runtime_persistence", "backtest_driver"}:
             shutil.copytree(root / data, destination / data)
     members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
@@ -982,6 +1023,37 @@ def isolated_runtime_persistence(root: Path, destination: Path) -> Path:
             "margin",
             "execution",
             "runtime_persistence",
+        ),
+    )
+
+
+def isolated_backtest_driver(root: Path, destination: Path) -> Path:
+    return _isolated_modules(
+        root,
+        destination,
+        (
+            "domain",
+            "clock",
+            "order",
+            "position",
+            "account",
+            "strategy_ledger",
+            "risk",
+            "broker",
+            "fee",
+            "settlement",
+            "margin",
+            "execution",
+            "runtime_persistence",
+            "calculation",
+            "market_data_construction",
+            "market_data_state",
+            "market_data_delivery",
+            "market_data_pipeline",
+            "strategy",
+            "gateway_protocol",
+            "calculation_worker",
+            "backtest_driver",
         ),
     )
 
@@ -1479,6 +1551,9 @@ def main() -> int:
     validate_margin_sources(ROOT)
     validate_infrastructure_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
+    from scripts.backtest_replay_check import replay_environment
+
+    env.update(replay_environment(ROOT, artifacts / "backtest-replay"))
     before = source_inputs(ROOT)
     subprocess.run(
         [sys.executable, str(ROOT / "scripts/gateway_protocol.py"), "check-rust"], cwd=ROOT, env=env, check=True
@@ -1503,6 +1578,7 @@ def main() -> int:
         ("risk", isolated_risk),
         ("execution", isolated_execution),
         ("runtime-persistence", isolated_runtime_persistence),
+        ("backtest-driver", isolated_backtest_driver),
         ("broker", isolated_broker),
         ("fee", isolated_fee),
         ("settlement", isolated_settlement),
@@ -1543,6 +1619,9 @@ def main() -> int:
                 ]
                 print(f"{name.upper()}_ISOLATED", " ".join(command), flush=True)
                 subprocess.run(command, cwd=manifest.parent, env=isolated_env, check=True)
+    from scripts.backtest_replay_check import check_replay
+
+    check_replay(ROOT, env, target, artifacts / "backtest-replay")
     check_position_reference(ROOT, env, target)
     check_account_reference(ROOT, env, target)
     check_strategy_ledger_reference(ROOT, env, target)
@@ -1578,6 +1657,14 @@ def main() -> int:
         {
             f"{profile}_runtime_persistence": digest(
                 artifacts / "target" / target / profile / "libonlyalpha_runtime_persistence.rlib"
+            )
+            for profile in ("debug", "release")
+        }
+    )
+    binaries.update(
+        {
+            f"{profile}_backtest_driver": digest(
+                artifacts / "target" / target / profile / "libonlyalpha_backtest_driver.rlib"
             )
             for profile in ("debug", "release")
         }

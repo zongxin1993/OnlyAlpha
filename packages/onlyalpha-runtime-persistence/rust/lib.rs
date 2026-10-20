@@ -1,4 +1,5 @@
 //! Durable Execution storage and bounded recovery orchestration, outside Trading Kernel.
+mod replay;
 mod store;
 use onlyalpha_execution::{
     BacktestResult, Components, Error, Record, Store, coordinate, pending_events,
@@ -93,6 +94,23 @@ impl Runtime {
         self.store.acknowledge(sequence)?;
         self.healthy = true;
         Ok(())
+    }
+    /// Trusted Application port; does not grant Product admission or authenticate callers.
+    pub fn bind_replay(&mut self, binding: &Value) -> Result<(), Error> {
+        self.ready()?;
+        self.store.bind_replay(binding)
+    }
+    pub fn replay_steps(&self) -> Result<Vec<Value>, Error> {
+        self.ready()?;
+        self.store.replay_steps()
+    }
+    pub fn prepare_replay(&mut self, step: &Value) -> Result<(), Error> {
+        self.ready()?;
+        self.store.prepare_replay(step)
+    }
+    pub fn complete_replay(&mut self, index: u64) -> Result<(), Error> {
+        self.ready()?;
+        self.store.complete_replay(index)
     }
     pub fn backtest_result(
         &self,

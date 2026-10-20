@@ -64,8 +64,14 @@ class CalculationNode(_message.Message):
     request_json: bytes
     def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
 
+class BacktestExternal(_message.Message):
+    __slots__ = ("request_json",)
+    REQUEST_JSON_FIELD_NUMBER: _ClassVar[int]
+    request_json: bytes
+    def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
+
 class CalculationRequest(_message.Message):
-    __slots__ = ("protocol_version", "generation", "sequence", "handshake", "resolve", "create", "update", "reset", "checkpoint", "restore", "close", "node")
+    __slots__ = ("protocol_version", "generation", "sequence", "handshake", "resolve", "create", "update", "reset", "checkpoint", "restore", "close", "node", "replay")
     PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
@@ -78,6 +84,7 @@ class CalculationRequest(_message.Message):
     RESTORE_FIELD_NUMBER: _ClassVar[int]
     CLOSE_FIELD_NUMBER: _ClassVar[int]
     NODE_FIELD_NUMBER: _ClassVar[int]
+    REPLAY_FIELD_NUMBER: _ClassVar[int]
     protocol_version: int
     generation: str
     sequence: int
@@ -90,7 +97,8 @@ class CalculationRequest(_message.Message):
     restore: CalculationRestore
     close: CalculationInstance
     node: CalculationNode
-    def __init__(self, protocol_version: _Optional[int] = ..., generation: _Optional[str] = ..., sequence: _Optional[int] = ..., handshake: _Optional[_Union[CalculationEmpty, _Mapping]] = ..., resolve: _Optional[_Union[CalculationResolve, _Mapping]] = ..., create: _Optional[_Union[CalculationCreate, _Mapping]] = ..., update: _Optional[_Union[CalculationUpdate, _Mapping]] = ..., reset: _Optional[_Union[CalculationInstance, _Mapping]] = ..., checkpoint: _Optional[_Union[CalculationInstance, _Mapping]] = ..., restore: _Optional[_Union[CalculationRestore, _Mapping]] = ..., close: _Optional[_Union[CalculationInstance, _Mapping]] = ..., node: _Optional[_Union[CalculationNode, _Mapping]] = ...) -> None: ...
+    replay: BacktestExternal
+    def __init__(self, protocol_version: _Optional[int] = ..., generation: _Optional[str] = ..., sequence: _Optional[int] = ..., handshake: _Optional[_Union[CalculationEmpty, _Mapping]] = ..., resolve: _Optional[_Union[CalculationResolve, _Mapping]] = ..., create: _Optional[_Union[CalculationCreate, _Mapping]] = ..., update: _Optional[_Union[CalculationUpdate, _Mapping]] = ..., reset: _Optional[_Union[CalculationInstance, _Mapping]] = ..., checkpoint: _Optional[_Union[CalculationInstance, _Mapping]] = ..., restore: _Optional[_Union[CalculationRestore, _Mapping]] = ..., close: _Optional[_Union[CalculationInstance, _Mapping]] = ..., node: _Optional[_Union[CalculationNode, _Mapping]] = ..., replay: _Optional[_Union[BacktestExternal, _Mapping]] = ...) -> None: ...
 
 class CalculationError(_message.Message):
     __slots__ = ("code",)

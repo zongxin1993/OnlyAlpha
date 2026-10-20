@@ -25,6 +25,8 @@ message CalculationRestore {
 }
 // Closed registered TRADING node records; no arbitrary method dispatch.
 message CalculationNode { bytes request_json = 1; }
+// Passive deterministic Backtest plugin world; never a live venue dispatch.
+message BacktestExternal { bytes request_json = 1; }
 message CalculationRequest {
   uint32 protocol_version = 1;
   string generation = 2;
@@ -39,6 +41,7 @@ message CalculationRequest {
     CalculationRestore restore = 16;
     CalculationInstance close = 17;
     CalculationNode node = 18;
+    BacktestExternal replay = 19;
   }
 }
 message CalculationError { string code = 1; }

@@ -53,6 +53,10 @@ def serve(generation: str, reader: BinaryIO, writer: BinaryIO) -> None:
                 result = {"schema_version": 1, "max_batch": MAX_BATCH, "max_instances": MAX_INSTANCES}
             elif operation == "resolve":
                 result = resolve(decode(request.resolve.parameters_json))
+            elif operation == "replay":
+                from onlyalpha_calculation_worker.backtest_external import dispatch
+
+                result = dispatch(decode(request.replay.request_json))
             elif operation == "node":
                 record = decode(request.node.request_json)
                 if type(record) is not dict:

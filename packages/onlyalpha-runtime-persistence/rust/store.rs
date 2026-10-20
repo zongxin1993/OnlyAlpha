@@ -15,6 +15,10 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE records (sequence INTEGER PRIMARY KEY CHECK(sequence>0), input_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, digest TEXT NOT NULL) STRICT",
     "CREATE TABLE checkpoints (sequence INTEGER PRIMARY KEY CHECK(sequence>=0), payload TEXT NOT NULL, digest TEXT NOT NULL) STRICT",
 ];
+const REPLAY_SCHEMA: &[&str] = &[
+    "CREATE TABLE replay_binding (singleton INTEGER PRIMARY KEY CHECK(singleton=1), payload TEXT NOT NULL, digest TEXT NOT NULL, head INTEGER NOT NULL CHECK(head>=0), last_hash TEXT) STRICT",
+    "CREATE TABLE replay_steps (sequence INTEGER PRIMARY KEY CHECK(sequence>0), payload TEXT NOT NULL, digest TEXT NOT NULL, ready INTEGER NOT NULL CHECK(ready IN (0,1))) STRICT",
+];
 fn error(message: &str) -> Error {
     Error(format!("RUNTIME_STORE_{message}"))
 }
@@ -61,18 +65,28 @@ struct DecodedRow {
 /// Sole native durable Store. Holds an OS inode lock until drop; never swaps database files.
 pub struct SqliteStore {
     decoded_rows: RefCell<BTreeMap<u64, DecodedRow>>,
-    connection: Connection,
-    identity: Value,
+    pub(crate) connection: Connection,
+    pub(crate) identity: Value,
     _lease: File,
 }
 impl SqliteStore {
     pub fn create(root: &Path, config: Value, artifact: &str) -> Result<Self, Error> {
-        Self::connect(root, config, artifact, true)
+        Self::connect(root, config, artifact, true, false)
     }
     pub fn open(root: &Path, config: Value, artifact: &str) -> Result<Self, Error> {
-        Self::connect(root, config, artifact, false)
+        Self::connect(root, config, artifact, false, false)
     }
-    fn connect(root: &Path, config: Value, artifact: &str, create: bool) -> Result<Self, Error> {
+    /// Explicit schema1 -> schema2 migration; never called by open.
+    pub fn migrate(root: &Path, config: Value, artifact: &str) -> Result<Self, Error> {
+        Self::connect(root, config, artifact, false, true)
+    }
+    fn connect(
+        root: &Path,
+        config: Value,
+        artifact: &str,
+        create: bool,
+        migrate: bool,
+    ) -> Result<Self, Error> {
         if !cfg!(target_os = "linux") {
             return Err(error("PLATFORM_UNSUPPORTED"));
         }
@@ -114,11 +128,11 @@ impl SqliteStore {
             let tx = sql(store
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate))?;
-            for statement in SCHEMA {
+            for statement in SCHEMA.iter().chain(REPLAY_SCHEMA) {
                 sql(tx.execute_batch(statement))?;
             }
             sql(tx.pragma_update(None, "application_id", APPLICATION))?;
-            sql(tx.pragma_update(None, "user_version", 1))?;
+            sql(tx.pragma_update(None, "user_version", 2))?;
             sql(tx.execute(
                 "INSERT INTO meta VALUES(1,?1,?2)",
                 params![store.identity.to_string(), hash(&store.identity)],
@@ -126,6 +140,19 @@ impl SqliteStore {
             sql(tx.execute("INSERT INTO state VALUES(1,0,NULL)", []))?;
             sql(tx.commit())?;
             io(File::open(&root).and_then(|f| f.sync_all()))?;
+        }
+        if migrate {
+            store.validate_schema_version(1)?;
+            store.validate_checkpoints()?;
+            store.configure()?;
+            let tx = sql(store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate))?;
+            for statement in REPLAY_SCHEMA {
+                sql(tx.execute_batch(statement))?;
+            }
+            sql(tx.pragma_update(None, "user_version", 2))?;
+            sql(tx.commit())?;
         }
         store.validate_schema()?;
         store.validate_checkpoints()?;
@@ -148,13 +175,16 @@ impl SqliteStore {
         Ok(())
     }
     fn validate_schema(&self) -> Result<(), Error> {
+        self.validate_schema_version(2)
+    }
+    fn validate_schema_version(&self, expected_version: i64) -> Result<(), Error> {
         let app: i64 = sql(self
             .connection
             .pragma_query_value(None, "application_id", |r| r.get(0)))?;
         let version: i64 = sql(self
             .connection
             .pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if app != APPLICATION || version != 1 {
+        if app != APPLICATION || version != expected_version {
             return Err(error("SCHEMA"));
         }
         let check: String = sql(self
@@ -169,6 +199,9 @@ impl SqliteStore {
         let actual = sql(sql(query.query_map([], |r| r.get::<_, String>(0)))?
             .collect::<rusqlite::Result<Vec<_>>>())?;
         let mut expected: Vec<_> = SCHEMA.iter().map(|s| s.to_string()).collect();
+        if expected_version == 2 {
+            expected.extend(REPLAY_SCHEMA.iter().map(|s| s.to_string()));
+        }
         expected.sort();
         if actual != expected {
             return Err(error("SCHEMA_OBJECTS"));

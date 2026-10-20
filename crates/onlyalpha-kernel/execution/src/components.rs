@@ -167,6 +167,35 @@ impl Components {
         }
         Ok(previous)
     }
+    /// Read-only proposed Order from the current owner for fee binding. Not admission or dispatch authority.
+    pub fn fee_order_preview<S: crate::Store>(
+        &self,
+        store: &S,
+        cluster: &str,
+        request: &Value,
+        at: u64,
+    ) -> Result<onlyalpha_domain::execution::OnlyOrderSnapshot, Error> {
+        self.ready_source(store)?;
+        if request.to_string().len() > 65536 {
+            return Err(err("EXECUTION_INPUT_BOUND"));
+        }
+        bound_decimal_leaves(request)?;
+        if self.config["profiles"].get(cluster).is_none() {
+            return Err(err("EXECUTION_PREVIEW_SCOPE"));
+        }
+        let mut order=onlyalpha_order::Manager::new(json!({"schema_version":1,"engine_id":self.config["engine"],"runtime_id":self.config["runtime"],"gateway_id":self.config["gateway"],"generation":self.config["generation"]})).map_err(|e|err(&e.to_string()))?;
+        let (bytes, digest) = self.order.checkpoint().map_err(|e| err(&e.to_string()))?;
+        order
+            .restore(&bytes, &digest)
+            .map_err(|e| err(&e.to_string()))?;
+        let result=order.apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":self.config["account"],"request":request,"cause":hash(request),"at":at})).map_err(|e|err(&e.to_string()))?;
+        if result.result != onlyalpha_order::ApplyResult::Applied {
+            return Err(err("EXECUTION_PREVIEW_REQUEST_CONFLICT"));
+        }
+        result
+            .snapshot
+            .ok_or_else(|| err("EXECUTION_PREVIEW_MISSING"))
+    }
     /// Owning read for Broker composition: no snapshot is available from an unready lineage.
     pub fn order_snapshot<S: crate::Store>(
         &self,

@@ -574,3 +574,40 @@ fn foreign_history_commit_intent_is_rejected_before_destination_mutation() {
         1
     );
 }
+
+#[test]
+fn explicit_schema_migration_retains_exact_history_and_checkpoint() {
+    let p = Root::new();
+    let mut r = Runtime::create(&p.0, config(), &artifact()).unwrap();
+    for v in inputs() {
+        r.apply(&v).unwrap();
+    }
+    let cp = r.save_checkpoint().unwrap();
+    let expected = result(&r);
+    let state = r.state().unwrap();
+    let events = r.pending_events().unwrap();
+    drop(r);
+    let db = rusqlite::Connection::open(p.db()).unwrap();
+    db.execute_batch("DROP TABLE replay_steps; DROP TABLE replay_binding; PRAGMA user_version=1;")
+        .unwrap();
+    drop(db);
+    let old = fs::read(p.db()).unwrap();
+    assert!(Runtime::open(&p.0, config(), &artifact()).is_err());
+    assert_eq!(old, fs::read(p.db()).unwrap());
+    let mut foreign = config();
+    foreign["generation"] = json!("d".repeat(64));
+    assert!(SqliteStore::migrate(&p.0, foreign, &artifact()).is_err());
+    assert_eq!(old, fs::read(p.db()).unwrap());
+    let migrated = SqliteStore::migrate(&p.0, config(), &artifact()).unwrap();
+    assert_eq!(migrated.head().unwrap(), 4);
+    drop(migrated);
+    let mut current = Runtime::open(&p.0, config(), &artifact()).unwrap();
+    assert_eq!(current.state().unwrap(), state);
+    assert_eq!(current.save_checkpoint().unwrap(), cp);
+    assert_eq!(current.pending_events().unwrap(), events);
+    assert_eq!(result(&current), expected);
+    drop(current);
+    let bytes = fs::read(p.db()).unwrap();
+    assert!(SqliteStore::migrate(&p.0, config(), &artifact()).is_err());
+    assert_eq!(bytes, fs::read(p.db()).unwrap());
+}

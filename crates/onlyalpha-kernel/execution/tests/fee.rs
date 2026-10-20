@@ -1,6 +1,7 @@
 const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
 const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
 mod support;
+use onlyalpha_domain::base::OnlyDomainModel;
 use onlyalpha_execution::{Components, coordinate, recover};
 use serde_json::{Value, json};
 use support::*;
@@ -55,5 +56,42 @@ fn negative_fee_delta_and_changed_source_are_atomic() {
     let mut wrong = fill(4, 1, "1", "10.00", "1.00");
     wrong["payload"]["fees"]["scope"]["request"] = json!("other");
     assert!(h.prepare(&wrong).is_err());
+    assert_eq!(h.checkpoint().unwrap(), before);
+}
+
+#[test]
+fn fee_order_preview_uses_the_current_owner_without_mutation() {
+    let mut h = Harness::new(config()).unwrap();
+    let before = h.checkpoint().unwrap();
+    let input = open(1, "BUY");
+    let preview = h
+        .components
+        .fee_order_preview(&h.store, "cluster", &input["payload"]["request"], 1)
+        .unwrap();
+    assert_eq!(preview.to_record()["order_id"]["value"], order(1));
+    assert_eq!(h.checkpoint().unwrap(), before);
+    assert!(h.store.rows.is_empty());
+    apply(&mut h, &input);
+    assert_eq!(
+        h.components
+            .order_snapshot(&h.store, "cluster", &order(1))
+            .unwrap()
+            .to_record()["request_id"],
+        preview.to_record()["request_id"]
+    );
+}
+
+#[test]
+fn fee_order_preview_bounds_decimal_leaves_before_domain_serialization() {
+    let h = Harness::new(config()).unwrap();
+    let before = h.checkpoint().unwrap();
+    let mut request = open(1, "BUY")["payload"]["request"].clone();
+    request["price"]["value"] = json!("1e100");
+    let error = h
+        .components
+        .fee_order_preview(&h.store, "cluster", &request, 1)
+        .err()
+        .unwrap();
+    assert_eq!(error.0, "EXECUTION_DECIMAL_BOUND");
     assert_eq!(h.checkpoint().unwrap(), before);
 }

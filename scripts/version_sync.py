@@ -24,6 +24,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-gateway-protocol",
         "onlyalpha-calculation-worker",
         "onlyalpha-runtime-persistence",
+        "onlyalpha-backtest-driver",
         "onlyalpha-kernel",
         "onlyalpha-clock",
         "onlyalpha-event",

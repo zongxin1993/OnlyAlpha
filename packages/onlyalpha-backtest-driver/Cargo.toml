@@ -1,0 +1,23 @@
+[package]
+name = "onlyalpha-backtest-driver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+[lib]
+path = "rust/lib.rs"
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-runtime-persistence = { path = "../onlyalpha-runtime-persistence" }
+onlyalpha-calculation-worker = { path = "../onlyalpha-calculation-worker" }
+onlyalpha-clock = { path = "../../crates/onlyalpha-kernel/clock" }
+onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
+onlyalpha-execution = { path = "../../crates/onlyalpha-kernel/execution" }
+onlyalpha-strategy = { path = "../../crates/onlyalpha-kernel/strategy" }
+onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+
+[dev-dependencies]
+onlyalpha-calculation = { path = "../../crates/onlyalpha-kernel/calculation" }

@@ -408,3 +408,5 @@ See [Margin Contract](margin_model.md#rust-margin-responsibility-and-consumer-bo
 ### Native Runtime persistence responsibility boundary
 
 [Rust Runtime Persistence / Recovery](rust-runtime-persistence.md) implements the native Execution Store Port outside Kernel, with one SQLite database, exact implementation/configuration binding, complete causal history and checkpoint/projection recovery. Its session is not Product Runtime admission; R5 still owns immutable input/StrategyRevision/work binding, driver completion, full participants, real deployment history/upgrade and Shipping Web UI closure. Python-bound work retains its original owning readers.
+
+The [Rust Backtest Replay Driver / Run Loop](rust-backtest-replay.md) composes finite immutable input, virtual Clock, native preparation, actual passive plugins and durable Execution. Its replay proof retains distinct Execution transcript scope; formal R5 work admission, producer authentication, deployment history and Shipping Web UI/Evidence closure remain required.

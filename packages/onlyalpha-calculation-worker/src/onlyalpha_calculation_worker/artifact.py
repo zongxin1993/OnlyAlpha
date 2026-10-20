@@ -10,6 +10,8 @@ from functools import cache
 from pathlib import Path
 
 import onlyalpha_gateway_protocol
+import onlyalpha_plugin_broker_virtual
+import onlyalpha_plugin_generic_t0_cash
 import onlyalpha_plugin_indicators
 import onlyalpha_plugin_operators
 from google._upb import _message
@@ -39,6 +41,8 @@ def manifest() -> OnlyCalculationImplementationManifest:
         ("operators", Path(onlyalpha_plugin_operators.__file__).parent),
         ("protocol", Path(onlyalpha_gateway_protocol.__file__).parent),
         ("worker", Path(__file__).parent),
+        ("broker-virtual", Path(onlyalpha_plugin_broker_virtual.__file__).parent),
+        ("generic-t0", Path(onlyalpha_plugin_generic_t0_cash.__file__).parent),
     ):
         paths = sorted(root.rglob("*.py"))
         if label == "protocol":
