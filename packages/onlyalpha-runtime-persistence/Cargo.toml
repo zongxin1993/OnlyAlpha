@@ -1,0 +1,19 @@
+[package]
+name = "onlyalpha-runtime-persistence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+[lib]
+path = "rust/lib.rs"
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-execution = { path = "../../crates/onlyalpha-kernel/execution" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+[dev-dependencies]
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
+onlyalpha-risk = { path = "../../crates/onlyalpha-kernel/risk" }

@@ -23,6 +23,7 @@ RUST_MODULES = frozenset(
         "onlyalpha-calculation",
         "onlyalpha-gateway-protocol",
         "onlyalpha-calculation-worker",
+        "onlyalpha-runtime-persistence",
         "onlyalpha-kernel",
         "onlyalpha-clock",
         "onlyalpha-event",

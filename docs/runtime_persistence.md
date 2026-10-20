@@ -27,3 +27,5 @@ Checkpoint 保存的是 proven canonical semantic boundary，不是 Python proce
 partial live Bar、subscription ID、线程、锁、socket 或 clock scheduler state。SIM durable product 只接受稳定 state root 下的 SQLite；
 相同 `engine_id/runtime_id/state_root` 自动恢复，identity/schema/fingerprint/hash/Timer authority/continuity 任一不一致即 fail closed。
 `OnlyRuntimeStateLease` 使用 OS advisory lock 提供单 writer authority，diagnostic metadata 不是 stale-lease 决策依据。
+
+Rust 的原生 Execution Store 与恢复会话由 Infrastructure 组件提供，边界见 [Rust Runtime Persistence / Recovery](rust-runtime-persistence.md)。它不改变本页 admitted Python Store 的 schema、历史 reader 或 Runtime 激活 Authority。

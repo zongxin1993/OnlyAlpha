@@ -36,9 +36,25 @@ def build_commands(target: str) -> list[list[str]]:
 
 def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict[str, str]:
     env = {
-        key: value for key, value in inherited.items() if not key.startswith(("RUST", "CARGO")) or key == "RUSTUP_HOME"
+        key: value
+        for key, value in inherited.items()
+        if (not key.startswith(("RUST", "CARGO")) or key == "RUSTUP_HOME")
+        and not key.startswith(("SQLITE", "LIBSQLITE", "PKG_CONFIG", "VCPKG", "CRATE_CC_", "CC_", "LD_"))
+        and re.search(r"(?:^|_)(?:CC|CXX|AR|RANLIB|CFLAGS|CPPFLAGS|CXXFLAGS|ARFLAGS|SQLITE3)(?:_|$)", key) is None
+        and key
+        not in {
+            "CROSS_COMPILE",
+            "CPATH",
+            "C_INCLUDE_PATH",
+            "CPLUS_INCLUDE_PATH",
+            "LIBRARY_PATH",
+            "GCC_EXEC_PREFIX",
+            "COMPILER_PATH",
+        }
     }
     env.update(
+        CC="/usr/bin/gcc",
+        AR="/usr/bin/ar",
         CARGO_HOME=str(target_dir.parent / "cargo-home"),
         CARGO_NET_OFFLINE="true",
         RUSTUP_AUTO_INSTALL="0",
@@ -49,7 +65,7 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "e104762637d3cf056b29589973a7f7c7b848fcb50e89f7d823897ea92c3b7089"
+REGISTRY_LOCK_SHA256 = "f26194878011de967c9770358ad6e5b69b4fdad1a884eda8847d807784512f91"
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -139,12 +155,25 @@ EXECUTION_DEPENDENCIES = {
 }
 
 
+RUNTIME_PERSISTENCE_DEPENDENCIES = {
+    "onlyalpha-execution": {"path": "../../crates/onlyalpha-kernel/execution"},
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+    "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
+}
+RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
+    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
+    "onlyalpha-risk": {"path": "../../crates/onlyalpha-kernel/risk"},
+    "bigdecimal": DOMAIN_DEPENDENCIES["bigdecimal"],
+}
+
+
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
         "onlyalpha-calculation": "crates/onlyalpha-kernel/calculation",
         "onlyalpha-gateway-protocol": "packages/onlyalpha-gateway-protocol",
         "onlyalpha-calculation-worker": "packages/onlyalpha-calculation-worker",
+        "onlyalpha-runtime-persistence": "packages/onlyalpha-runtime-persistence",
         "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
@@ -311,6 +340,18 @@ def validate_workspace(root: Path) -> None:
                         and kind == "dev-dependencies"
                         and alias == dependency == "onlyalpha-broker"
                         and config == {"path": "../broker"}
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-runtime-persistence"
+                        and section is manifest
+                        and kind in {"dependencies", "dev-dependencies"}
+                        and alias == dependency
+                        and config
+                        == (
+                            RUNTIME_PERSISTENCE_DEPENDENCIES
+                            if kind == "dependencies"
+                            else RUNTIME_PERSISTENCE_TEST_DEPENDENCIES
+                        ).get(alias)
                     )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -754,7 +795,7 @@ def validate_calculation_sources(root: Path) -> None:
 
 
 def validate_infrastructure_sources(root: Path) -> None:
-    for component in ("onlyalpha-gateway-protocol", "onlyalpha-calculation-worker"):
+    for component in ("onlyalpha-gateway-protocol", "onlyalpha-calculation-worker", "onlyalpha-runtime-persistence"):
         area = root / "packages" / component
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (
@@ -763,7 +804,8 @@ def validate_infrastructure_sources(root: Path) -> None:
             or manifest.get("lib") != {"path": "rust/lib.rs"}
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-        for path in area.rglob("*.rs"):
+        sources = area / "rust" if component == "onlyalpha-runtime-persistence" else area
+        for path in sources.rglob("*.rs"):
             if (
                 path.is_symlink()
                 or _hidden_rust_input(path.read_text())
@@ -777,7 +819,7 @@ def module_directory(module: str) -> str:
 
 
 def module_path(module: str) -> Path:
-    if module in {"gateway_protocol", "calculation_worker"}:
+    if module in {"gateway_protocol", "calculation_worker", "runtime_persistence"}:
         return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
     return Path("crates/onlyalpha-kernel") / module_directory(module)
 
@@ -788,7 +830,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
         relative = module_path(module)
         shutil.copytree(root / relative, destination / relative)
         data = Path("test-data") / module.replace("_", "-")
-        if module not in {"gateway_protocol", "calculation_worker"}:
+        if module not in {"gateway_protocol", "calculation_worker", "runtime_persistence"}:
             shutil.copytree(root / data, destination / data)
     members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
@@ -919,6 +961,27 @@ def isolated_execution(root: Path, destination: Path) -> Path:
             "settlement",
             "margin",
             "execution",
+        ),
+    )
+
+
+def isolated_runtime_persistence(root: Path, destination: Path) -> Path:
+    return _isolated_modules(
+        root,
+        destination,
+        (
+            "domain",
+            "order",
+            "position",
+            "account",
+            "strategy_ledger",
+            "risk",
+            "broker",
+            "fee",
+            "settlement",
+            "margin",
+            "execution",
+            "runtime_persistence",
         ),
     )
 
@@ -1439,6 +1502,7 @@ def main() -> int:
         ("strategy-ledger", isolated_strategy_ledger),
         ("risk", isolated_risk),
         ("execution", isolated_execution),
+        ("runtime-persistence", isolated_runtime_persistence),
         ("broker", isolated_broker),
         ("fee", isolated_fee),
         ("settlement", isolated_settlement),
@@ -1510,10 +1574,27 @@ def main() -> int:
             for profile in ("debug", "release")
         }
     )
+    binaries.update(
+        {
+            f"{profile}_runtime_persistence": digest(
+                artifacts / "target" / target / profile / "libonlyalpha_runtime_persistence.rlib"
+            )
+            for profile in ("debug", "release")
+        }
+    )
     receipt.write_text(
         json.dumps(
             {
                 "compiler": compiler,
+                "native_build_tools": {
+                    tool: {
+                        "version": subprocess.check_output(
+                            [env[tool], "--version"], cwd=ROOT, env=env, text=True
+                        ).strip(),
+                        "sha256": digest(Path(env[tool])),
+                    }
+                    for tool in ("CC", "AR")
+                },
                 "cargo": subprocess.check_output(["cargo", "--version"], cwd=ROOT, env=env, text=True).strip(),
                 "target": target,
                 "source_sha256": hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),

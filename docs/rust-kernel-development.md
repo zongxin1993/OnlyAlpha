@@ -467,3 +467,12 @@ Python `account/performance.py` is the classified reference for Account-owned ti
 ### Backtest Result responsibility mapping
 
 [Backtest Result / Final Seal](backtest_result.md) maps Python Result/RunPlan business assembly to a read-only Execution composition adapter. It reuses Account/Ledger owners and Ready-source proofs; it does not introduce a Runtime driver, result writer or Analytics/Artifact dependency.
+
+
+### Native persistence Infrastructure dependency closure
+
+The independently buildable `packages/onlyalpha-runtime-persistence/` consumes Execution from outside Kernel. The canonical Rust lane also builds/tests its complete isolated dependency closure in debug/release. Its [owning contract](rust-runtime-persistence.md) defines native persistence and process recovery without formal R5 activation.
+
+The component pins `rusqlite=0.40.2` with only `bundled` and no default features; SQLite is a required persistence driver rather than Kernel logic. The lock includes `libsqlite3-sys=0.38.2`, the SQLite C amalgamation and C build tooling (`cc`, `find-msvc-tools`, `shlex`, `pkg-config`, `vcpkg`), plus fallible iterators and hash-map support. These are an explicit extension to the earlier pure-Rust dependency inventory above. `libsqlite3-sys` builds bundled C with the dev compiler; no loadable extension, runtime SQL compilation/download, binding generation or alternate system SQLite selection is enabled. Rust's standard `File::try_lock` supplies the lease without a lock crate. Direct features, full registry graph/checksums and build inputs remain bound by the canonical dependency guard; changes require renewed review. Upstream MIT/Apache license notices and SQLite public-domain provenance remain with their archives.
+
+The canonical compiler environment removes ambient SQLite/system-library/C compiler overrides (including `LIBSQLITE3_SYS_USE_PKG_CONFIG`, `LIBSQLITE3_FLAGS`, target CFLAGS, GCC subprogram search paths, loader injection/search overrides and include/library search paths), selects `/usr/bin/gcc` and `/usr/bin/ar` from the fixed dev environment, and records their versions/digests together with both native persistence library digests. Bundled SQLite is never silently replaced by an ambient system library.

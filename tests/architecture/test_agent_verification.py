@@ -543,6 +543,7 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "test-data/execution/economics-v1.json",
         "test-data/broker/domain-inputs.json",
         "scripts/broker_reference_check.py",
+        "packages/onlyalpha-runtime-persistence/rust/store.rs",
     ],
 )
 def test_rust_changes_select_offline_kernel_checks(path: str) -> None:

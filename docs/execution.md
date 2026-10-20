@@ -72,3 +72,5 @@ The source-bound read-only query `Components::reconcile` consumes the exact curr
 Account-authoritative [Runtime Portfolio Performance](runtime_portfolio_performance.md) uses the same complete Ready source guard and reconstructs its immutable timeline through the Account owner, without a new writer or Runtime/Backtest activation.
 
 [Backtest Result / Final Seal](backtest_result.md) is the source-bound read-only result adapter over this composition. Its explicit completion scope is Execution transcript closure, not official Runtime activation or market-driver exhaustion.
+
+The Infrastructure [native Runtime persistence adapter](rust-runtime-persistence.md) supplies the SQLite Store Port and bounded recovery session. It preserves this library's opaque commit capability, six-owner projection order and at-least-once Events; it does not activate a formal Runtime.

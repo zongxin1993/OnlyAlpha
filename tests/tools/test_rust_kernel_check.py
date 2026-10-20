@@ -60,10 +60,10 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     from scripts.rust_kernel_check import validate_workspace
 
     (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers=["packages/onlyalpha-gateway-protocol","packages/onlyalpha-calculation-worker","crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data/state","crates/onlyalpha-kernel/market_data/construction","crates/onlyalpha-kernel/market_data/delivery","crates/onlyalpha-kernel/market_data/pipeline","crates/onlyalpha-kernel/calculation","crates/onlyalpha-kernel/strategy","crates/onlyalpha-kernel/order","crates/onlyalpha-kernel/position","crates/onlyalpha-kernel/account","crates/onlyalpha-kernel/strategy_ledger","crates/onlyalpha-kernel/risk","crates/onlyalpha-kernel/execution","crates/onlyalpha-kernel/broker","crates/onlyalpha-kernel/fee","crates/onlyalpha-kernel/settlement","crates/onlyalpha-kernel/margin"]\n'
+        '[workspace]\nmembers=["packages/onlyalpha-runtime-persistence","packages/onlyalpha-gateway-protocol","packages/onlyalpha-calculation-worker","crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data/state","crates/onlyalpha-kernel/market_data/construction","crates/onlyalpha-kernel/market_data/delivery","crates/onlyalpha-kernel/market_data/pipeline","crates/onlyalpha-kernel/calculation","crates/onlyalpha-kernel/strategy","crates/onlyalpha-kernel/order","crates/onlyalpha-kernel/position","crates/onlyalpha-kernel/account","crates/onlyalpha-kernel/strategy_ledger","crates/onlyalpha-kernel/risk","crates/onlyalpha-kernel/execution","crates/onlyalpha-kernel/broker","crates/onlyalpha-kernel/fee","crates/onlyalpha-kernel/settlement","crates/onlyalpha-kernel/margin"]\n'
     )
     (tmp_path / "Cargo.lock").write_text(
-        'version=4\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.10.7"\n'
+        'version=4\n[[package]]\nname="onlyalpha-runtime-persistence"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.10.7"\n'
     )
     for name in (
         "domain",
@@ -88,6 +88,7 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
         "calculation",
         "gateway_protocol",
         "calculation_worker",
+        "runtime_persistence",
     ):
         path = tmp_path / module_path(name) / "Cargo.toml"
         path.parent.mkdir(parents=True)
@@ -146,6 +147,7 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         "crates/onlyalpha-kernel/calculation/Cargo.toml",
         "packages/onlyalpha-gateway-protocol/Cargo.toml",
         "packages/onlyalpha-calculation-worker/Cargo.toml",
+        "packages/onlyalpha-runtime-persistence/Cargo.toml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +270,7 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
         "calculation": "onlyalpha-calculation",
         "gateway_protocol": "onlyalpha-gateway-protocol",
         "calculation_worker": "onlyalpha-calculation-worker",
+        "runtime_persistence": "onlyalpha-runtime-persistence",
     }
     assert set(members) == {str(module_path(area)) for area in expected}
     for area, name in expected.items():
@@ -308,3 +311,27 @@ def test_account_position_producer_edge_is_exact_and_cannot_admit_alias_or_rever
     position.write_text(position.read_text() + '\nonlyalpha-account = { path = "../account" }\n')
     with pytest.raises(ValueError, match="BOUNDARY"):
         validate_workspace(tmp_path)
+
+
+def test_native_sqlite_build_cannot_select_system_library_or_hidden_c_flags(tmp_path: Path) -> None:
+    overrides = {
+        "LIBSQLITE3_SYS_USE_PKG_CONFIG": "1",
+        "LIBSQLITE3_FLAGS": "-DSQLITE_OMIT_FSYNC",
+        "SQLITE_MAX_COLUMN": "1",
+        "CFLAGS_aarch64_unknown_linux_gnu": "-DSQLITE_OMIT_FSYNC",
+        "GCC_EXEC_PREFIX": "/untrusted/",
+        "COMPILER_PATH": "/untrusted",
+        "LD_PRELOAD": "/untrusted/inject.so",
+        "LD_LIBRARY_PATH": "/untrusted",
+        "LD_AUDIT": "/untrusted/audit.so",
+        "HOST_CC": "/untrusted",
+        "CRATE_CC_NO_DEFAULTS": "1",
+        "PKG_CONFIG_PATH": "/untrusted",
+        "AARCH64_UNKNOWN_LINUX_GNU_SQLITE3_LIB_DIR": "/untrusted",
+        "CPATH": "/untrusted",
+        "CC": "/untrusted",
+        "AR": "/untrusted",
+    }
+    env = compiler_environment(overrides, tmp_path)
+    assert set(overrides) & set(env) == {"CC", "AR"}
+    assert env["CC"] == "/usr/bin/gcc" and env["AR"] == "/usr/bin/ar"

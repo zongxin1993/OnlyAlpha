@@ -194,6 +194,7 @@ IMPACT_RULES = (
             "test-data/settlement/",
             "test-data/margin/",
             "packages/onlyalpha-calculation-worker/",
+            "packages/onlyalpha-runtime-persistence/",
             "packages/onlyalpha-gateway-protocol/rust/",
             "contracts/gateway/v1/",
         ),

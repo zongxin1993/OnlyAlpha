@@ -404,3 +404,7 @@ See [Margin Contract](margin_model.md#rust-margin-responsibility-and-consumer-bo
 ### Backtest Result / Final Seal responsibility boundary
 
 [Backtest Result / Final Seal](backtest_result.md) consumes the exact Ready transcript, owning performance and final reconciliation. Caller-declared immutable manifest closure is explicitly scoped to Execution input facts; formal R5 admission must additionally prove market replay, Broker/Event drain, persistence/lifecycle and the Shipping Web UI flow. Result construction does not activate Rust or waive R3–R8.
+
+### Native Runtime persistence responsibility boundary
+
+[Rust Runtime Persistence / Recovery](rust-runtime-persistence.md) implements the native Execution Store Port outside Kernel, with one SQLite database, exact implementation/configuration binding, complete causal history and checkpoint/projection recovery. Its session is not Product Runtime admission; R5 still owns immutable input/StrategyRevision/work binding, driver completion, full participants, real deployment history/upgrade and Shipping Web UI closure. Python-bound work retains its original owning readers.
