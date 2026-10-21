@@ -191,3 +191,58 @@ def test_old_full_operator_window_is_rejected_under_new_receipt():
     with pytest.raises(ValueError):
         target.restore("test", current)
     assert target.capture("test") == initial
+
+
+def test_exact_admitted_registry_can_resolve_existing_python_factor_without_builtin_substitution() -> None:
+    from onlyalpha_test_factor_provider.registration import registrations
+
+    from onlyalpha.calculation.definition import OnlyCalculationBackendKind
+    from onlyalpha.calculation.registry import OnlyCalculationRegistry
+
+    calculations = OnlyCalculationRegistry()
+    for registration in registrations():
+        if registration.backend is OnlyCalculationBackendKind.TRADING:
+            calculations.register(registration)
+    backend = NodeBackend("a" * 64, "b" * 64, calculations=calculations)
+    request = {
+        "schema_version": 1,
+        "op": "RESOLVE",
+        "reference": {"kind": "FACTOR", "type_id": "example.factor.momentum", "semantic_version": "1"},
+        "parameters": {
+            "short_weight": {"type": "DECIMAL", "value": "0.5"},
+            "long_weight": {"type": "DECIMAL", "value": "0.5"},
+        },
+        "input_bindings": {
+            "return_short": {"node_fingerprint": None, "output_name": "value", "source": "bar.close"},
+            "return_long": {"node_fingerprint": None, "output_name": "value", "source": "bar.open"},
+        },
+    }
+    descriptor = backend.dispatch(request)
+    assert descriptor["definition"]["kind"] == "FACTOR"
+    b, bar, _ = create(backend, request)
+    inputs = {"return_short": {"type": "DECIMAL", "value": "1"}, "return_long": {"type": "DECIMAL", "value": "2"}}
+    result = backend.dispatch(
+        {
+            "schema_version": 1,
+            "op": "UPDATE",
+            "scope": "test",
+            "revision": 0,
+            "bar": bar,
+            "inputs": inputs,
+            "input_digest": digest(encode({"schema_version": 1, "binding": b, "bar": bar, "inputs": inputs})),
+        }
+    )
+    assert result["receipt"]["outputs"] == {"factor_value": {"type": "DECIMAL", "value": "1.5"}}
+    with pytest.raises(ValueError):
+        NodeBackend("a" * 64, "b" * 64).dispatch(request)
+
+
+def test_formal_worker_never_falls_back_when_generation_context_is_unavailable(monkeypatch) -> None:
+    import io
+    from importlib import metadata
+
+    from onlyalpha_calculation_worker.worker import serve
+
+    monkeypatch.setattr(metadata, "entry_points", lambda: metadata.EntryPoints(()))
+    with pytest.raises(RuntimeError, match="CALCULATION_GENERATION_CONTEXT_UNAVAILABLE"):
+        serve("a" * 64, io.BytesIO(b""), io.BytesIO(), hosted=True)

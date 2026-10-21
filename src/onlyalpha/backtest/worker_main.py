@@ -56,9 +56,9 @@ from .presence import OnlyBacktestWorkerPresenceReporter
 from .profiles import only_default_backtest_profile_registry
 from .worker import (
     OnlyBacktestProductEnginePlanBuilder,
+    OnlyBacktestRuntimeComposition,
     OnlyBacktestRuntimeExecutor,
     OnlyBacktestWorker,
-    OnlyEngineBacktestRuntimeExecutor,
 )
 
 
@@ -70,10 +70,10 @@ class _AcceptanceBarrierExecutor:
         self._release_path = release_path
         self._wait = Event()
 
-    def execute(self, run):  # type: ignore[no-untyped-def]
+    def execute(self, run, control, *, initialize=False):  # type: ignore[no-untyped-def]
         while not self._release_path.is_file():
             self._wait.wait(0.1)
-        return self._delegate.execute(run)
+        return self._delegate.execute(run, control, initialize=initialize)
 
 
 def _service_version() -> str:
@@ -127,20 +127,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     bindings = OnlyDatasetEconomicBindingStore(layout.root)
     profiles = only_default_backtest_profile_registry()
     resources = only_load_backtest_market_product_resources(tuple(args.backtest_market_resource))
-    admission = OnlyBacktestAdmissionService(
-        strategies=strategies,
-        promotions=OnlyStrategyQueryService(strategies, promotions),
-        dataset_bindings=bindings,
-        datasets=datasets,
-        market_products=OnlyMarketProductBacktestAdmissionAdapter(
-            factories=market_products,
-            configurations=catalog.configurations,
-            resources=resources,
-            instruments=catalog,
-        ),
-        profiles=profiles,
-        kernel_semantics_version="ONLYALPHA_KERNEL_SEMANTICS@1",
-    )
     integration_runtime_factory = partial(
         only_compose_integration_runtime_resolver,
         OnlyIntegrationRuntimeCompositionV1(
@@ -160,9 +146,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         economic_facts=OnlyBacktestEconomicFactStore(layout.root),
         integration_runtime_resolver_factory=integration_runtime_factory,
     )
+    admission = OnlyBacktestAdmissionService(
+        strategies=strategies,
+        promotions=OnlyStrategyQueryService(strategies, promotions),
+        dataset_bindings=bindings,
+        datasets=datasets,
+        market_products=OnlyMarketProductBacktestAdmissionAdapter(
+            factories=market_products,
+            configurations=catalog.configurations,
+            resources=resources,
+            instruments=catalog,
+        ),
+        profiles=profiles,
+        kernel_semantics_version="ONLYALPHA_KERNEL_SEMANTICS@1",
+        plans=plan_builder,
+    )
     worker_id = OnlyBacktestWorkerInstanceId.new()
     store = OnlyPostgresBacktestStore(postgres.dsn, options)
-    executor: OnlyBacktestRuntimeExecutor = OnlyEngineBacktestRuntimeExecutor(plan_builder)
+    stop = OnlyApplicationStopController()
+    executor = runtime_generations.backtest_executor(
+        OnlyBacktestRuntimeComposition(
+            plans=plan_builder,
+            strategies=strategies,
+            datasets=datasets,
+            dataset_bindings=bindings,
+            user_data_root=layout.root,
+            process_generation_fingerprint=process_generation_fingerprint,
+        )
+    )
     barrier_path = os.environ.get("ONLYALPHA_BACKTEST_ACCEPTANCE_BARRIER_PATH")
     if barrier_path:
         executor = _AcceptanceBarrierExecutor(executor, Path(barrier_path))
@@ -174,8 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         evidence=OnlyBacktestEvidenceStore(layout.root),
         runtime_generations=runtime_generations,
         process_generation_fingerprint=process_generation_fingerprint,
+        stop_requested=lambda: stop.stop_requested,
     )
-    stop = OnlyApplicationStopController()
     presence = OnlyBacktestWorkerPresenceReporter(store, worker_id, _service_version(), timedelta(seconds=15))
     stop.install()
     first_failure: BaseException | None = None

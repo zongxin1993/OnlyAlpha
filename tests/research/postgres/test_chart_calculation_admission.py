@@ -646,6 +646,7 @@ def test_reservation_migration_backfills_previous_chart_operations_or_fails_clos
             "0050_chart_native_execution_entry",
             "0051_watchlist_configuration",
             "0052_watchlist_member_sources",
+            "0053_backtest_native_specification",
         )
         assert (
             OnlyPostgresChartCalculationAdmissionStore(postgres_dsn).load_verified(OnlyProductCommandId(COMMAND))

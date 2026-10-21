@@ -35,6 +35,7 @@ _FORWARD = (
     "0050_chart_native_execution_entry",
     "0051_watchlist_configuration",
     "0052_watchlist_member_sources",
+    "0053_backtest_native_specification",
 )
 _GROUPS = ("onlyalpha_chart_input_reader", "onlyalpha_chart_execution_controller")
 _UNSAFE_ROLE_MUTATIONS = {

@@ -40,6 +40,9 @@ KEY = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 class _Admission:
+    def validate_runtime(self, run, authority):
+        pass
+
     def resolve(self, specification):  # type: ignore[no-untyped-def]
         return OnlyBacktestAdmissionResolution(
             1,
@@ -321,3 +324,78 @@ def test_backtest_openapi_matches_product_error_and_evidence_runtime_contract(tm
         "artifacts",
         "evidence_fingerprint",
     }
+
+
+def test_native_creation_contract_requires_exact_operational_identity_and_policy(tmp_path) -> None:
+    _, client = _client(tmp_path)
+    value = _payload()
+    value.update(
+        schema_version=2,
+        backtest_run_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        runtime_generation_fingerprint="a" * 64,
+    )
+    value["runtime_options"]["order_policy"] = {
+        "schema_version": 1,
+        "kind": "FINITE_LONG_LIMIT",
+        "quantity": "1",
+        "entry_limit": "10",
+        "exit_limit": "11",
+        "maximum_fill_quantity": "1",
+        "round_trips": 1,
+    }
+    for missing in ("backtest_run_id", "runtime_generation_fingerprint"):
+        incomplete = {key: item for key, item in value.items() if key != missing}
+        assert (
+            client.post("/api/v2/backtest/runs", headers={"Idempotency-Key": KEY}, json=incomplete).status_code == 400
+        )
+
+    # This technical double only records the requested identity. Actual Generation
+    # admission and execution are covered by real sealed-process tests.
+    class Exact(_RuntimeGenerations):
+        def bind_new_work_exact(self, work_id, generation, **_):
+            assert generation == "a" * 64
+            self.work.add(work_id)
+
+    # Reuse the real router with the exact authority composition.
+    from fastapi import FastAPI
+    from onlyalpha_http_server.backtest.routes import create_backtest_router
+
+    store = OnlyInMemoryBacktestCommandStore()
+    app = FastAPI()
+    app.include_router(
+        create_backtest_router(
+            OnlyBacktestCommandService(
+                admission=_Admission(), store=store, now_utc=lambda: NOW, runtime_generations=Exact()
+            ),
+            OnlyBacktestQueryService(store, OnlyBacktestEvidenceStore(tmp_path)),
+        )
+    )
+    response = TestClient(app).post("/api/v2/backtest/runs", headers={"Idempotency-Key": KEY}, json=value)
+    assert response.status_code == 202, response.text
+    assert response.json()["backtest_run_id"] == value["backtest_run_id"]
+
+
+def test_completed_evidence_manifest_uses_strict_json_response_codec(tmp_path) -> None:
+    from datetime import timedelta
+
+    from onlyalpha.backtest.model import OnlyBacktestRunId, OnlyBacktestRunState
+    from onlyalpha.backtest.worker import OnlyBacktestRuntimeExecutionResult, _manifest
+
+    store, client = _client(tmp_path)
+    response = client.post("/api/v2/backtest/runs", headers={"Idempotency-Key": KEY}, json=_payload())
+    run_id = OnlyBacktestRunId(response.json()["backtest_run_id"])
+    run = store.load(run_id)
+    manifest, parts = _manifest(
+        run, OnlyBacktestRuntimeExecutionResult("5" * 64, "6" * 64, (("result.json", b"{}", "application/json"),))
+    )
+    OnlyBacktestEvidenceStore(tmp_path).publish(manifest, parts)
+    store.runs[run_id] = run.transition(OnlyBacktestRunState.RUNNING, at=NOW).transition(
+        OnlyBacktestRunState.COMPLETED,
+        at=NOW + timedelta(seconds=1),
+        evidence_fingerprint=manifest.evidence_fingerprint,
+        result_fingerprint=manifest.result_fingerprint,
+        determinism_fingerprint=manifest.determinism_fingerprint,
+    )
+    evidence = client.get(f"/api/v2/backtest/runs/{run_id.value}/evidence")
+    assert evidence.status_code == 200, evidence.text
+    assert evidence.json()["manifest"] == manifest.to_dict()

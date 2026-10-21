@@ -21,6 +21,11 @@ class OnlyBacktestError(RuntimeError):
         super().__init__(f"{phase.value}:{code}: {detail}")
 
 
+class OnlyBacktestProofUnavailableError(OnlyBacktestError):
+    def __init__(self, detail: str) -> None:
+        super().__init__(OnlyBacktestErrorPhase.EVIDENCE, "BACKTEST_RESULT_PROOF_UNAVAILABLE", detail)
+
+
 class OnlyBacktestIntegrityError(OnlyBacktestError):
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(OnlyBacktestErrorPhase.OPERATIONAL, code, detail)

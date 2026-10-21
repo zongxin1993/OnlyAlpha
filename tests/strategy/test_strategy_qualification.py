@@ -370,15 +370,16 @@ def test_same_subject_policy_and_research_evidence_is_deterministic_and_replayab
     assert first.outcome is OnlyQualificationOutcome.APPROVED
     # Pinned CPython 3.12 / PyArrow 25 vector, independently reconstructed from
     # the current Dataset/implementation closure with BarSemantic schema 3.
+    # Provider distribution 0.10.21 is an explicit resource/identity input.
     # RSI and rolling-return graph, policy and APPROVED outcome remain fixed;
     # Dataset, Revision and evidence identities follow their exact current inputs.
     assert revision.decision_graph.fingerprint == "2c896ca6d056161dd2ddd63f08b467892d426b31df459c3887964275625f5331"
-    assert subject == "83e07a47e4af760827feef3cf1f3234b167e9d5c54eb72af4c1f8c06f30070b6"
-    assert relation.relation_fingerprint == "f9e3cb4e7f94f26042d4768d05da306483d6fa34368feecac28150835808b7a6"
+    assert subject == "7a6c521f5beb23ef3fea55cc7f59d2b11d9acdf04601b6354126531cb29ec79d"
+    assert relation.relation_fingerprint == "d59a2211a0ac4b93bad3c0c558b8e00d7cf7b59623b4a25e93b24600b51a85f4"
     assert first.policy_fingerprint == "04c6afc8acb43c89591d594e20a655b7cf1c73c5aa8fa362e535ada9a134e9e7"
     assert first.evidence == evidence
     assert first.subject_strategy_fingerprint == subject
-    assert first.decision_fingerprint == "15d009c504cf4e983ce2aa3e2b696ecd3cb1f215027dcfdee2c6a3921f287d51"
+    assert first.decision_fingerprint == "17aa616ec42051d3077881bb5d0482880b225c92ea67736a95b7ad8ab027734a"
     assert evaluator.replay(first.decision_fingerprint) == first
 
 
@@ -402,7 +403,7 @@ print(decision.decision_fingerprint)
         text=True,
         env={**os.environ, "PYTHONHASHSEED": "947"},
     )
-    assert completed.stdout.strip() == "15d009c504cf4e983ce2aa3e2b696ecd3cb1f215027dcfdee2c6a3921f287d51"
+    assert completed.stdout.strip() == "17aa616ec42051d3077881bb5d0482880b225c92ea67736a95b7ad8ab027734a"
 
 
 @pytest.mark.parametrize("mutation", ("resource", "semantic_dependency"))

@@ -371,7 +371,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "onlyalpha-account"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-backtest-driver"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "onlyalpha-calculation",
  "onlyalpha-calculation-worker",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-broker"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "serde_json",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation-worker"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "onlyalpha-calculation",
  "onlyalpha-domain",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-clock"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -440,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-domain"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "jiff",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-event"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-execution"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "onlyalpha-account",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-fee"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-gateway-protocol"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "prost",
  "prost-build",
@@ -499,11 +499,11 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-kernel"
-version = "0.10.20"
+version = "0.10.21"
 
 [[package]]
 name = "onlyalpha-margin"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-construction"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-delivery"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -535,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-pipeline"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-state"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-order"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-position"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-risk"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -591,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-runtime-persistence"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-settlement"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy-ledger"
-version = "0.10.20"
+version = "0.10.21"
 dependencies = [
  "bigdecimal",
  "num-bigint",

@@ -54,7 +54,10 @@ def only_verify_hosted_runtime_generation(
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
 
     wheels = tuple(sorted((root / "artifacts").glob("*.whl")))
-    actual_sha256s = tuple(sorted(_sha256(path) for path in wheels))
+    native = tuple(sorted((root / "artifacts").glob("onlyalpha_backtest_driver-*.elf")))
+    if len(native) > 1:
+        raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
+    actual_sha256s = tuple(sorted(_sha256(path) for path in (*wheels, *native)))
     if actual_sha256s != expected.artifact_sha256s:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
     for wheel in wheels:
@@ -81,8 +84,10 @@ def only_verify_hosted_runtime_generation(
     )
     if providers != expected_providers:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
-    native = tuple(provider for provider in catalog.providers if provider.private_factor_snapshot is not None)
-    if _installed_implementations(native) != expected.implementations:
+    private_providers = tuple(
+        provider for provider in catalog.providers if provider.private_factor_snapshot is not None
+    )
+    if _installed_implementations(private_providers) != expected.implementations:
         raise RuntimeError("RUNTIME_GENERATION_HOSTED_PROCESS_MISMATCH")
 
 

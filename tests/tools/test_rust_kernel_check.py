@@ -338,3 +338,33 @@ def test_native_sqlite_build_cannot_select_system_library_or_hidden_c_flags(tmp_
     env = compiler_environment(overrides, tmp_path)
     assert set(overrides) & set(env) == {"CC", "AR"}
     assert env["CC"] == "/usr/bin/gcc" and env["AR"] == "/usr/bin/ar"
+
+
+def test_native_application_descriptor_uses_only_declared_cargo_version(tmp_path: Path) -> None:
+    import pytest
+
+    from scripts.rust_kernel_check import validate_infrastructure_sources
+
+    for component in (
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
+        "onlyalpha-runtime-persistence",
+        "onlyalpha-backtest-driver",
+    ):
+        area = tmp_path / "packages" / component
+        (area / "rust").mkdir(parents=True)
+        (area / "Cargo.toml").write_text(
+            '[package]\nname="' + component + '"\nbuild=false\n[lib]\npath="rust/lib.rs"\n'
+        )
+        (area / "rust/lib.rs").write_text("")
+    main = tmp_path / "packages/onlyalpha-backtest-driver/rust/main.rs"
+    main.write_text('const VERSION: &str = env!("CARGO_PKG_VERSION");')
+    validate_infrastructure_sources(tmp_path)
+    for text in ('const INPUT: &str = env!("UNDECLARED_INPUT");', 'const INPUT: &str = include_str!("extra.txt");'):
+        main.write_text(text)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate_infrastructure_sources(tmp_path)
+    main.write_text("")
+    (main.parent / "lib.rs").write_text('const VERSION: &str = env!("CARGO_PKG_VERSION");')
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        validate_infrastructure_sources(tmp_path)

@@ -52,6 +52,7 @@ from .model import (
 from .model import (
     OnlyBacktestExecutionSemanticBinding as OnlyBacktestExecutionSemanticBinding,
 )
+from .model import OnlyBacktestLimitPolicy as OnlyBacktestLimitPolicy
 from .model import (
     OnlyBacktestProfileReference as OnlyBacktestProfileReference,
 )

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Dto(BaseModel):
@@ -18,15 +18,28 @@ class BacktestProfileReferenceDto(_Dto):
 
 class BacktestInitialAccountDto(_Dto):
     base_currency: str
-    capital: str
+    capital: str = Field(max_length=37, pattern=r"^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?$")
+
+
+class BacktestLimitPolicyDto(_Dto):
+    schema_version: Literal[1] = 1
+    kind: Literal["FINITE_LONG_LIMIT"]
+    quantity: str
+    entry_limit: str
+    exit_limit: str
+    maximum_fill_quantity: str
+    round_trips: int
 
 
 class BacktestRuntimeOptionsDto(_Dto):
     ordered_fact_policy: Literal["ORDERED_FACTS_V1"] = "ORDERED_FACTS_V1"
+    order_policy: BacktestLimitPolicyDto | None = None
 
 
 class BacktestRunCreateRequest(_Dto):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
+    backtest_run_id: str | None = None
+    runtime_generation_fingerprint: str | None = None
     strategy_fingerprint: str
     dataset_binding_fingerprint: str
     market_product_configuration_fingerprint: str
@@ -35,6 +48,46 @@ class BacktestRunCreateRequest(_Dto):
     execution_profile: BacktestProfileReferenceDto
     initial_account: BacktestInitialAccountDto
     runtime_options: BacktestRuntimeOptionsDto = BacktestRuntimeOptionsDto()
+
+    @model_validator(mode="after")
+    def validate_execution_identity(self) -> Self:
+        native = (self.backtest_run_id, self.runtime_generation_fingerprint, self.runtime_options.order_policy)
+        if self.schema_version == 2 and any(item is None for item in native):
+            raise ValueError("native creation requires exact execution identity and policy")
+        if self.schema_version == 1 and any(item is not None for item in native):
+            raise ValueError("historical specification cannot include native execution fields")
+        return self
+
+
+class BacktestCreationOptionDto(_Dto):
+    strategy_fingerprint: str
+    dataset_binding_fingerprint: str
+    market_product_configuration_fingerprint: str
+    base_currency: str
+    instruments: list[str]
+    start: str
+    end: str
+    row_count: int
+
+
+class BacktestCreationDeniedDto(_Dto):
+    strategy_fingerprint: str
+    code: str
+    detail: str
+
+
+class BacktestCreationContextDto(_Dto):
+    schema_version: Literal[1] = 1
+    runtime_generation_fingerprint: str
+    options: list[BacktestCreationOptionDto]
+    denied: list[BacktestCreationDeniedDto]
+
+
+class BacktestResultDto(_Dto):
+    schema_version: Literal[1] = 1
+    implementation: Literal["RUST", "PYTHON"]
+    runtime: dict[str, Any] | None
+    result: dict[str, Any]
 
 
 class BacktestRunCreateResponse(_Dto):

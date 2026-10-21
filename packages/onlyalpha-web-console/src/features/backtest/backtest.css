@@ -1,0 +1,45 @@
+.backtest-configuration {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 2fr);
+    gap: 0.75rem 1rem;
+    align-items: center;
+    min-width: 0;
+}
+.backtest-configuration > p,
+.backtest-configuration > button {
+    grid-column: 1 / -1;
+}
+.backtest-configuration input,
+.backtest-configuration select {
+    min-width: 0;
+    width: 100%;
+    padding: 0.6rem;
+    font: inherit;
+}
+.backtest-result {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+.backtest-result .table-scroll {
+    overflow-x: auto;
+}
+.backtest-result table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.backtest-result th,
+.backtest-result td {
+    padding: 0.6rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border-subtle, #334155);
+}
+.backtest-result pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+    .backtest-configuration {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

@@ -13,7 +13,18 @@ from enum import StrEnum
 from pathlib import Path
 from threading import RLock
 from types import MappingProxyType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from onlyalpha.backtest.admission import OnlyBacktestDatasetBindingReader
+    from onlyalpha.backtest.model import OnlyBacktestRun
+    from onlyalpha.backtest.worker import (
+        OnlyBacktestEnginePlanBuilder,
+        OnlyBacktestRuntimeComposition,
+        OnlyBacktestRuntimeExecutor,
+    )
+    from onlyalpha.research.dataset.ports import OnlyBoundedResearchDatasetSnapshotStore
+    from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
 from onlyalpha.application.runtime_generation import (
     OnlyRuntimeWorkAdmissionClosureEvidence,
@@ -175,6 +186,89 @@ class OnlyGenerationProjection:
 @dataclass(frozen=True, slots=True)
 class OnlyRuntimeGenerationRegistry:
     root: Path
+
+    def validate_backtest_result_binding(
+        self,
+        work_id: str,
+        generation: str,
+        native_artifact: str,
+        *,
+        run: OnlyBacktestRun,
+        plans: OnlyBacktestEnginePlanBuilder,
+        strategies: OnlyStrategyRevisionReader,
+        datasets: OnlyBoundedResearchDatasetSnapshotStore,
+        dataset_bindings: OnlyBacktestDatasetBindingReader,
+        plan_fingerprint: str,
+        result: Mapping[str, object],
+        trace: Mapping[str, object],
+    ) -> None:
+        from onlyalpha.backtest.errors import OnlyBacktestIntegrityError, OnlyBacktestProofUnavailableError
+
+        from .artifact_store import OnlyLocalImmutableArtifactStore
+        from .backtest_runtime import _native, only_verify_native_result
+
+        try:
+            binding = self.require_work_binding_evidence(work_id)
+            if binding.runtime_generation_fingerprint != generation:
+                raise OnlyBacktestIntegrityError("BACKTEST_EVIDENCE_CORRUPT", "Native result work owner differs")
+            selected = _native(self, generation, historical=True)
+            if selected is None or selected.artifact_sha256 != native_artifact:
+                raise OnlyBacktestIntegrityError(
+                    "BACKTEST_EVIDENCE_CORRUPT", "Native result Artifact family or identity differs"
+                )
+            only_verify_native_result(
+                self,
+                OnlyLocalImmutableArtifactStore(self.root / "artifacts"),
+                selected,
+                run,
+                plans,
+                strategies,
+                datasets,
+                dataset_bindings,
+                plan_fingerprint,
+                result,
+                trace,
+            )
+        except (ValueError, OSError) as exc:
+            cause: BaseException | None = exc
+            while cause is not None:
+                if isinstance(cause, (FileNotFoundError, PermissionError, TimeoutError)):
+                    raise OnlyBacktestProofUnavailableError("Retained native proof is unavailable") from exc
+                cause = cause.__cause__
+            if str(exc) in {"RUNTIME_WORK_GENERATION_UNBOUND", "RUNTIME_GENERATION_NOT_FOUND"}:
+                raise OnlyBacktestProofUnavailableError("Retained native owner proof is unavailable") from exc
+            raise OnlyBacktestIntegrityError("BACKTEST_EVIDENCE_CORRUPT", "Retained native proof is malformed") from exc
+
+    def backtest_creation_generation(self) -> str:
+        from .backtest_runtime import _native
+
+        generation = self.projection().active_for_new_work
+        from onlyalpha.backtest.errors import OnlyBacktestError, OnlyBacktestErrorPhase, OnlyBacktestIntegrityError
+
+        try:
+            native = None if generation is None else _native(self, generation)
+        except ValueError as exc:
+            raise OnlyBacktestIntegrityError(
+                "BACKTEST_NATIVE_ARTIFACT_CORRUPT", "Exact native generation closure"
+            ) from exc
+        if generation is None or native is None:
+            raise OnlyBacktestError(
+                OnlyBacktestErrorPhase.ADMISSION,
+                "BACKTEST_NATIVE_RUNTIME_UNAVAILABLE",
+                "No admitted native generation is active for new work",
+            )
+        self.require_new_work_generation(generation)
+        return generation
+
+    def validate_backtest_work(self, run: OnlyBacktestRun, strategy: OnlyStrategyRevision) -> None:
+        from .backtest_runtime import validate_backtest_work
+
+        validate_backtest_work(self, run, strategy)
+
+    def backtest_executor(self, composition: OnlyBacktestRuntimeComposition) -> OnlyBacktestRuntimeExecutor:
+        from .backtest_runtime import OnlyGenerationBacktestExecutor
+
+        return OnlyGenerationBacktestExecutor(self, composition)
 
     @property
     def _ledger(self) -> Path:

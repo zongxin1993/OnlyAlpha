@@ -16,6 +16,9 @@ from tests.runtime_support.generation_support import only_ready_test_generation
 
 
 class _Admission:
+    def validate_runtime(self, run, authority):
+        pass
+
     def resolve(self, specification):  # type: ignore[no-untyped-def]
         from onlyalpha.backtest import OnlyBacktestAdmissionResolution
 
@@ -121,3 +124,113 @@ def test_formal_backtests_bind_active_generation_across_activation_rollback_and_
     assert restarted.require_work_binding(r3.run_id.value).runtime_generation_fingerprint == g1
     with pytest.raises(ValueError, match="RUNTIME_WORK_GENERATION_MISMATCH"):
         restarted.require_work_generation(r2.run_id.value, g1)
+
+
+def test_runtime_binding_must_be_admitted_before_queue_or_receipt_and_failure_releases_work() -> None:
+    from onlyalpha.backtest.errors import OnlyBacktestErrorPhase
+
+    class Denied(_Admission):
+        def validate_runtime(self, run, authority):
+            assert run.run_id.value in authority.work
+            raise OnlyBacktestError(
+                OnlyBacktestErrorPhase.ADMISSION,
+                "BACKTEST_NATIVE_RUNTIME_UNAVAILABLE",
+                "exact native execution closure is unavailable",
+            )
+
+    store = OnlyInMemoryBacktestCommandStore()
+    authority = _RuntimeGenerations()
+    service = OnlyBacktestCommandService(
+        admission=Denied(), store=store, now_utc=lambda: datetime(2026, 9, 5, tzinfo=UTC), runtime_generations=authority
+    )
+    with pytest.raises(OnlyBacktestError, match="BACKTEST_NATIVE_RUNTIME_UNAVAILABLE"):
+        service.submit(OnlyProductCommandId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), _spec())
+    assert store.runs == {} and store.receipts == {} and authority.work == set()
+
+
+def test_lost_create_commit_ack_keeps_original_work_binding_for_same_command_retry() -> None:
+    from onlyalpha.backtest.errors import OnlyBacktestStoreUnavailableError
+
+    class Store(OnlyInMemoryBacktestCommandStore):
+        interrupted = False
+
+        def create_queued_with_receipt(self, run, receipt):
+            accepted = super().create_queued_with_receipt(run, receipt)
+            if not self.interrupted:
+                self.interrupted = True
+                raise OnlyBacktestStoreUnavailableError("commit acknowledgement lost")
+            return accepted
+
+    store = Store()
+    authority = _RuntimeGenerations()
+    command = OnlyProductCommandId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    service = OnlyBacktestCommandService(
+        admission=_Admission(),
+        store=store,
+        now_utc=lambda: datetime(2026, 9, 5, tzinfo=UTC),
+        runtime_generations=authority,
+    )
+    with pytest.raises(OnlyBacktestStoreUnavailableError):
+        service.submit(command, _spec())
+    assert len(store.runs) == 1
+    original = next(iter(store.runs.values()))
+    assert original.run_id.value in authority.work
+    assert service.submit(command, _spec()).run == original
+    assert len(store.runs) == 1
+
+
+def test_native_creation_retries_the_original_exact_intent_after_unknown_commit() -> None:
+    from dataclasses import replace
+
+    from onlyalpha.backtest.errors import OnlyBacktestStoreUnavailableError
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy, OnlyBacktestRunId
+
+    class Exact(_RuntimeGenerations):
+        def __init__(self):
+            super().__init__()
+            self.active = "a" * 64
+            self.bindings = {}
+
+        def bind_new_work_exact(self, work_id, generation, *, owner, **_):
+            proposed = (generation, owner)
+            if work_id in self.bindings:
+                assert self.bindings[work_id] == proposed
+                return
+            assert self.active == generation
+            self.bindings[work_id] = proposed
+            self.work.add(work_id)
+
+    class Store(OnlyInMemoryBacktestCommandStore):
+        calls = 0
+
+        def create_queued_with_receipt(self, run, receipt):
+            self.calls += 1
+            if self.calls == 1:
+                raise OnlyBacktestStoreUnavailableError("unknown before commit acknowledgement")
+            return super().create_queued_with_receipt(run, receipt)
+
+    store = Store()
+    authority = Exact()
+    now = datetime(2026, 9, 5, tzinfo=UTC)
+    service = OnlyBacktestCommandService(
+        admission=_Admission(), store=store, now_utc=lambda: now, runtime_generations=authority
+    )
+    command = OnlyProductCommandId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    run_id = OnlyBacktestRunId("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    spec = replace(_spec(), schema_version=2, order_policy=OnlyBacktestLimitPolicy("1", "10", "11", "1", 1))
+    with pytest.raises(OnlyBacktestStoreUnavailableError):
+        service.submit(command, spec, run_id=run_id, runtime_generation_fingerprint="a" * 64)
+    authority.active = "b" * 64
+    now += timedelta(seconds=5)
+    accepted = service.submit(command, spec, run_id=run_id, runtime_generation_fingerprint="a" * 64)
+    assert accepted.run.run_id == run_id and len(authority.work) == 1
+    for replacement in (
+        {
+            "run_id": OnlyBacktestRunId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+            "runtime_generation_fingerprint": "a" * 64,
+        },
+        {"run_id": run_id, "runtime_generation_fingerprint": "b" * 64},
+    ):
+        with pytest.raises(OnlyBacktestError, match="PRODUCT_COMMAND_CONFLICT"):
+            service.submit(command, spec, **replacement)
+    assert authority.work == {run_id.value}

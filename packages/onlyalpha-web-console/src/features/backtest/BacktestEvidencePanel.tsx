@@ -102,8 +102,8 @@ export function BacktestEvidencePanel({
                 </ul>
             )}
             <p className="product-boundary-note">
-                This manifest does not expose returns, Sharpe or an equity curve. It is evidence
-                linkage, not a performance assessment or promotion decision.
+                Evidence links the completed Run to its immutable owning result and execution
+                provenance.
             </p>
         </div>
     );

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+from fractions import Fraction
 
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
@@ -53,6 +54,63 @@ class OnlyBacktestProfileReference:
 
 
 @dataclass(frozen=True, slots=True)
+class OnlyBacktestLimitPolicy:
+    """Explicit finite long open/close policy, separate from frozen Strategy signals."""
+
+    quantity: str
+    entry_limit: str
+    exit_limit: str
+    maximum_fill_quantity: str
+    round_trips: int
+
+    def __post_init__(self) -> None:
+        values = (self.quantity, self.entry_limit, self.exit_limit, self.maximum_fill_quantity)
+        if (
+            any(
+                type(v) is not str or re.fullmatch(r"(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?", v) is None
+                for v in values
+            )
+            or type(self.round_trips) is not int
+            or not 1 <= self.round_trips <= 8
+        ):
+            raise ValueError("BACKTEST_LIMIT_POLICY_INVALID")
+        if any(Decimal(v) <= 0 for v in values):
+            raise ValueError("BACKTEST_LIMIT_POLICY_INVALID")
+        ratio = Fraction(self.quantity) / Fraction(self.maximum_fill_quantity)
+        fills = (ratio.numerator + ratio.denominator - 1) // ratio.denominator
+        if fills * 2 * self.round_trips > 64:
+            raise ValueError("BACKTEST_LIMIT_POLICY_FILL_BOUND")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "kind": "FINITE_LONG_LIMIT",
+            "quantity": self.quantity,
+            "entry_limit": self.entry_limit,
+            "exit_limit": self.exit_limit,
+            "maximum_fill_quantity": self.maximum_fill_quantity,
+            "round_trips": self.round_trips,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> OnlyBacktestLimitPolicy:
+        _exact(
+            value,
+            {"schema_version", "kind", "quantity", "entry_limit", "exit_limit", "maximum_fill_quantity", "round_trips"},
+            "Backtest limit policy",
+        )
+        if _integer(value, "schema_version") != 1 or value["kind"] != "FINITE_LONG_LIMIT":
+            raise ValueError("BACKTEST_LIMIT_POLICY_INVALID")
+        return cls(
+            _string(value, "quantity"),
+            _string(value, "entry_limit"),
+            _string(value, "exit_limit"),
+            _string(value, "maximum_fill_quantity"),
+            _integer(value, "round_trips"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OnlyBacktestSpecification:
     """Exact user semantic intent; deliberately excludes assembly and operational detail."""
 
@@ -66,6 +124,7 @@ class OnlyBacktestSpecification:
     initial_capital: str
     ordered_fact_policy: str = "ORDERED_FACTS_V1"
     schema_version: int = 1
+    order_policy: OnlyBacktestLimitPolicy | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -83,13 +142,24 @@ class OnlyBacktestSpecification:
             or self.base_currency != self.base_currency.upper()
         ):
             raise ValueError("BACKTEST_BASE_CURRENCY_INVALID")
+        if self.schema_version == 2 and (
+            type(self.initial_capital) is not str
+            or re.fullmatch(r"(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,18})?", self.initial_capital) is None
+        ):
+            raise ValueError("BACKTEST_INITIAL_CAPITAL_INVALID")
         try:
             capital = Decimal(self.initial_capital)
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("BACKTEST_INITIAL_CAPITAL_INVALID") from exc
         if not capital.is_finite() or capital <= 0 or self.initial_capital != format(capital, "f"):
             raise ValueError("BACKTEST_INITIAL_CAPITAL_INVALID")
-        if self.ordered_fact_policy != "ORDERED_FACTS_V1" or self.schema_version != 1:
+        if (
+            self.ordered_fact_policy != "ORDERED_FACTS_V1"
+            or type(self.schema_version) is not int
+            or self.schema_version not in (1, 2)
+            or (self.schema_version == 1 and self.order_policy is not None)
+            or (self.schema_version == 2 and not isinstance(self.order_policy, OnlyBacktestLimitPolicy))
+        ):
             raise ValueError("BACKTEST_SPECIFICATION_VERSION_UNSUPPORTED")
 
     @property
@@ -109,7 +179,10 @@ class OnlyBacktestSpecification:
                 "base_currency": self.base_currency,
                 "capital": self.initial_capital,
             },
-            "runtime_options": {"ordered_fact_policy": self.ordered_fact_policy},
+            "runtime_options": {
+                "ordered_fact_policy": self.ordered_fact_policy,
+                **({"order_policy": self.order_policy.to_dict()} if self.order_policy is not None else {}),
+            },
         }
 
     @classmethod
@@ -132,7 +205,11 @@ class OnlyBacktestSpecification:
         account = _mapping(payload, "initial_account")
         runtime = _mapping(payload, "runtime_options")
         _exact(account, {"base_currency", "capital"}, "Backtest initial account")
-        _exact(runtime, {"ordered_fact_policy"}, "Backtest runtime options")
+        _exact(
+            runtime,
+            {"ordered_fact_policy", "order_policy"} if payload["schema_version"] == 2 else {"ordered_fact_policy"},
+            "Backtest runtime options",
+        )
         schema_version = payload["schema_version"]
         if isinstance(schema_version, bool) or not isinstance(schema_version, int):
             raise ValueError("BACKTEST_SPECIFICATION_INVALID")
@@ -147,6 +224,9 @@ class OnlyBacktestSpecification:
             initial_capital=_string(account, "capital"),
             ordered_fact_policy=_string(runtime, "ordered_fact_policy"),
             schema_version=schema_version,
+            order_policy=(
+                OnlyBacktestLimitPolicy.from_dict(_mapping(runtime, "order_policy")) if schema_version == 2 else None
+            ),
         )
 
 

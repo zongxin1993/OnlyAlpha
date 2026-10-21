@@ -80,6 +80,21 @@ const catalog: ResearchStatisticsCatalog = {
 };
 
 class SuccessClient implements ResearchApiClient {
+    getBacktestCreationContext() {
+        return Promise.reject(new Error("unused"));
+    }
+    listBacktestRuns() {
+        return Promise.reject(new Error("unused"));
+    }
+    createBacktestRun() {
+        return Promise.reject(new Error("unused"));
+    }
+    cancelBacktestRun() {
+        return Promise.reject(new Error("unused"));
+    }
+    getBacktestResult() {
+        return Promise.reject(new Error("unused"));
+    }
     getStrategy() {
         return Promise.reject(new Error("unused Product read"));
     }

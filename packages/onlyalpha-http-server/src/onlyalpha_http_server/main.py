@@ -26,6 +26,7 @@ from onlyalpha_runtime_generation_manager import (
     OnlyRuntimeGenerationBuilder,
     OnlyRuntimeGenerationRegistry,
 )
+from onlyalpha_runtime_generation_manager.backtest_runtime import only_validate_native_backtest_specification
 from onlyalpha_runtime_generation_manager.catalog_context import (
     OnlyRuntimeGenerationExactCatalogDescriptorReader,
 )
@@ -80,6 +81,8 @@ from onlyalpha.backtest import (
     only_load_backtest_deployment_catalog,
     only_load_backtest_market_product_resources,
 )
+from onlyalpha.backtest.creation_query import OnlyBacktestCreationQuery
+from onlyalpha.backtest.worker import OnlyBacktestProductEnginePlanBuilder
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.core.clock import OnlyLiveClock, only_system_utc_now
@@ -598,6 +601,14 @@ def _compose_backtest_product(
         ),
         profiles=only_default_backtest_profile_registry(),
         kernel_semantics_version="ONLYALPHA_KERNEL_SEMANTICS@1",
+        plans=OnlyBacktestProductEnginePlanBuilder(
+            user_data_root=layout.root,
+            catalog=catalog,
+            strategies=strategies,
+            datasets=datasets,
+            profiles=only_default_backtest_profile_registry(),
+            market_product_resources=resources,
+        ),
     )
     return (
         OnlyBacktestCommandService(
@@ -606,7 +617,21 @@ def _compose_backtest_product(
             now_utc=only_system_utc_now,
             runtime_generations=runtime_generations,
         ),
-        OnlyBacktestQueryService(store, evidence),
+        OnlyBacktestQueryService(
+            store,
+            evidence,
+            OnlyBacktestCreationQuery(
+                strategies=strategies,
+                datasets=datasets,
+                bindings=OnlyDatasetEconomicBindingStore(layout.root),
+                catalog=catalog,
+                admission=admission,
+                generation=runtime_generations.backtest_creation_generation,
+                validate_specification=only_validate_native_backtest_specification,
+            ),
+            runtime_generations=runtime_generations,
+            admission=admission,
+        ),
         store,
     )
 

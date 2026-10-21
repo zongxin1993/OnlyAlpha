@@ -116,3 +116,57 @@ def test_backtest_run_requires_verified_evidence_before_completion() -> None:
 
     with pytest.raises(OnlyBacktestStateConflictError):
         completed.transition(OnlyBacktestRunState.RUNNING, at=queued_at)
+
+
+def test_finite_limit_policy_is_explicit_bounded_input_not_an_implicit_strategy_change() -> None:
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+
+    policy = OnlyBacktestLimitPolicy("4", "10.00", "12.00", "2", 2)
+    assert OnlyBacktestLimitPolicy.from_dict(policy.to_dict()) == policy
+    assert policy.to_dict() == {
+        "schema_version": 1,
+        "kind": "FINITE_LONG_LIMIT",
+        "quantity": "4",
+        "entry_limit": "10.00",
+        "exit_limit": "12.00",
+        "maximum_fill_quantity": "2",
+        "round_trips": 2,
+    }
+    for quantity, maximum, rounds in (("1E+1000000000", "1", 1), ("0", "1", 1), ("100", "1", 8), ("1", "1", True)):
+        with pytest.raises(ValueError, match="BACKTEST_LIMIT_POLICY"):
+            OnlyBacktestLimitPolicy(quantity, "10.00", "12.00", maximum, rounds)
+
+
+def test_native_specification_pins_limit_policy_and_preserves_historical_specification_bytes() -> None:
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+
+    historical = _specification()
+    original = historical.to_dict()
+    policy = OnlyBacktestLimitPolicy("4", "10.00", "12.00", "2", 1)
+    native = replace(historical, schema_version=2, order_policy=policy)
+    assert OnlyBacktestSpecification.from_dict(native.to_dict()) == native
+    assert native.to_dict()["runtime_options"]["order_policy"] == policy.to_dict()
+    assert native.specification_fingerprint != historical.specification_fingerprint
+    assert (
+        replace(native, order_policy=replace(policy, quantity="3")).specification_fingerprint
+        != native.specification_fingerprint
+    )
+    assert OnlyBacktestSpecification.from_dict(original).to_dict() == original
+    for version, value in ((1, policy), (2, None)):
+        with pytest.raises(ValueError, match="BACKTEST_SPECIFICATION"):
+            replace(historical, schema_version=version, order_policy=value)
+
+
+def test_native_capital_rejects_unbounded_text_before_decimal_expansion(monkeypatch) -> None:
+    import onlyalpha.backtest.model as model
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+
+    original = _specification()
+    policy = OnlyBacktestLimitPolicy("1", "1", "1", "1", 1)
+
+    def forbidden(_):
+        pytest.fail("unsupported native numeric text reached Decimal expansion")
+
+    monkeypatch.setattr(model, "Decimal", forbidden)
+    with pytest.raises(ValueError, match="BACKTEST_INITIAL_CAPITAL_INVALID"):
+        replace(original, schema_version=2, order_policy=policy, initial_capital="1e99999999")

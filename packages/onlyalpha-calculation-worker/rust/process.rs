@@ -90,21 +90,43 @@ impl Worker {
         artifact: String,
         deadline: Duration,
     ) -> Result<Self> {
+        Self::spawn_bound(interpreter, generation, artifact, deadline, false)
+    }
+    /// Formal work requires the installed Generation context; it never uses comparison registrations.
+    pub fn spawn_hosted(
+        interpreter: &Path,
+        generation: String,
+        artifact: String,
+        deadline: Duration,
+    ) -> Result<Self> {
+        Self::spawn_bound(interpreter, generation, artifact, deadline, true)
+    }
+    fn spawn_bound(
+        interpreter: &Path,
+        generation: String,
+        artifact: String,
+        deadline: Duration,
+        hosted: bool,
+    ) -> Result<Self> {
         if !interpreter.is_absolute() || !sha(&generation) || !sha(&artifact) {
             return Err(WorkerError::Invalid);
         }
         let (parent, child) = UnixStream::pair().map_err(|_| WorkerError::Invalid)?;
         let input: OwnedFd = child.try_clone().map_err(|_| WorkerError::Invalid)?.into();
         let output: OwnedFd = child.into();
-        let process = Command::new(interpreter)
-            .args([
-                "-B",
-                "-I",
-                "-m",
-                "onlyalpha_calculation_worker.worker",
-                "--generation",
-                &generation,
-            ])
+        let mut command = Command::new(interpreter);
+        command.args([
+            "-B",
+            "-I",
+            "-m",
+            "onlyalpha_calculation_worker.worker",
+            "--generation",
+            &generation,
+        ]);
+        if hosted {
+            command.arg("--hosted-generation");
+        }
+        let process = command
             .env_clear()
             .env("PYTHONDONTWRITEBYTECODE", "1")
             .current_dir("/")

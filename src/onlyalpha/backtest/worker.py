@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from threading import Event, Thread
-from typing import Protocol
+from typing import Literal, Protocol
 
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
 from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
@@ -21,7 +21,8 @@ from onlyalpha.domain.value import OnlyCurrency
 from onlyalpha.engine import OnlyEngineConfig
 from onlyalpha.engine.engine import OnlyEngine
 from onlyalpha.market.product import OnlyMarketProductResourceResolver
-from onlyalpha.research.dataset import OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.dataset import OnlyDatasetEconomicBindingStore, OnlyResearchDatasetSnapshotStore
+from onlyalpha.research.dataset.ports import OnlyBoundedResearchDatasetSnapshotStore
 from onlyalpha.runtime.defaults import OnlyEngineServices, only_default_engine_services
 from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
@@ -37,6 +38,7 @@ from .errors import (
 from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .execution import (
     OnlyBacktestAttemptId,
+    OnlyBacktestAttemptState,
     OnlyBacktestExecutionClaim,
     OnlyBacktestExecutionPolicy,
     OnlyBacktestExecutionStore,
@@ -68,14 +70,34 @@ class OnlyBacktestRuntimeExecutionResult:
             raise ValueError("BACKTEST_RUNTIME_RESULT_ARTIFACTS_INVALID")
 
 
+OnlyBacktestRuntimeControl = Callable[[], Literal["CONTINUE", "CANCEL", "PAUSE"]]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestRuntimeCancellation:
+    """The Runtime stopped durably; this never asserts absence of economic effects."""
+
+
 class OnlyBacktestRuntimeExecutor(Protocol):
-    def execute(self, run: OnlyBacktestRun) -> OnlyBacktestRuntimeExecutionResult: ...
+    def execute(
+        self, run: OnlyBacktestRun, control: OnlyBacktestRuntimeControl, *, initialize: bool = False
+    ) -> OnlyBacktestRuntimeExecutionResult | OnlyBacktestRuntimeCancellation: ...
 
 
 class OnlyBacktestEnginePlanBuilder(Protocol):
     def build(
         self, run: OnlyBacktestRun
     ) -> tuple[OnlyEngineConfig, tuple[OnlyClusterRunConfig, ...], OnlyEngineServices]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyBacktestRuntimeComposition:
+    plans: OnlyBacktestEnginePlanBuilder
+    strategies: OnlyStrategyRevisionReader
+    datasets: OnlyBoundedResearchDatasetSnapshotStore
+    dataset_bindings: OnlyDatasetEconomicBindingStore
+    user_data_root: Path
+    process_generation_fingerprint: str
 
 
 class OnlyBacktestProductEnginePlanBuilder:
@@ -286,7 +308,21 @@ class OnlyEngineBacktestRuntimeExecutor:
     def __init__(self, plans: OnlyBacktestEnginePlanBuilder) -> None:
         self._plans = plans
 
-    def execute(self, run: OnlyBacktestRun) -> OnlyBacktestRuntimeExecutionResult:
+    def execute(
+        self, run: OnlyBacktestRun, control: OnlyBacktestRuntimeControl | None = None, *, initialize: bool = False
+    ) -> OnlyBacktestRuntimeExecutionResult | OnlyBacktestRuntimeCancellation:
+        if run.specification.order_policy is not None:
+            raise OnlyBacktestError(
+                OnlyBacktestErrorPhase.EXECUTION, "BACKTEST_NATIVE_RUNTIME_REQUIRED", run.run_id.value
+            )
+        if control is not None:
+            command = control()
+            if command == "CANCEL":
+                return OnlyBacktestRuntimeCancellation()
+            if command == "PAUSE":
+                raise OnlyBacktestError(
+                    OnlyBacktestErrorPhase.OPERATIONAL, "BACKTEST_WORKER_INTERRUPTED", run.run_id.value
+                )
         engine_config, clusters, services = self._plans.build(run)
         if not clusters:
             raise OnlyBacktestError(OnlyBacktestErrorPhase.EXECUTION, "BACKTEST_PLAN_EMPTY", run.run_id.value)
@@ -387,6 +423,7 @@ class OnlyBacktestWorker:
         ] = _LeaseControl,
         runtime_generations: OnlyRuntimeGenerationWorkAuthority,
         process_generation_fingerprint: str,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> None:
         self.worker_instance_id = worker_instance_id
         self._store = store
@@ -395,9 +432,10 @@ class OnlyBacktestWorker:
         self._evidence = evidence
         self._policy = policy or OnlyBacktestExecutionPolicy()
         self._lease_control_factory = lease_control_factory
-        self._reconciler = OnlyBacktestReconciler(store, evidence)
+        self._reconciler = OnlyBacktestReconciler(store, evidence, runtime_generations, admission)
         self._runtime_generations = runtime_generations
         self._process_generation_fingerprint = process_generation_fingerprint
+        self._stop_requested = stop_requested or (lambda: False)
 
     def run_once(self) -> OnlyBacktestWorkerOutcome | None:
         self._release_terminal_bindings()
@@ -458,7 +496,10 @@ class OnlyBacktestWorker:
         try:
             with self._lease_control_factory(self._store, claim, self._policy) as lease:
                 current = self._store.load(claim.run.run_id)
-                if current.state is OnlyBacktestRunState.CANCEL_REQUESTED:
+                if (
+                    current.state is OnlyBacktestRunState.CANCEL_REQUESTED
+                    and current.specification.order_policy is None
+                ):
                     return OnlyBacktestWorkerOutcome(
                         OnlyBacktestWorkerOutcomeKind.CANCELLED,
                         claim,
@@ -481,12 +522,49 @@ class OnlyBacktestWorker:
                     )
                 if lease.ownership_lost:
                     return OnlyBacktestWorkerOutcome(OnlyBacktestWorkerOutcomeKind.OWNERSHIP_LOST, claim)
-                executed = self._executor.execute(current)
+
+                def control() -> Literal["CONTINUE", "CANCEL", "PAUSE"]:
+                    if lease.ownership_lost:
+                        raise OnlyBacktestStateConflictError("Backtest lease ownership was lost")
+                    attempt = self._store.load_attempt(claim.attempt.attempt_id)
+                    if (
+                        attempt.state is not OnlyBacktestAttemptState.ACTIVE
+                        or attempt.run_id != claim.run.run_id
+                        or attempt.worker_instance_id != claim.attempt.worker_instance_id
+                        or attempt.fencing_token != claim.attempt.fencing_token
+                        or attempt.attempt_number != claim.attempt.attempt_number
+                    ):
+                        raise OnlyBacktestStateConflictError("Backtest Attempt was fenced")
+                    self._store.heartbeat(claim, self._policy.lease_duration)
+                    self._runtime_generations.require_work_generation(
+                        claim.run.run_id.value, self._process_generation_fingerprint
+                    )
+                    observed = self._store.load(claim.run.run_id)
+                    if observed.state is OnlyBacktestRunState.CANCEL_REQUESTED:
+                        return "CANCEL"
+                    if observed.state is not OnlyBacktestRunState.RUNNING:
+                        raise OnlyBacktestStateConflictError("Backtest Run is no longer executable")
+                    return "PAUSE" if self._stop_requested() else "CONTINUE"
+
+                self._admission.validate_runtime(current, self._runtime_generations)
+                control()
+                executed = self._executor.execute(
+                    current,
+                    control,
+                    initialize=current.specification.order_policy is not None and claim.attempt.attempt_number == 1,
+                )
+                control()
+                if isinstance(executed, OnlyBacktestRuntimeCancellation):
+                    return OnlyBacktestWorkerOutcome(
+                        OnlyBacktestWorkerOutcomeKind.CANCELLED, claim, self._store.cancel(claim)
+                    )
                 if lease.ownership_lost:
                     return OnlyBacktestWorkerOutcome(OnlyBacktestWorkerOutcomeKind.OWNERSHIP_LOST, claim)
                 manifest, artifacts = _manifest(current, executed)
                 published = self._evidence.publish(manifest, artifacts)
                 verified = self._evidence.load_verified(published.evidence_fingerprint)
+                if current.specification.order_policy is not None:
+                    self._admission.verify_evidence(current, verified, self._evidence, self._runtime_generations)
                 if verified != published:
                     raise OnlyBacktestError(
                         OnlyBacktestErrorPhase.EVIDENCE,
@@ -519,9 +597,17 @@ class OnlyBacktestWorker:
 
 
 class OnlyBacktestReconciler:
-    def __init__(self, store: OnlyBacktestExecutionStore, evidence: OnlyBacktestEvidenceStore) -> None:
+    def __init__(
+        self,
+        store: OnlyBacktestExecutionStore,
+        evidence: OnlyBacktestEvidenceStore,
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority | None = None,
+        admission: OnlyBacktestAdmissionService | None = None,
+    ) -> None:
         self._store = store
         self._evidence = evidence
+        self._runtime_generations = runtime_generations
+        self._admission = admission
 
     def run_once(self, eligible_run_ids: tuple[str, ...] | None = None) -> OnlyBacktestRun | None:
         run = self._store.load_reconciliation_candidate(eligible_run_ids)
@@ -539,7 +625,7 @@ class OnlyBacktestReconciler:
                 ),
             )
         if manifest is None:
-            if run.state is OnlyBacktestRunState.CANCEL_REQUESTED:
+            if run.state is OnlyBacktestRunState.CANCEL_REQUESTED and run.specification.order_policy is None:
                 return self._store.reconcile_cancel(run)
             return None
         if (
@@ -556,6 +642,26 @@ class OnlyBacktestReconciler:
                     "Backtest Evidence provenance differs from durable admission",
                 ),
             )
+        if run.specification.order_policy is not None:
+            try:
+                if self._admission is None or self._runtime_generations is None:
+                    raise OnlyBacktestError(
+                        OnlyBacktestErrorPhase.EVIDENCE,
+                        "BACKTEST_EVIDENCE_CORRUPT",
+                        "Native evidence readers are unavailable",
+                    )
+                self._admission.verify_evidence(run, manifest, self._evidence, self._runtime_generations)
+            except OnlyBacktestError as exc:
+                if exc.code == "BACKTEST_RESULT_PROOF_UNAVAILABLE":
+                    return None
+                return self._store.reconcile_fail(
+                    run,
+                    OnlyBacktestRunFailure(
+                        OnlyBacktestRunFailurePhase.EVIDENCE_COMMIT,
+                        "BACKTEST_EVIDENCE_CORRUPT",
+                        "Native Backtest Evidence relations failed verified recovery",
+                    ),
+                )
         return self._store.reconcile_complete(
             run,
             evidence_fingerprint=manifest.evidence_fingerprint,

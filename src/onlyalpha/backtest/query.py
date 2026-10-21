@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
+
+from .admission import OnlyBacktestAdmissionService
+from .creation_query import OnlyBacktestCreationQuery
 from .errors import OnlyBacktestArtifactNotFoundError, OnlyBacktestIntegrityError, OnlyBacktestStateConflictError
 from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .model import OnlyBacktestRun, OnlyBacktestRunId, OnlyBacktestRunState
 
 
 class _RunReader(Protocol):
+    def recent_runs(self) -> tuple[OnlyBacktestRun, ...]: ...
+
     def load(self, run_id: OnlyBacktestRunId) -> OnlyBacktestRun: ...
 
 
@@ -21,9 +28,46 @@ class OnlyBacktestArtifactContent:
 
 
 class OnlyBacktestQueryService:
-    def __init__(self, runs: _RunReader, evidence: OnlyBacktestEvidenceStore) -> None:
+    def __init__(
+        self,
+        runs: _RunReader,
+        evidence: OnlyBacktestEvidenceStore,
+        creation: OnlyBacktestCreationQuery | None = None,
+        runtime_generations: OnlyRuntimeGenerationWorkAuthority | None = None,
+        admission: OnlyBacktestAdmissionService | None = None,
+    ) -> None:
         self._runs = runs
         self._evidence = evidence
+        self._creation = creation
+        self._runtime_generations = runtime_generations
+        self._admission = admission
+
+    def creation_context(self) -> dict[str, Any]:
+        if self._creation is None:
+            raise OnlyBacktestStateConflictError("Backtest creation context is unavailable")
+        return self._creation.get()
+
+    def recent(self) -> tuple[OnlyBacktestRun, ...]:
+        return self._runs.recent_runs()
+
+    def result(self, run_id: OnlyBacktestRunId) -> dict[str, Any]:
+        run = self.get(run_id)
+        manifest = self.evidence(run_id)
+        try:
+            value = json.loads(self.artifact(run_id, "result.json").content)
+            if (
+                type(value) is not dict
+                or value.get("result_fingerprint") != manifest.result_fingerprint
+                or value.get("determinism_fingerprint") != manifest.determinism_fingerprint
+            ):
+                raise ValueError("owning result identity differs")
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise OnlyBacktestIntegrityError("BACKTEST_EVIDENCE_CORRUPT", run_id.value) from exc
+        if run.specification.order_policy is None:
+            return {"schema_version": 1, "implementation": "PYTHON", "runtime": None, "result": value}
+        if self._admission is None or self._runtime_generations is None:
+            raise OnlyBacktestIntegrityError("BACKTEST_EVIDENCE_CORRUPT", "Native owning readers are unavailable")
+        return self._admission.verify_evidence(run, manifest, self._evidence, self._runtime_generations)
 
     def get(self, run_id: OnlyBacktestRunId) -> OnlyBacktestRun:
         return self._runs.load(run_id)

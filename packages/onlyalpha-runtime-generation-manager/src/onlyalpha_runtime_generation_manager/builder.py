@@ -204,7 +204,9 @@ class OnlyRuntimeGenerationBuilder:
         if not canonical or len({item.artifact_sha256 for item in canonical}) != len(canonical):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
         distribution_identities = tuple(
-            (_normalized_distribution_name(item.distribution_name), item.distribution_version) for item in canonical
+            (_normalized_distribution_name(item.distribution_name), item.distribution_version)
+            for item in canonical
+            if item.native_target is None
         )
         if len(set(name for name, _ in distribution_identities)) != len(distribution_identities):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
@@ -212,7 +214,12 @@ class OnlyRuntimeGenerationBuilder:
         for artifact in canonical:
             self.artifact_store.verify_exact(artifact)
             if (
-                artifact.role in {OnlyDistributionArtifactRole.QUANT_ASSET, OnlyDistributionArtifactRole.CALCULATION}
+                artifact.role
+                in {
+                    OnlyDistributionArtifactRole.QUANT_ASSET,
+                    OnlyDistributionArtifactRole.CALCULATION,
+                    OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+                }
                 and artifact.tested_core_execution_fingerprint != core.fingerprint
             ):
                 raise ValueError("RUNTIME_GENERATION_IMPLEMENTATION_MISMATCH")
@@ -340,7 +347,11 @@ class OnlyRuntimeGenerationBuilder:
                 self.artifact_store.verify_exact(artifact)
                 if (
                     artifact.role
-                    in {OnlyDistributionArtifactRole.QUANT_ASSET, OnlyDistributionArtifactRole.CALCULATION}
+                    in {
+                        OnlyDistributionArtifactRole.QUANT_ASSET,
+                        OnlyDistributionArtifactRole.CALCULATION,
+                        OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+                    }
                     and artifact.tested_core_execution_fingerprint != core.fingerprint
                 ):
                     raise ValueError("RUNTIME_GENERATION_IMPLEMENTATION_MISMATCH")
@@ -771,8 +782,13 @@ class OnlyRuntimeGenerationBuilder:
 
     @staticmethod
     def _core_identity(artifacts: tuple[OnlyDistributionArtifactManifest, ...]) -> OnlyCoreExecutionIdentity:
-        if any(item.native_target is not None for item in artifacts):
+        if any(
+            item.native_target is not None and item.role is not OnlyDistributionArtifactRole.BACKTEST_RUNTIME
+            for item in artifacts
+        ):
             raise ValueError("RUNTIME_GENERATION_NATIVE_DIAGNOSTIC_NOT_INSTALLABLE")
+        if sum(item.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME for item in artifacts) > 1:
+            raise ValueError("RUNTIME_GENERATION_NATIVE_RUNTIME_AMBIGUOUS")
         cores = tuple(item for item in artifacts if item.role is OnlyDistributionArtifactRole.CORE)
         if len(cores) != 1:
             raise ValueError("RUNTIME_GENERATION_CORE_IDENTITY_INVALID")
@@ -858,8 +874,30 @@ class OnlyRuntimeGenerationBuilder:
             if target.exists():
                 raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
             target.write_bytes(content)
-            result.append(target)
+            if artifact.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME:
+                target.chmod(0o500)
+                self._verify_native_runtime(target, artifact)
+            else:
+                result.append(target)
         return tuple(result)
+
+    @staticmethod
+    def _verify_native_runtime(target: Path, artifact: OnlyDistributionArtifactManifest) -> None:
+        probe = subprocess.run(
+            [str(target), "--describe"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+            env=OnlyRuntimeGenerationBuilder._isolated_environment(),
+        )
+        if json.loads(probe.stdout) != {
+            "protocol": "onlyalpha.backtest.driver/1",
+            "artifact": artifact.artifact_sha256,
+            "target": artifact.native_target,
+            "version": artifact.distribution_version,
+        }:
+            raise ValueError("RUNTIME_GENERATION_NATIVE_RUNTIME_MISMATCH")
 
     def _materialize_private_factor_artifacts(
         self,

@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import NoReturn, Protocol, cast
+from typing import TYPE_CHECKING, NoReturn, Protocol, cast
+
+if TYPE_CHECKING:
+    from onlyalpha.backtest.admission import OnlyBacktestDatasetBindingReader
+    from onlyalpha.backtest.model import OnlyBacktestRun
+    from onlyalpha.backtest.worker import (
+        OnlyBacktestEnginePlanBuilder,
+        OnlyBacktestRuntimeComposition,
+        OnlyBacktestRuntimeExecutor,
+    )
+    from onlyalpha.research.dataset.ports import OnlyBoundedResearchDatasetSnapshotStore
+    from onlyalpha.strategy.revision import OnlyStrategyRevision
+    from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +58,26 @@ class OnlyRuntimeWorkBindingEvidence:
 
 
 class OnlyRuntimeGenerationWorkAuthority(Protocol):
+    def validate_backtest_result_binding(
+        self,
+        work_id: str,
+        generation: str,
+        native_artifact: str,
+        *,
+        run: OnlyBacktestRun,
+        plans: OnlyBacktestEnginePlanBuilder,
+        strategies: OnlyStrategyRevisionReader,
+        datasets: OnlyBoundedResearchDatasetSnapshotStore,
+        dataset_bindings: OnlyBacktestDatasetBindingReader,
+        plan_fingerprint: str,
+        result: Mapping[str, object],
+        trace: Mapping[str, object],
+    ) -> None: ...
+
+    def validate_backtest_work(self, run: OnlyBacktestRun, strategy: OnlyStrategyRevision) -> None: ...
+
+    def backtest_executor(self, composition: OnlyBacktestRuntimeComposition) -> OnlyBacktestRuntimeExecutor: ...
+
     def bind_new_work(self, work_id: str, *, actor: str, occurred_at: datetime) -> object: ...
 
     def bind_new_work_exact(
@@ -105,6 +138,32 @@ class OnlyRuntimeGenerationWorkAuthority(Protocol):
 
 class OnlyNoClaimRuntimeGenerationWorkAuthority:
     """Explicit lifecycle-only composition that can never admit or execute formal work."""
+
+    def validate_backtest_result_binding(
+        self,
+        work_id: str,
+        generation: str,
+        native_artifact: str,
+        *,
+        run: OnlyBacktestRun,
+        plans: OnlyBacktestEnginePlanBuilder,
+        strategies: OnlyStrategyRevisionReader,
+        datasets: OnlyBoundedResearchDatasetSnapshotStore,
+        dataset_bindings: OnlyBacktestDatasetBindingReader,
+        plan_fingerprint: str,
+        result: Mapping[str, object],
+        trace: Mapping[str, object],
+    ) -> None:
+        self._unavailable()
+
+    def validate_backtest_work(self, run: OnlyBacktestRun, strategy: OnlyStrategyRevision) -> None:
+        self._unavailable()
+
+    def backtest_executor(self, composition: OnlyBacktestRuntimeComposition) -> OnlyBacktestRuntimeExecutor:
+        # Lifecycle-only nodes cannot claim a Run. Retain composition, never grant execution.
+        from onlyalpha.backtest.worker import OnlyEngineBacktestRuntimeExecutor
+
+        return OnlyEngineBacktestRuntimeExecutor(composition.plans)
 
     @staticmethod
     def _unavailable() -> NoReturn:

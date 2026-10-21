@@ -1,3 +1,4 @@
+import "./backtest.css";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useResearchApi } from "../../app/providers";
@@ -6,6 +7,10 @@ import { ExactResourceForm } from "../../shared/components/ExactResourceForm";
 import { QueryError } from "../../shared/components/QueryState";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { admitResourceIdentity } from "../../shared/resourceIdentity";
+import { BacktestCreationPanel } from "./BacktestCreationPanel";
+import { RecentBacktests } from "./RecentBacktests";
+import { BacktestCancellation } from "./BacktestCancellation";
+import { BacktestResultPanel } from "./BacktestResultPanel";
 import { BacktestEvidencePanel } from "./BacktestEvidencePanel";
 
 export function BacktestPage() {
@@ -18,16 +23,24 @@ export function BacktestPage() {
                 <div>
                     <h1>Backtest Workspace</h1>
                     <p className="lede">
-                        Inspect a durable Backtest Run and its verified Evidence manifest.
-                        Performance values are shown only when a formal read contract supplies them.
+                        Create and manage Backtests with existing frozen strategies and immutable
+                        data. View durable lifecycle and verified owning results.
                     </p>
                 </div>
                 <Link className="secondary-link" to="/strategies">
                     Strategy workspace <WorkspaceIcon name="arrow" />
                 </Link>
             </header>
+            {raw === undefined ? (
+                <>
+                    <BacktestCreationPanel />
+                    <RecentBacktests />
+                </>
+            ) : (
+                <Link to="/backtest/runs">New Backtest / recent Runs</Link>
+            )}
             <ExactResourceForm
-                key={raw ?? "empty"}
+                key={`form-${raw ?? "empty"}`}
                 id="backtest-run-id"
                 label="Backtest Run ID"
                 action="Open Backtest"
@@ -43,21 +56,8 @@ export function BacktestPage() {
                     INVALID_QUERY: {selected.error}
                 </p>
             )}
-            {selected.value === null ? (
-                <section className="product-empty">
-                    <WorkspaceIcon name="results" />
-                    <h2>Historical evidence, exact by identity.</h2>
-                    <p>
-                        Enter an existing Backtest Run ID to inspect its lifecycle and linked
-                        immutable evidence.
-                    </p>
-                    <span>
-                        The Product API has no global Backtest Run list. No returns, Sharpe or
-                        equity curve are invented here.
-                    </span>
-                </section>
-            ) : (
-                <BacktestDetails key={selected.value} id={selected.value} />
+            {selected.value === null ? null : (
+                <BacktestDetails key={`details-${selected.value}`} id={selected.value} />
             )}
         </main>
     );
@@ -68,7 +68,11 @@ function BacktestDetails({ id }: { readonly id: BacktestRunId }) {
     const query = useQuery({
         queryKey: ["product", "backtest-run", id],
         queryFn: ({ signal }) => client.getBacktestRun(id, signal),
-        staleTime: 0
+        staleTime: 0,
+        refetchInterval: (query) =>
+            ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(query.state.data?.state ?? "")
+                ? 1000
+                : false
     });
     if (query.isError)
         return (
@@ -98,6 +102,25 @@ function BacktestDetails({ id }: { readonly id: BacktestRunId }) {
                     <span>Reported state</span>
                     <strong>{run.state}</strong>
                 </p>
+                {["QUEUED", "RUNNING"].includes(run.state) ? (
+                    <BacktestCancellation id={id} refresh={() => void query.refetch()} />
+                ) : null}
+                {run.state === "CANCEL_REQUESTED" ? (
+                    <p role="status">
+                        Cancellation requested. Waiting for the owning Runtime to stop durably.
+                    </p>
+                ) : null}
+                {run.state === "RUNNING" ? (
+                    <p role="status">
+                        Execution or recovery uses this same Run and durable history.
+                    </p>
+                ) : null}
+                {run.state === "CANCELLED" ? (
+                    <p role="status">
+                        Replay stopped durably. Orders and economic effects already recorded remain
+                        in history.
+                    </p>
+                ) : null}
                 <dl className="facts">
                     <dt>Run ID</dt>
                     <dd>{run.run_id}</dd>
@@ -144,6 +167,9 @@ function BacktestDetails({ id }: { readonly id: BacktestRunId }) {
                     <BacktestEvidencePanel run={run} id={id} />
                 )}
             </aside>
+            {run.state === "COMPLETED" && run.evidence_fingerprint !== null ? (
+                <BacktestResultPanel id={id} run={run} />
+            ) : null}
         </div>
     );
 }

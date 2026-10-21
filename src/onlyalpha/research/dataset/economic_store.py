@@ -62,6 +62,28 @@ class OnlyDatasetEconomicBindingStore:
             if stage.exists():
                 shutil.rmtree(stage)
 
+    def verified_bindings(self) -> tuple[OnlyResearchDatasetEconomicBinding, ...]:
+        """Enumerate exact owning records; corruption never becomes an empty inventory."""
+        try:
+            if self._root.is_symlink():
+                raise ValueError("symlink inventory root")
+            if not self._root.exists():
+                return ()
+            result = []
+            for prefix in sorted(self._root.iterdir()):
+                if prefix.is_symlink() or not prefix.is_dir() or len(prefix.name) != 2:
+                    raise ValueError("invalid binding prefix")
+                for entry in sorted(prefix.iterdir()):
+                    if entry.name.startswith(".stage-") and entry.is_dir() and not entry.is_symlink():
+                        continue
+                    _sha(entry.name)
+                    if entry.name[:2] != prefix.name or entry.is_symlink() or not entry.is_dir():
+                        raise ValueError("invalid binding entry")
+                    result.append(self.load_verified(entry.name))
+            return tuple(result)
+        except Exception as exc:
+            raise OnlyDatasetEconomicBindingStoreError("DATASET_BINDING_CORRUPT", "Dataset binding inventory") from exc
+
     def load_verified(self, fingerprint: str) -> OnlyResearchDatasetEconomicBinding:
         _sha(fingerprint)
         return self._read_verified(self._target(fingerprint), fingerprint)

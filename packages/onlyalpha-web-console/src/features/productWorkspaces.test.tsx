@@ -104,6 +104,24 @@ function renderWorkspace(entry: string, overrides: Partial<ResearchApiClient> = 
         getStrategy: () => Promise.resolve(strategy),
         getBacktestRun: () => Promise.resolve(completedRun),
         getBacktestEvidence: () => Promise.resolve(evidence),
+        getBacktestCreationContext: () =>
+            Promise.resolve({
+                schema_version: 1,
+                runtime_generation_fingerprint: "0".repeat(64),
+                options: [],
+                denied: []
+            }),
+        listBacktestRuns: () => Promise.resolve([]),
+        getBacktestResult: () =>
+            Promise.resolve({
+                schema_version: 1,
+                implementation: "PYTHON",
+                result: {
+                    result_fingerprint: "e".repeat(64),
+                    determinism_fingerprint: "1".repeat(64)
+                },
+                runtime: null
+            }),
         getHealth: (selector) => Promise.resolve(health[selector]),
         ...overrides
     });
@@ -244,14 +262,12 @@ describe("exact read-only Strategy workspace", () => {
 });
 
 describe("exact Backtest lifecycle and Evidence workspace", () => {
-    it("starts with an exact Run input and no fabricated list, performance, or execution controls", () => {
+    it("offers creation and the owning recent Run list without fabricated performance", () => {
         const { getBacktestRun, getBacktestEvidence } = renderWorkspace("/backtest/runs");
         expect(screen.getByRole("heading", { name: "Backtest Workspace" })).toBeInTheDocument();
         expect(screen.getByLabelText("Backtest Run ID")).toHaveValue("");
-        expect(screen.getByText(/Product API has no global Backtest Run list/)).toBeInTheDocument();
-        expect(
-            screen.getByText(/No returns, Sharpe or equity curve are invented here/)
-        ).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Create Rust Backtest" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Recent Backtests" })).toBeInTheDocument();
         expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
         expect(
             screen.queryByRole("button", { name: /Run Backtest|Cancel|Promote|Activate/ })
@@ -343,7 +359,9 @@ describe("exact Backtest lifecycle and Evidence workspace", () => {
         expect(within(panel).getByText("result.json")).toBeInTheDocument();
         expect(within(panel).getByText("128 bytes · application/json")).toBeInTheDocument();
         expect(
-            within(panel).getByText(/manifest does not expose returns, Sharpe or an equity curve/)
+            within(panel).getByText(
+                /Evidence links the completed Run to its immutable owning result/
+            )
         ).toBeInTheDocument();
         expect(
             screen.queryByRole("heading", { name: /Performance|Sharpe|Equity curve/ })
@@ -398,7 +416,11 @@ describe("exact Backtest lifecycle and Evidence workspace", () => {
         expect(
             await screen.findByText("COMPLETED", { selector: ".product-state strong" })
         ).toBeInTheDocument();
-        expect(screen.getByRole("status")).toHaveTextContent("Loading verified Evidence manifest");
+        expect(
+            within(screen.getByRole("complementary", { name: "Backtest Evidence" })).getByRole(
+                "status"
+            )
+        ).toHaveTextContent("Loading verified Evidence manifest");
         expect(screen.queryByText("result.json")).not.toBeInTheDocument();
         pending.reject(
             new ProductWebError(

@@ -157,7 +157,8 @@ pub struct Revision {
     pub(crate) graph: Graph,
     pub(crate) descriptors: BTreeMap<String, NodeDescriptor>,
     pub(crate) signals: [SignalBinding; 3],
-    fingerprint: String,
+    pub(crate) fingerprint: String,
+    pub(crate) product: Option<Value>,
 }
 impl Revision {
     pub fn new(
@@ -241,6 +242,7 @@ impl Revision {
             descriptors: ds,
             signals,
             fingerprint: String::new(),
+            product: None,
         };
         r.fingerprint = record_fingerprint(&r.identity());
         Ok(r)
@@ -252,9 +254,40 @@ impl Revision {
         let mut v = self.identity();
         v["decision_graph"] = self.graph.to_record();
         v["strategy_fingerprint"] = json!(self.fingerprint);
+        if let Some(product) = &self.product {
+            v["product"] = product.clone();
+            v["compiled_fingerprint"] = json!(record_fingerprint(&self.identity()));
+        }
         v
     }
     pub fn from_record(v: &Value) -> StrategyResult<Self> {
+        if let Some(product) = v.get("product") {
+            object(product, &["source", "mapping"])?;
+            let mut compiled = v.clone();
+            compiled.as_object_mut().ok_or_else(bad)?.remove("product");
+            let fingerprint = compiled
+                .as_object_mut()
+                .ok_or_else(bad)?
+                .remove("compiled_fingerprint")
+                .ok_or_else(bad)?;
+            compiled["strategy_fingerprint"] = fingerprint;
+            let base = Self::from_record(&compiled)?;
+            let mapping = product["mapping"]
+                .as_object()
+                .ok_or_else(bad)?
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), text(v)?.to_owned())))
+                .collect::<StrategyResult<BTreeMap<_, _>>>()?;
+            let result = Self::from_product(
+                product["source"].clone(),
+                base.descriptors.into_values().collect(),
+                mapping,
+            )?;
+            if result.to_record() != *v {
+                return Err(bad());
+            }
+            return Ok(result);
+        }
         object(
             v,
             &[
@@ -333,6 +366,9 @@ impl Revision {
     }
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
+    }
+    pub fn is_product_materialization(&self) -> bool {
+        self.product.is_some()
     }
     pub fn graph(&self) -> &Graph {
         &self.graph

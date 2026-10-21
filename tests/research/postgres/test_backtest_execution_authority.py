@@ -265,3 +265,114 @@ def test_real_postgres_concurrent_command_id_has_one_exact_binding(postgres_dsn:
     with pytest.raises(OnlyBacktestError) as conflict:
         store.create_queued_with_receipt(second, _receipt(second, command_id, "8" * 64))
     assert conflict.value.code == "PRODUCT_COMMAND_CONFLICT"
+
+
+def test_native_cancelled_worker_requires_a_fenced_recovery_before_confirmation(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha.backtest import OnlyBacktestEvidenceStore
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+    from onlyalpha.backtest.worker import OnlyBacktestReconciler
+
+    old = _queued()
+    native = OnlyBacktestRun.queued(
+        run_id=old.run_id,
+        specification=replace(
+            old.specification, schema_version=2, order_policy=OnlyBacktestLimitPolicy("1", "10", "11", "1", 1)
+        ),
+        admission_resolution=old.admission_resolution,
+        queued_at=old.queued_at,
+    )
+    store = _store(postgres_dsn)
+    store.create_queued_with_receipt(native, _receipt(native))
+    policy = OnlyBacktestExecutionPolicy()
+    first = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+    assert first is not None
+    requested, _ = store.request_cancellation_with_receipt(
+        native.run_id,
+        OnlyProductCommandId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+        "8" * 64,
+        NOW + timedelta(seconds=1),
+    )
+    assert requested.state is OnlyBacktestRunState.CANCEL_REQUESTED
+    # Explicit operational outcome injection: cancellation has not been acknowledged.
+    stopped = store.fail(
+        first,
+        OnlyBacktestRunFailure(
+            OnlyBacktestRunFailurePhase.OPERATIONAL,
+            "BACKTEST_WORKER_INTERRUPTED",
+            "worker stopped before durable cancellation acknowledgement",
+        ),
+        policy,
+    )
+    assert stopped.state is OnlyBacktestRunState.CANCEL_REQUESTED
+    assert OnlyBacktestReconciler(store, OnlyBacktestEvidenceStore(tmp_path)).run_once() is None
+    assert store.load(native.run_id).state is OnlyBacktestRunState.CANCEL_REQUESTED
+    recovered = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+    assert recovered is not None and recovered.run.run_id == native.run_id
+    assert recovered.attempt.attempt_number == 2
+    assert recovered.attempt.fencing_token > first.attempt.fencing_token
+    with pytest.raises(OnlyBacktestStateConflictError):
+        store.cancel(first)
+    assert store.cancel(recovered).state is OnlyBacktestRunState.CANCELLED
+
+
+def test_native_specification_migration_preserves_prior_runs_and_retries_atomically(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from onlyalpha.backtest.errors import OnlyBacktestIntegrityError
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+    from onlyalpha.research.run.errors import OnlyPostgresMigrationIntegrityError
+    from tests.research.postgres.migration_support import copy_migrations_through
+
+    previous = tmp_path / "previous"
+    previous.mkdir()
+    copy_migrations_through(previous, "0052_watchlist_member_sources")
+    OnlyPostgresMigrationAuthority(postgres_dsn, migration_root=previous).migrate()
+    store = OnlyPostgresBacktestStore(postgres_dsn)
+    old = _queued()
+    store.create_queued_with_receipt(old, _receipt(old))
+    with psycopg.connect(postgres_dsn) as connection:
+        before = connection.execute("SELECT to_jsonb(backtest_run) FROM backtest_run").fetchall()
+        connection.execute(
+            "CREATE FUNCTION reject_native_migration() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.migration_id = '0053_backtest_native_specification' THEN RAISE EXCEPTION 'injected ledger failure'; END IF; RETURN NEW; END; $$"
+        )
+        connection.execute(
+            "CREATE TRIGGER reject_native_migration BEFORE INSERT ON onlyalpha_schema_migration FOR EACH ROW EXECUTE FUNCTION reject_native_migration()"
+        )
+    current = OnlyPostgresMigrationAuthority(postgres_dsn)
+    with pytest.raises(OnlyPostgresMigrationIntegrityError):
+        current.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT to_jsonb(backtest_run) FROM backtest_run").fetchall() == before
+        assert connection.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.backtest_run'::regclass AND conname='backtest_run_specification_schema_version_check'"
+        ).fetchone() == ("CHECK ((specification_schema_version = 1))",)
+        connection.execute("DROP TRIGGER reject_native_migration ON onlyalpha_schema_migration")
+        connection.execute("DROP FUNCTION reject_native_migration()")
+    assert current.migrate() == ("0053_backtest_native_specification",)
+    assert current.migrate() == ()
+    assert OnlyPostgresBacktestStore(postgres_dsn).load(old.run_id) == old
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT to_jsonb(backtest_run) FROM backtest_run").fetchall() == before
+    native = OnlyBacktestRun.queued(
+        run_id=OnlyBacktestRunId("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
+        specification=replace(
+            old.specification, schema_version=2, order_policy=OnlyBacktestLimitPolicy("1", "10", "11", "1", 1)
+        ),
+        admission_resolution=old.admission_resolution,
+        queued_at=old.queued_at,
+    )
+    store.create_queued_with_receipt(native, _receipt(native, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+    assert OnlyPostgresBacktestStore(postgres_dsn).load(native.run_id) == native
+    # A derived schema column cannot silently disagree with its canonical payload.
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            "UPDATE backtest_run SET specification_schema_version=1 WHERE run_id=%s", (native.run_id.value,)
+        )
+    with pytest.raises(OnlyBacktestIntegrityError, match="CORRUPT"):
+        store.load(native.run_id)

@@ -64,3 +64,12 @@ def test_example_bundle_rejects_type_coercion(tmp_path: Path, field: str, value:
 
     with pytest.raises(ValueError):
         only_load_private_asset_example_bundle(root)
+
+
+def test_strategy_seed_uses_the_current_public_market_input_contract() -> None:
+    from onlyalpha.strategy.revision import OnlyStrategyMarketInputContract
+
+    bundle = only_load_private_asset_example_bundle(STRATEGY)
+    market = bundle.payload["definition"]["market_input"]
+    contract = OnlyStrategyMarketInputContract.from_dict(market)
+    assert contract.to_dict() == market

@@ -17,7 +17,14 @@ from onlyalpha.research.run.errors import (
 )
 
 MIGRATION_LOCK_ID = 591_487_210_081
-DEFAULT_MIGRATION_ROOT = Path(__file__).resolve().parents[4] / "database/postgres/migrations"
+_MODULE = Path(__file__).resolve()
+# Source and installed distributions have explicit resource layouts. Installed
+# readers never consult cwd or substitute repository files for missing resources.
+DEFAULT_MIGRATION_ROOT = (
+    _MODULE.parents[4] / "database/postgres/migrations"
+    if _MODULE.parts[-5:] == ("src", "onlyalpha", "persistence", "postgres", "migration.py")
+    else _MODULE.parent / "migrations"
+)
 
 
 @dataclass(frozen=True, order=True, slots=True)

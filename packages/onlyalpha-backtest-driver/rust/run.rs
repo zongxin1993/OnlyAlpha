@@ -387,6 +387,18 @@ impl<P: Participants> RunLoop<P> {
         while self.step()? {}
         Ok(())
     }
+    /// Finalize exhausted input without inventing a Broker drain acknowledgement.
+    pub fn finish_input(&mut self) -> Result<(), Error> {
+        self.check()?;
+        if self.state["cursor"] != self.inputs.records().len() as u64 {
+            return Err(err("INPUT_NOT_EXHAUSTED"));
+        }
+        if self.participants.quiescent()? && self.runtime.pending_events()?.is_empty() {
+            self.terminate("COMPLETED", None)
+        } else {
+            self.terminate("INCOMPLETE", Some("INPUT_EXHAUSTED_BEFORE_DRAIN"))
+        }
+    }
     pub fn pause(&mut self) -> Result<(), Error> {
         self.transition("PAUSE", Value::Null)
     }
@@ -457,6 +469,12 @@ impl<P: Participants> RunLoop<P> {
         self.check()?;
         Ok(
             json!({"schema_version":1,"binding":self.binding,"inputs":self.inputs.record(),"steps":self.steps,"state":self.state}),
+        )
+    }
+    pub fn progress(&self) -> Result<Value, Error> {
+        self.check()?;
+        Ok(
+            json!({"schema_version":1,"work_id":self.spec.work_id,"binding":hash(&self.binding),"cursor":self.state["cursor"],"total":self.inputs.records().len(),"status":self.state["status"],"outcome":self.state["outcome"]}),
         )
     }
     pub fn state(&self) -> Result<Value, Error> {

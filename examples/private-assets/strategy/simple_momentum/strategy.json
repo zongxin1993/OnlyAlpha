@@ -32,7 +32,7 @@
       },
       "market_input": {
         "bar_semantic": {
-          "schema_version": 2,
+          "schema_version": 3,
           "formation": {"schema_version": 1, "kind": "FIXED_DURATION", "window_minutes": 1, "stride_minutes": 1, "alignment": "SESSION_START"},
           "price_type": "LAST",
           "adjustment_policy": "RAW"
@@ -44,7 +44,7 @@
           "recipe": {
             "schema_version": 1,
             "target_semantic": {
-              "schema_version": 2,
+              "schema_version": 3,
               "formation": {"schema_version": 1, "kind": "FIXED_DURATION", "window_minutes": 1, "stride_minutes": 1, "alignment": "SESSION_START"},
               "price_type": "LAST",
               "adjustment_policy": "RAW"

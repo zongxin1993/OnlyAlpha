@@ -209,3 +209,66 @@ def test_historical_cleanup_only_removes_environment_claimed_by_this_invocation(
         assert sentinel.read_text() == "owned by competing invocation"
     else:
         assert not environment.exists()
+
+
+def test_backtest_runtime_artifact_has_explicit_family_and_exact_tested_core(tmp_path: Path) -> None:
+    runtime = replace(
+        _native(_elf()),
+        role=OnlyDistributionArtifactRole("BACKTEST_RUNTIME"),
+        distribution_name="onlyalpha-backtest-driver",
+        artifact_logical_name="onlyalpha_backtest_driver-0.10.3-aarch64-unknown-linux-gnu.elf",
+        tested_core_execution_fingerprint="b" * 64,
+    )
+    store = OnlyLocalImmutableArtifactStore(tmp_path)
+    store.put_once(runtime, _elf())
+    assert store.fetch_exact(runtime.artifact_sha256) == (runtime, _elf())
+    assert OnlyDistributionArtifactManifest.from_dict(runtime.to_dict()) == runtime
+    for changes in (
+        {"role": OnlyDistributionArtifactRole.SUPPORT},
+        {"tested_core_execution_fingerprint": None},
+        {"distribution_name": "onlyalpha-kernel"},
+        {"artifact_logical_name": "onlyalpha_backtest_driver-0.10.3-py3-none-any.whl"},
+    ):
+        with pytest.raises(ValueError, match="ARTIFACT_MANIFEST_INVALID"):
+            replace(runtime, **changes)
+
+
+def test_backtest_native_materialization_is_verified_and_never_passed_to_pip(tmp_path: Path, monkeypatch) -> None:
+    import json
+    import subprocess
+
+    runtime = replace(
+        _native(_elf()),
+        role=OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+        distribution_name="onlyalpha-backtest-driver",
+        artifact_logical_name="onlyalpha_backtest_driver-0.10.3-aarch64-unknown-linux-gnu.elf",
+        tested_core_execution_fingerprint="b" * 64,
+    )
+    store = OnlyLocalImmutableArtifactStore(tmp_path / "store")
+    store.put_once(runtime, _elf())
+    calls = []
+
+    def describe(argv, **kwargs):
+        calls.append(argv)
+        assert argv[1:] == ["--describe"]
+        assert Path(argv[0]).read_bytes() == _elf()
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            json.dumps(
+                {
+                    "protocol": "onlyalpha.backtest.driver/1",
+                    "artifact": runtime.artifact_sha256,
+                    "target": runtime.native_target,
+                    "version": runtime.distribution_version,
+                }
+            ),
+            "",
+        )
+
+    monkeypatch.setattr("onlyalpha_runtime_generation_manager.builder.subprocess.run", describe)
+    builder = OnlyRuntimeGenerationBuilder(store, Path(sys.executable))
+    root = tmp_path / "artifacts"
+    assert builder._materialize((runtime,), root) == ()
+    assert calls == [[str(root / runtime.artifact_logical_name), "--describe"]]
+    assert (root / runtime.artifact_logical_name).stat().st_mode & 0o777 == 0o500

@@ -77,3 +77,21 @@ def test_economic_binding_store_round_trip_and_corruption_fail_closed(tmp_path) 
     with pytest.raises(OnlyDatasetEconomicBindingStoreError) as raised:
         store.load_verified(binding.fingerprint)
     assert raised.value.code == "DATASET_BINDING_CORRUPT"
+
+
+def test_binding_inventory_never_hides_corrupt_or_foreign_directory(tmp_path) -> None:
+    binding = OnlyResearchDatasetEconomicBinding("a" * 64, "b" * 64, ())
+    store = OnlyDatasetEconomicBindingStore(tmp_path)
+    assert store.verified_bindings() == ()
+    store.publish_verified(binding)
+    assert store.verified_bindings() == (binding,)
+    path = (
+        tmp_path
+        / "research/dataset-economic-bindings/sha256"
+        / binding.fingerprint[:2]
+        / binding.fingerprint
+        / "manifest.json"
+    )
+    path.write_text("{}")
+    with pytest.raises(OnlyDatasetEconomicBindingStoreError, match="CORRUPT"):
+        store.verified_bindings()

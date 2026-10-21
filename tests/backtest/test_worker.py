@@ -65,6 +65,9 @@ def _run(now: datetime) -> OnlyBacktestRun:
 
 
 class _Admission:
+    def validate_runtime(self, run, authority):
+        pass
+
     def __init__(self, resolution: OnlyBacktestAdmissionResolution) -> None:
         self.resolution = resolution
 
@@ -74,7 +77,7 @@ class _Admission:
 
 
 class _Executor:
-    def execute(self, run: OnlyBacktestRun) -> OnlyBacktestRuntimeExecutionResult:
+    def execute(self, run: OnlyBacktestRun, control=None, *, initialize=False) -> OnlyBacktestRuntimeExecutionResult:
         del run
         return OnlyBacktestRuntimeExecutionResult(
             "5" * 64,
@@ -228,7 +231,7 @@ class _LostLease(_NoThreadLease):
 
 
 class _FailIfExecuted:
-    def execute(self, run: OnlyBacktestRun) -> OnlyBacktestRuntimeExecutionResult:
+    def execute(self, run: OnlyBacktestRun, control=None, *, initialize=False) -> OnlyBacktestRuntimeExecutionResult:
         del run
         raise AssertionError("Engine must not start after lease ownership is lost")
 
@@ -358,3 +361,167 @@ def test_stale_worker_cannot_finalize_after_replacement_claim(tmp_path) -> None:
             result_fingerprint="8" * 64,
             determinism_fingerprint="9" * 64,
         )
+
+
+def test_worker_cooperatively_cancels_during_execution_without_publishing_evidence(tmp_path) -> None:
+    from onlyalpha.backtest.worker import OnlyBacktestRuntimeCancellation
+
+    now = [datetime(2026, 9, 2, tzinfo=UTC)]
+    run = _run(now[0])
+    store = OnlyInMemoryBacktestExecutionStore((run,), now_utc=lambda: now[0])
+    evidence = OnlyBacktestEvidenceStore(tmp_path)
+
+    class Executor:
+        def execute(self, current, control, *, initialize=False):
+            assert control() == "CONTINUE"
+            store.runs[current.run_id] = store.load(current.run_id).transition(
+                OnlyBacktestRunState.CANCEL_REQUESTED, at=now[0]
+            )
+            assert control() == "CANCEL"
+            return OnlyBacktestRuntimeCancellation()
+
+    worker = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=store,
+        admission=_Admission(_resolution()),
+        executor=Executor(),
+        evidence=evidence,
+        lease_control_factory=_lease,
+        runtime_generations=_RuntimeGenerations(run.run_id.value),
+        process_generation_fingerprint="7" * 64,
+    )
+    outcome = worker.run_once()
+    assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.CANCELLED
+    assert outcome.run is not None and outcome.run.state is OnlyBacktestRunState.CANCELLED
+    assert evidence.find_for_run(run.run_id.value) is None
+
+
+def test_control_fences_an_old_attempt_before_any_more_native_dispatch(tmp_path) -> None:
+    now = [datetime(2026, 9, 2, tzinfo=UTC)]
+    run = _run(now[0])
+    policy = OnlyBacktestExecutionPolicy()
+    store = OnlyInMemoryBacktestExecutionStore((run,), now_utc=lambda: now[0])
+    evidence = OnlyBacktestEvidenceStore(tmp_path)
+    reached = []
+
+    class Executor:
+        def execute(self, current, control, *, initialize=False):
+            assert control() == "CONTINUE"
+            now[0] += policy.lease_duration
+            assert store.expire_next(policy) is not None
+            replacement = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+            assert replacement is not None and replacement.attempt.fencing_token == 2
+            control()
+            reached.append("illegal old dispatch")
+            return _Executor().execute(current)
+
+    worker = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=store,
+        admission=_Admission(_resolution()),
+        executor=Executor(),
+        evidence=evidence,
+        lease_control_factory=_lease,
+        runtime_generations=_RuntimeGenerations(run.run_id.value),
+        process_generation_fingerprint="7" * 64,
+    )
+    outcome = worker.run_once()
+    assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.OWNERSHIP_LOST
+    assert reached == []
+    assert evidence.find_for_run(run.run_id.value) is None
+
+
+def test_native_cancel_after_worker_death_requires_a_new_fenced_runtime_stop(tmp_path) -> None:
+    from dataclasses import replace
+
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+    from onlyalpha.backtest.worker import OnlyBacktestRuntimeCancellation
+
+    now = [datetime(2026, 9, 2, tzinfo=UTC)]
+    old = _run(now[0])
+    specification = replace(
+        old.specification, schema_version=2, order_policy=OnlyBacktestLimitPolicy("4", "10.00", "12.00", "2", 1)
+    )
+    run = OnlyBacktestRun.queued(
+        run_id=old.run_id,
+        specification=specification,
+        admission_resolution=old.admission_resolution,
+        queued_at=old.queued_at,
+    )
+    policy = OnlyBacktestExecutionPolicy()
+    store = OnlyInMemoryBacktestExecutionStore((run,), now_utc=lambda: now[0])
+    evidence = OnlyBacktestEvidenceStore(tmp_path)
+    claim = store.claim_next(OnlyBacktestWorkerInstanceId.new(), OnlyBacktestAttemptId.new(), policy)
+    assert claim is not None
+    store.runs[run.run_id] = store.load(run.run_id).transition(OnlyBacktestRunState.CANCEL_REQUESTED, at=now[0])
+    now[0] += policy.lease_duration
+    assert store.expire_next(policy) is not None
+    assert OnlyBacktestReconciler(store, evidence).run_once() is None, (
+        "missing Evidence cannot prove native execution has stopped"
+    )
+    stopped = []
+
+    class Executor:
+        def execute(self, current, control, *, initialize=False):
+            assert initialize is False, "a later fenced Attempt cannot grant initialization"
+            assert control() == "CANCEL"
+            stopped.append(current.run_id.value)
+            return OnlyBacktestRuntimeCancellation()
+
+    worker = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=store,
+        admission=_Admission(_resolution()),
+        executor=Executor(),
+        evidence=evidence,
+        lease_control_factory=_lease,
+        runtime_generations=_RuntimeGenerations(run.run_id.value),
+        process_generation_fingerprint="7" * 64,
+    )
+    outcome = worker.run_once()
+    assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.CANCELLED
+    assert outcome.claim.attempt.fencing_token == 2 and stopped == [run.run_id.value]
+    assert evidence.find_for_run(run.run_id.value) is None
+
+
+def test_only_first_native_attempt_receives_initialization_grant(tmp_path) -> None:
+    from dataclasses import replace
+
+    from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+    from onlyalpha.backtest.worker import OnlyBacktestRuntimeCancellation
+
+    now = datetime(2026, 9, 2, tzinfo=UTC)
+    old = _run(now)
+    run = OnlyBacktestRun.queued(
+        run_id=old.run_id,
+        specification=replace(
+            old.specification, schema_version=2, order_policy=OnlyBacktestLimitPolicy("4", "10.00", "12.00", "2", 1)
+        ),
+        admission_resolution=old.admission_resolution,
+        queued_at=old.queued_at,
+    )
+    store = OnlyInMemoryBacktestExecutionStore((run,), now_utc=lambda: now)
+
+    class Executor:
+        def execute(self, current, control, *, initialize=False):
+            assert initialize is True
+            assert control() == "CONTINUE"
+            store.runs[current.run_id] = store.load(current.run_id).transition(
+                OnlyBacktestRunState.CANCEL_REQUESTED, at=now
+            )
+            assert control() == "CANCEL"
+            return OnlyBacktestRuntimeCancellation()
+
+    worker = OnlyBacktestWorker(
+        worker_instance_id=OnlyBacktestWorkerInstanceId.new(),
+        store=store,
+        admission=_Admission(_resolution()),
+        executor=Executor(),
+        evidence=OnlyBacktestEvidenceStore(tmp_path),
+        lease_control_factory=_lease,
+        runtime_generations=_RuntimeGenerations(run.run_id.value),
+        process_generation_fingerprint="7" * 64,
+    )
+    outcome = worker.run_once()
+    assert outcome is not None and outcome.kind is OnlyBacktestWorkerOutcomeKind.CANCELLED
+    assert outcome.claim.attempt.attempt_number == 1

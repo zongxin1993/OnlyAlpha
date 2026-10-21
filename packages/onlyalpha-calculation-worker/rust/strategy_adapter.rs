@@ -50,7 +50,12 @@ impl StrategyNodes {
         {
             return Err(NodeFailure::Known);
         }
-        let worker = Worker::spawn(
+        let spawn = if program.revision().is_product_materialization() {
+            Worker::spawn_hosted
+        } else {
+            Worker::spawn
+        };
+        let worker = spawn(
             &interpreter,
             program.generation().into(),
             program.artifact().into(),

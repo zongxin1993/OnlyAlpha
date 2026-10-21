@@ -309,3 +309,114 @@ fn ready_nullable_terminal_values_follow_false_decision_policy() {
     }
     e.capture_checkpoint().unwrap();
 }
+
+#[test]
+fn product_revision_preserves_authoritative_identity_and_proves_every_compiled_node() {
+    use std::collections::BTreeMap;
+    let compiled = revision();
+    let mut mapping = BTreeMap::<String, String>::new();
+    let mut semantic = vec![];
+    for node in compiled.graph().ordered_nodes() {
+        let mut d = node.to_record();
+        d["schema_version"] = json!(2);
+        for b in d["input_bindings"].as_object_mut().unwrap().values_mut() {
+            if let Some(parent) = b["node_fingerprint"].as_str() {
+                b["node_fingerprint"] =
+                    json!(mapping.iter().find(|(_, v)| *v == parent).unwrap().0);
+            }
+        }
+        let original = record_fingerprint(&d);
+        mapping.insert(original, node.fingerprint());
+        semantic.push(d);
+    }
+    // There is one root; all terminal nodes depend on it. Canonical public DAG order.
+    let root = semantic.remove(0);
+    semantic.sort_by_key(record_fingerprint);
+    semantic.insert(0, root);
+    let graph = json!({"schema_version":1,"nodes":semantic});
+    let implementations:Vec<_> = mapping.keys().map(|id|json!({"node_fingerprint":id,"research_implementation_fingerprint":"e".repeat(64),"trading_implementation_fingerprint":"e".repeat(64)})).collect();
+    let reverse = |id: &str| mapping.iter().find(|(_, v)| *v == id).unwrap().0.clone();
+    let r = compiled.to_record();
+    let signals:Vec<_>=r["signals"].as_array().unwrap().iter().map(|s|json!({"node_fingerprint":reverse(s["node_fingerprint"].as_str().unwrap()),"output_name":"value"})).collect();
+    let market = json!({"schema_version":2,"data_kind":"BAR","bar_semantic":r["bar_semantic"],"construction_requirement":{"schema_version":1,"kind":"EXACT_RECIPE","policy":null,"recipe":r["construction_recipe"]},"observation_admission":"FINAL_ONLY"});
+    let identity = json!({"domain":"onlyalpha.strategy.revision","schema_version":1,"universe":{"kind":"SINGLE_INSTRUMENT","instruments":[compiled.universe()[0].to_string()]},"market_input_contract":market,"decision_graph_fingerprint":record_fingerprint(&graph),"implementation_bindings":implementations,"signal_semantics":{"schema_version":1,"eligibility":signals[0],"entry":signals[1],"exit":signals[2],"missing_decision":"FALSE"}});
+    let mut source = identity.clone();
+    source.as_object_mut().unwrap().remove("domain");
+    source["strategy_fingerprint"] = json!(record_fingerprint(&identity));
+    source["decision_graph"] = json!({"schema_version":1,"nodes":semantic.iter().map(|d|json!({"definition":d,"alias":null})).collect::<Vec<_>>()});
+    // Native descriptor identity is rematerialized with compiled upstream references.
+    let descriptors = compiled
+        .descriptors()
+        .values()
+        .map(|d| {
+            let mut d = d.clone();
+            let mut def = d.definition.to_record();
+            def["schema_version"] = json!(2);
+            d.native_definition = record_fingerprint(&def);
+            d
+        })
+        .collect();
+    let admitted = Revision::from_product(source.clone(), descriptors, mapping.clone()).unwrap();
+    assert_eq!(
+        admitted.fingerprint(),
+        source["strategy_fingerprint"].as_str().unwrap()
+    );
+    assert_ne!(admitted.fingerprint(), compiled.fingerprint());
+    assert_eq!(
+        Revision::from_record(&admitted.to_record()).unwrap(),
+        admitted
+    );
+    for field in [
+        "universe",
+        "market_input_contract",
+        "implementation_bindings",
+        "signal_semantics",
+        "decision_graph",
+    ] {
+        let mut bad = source.clone();
+        bad[field] = Value::Null;
+        assert!(
+            Revision::from_product(
+                bad,
+                admitted.descriptors().values().cloned().collect(),
+                mapping.clone()
+            )
+            .is_err(),
+            "{field}"
+        );
+    }
+    for mode in ["construction-schema", "graph-extra", "binding-order"] {
+        let mut changed = source.clone();
+        match mode {
+            "construction-schema" => {
+                changed["market_input_contract"]["construction_requirement"]["schema_version"] =
+                    json!(2)
+            }
+            "graph-extra" => changed["decision_graph"]["unexpected"] = json!(true),
+            _ => changed["implementation_bindings"]
+                .as_array_mut()
+                .unwrap()
+                .reverse(),
+        }
+        let mut identity = changed.clone();
+        identity.as_object_mut().unwrap().remove("decision_graph");
+        identity
+            .as_object_mut()
+            .unwrap()
+            .remove("strategy_fingerprint");
+        identity["domain"] = json!("onlyalpha.strategy.revision");
+        changed["strategy_fingerprint"] = json!(record_fingerprint(&identity));
+        assert!(
+            Revision::from_product(
+                changed,
+                admitted.descriptors().values().cloned().collect(),
+                mapping.clone()
+            )
+            .is_err(),
+            "{mode}"
+        );
+    }
+    let mut changed = admitted.descriptors().values().cloned().collect::<Vec<_>>();
+    changed[0].implementation = "f".repeat(64);
+    assert!(Revision::from_product(source, changed, mapping).is_err());
+}

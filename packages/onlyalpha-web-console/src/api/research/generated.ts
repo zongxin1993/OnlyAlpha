@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/backtest/creation-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Creation Context */
+        get: operations["creation_context_api_v2_backtest_creation_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/backtest/runs": {
         parameters: {
             query?: never;
@@ -45,7 +62,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Recent Runs */
+        get: operations["recent_runs_api_v2_backtest_runs_get"];
         put?: never;
         /** Create Run */
         post: operations["create_run_api_v2_backtest_runs_post"];
@@ -115,6 +133,23 @@ export interface paths {
         };
         /** Get Artifact */
         get: operations["get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backtest/runs/{run_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Result */
+        get: operations["result_api_v2_backtest_runs__run_id__result_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1527,6 +1562,49 @@ export interface components {
             /** State */
             state: string;
         };
+        /** BacktestCreationContextDto */
+        BacktestCreationContextDto: {
+            /** Denied */
+            denied: components["schemas"]["BacktestCreationDeniedDto"][];
+            /** Options */
+            options: components["schemas"]["BacktestCreationOptionDto"][];
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** BacktestCreationDeniedDto */
+        BacktestCreationDeniedDto: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
+        /** BacktestCreationOptionDto */
+        BacktestCreationOptionDto: {
+            /** Base Currency */
+            base_currency: string;
+            /** Dataset Binding Fingerprint */
+            dataset_binding_fingerprint: string;
+            /** End */
+            end: string;
+            /** Instruments */
+            instruments: string[];
+            /** Market Product Configuration Fingerprint */
+            market_product_configuration_fingerprint: string;
+            /** Row Count */
+            row_count: number;
+            /** Start */
+            start: string;
+            /** Strategy Fingerprint */
+            strategy_fingerprint: string;
+        };
         /** BacktestEvidenceArtifactDto */
         BacktestEvidenceArtifactDto: {
             /** Media Type */
@@ -1605,6 +1683,30 @@ export interface components {
             /** Capital */
             capital: string;
         };
+        /** BacktestLimitPolicyDto */
+        BacktestLimitPolicyDto: {
+            /** Entry Limit */
+            entry_limit: string;
+            /** Exit Limit */
+            exit_limit: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "FINITE_LONG_LIMIT";
+            /** Maximum Fill Quantity */
+            maximum_fill_quantity: string;
+            /** Quantity */
+            quantity: string;
+            /** Round Trips */
+            round_trips: number;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** BacktestProfileReferenceDto */
         BacktestProfileReferenceDto: {
             /** Profile Id */
@@ -1612,8 +1714,32 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** BacktestResultDto */
+        BacktestResultDto: {
+            /**
+             * Implementation
+             * @enum {string}
+             */
+            implementation: "RUST" | "PYTHON";
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Runtime */
+            runtime: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** BacktestRunCreateRequest */
         BacktestRunCreateRequest: {
+            /** Backtest Run Id */
+            backtest_run_id?: string | null;
             /** Dataset Binding Fingerprint */
             dataset_binding_fingerprint: string;
             execution_profile: components["schemas"]["BacktestProfileReferenceDto"];
@@ -1622,6 +1748,8 @@ export interface components {
             market_product_configuration_fingerprint: string;
             portfolio_profile: components["schemas"]["BacktestProfileReferenceDto"];
             risk_profile: components["schemas"]["BacktestProfileReferenceDto"];
+            /** Runtime Generation Fingerprint */
+            runtime_generation_fingerprint?: string | null;
             /**
              * @default {
              *       "ordered_fact_policy": "ORDERED_FACTS_V1"
@@ -1631,9 +1759,9 @@ export interface components {
             /**
              * Schema Version
              * @default 1
-             * @constant
+             * @enum {integer}
              */
-            schema_version: 1;
+            schema_version: 1 | 2;
             /** Strategy Fingerprint */
             strategy_fingerprint: string;
         };
@@ -1688,6 +1816,7 @@ export interface components {
         };
         /** BacktestRuntimeOptionsDto */
         BacktestRuntimeOptionsDto: {
+            order_policy?: components["schemas"]["BacktestLimitPolicyDto"] | null;
             /**
              * Ordered Fact Policy
              * @default ORDERED_FACTS_V1
@@ -5662,6 +5791,136 @@ export interface operations {
             };
         };
     };
+    creation_context_api_v2_backtest_creation_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestCreationContextDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    recent_runs_api_v2_backtest_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunDto"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
     create_run_api_v2_backtest_runs_post: {
         parameters: {
             query?: never;
@@ -5955,6 +6214,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                };
+            };
+        };
+    };
+    result_api_v2_backtest_runs__run_id__result_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestResultDto"];
                 };
             };
             /** @description Bad Request */

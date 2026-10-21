@@ -37,7 +37,12 @@ from tests.research.postgres.test_chart_native_publication_permissions import ru
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 _MIGRATION = "0050_chart_native_execution_entry"
-_FORWARD = (_MIGRATION, "0051_watchlist_configuration", "0052_watchlist_member_sources")
+_FORWARD = (
+    _MIGRATION,
+    "0051_watchlist_configuration",
+    "0052_watchlist_member_sources",
+    "0053_backtest_native_specification",
+)
 _CLAIM = "public.chart_native_claim_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,interval,integer,timestamptz)"
 _HEARTBEAT = "public.chart_native_heartbeat_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,integer,interval)"
 

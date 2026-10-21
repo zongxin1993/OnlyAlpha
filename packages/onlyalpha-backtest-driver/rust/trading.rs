@@ -105,7 +105,7 @@ impl<C: NodePort> Trading<C> {
         })
     }
     fn exchange(&mut self, operation: &str, payload: Value) -> Result<Value, Error> {
-        let value=boundary(self.worker.exchange_replay(json!({"schema_version":1,"configuration":self.settings,"checkpoint":self.world["checkpoint"],"operation":operation,"payload":payload,"now":self.now}),DEADLINE))?;
+        let value=self.worker.exchange_replay(json!({"schema_version":1,"configuration":self.settings,"checkpoint":self.world["checkpoint"],"operation":operation,"payload":payload,"now":self.now}),DEADLINE).map_err(|error|err(&format!("EXTERNAL_{operation}_{error}")))?;
         if matches!(operation, "INIT" | "VALIDATE" | "BAR" | "SUBMIT") {
             world_proof(&value)?;
         }

@@ -21,3 +21,7 @@ serde_json = { version = "=1.0.154", default-features = false, features = ["std"
 
 [dev-dependencies]
 onlyalpha-calculation = { path = "../../crates/onlyalpha-kernel/calculation" }
+
+[[bin]]
+name = "onlyalpha-backtest-runtime"
+path = "rust/main.rs"

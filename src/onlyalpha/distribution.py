@@ -19,6 +19,7 @@ class OnlyDistributionArtifactRole(StrEnum):
     QUANT_ASSET = "QUANT_ASSET"
     CALCULATION = "CALCULATION"
     SUPPORT = "SUPPORT"
+    BACKTEST_RUNTIME = "BACKTEST_RUNTIME"
 
 
 class OnlyArtifactSourceProvenanceAuthority(StrEnum):
@@ -128,7 +129,17 @@ class OnlyDistributionArtifactManifest:
         normalized_version = self.distribution_version.replace("-", "_").lower()
         if not self.artifact_logical_name.lower().startswith(f"{normalized}-{normalized_version}-"):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
-        if not self.artifact_logical_name.lower().endswith(".whl"):
+        if self.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME:
+            target = self.native_target
+            if (
+                target is None
+                or self.distribution_name != "onlyalpha-backtest-driver"
+                or self.artifact_logical_name != f"onlyalpha_backtest_driver-{normalized_version}-{target}.elf"
+                or self.source_provenance_authority is not OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT
+                or self.tested_core_execution_fingerprint is None
+            ):
+                raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
+        elif not self.artifact_logical_name.lower().endswith(".whl"):
             target = self.native_target
             if (
                 target is None

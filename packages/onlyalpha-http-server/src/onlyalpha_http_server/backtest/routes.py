@@ -15,13 +15,17 @@ from onlyalpha.backtest import (
     OnlyBacktestRunId,
     OnlyBacktestSpecification,
 )
+from onlyalpha.backtest.model import OnlyBacktestLimitPolicy
+from onlyalpha.canonical import only_canonical_json
 
 from .schema import (
     PRODUCT_ERROR_RESPONSES,
     BacktestCancellationResponse,
+    BacktestCreationContextDto,
     BacktestEvidenceDto,
     BacktestEvidenceManifestDto,
     BacktestFailureDto,
+    BacktestResultDto,
     BacktestRunCreateRequest,
     BacktestRunCreateResponse,
     BacktestRunDto,
@@ -34,13 +38,30 @@ IdempotencyKeyHeader = Annotated[str, Header(alias="Idempotency-Key")]
 def create_backtest_router(commands: OnlyBacktestCommandService, queries: OnlyBacktestQueryService) -> APIRouter:
     router = APIRouter(prefix="/api/v2/backtest", tags=[BACKTEST_ROUTE_TAG])
 
+    @router.get("/creation-context", response_model=BacktestCreationContextDto, responses=PRODUCT_ERROR_RESPONSES)
+    def creation_context() -> BacktestCreationContextDto:
+        return BacktestCreationContextDto.model_validate(queries.creation_context())
+
+    @router.get("/runs", response_model=list[BacktestRunDto], responses=PRODUCT_ERROR_RESPONSES)
+    def recent_runs() -> list[BacktestRunDto]:
+        return [_run_dto(run) for run in queries.recent()]
+
+    @router.get("/runs/{run_id}/result", response_model=BacktestResultDto, responses=PRODUCT_ERROR_RESPONSES)
+    def result(run_id: str) -> BacktestResultDto:
+        return BacktestResultDto.model_validate(queries.result(_run_id(run_id)))
+
     @router.post("/runs", status_code=202, response_model=BacktestRunCreateResponse, responses=PRODUCT_ERROR_RESPONSES)
     def create_run(
         request: BacktestRunCreateRequest,
         response: Response,
         idempotency_key: IdempotencyKeyHeader,
     ) -> BacktestRunCreateResponse:
-        outcome = commands.submit(_command_id(idempotency_key), _specification(request))
+        outcome = commands.submit(
+            _command_id(idempotency_key),
+            _specification(request),
+            run_id=None if request.backtest_run_id is None else _run_id(request.backtest_run_id),
+            runtime_generation_fingerprint=request.runtime_generation_fingerprint,
+        )
         response.headers["Location"] = f"/api/v2/backtest/runs/{outcome.run.run_id.value}"
         return BacktestRunCreateResponse(
             backtest_run_id=outcome.run.run_id.value,
@@ -64,7 +85,9 @@ def create_backtest_router(commands: OnlyBacktestCommandService, queries: OnlyBa
 
     @router.get("/runs/{run_id}/evidence", response_model=BacktestEvidenceDto, responses=PRODUCT_ERROR_RESPONSES)
     def get_evidence(run_id: str) -> BacktestEvidenceDto:
-        manifest = BacktestEvidenceManifestDto.model_validate(queries.evidence(_run_id(run_id)).to_dict())
+        manifest = BacktestEvidenceManifestDto.model_validate_json(
+            only_canonical_json(queries.evidence(_run_id(run_id)).to_dict())
+        )
         return BacktestEvidenceDto(manifest=manifest)
 
     @router.get("/runs/{run_id}/evidence/artifacts/{artifact_name:path}", responses=PRODUCT_ERROR_RESPONSES)
@@ -95,6 +118,9 @@ def _specification(request: BacktestRunCreateRequest) -> OnlyBacktestSpecificati
         initial_capital=request.initial_account.capital,
         ordered_fact_policy=request.runtime_options.ordered_fact_policy,
         schema_version=request.schema_version,
+        order_policy=None
+        if request.runtime_options.order_policy is None
+        else OnlyBacktestLimitPolicy.from_dict(request.runtime_options.order_policy.model_dump()),
     )
 
 

@@ -40,6 +40,9 @@ class OnlyInMemoryBacktestExecutionStore:
             raise ValueError("BACKTEST_RUN_ALREADY_EXISTS")
         self.runs[run.run_id] = run
 
+    def recent_runs(self) -> tuple[OnlyBacktestRun, ...]:
+        return tuple(sorted(self.runs.values(), key=lambda run: (run.queued_at, run.run_id.value), reverse=True)[:50])
+
     def load(self, run_id: OnlyBacktestRunId) -> OnlyBacktestRun:
         try:
             return self.runs[run_id]
@@ -57,7 +60,9 @@ class OnlyInMemoryBacktestExecutionStore:
         for run in sorted(self.runs.values(), key=lambda item: item.run_id.value):
             if eligible_run_ids is not None and run.run_id.value not in eligible_run_ids:
                 continue
-            if run.state not in {OnlyBacktestRunState.QUEUED, OnlyBacktestRunState.RUNNING}:
+            if run.state not in {OnlyBacktestRunState.QUEUED, OnlyBacktestRunState.RUNNING} and not (
+                run.state is OnlyBacktestRunState.CANCEL_REQUESTED and run.specification.order_policy is not None
+            ):
                 continue
             if any(item.run_id == run.run_id and item.state is item.state.ACTIVE for item in self.attempts.values()):
                 continue
@@ -68,7 +73,7 @@ class OnlyInMemoryBacktestExecutionStore:
                 continue
             running = (
                 run
-                if run.state is OnlyBacktestRunState.RUNNING
+                if run.state in {OnlyBacktestRunState.RUNNING, OnlyBacktestRunState.CANCEL_REQUESTED}
                 else run.transition(OnlyBacktestRunState.RUNNING, at=now)
             )
             self.runs[run.run_id] = running
@@ -150,7 +155,11 @@ class OnlyInMemoryBacktestExecutionStore:
         )
         self.attempts[current.attempt_id] = expired
         run = self.runs[current.run_id]
-        if current.attempt_number >= policy.max_attempts and run.state is OnlyBacktestRunState.RUNNING:
+        if current.attempt_number >= policy.max_attempts and (
+            run.state is OnlyBacktestRunState.RUNNING
+            or run.state is OnlyBacktestRunState.CANCEL_REQUESTED
+            and run.specification.order_policy is not None
+        ):
             failure = OnlyBacktestRunFailure(
                 phase=OnlyBacktestRunFailurePhase.OPERATIONAL,
                 code="ATTEMPT_LIMIT_EXHAUSTED",

@@ -695,3 +695,82 @@ export type ResearchExpressionTransport =
     | Dto<"ResearchNotDto">
     | Dto<"ResearchAndDto">
     | Dto<"ResearchOrDto">;
+
+export const backtestCreationContextSchema = z.strictObject({
+    schema_version: z.literal(1),
+    runtime_generation_fingerprint: sha256,
+    options: z.array(
+        z.strictObject({
+            strategy_fingerprint: sha256,
+            dataset_binding_fingerprint: sha256,
+            market_product_configuration_fingerprint: sha256,
+            base_currency: z.string().min(1),
+            instruments: z.array(z.string().min(1)).min(1),
+            start: timestamp,
+            end: timestamp,
+            row_count: safeNonnegativeInteger
+        })
+    ),
+    denied: z.array(
+        z.strictObject({ strategy_fingerprint: sha256, code: z.string(), detail: z.string() })
+    )
+});
+export const backtestCreateSchema = z.strictObject({
+    schema_version: z.literal(2),
+    backtest_run_id: uuid4,
+    runtime_generation_fingerprint: sha256,
+    strategy_fingerprint: sha256,
+    dataset_binding_fingerprint: sha256,
+    market_product_configuration_fingerprint: sha256,
+    portfolio_profile: z.strictObject({
+        profile_id: z.literal("fixed-capital"),
+        version: z.literal("1")
+    }),
+    risk_profile: z.strictObject({
+        profile_id: z.literal("default-risk"),
+        version: z.literal("1")
+    }),
+    execution_profile: z.strictObject({
+        profile_id: z.literal("virtual-next-bar"),
+        version: z.literal("1")
+    }),
+    initial_account: z.strictObject({
+        base_currency: z.string().min(1),
+        capital: z.string().regex(/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/)
+    }),
+    runtime_options: z.strictObject({
+        ordered_fact_policy: z.literal("ORDERED_FACTS_V1"),
+        order_policy: z.strictObject({
+            schema_version: z.literal(1),
+            kind: z.literal("FINITE_LONG_LIMIT"),
+            quantity: z.string().min(1),
+            entry_limit: z.string().min(1),
+            exit_limit: z.string().min(1),
+            maximum_fill_quantity: z.string().min(1),
+            round_trips: z.number().int().min(1).max(8)
+        })
+    })
+});
+export const backtestCreateResponseSchema = z.strictObject({
+    schema_version: z.literal(1),
+    backtest_run_id: uuid4,
+    state: z.string(),
+    disposition: z.enum(["CREATED", "REPLAYED"])
+});
+export const backtestCancellationSchema = z.strictObject({
+    schema_version: z.literal(1),
+    run_id: uuid4,
+    state: z.string(),
+    revision: safeNonnegativeInteger
+});
+export const backtestResultSchema = z.strictObject({
+    schema_version: z.literal(1),
+    implementation: z.enum(["RUST", "PYTHON"]),
+    runtime: z.record(z.string(), z.unknown()).nullable(),
+    result: z.record(z.string(), z.unknown())
+});
+export type BacktestCreationContextTransport = z.infer<typeof backtestCreationContextSchema>;
+export type BacktestCreateTransport = z.infer<typeof backtestCreateSchema>;
+export type BacktestCreateResponseTransport = z.infer<typeof backtestCreateResponseSchema>;
+export type BacktestCancellationTransport = z.infer<typeof backtestCancellationSchema>;
+export type BacktestResultTransport = z.infer<typeof backtestResultSchema>;

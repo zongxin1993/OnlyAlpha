@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import struct
+import sys
 import time
+import traceback
+from importlib import metadata
 from typing import BinaryIO
 
 from google.protobuf.message import DecodeError
 from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
 
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha_calculation_worker.artifact import manifest
 from onlyalpha_calculation_worker.backend import Backend, resolve
 from onlyalpha_calculation_worker.contracts import MAX_BATCH, MAX_FRAME, MAX_INSTANCES, decode, encode, sha
@@ -27,10 +32,20 @@ def _read(stream: BinaryIO, count: int) -> bytes:
     return bytes(chunks)
 
 
-def serve(generation: str, reader: BinaryIO, writer: BinaryIO) -> None:
+def _hosted_registry(generation: str) -> OnlyCalculationRegistry:
+    entries = tuple(metadata.entry_points().select(group="onlyalpha.calculation_generation_context"))
+    if len(entries) != 1:
+        raise RuntimeError("CALCULATION_GENERATION_CONTEXT_UNAVAILABLE")
+    calculations = entries[0].load()(generation)
+    if type(calculations) is not OnlyCalculationRegistry:
+        raise RuntimeError("CALCULATION_GENERATION_CONTEXT_INVALID")
+    return calculations
+
+
+def serve(generation: str, reader: BinaryIO, writer: BinaryIO, *, hosted: bool = False) -> None:
     artifact = manifest().implementation_fingerprint
     backend = Backend(sha(generation), artifact)
-    nodes = NodeBackend(generation, artifact)
+    nodes = NodeBackend(generation, artifact, calculations=_hosted_registry(generation) if hosted else None)
     sequence = 0
     while True:
         try:
@@ -98,7 +113,18 @@ def serve(generation: str, reader: BinaryIO, writer: BinaryIO) -> None:
             else:
                 raise ValueError("OPERATION_INVALID")
             response.result.record_json = encode(result)
-        except (ValueError, TypeError, KeyError, ArithmeticError):
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            if operation == "replay":
+                # No request/configuration/checkpoint values enter diagnostics.
+                code = str(exc.args[0]) if exc.args else "INVALID_REQUEST"
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.:-]{0,127}", code) is None:
+                    code = "INVALID_REQUEST"
+                frames = ",".join(f"{item.name}:{item.lineno}" for item in traceback.extract_tb(exc.__traceback__)[-4:])
+                print(
+                    f"BACKTEST_EXTERNAL_REJECTED {type(exc).__name__}:{code} frames={frames}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             # Known rejection leaves the selected candidate uncommitted.
             response.error.code = "REQUEST_REJECTED"
         response.diagnostic_compute_ns = time.perf_counter_ns() - started
@@ -113,6 +139,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--describe", action="store_true")
     parser.add_argument("--generation")
+    parser.add_argument("--hosted-generation", action="store_true")
     args = parser.parse_args()
     if args.describe:
         print(manifest().implementation_fingerprint)
@@ -120,7 +147,7 @@ def main() -> None:
     if args.generation is None:
         parser.error("--generation is required")
     with os.fdopen(os.dup(0), "rb", buffering=0) as reader, os.fdopen(os.dup(1), "wb", buffering=0) as writer:
-        serve(args.generation, reader, writer)
+        serve(args.generation, reader, writer, hosted=args.hosted_generation)
 
 
 if __name__ == "__main__":

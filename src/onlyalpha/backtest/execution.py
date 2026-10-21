@@ -93,7 +93,10 @@ class OnlyBacktestExecutionPolicy:
     heartbeat_interval: timedelta = timedelta(seconds=10)
     max_attempts: int = 3
     retryable_failure_codes: tuple[str, ...] = (
+        "BACKTEST_NATIVE_OUTCOME_UNKNOWN",
+        "BACKTEST_RESULT_PROOF_UNAVAILABLE",
         "BACKTEST_STORE_UNAVAILABLE",
+        "BACKTEST_WORKER_INTERRUPTED",
         "LEASE_EXPIRED",
         "UNEXPECTED_WORKER_FAILURE",
     )

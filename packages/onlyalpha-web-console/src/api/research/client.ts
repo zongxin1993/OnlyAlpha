@@ -34,6 +34,11 @@ import {
     mapStatisticsCatalog
 } from "./mapper";
 import {
+    backtestCreationContextSchema,
+    backtestCreateSchema,
+    backtestCreateResponseSchema,
+    backtestCancellationSchema,
+    backtestResultSchema,
     artifactSummarySchema,
     backtestEvidenceSchema,
     backtestRunSchema,
@@ -59,6 +64,11 @@ import {
     strategySchema
 } from "./schemas";
 import type {
+    BacktestCreationContextTransport,
+    BacktestCreateTransport,
+    BacktestCreateResponseTransport,
+    BacktestCancellationTransport,
+    BacktestResultTransport,
     BacktestEvidenceTransport,
     BacktestRunTransport,
     ProductHealthTransport,
@@ -174,6 +184,19 @@ export interface ResearchDefinitionApiClient {
 export type ProductHealthSelector = "live" | "ready" | "execution";
 
 export interface ProductReadApiClient {
+    getBacktestCreationContext(signal?: AbortSignal): Promise<BacktestCreationContextTransport>;
+    listBacktestRuns(signal?: AbortSignal): Promise<BacktestRunTransport[]>;
+    createBacktestRun(
+        value: BacktestCreateTransport,
+        commandId: string,
+        signal?: AbortSignal
+    ): Promise<BacktestCreateResponseTransport>;
+    cancelBacktestRun(
+        id: BacktestRunId,
+        commandId: string,
+        signal?: AbortSignal
+    ): Promise<BacktestCancellationTransport>;
+    getBacktestResult(id: BacktestRunId, signal?: AbortSignal): Promise<BacktestResultTransport>;
     getStrategy(id: Sha256Fingerprint, signal?: AbortSignal): Promise<StrategyTransport>;
     getBacktestRun(id: BacktestRunId, signal?: AbortSignal): Promise<BacktestRunTransport>;
     getBacktestEvidence(
@@ -211,7 +234,7 @@ async function request(
     url: string,
     init: RequestInit,
     signal?: AbortSignal,
-    family: "research" | "product-read" | "health" = "research"
+    family: "research" | "product-read" | "product-command" | "health" = "research"
 ): Promise<unknown> {
     let response: Response;
     try {
@@ -236,8 +259,8 @@ async function request(
             );
         return body;
     }
-    if (family === "product-read") {
-        if (response.status === 200) return body;
+    if (family === "product-read" || family === "product-command") {
+        if (response.status === (family === "product-read" ? 200 : 202)) return body;
         const failure = productErrorSchema.safeParse(body);
         if (![400, 404, 409, 500, 503].includes(response.status) || !failure.success)
             throw new ResearchWebError(
@@ -294,6 +317,83 @@ const base = (id: ResearchResultFingerprint): string =>
     `/api/v2/research/artifacts/${encodeURIComponent(id)}`;
 
 export class FetchResearchApiClient implements ResearchApiClient {
+    async getBacktestCreationContext(signal?: AbortSignal) {
+        return admitted(
+            backtestCreationContextSchema,
+            await request(
+                "/api/v2/backtest/creation-context",
+                { method: "GET" },
+                signal,
+                "product-read"
+            )
+        );
+    }
+    async listBacktestRuns(signal?: AbortSignal) {
+        const body = await request(
+            "/api/v2/backtest/runs",
+            { method: "GET" },
+            signal,
+            "product-read"
+        );
+        if (!Array.isArray(body))
+            throw new ResearchWebError("CONTRACT_ERROR", "Backtest inventory is invalid");
+        return body.map((value) => admitted(backtestRunSchema, value));
+    }
+    async createBacktestRun(
+        value: BacktestCreateTransport,
+        commandId: string,
+        signal?: AbortSignal
+    ) {
+        const intent = admitted(backtestCreateSchema, value);
+        const response = admitted(
+            backtestCreateResponseSchema,
+            await request(
+                "/api/v2/backtest/runs",
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Idempotency-Key": commandId },
+                    body: JSON.stringify(intent)
+                },
+                signal,
+                "product-command"
+            )
+        );
+        if (response.backtest_run_id !== intent.backtest_run_id)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Backtest creation response differs from the submitted Run"
+            );
+        return response;
+    }
+    async cancelBacktestRun(id: BacktestRunId, commandId: string, signal?: AbortSignal) {
+        const response = admitted(
+            backtestCancellationSchema,
+            await request(
+                `/api/v2/backtest/runs/${encodeURIComponent(id)}/cancellation`,
+                { method: "POST", headers: { "Idempotency-Key": commandId } },
+                signal,
+                "product-command"
+            )
+        );
+        if (response.run_id !== id)
+            throw new ResearchWebError(
+                "CONTRACT_ERROR",
+                "Backtest cancellation response differs from the submitted Run"
+            );
+        return response;
+    }
+    async getBacktestResult(id: BacktestRunId, signal?: AbortSignal) {
+        return admitted(
+            backtestResultSchema,
+            await request(
+                `/api/v2/backtest/runs/${encodeURIComponent(id)}/result`,
+                { method: "GET" },
+                signal,
+                "product-read"
+            )
+        );
+    }
+
     async getStrategy(id: Sha256Fingerprint, signal?: AbortSignal) {
         const value = admitted(
             strategySchema,

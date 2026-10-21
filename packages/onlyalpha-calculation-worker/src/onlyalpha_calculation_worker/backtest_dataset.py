@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.research.dataset.codec import only_table_to_bars
-from onlyalpha.research.dataset.economic_store import OnlyDatasetEconomicBindingStore
 from onlyalpha.research.dataset.ports import OnlyBoundedResearchDatasetSnapshotStore
 from onlyalpha_calculation_worker.contracts import integer, sha
+
+if TYPE_CHECKING:
+    from onlyalpha.backtest.admission import OnlyBacktestDatasetBindingReader
 
 
 def load_dataset_inputs(
     datasets: OnlyBoundedResearchDatasetSnapshotStore,
-    bindings: OnlyDatasetEconomicBindingStore,
+    bindings: OnlyBacktestDatasetBindingReader,
     binding_fingerprint: str,
     source: str,
     data_version: str,

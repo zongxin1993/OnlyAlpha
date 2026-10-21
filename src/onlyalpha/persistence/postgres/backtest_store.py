@@ -209,6 +209,16 @@ class OnlyPostgresBacktestStore:
         except psycopg.Error as exc:
             raise OnlyBacktestStoreUnavailableError("Backtest create transaction failed") from exc
 
+    def recent_runs(self) -> tuple[OnlyBacktestRun, ...]:
+        try:
+            with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
+                rows = connection.execute(
+                    "SELECT * FROM backtest_run ORDER BY queued_at DESC, run_id DESC LIMIT 50"
+                ).fetchall()
+            return tuple(_decode_run(cast(Mapping[str, object], row)) for row in rows)
+        except psycopg.Error as exc:
+            raise OnlyBacktestStoreUnavailableError("Backtest Run inventory load failed") from exc
+
     def load(self, run_id: OnlyBacktestRunId) -> OnlyBacktestRun:
         try:
             with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
@@ -317,7 +327,8 @@ class OnlyPostgresBacktestStore:
                 )
                 row = connection.execute(
                     f"""SELECT run.* FROM backtest_run AS run
-                    WHERE run.state IN ('QUEUED', 'RUNNING')
+                    WHERE (run.state IN ('QUEUED', 'RUNNING')
+                           OR (run.state = 'CANCEL_REQUESTED' AND run.specification_payload->>'schema_version' = '2'))
                       AND {work_predicate}
                       AND NOT EXISTS (
                         SELECT 1 FROM backtest_run_attempt AS active
@@ -459,7 +470,11 @@ class OnlyPostgresBacktestStore:
                 if run_row is None:
                     raise OnlyBacktestIntegrityError("BACKTEST_ATTEMPT_RUN_MISSING", attempt.run_id.value)
                 run = _decode_run(cast(Mapping[str, object], run_row))
-                if attempt.attempt_number >= policy.max_attempts and run.state is OnlyBacktestRunState.RUNNING:
+                if attempt.attempt_number >= policy.max_attempts and (
+                    run.state is OnlyBacktestRunState.RUNNING
+                    or run.state is OnlyBacktestRunState.CANCEL_REQUESTED
+                    and run.specification.order_policy is not None
+                ):
                     failure = OnlyBacktestRunFailure(
                         OnlyBacktestRunFailurePhase.OPERATIONAL,
                         "ATTEMPT_LIMIT_EXHAUSTED",
@@ -756,6 +771,8 @@ def _decode_run(row: Mapping[str, object]) -> OnlyBacktestRun:
         specification = OnlyBacktestSpecification.from_dict(payload)
         if only_canonical_json(specification.to_dict()) != only_canonical_json(payload):
             raise ValueError("Backtest Specification payload is not canonical")
+        if row["specification_schema_version"] != specification.schema_version:
+            raise ValueError("Backtest Specification schema version differs")
         if row["specification_fingerprint"] != specification.specification_fingerprint:
             raise ValueError("Backtest Specification fingerprint differs")
         resolution_payload = row["admission_resolution_payload"]

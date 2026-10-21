@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.data.enums import (
     OnlyDataSequenceSemantics,
     OnlyMarketDataCapability,
@@ -63,6 +64,13 @@ class OnlyBacktestDatasetSourceConfig:
         for value in (self.snapshot_fingerprint, self.dataset_binding_fingerprint):
             if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
                 raise ValueError("BACKTEST_DATASET_SOURCE_IDENTITY_INVALID")
+
+
+def only_backtest_dataset_source_fingerprint(snapshot: str, binding: str) -> str:
+    OnlyBacktestDatasetSourceConfig(snapshot, binding)
+    return only_canonical_fingerprint(
+        {"domain": "onlyalpha.backtest.dataset-source/1", "snapshot": snapshot, "binding": binding}
+    )
 
 
 class OnlyBacktestEconomicFactReader:

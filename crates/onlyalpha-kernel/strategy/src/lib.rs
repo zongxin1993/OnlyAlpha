@@ -1,4 +1,5 @@
 //! Deterministic Strategy component. No official Revision1 reader or Runtime admission.
+mod admission;
 mod execution;
 mod model;
 mod recovery;

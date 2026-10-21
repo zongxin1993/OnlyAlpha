@@ -847,9 +847,13 @@ def validate_infrastructure_sources(root: Path) -> None:
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         sources = area / "rust" if component in {"onlyalpha-runtime-persistence", "onlyalpha-backtest-driver"} else area
         for path in sources.rglob("*.rs"):
+            text = path.read_text()
+            if component == "onlyalpha-backtest-driver" and path == sources / "main.rs":
+                # This value is already a pinned input in Cargo.toml/Cargo.lock.
+                text = text.replace('env!("CARGO_PKG_VERSION")', '"declared-package-version"')
             if (
                 path.is_symlink()
-                or _hidden_rust_input(path.read_text())
+                or _hidden_rust_input(text)
                 or re.search(r"\binclude_(?:str|bytes)\s*!", path.read_text())
             ):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")

@@ -62,7 +62,9 @@ def registry() -> OnlyCalculationRegistry:
     return result
 
 
-def _resolve(request: object) -> tuple[OnlyCalculationDefinition, OnlyCalculationBackendRegistration, dict[str, Any]]:
+def _resolve(
+    request: object, calculations: OnlyCalculationRegistry
+) -> tuple[OnlyCalculationDefinition, OnlyCalculationBackendRegistration, dict[str, Any]]:
     row = exact(request, {"schema_version", "op", "reference", "parameters", "input_bindings"})
     if type(row["schema_version"]) is not int or row["schema_version"] != 1 or row["op"] != "RESOLVE":
         raise ValueError("NODE_SCHEMA")
@@ -76,8 +78,8 @@ def _resolve(request: object) -> tuple[OnlyCalculationDefinition, OnlyCalculatio
         if r["node_fingerprint"] is not None:
             sha(r["node_fingerprint"])
         references[name] = OnlyCalculationReference(**r)
-    native = registry().rematerialize_definition(reference, parameters, references)
-    registration = registry().resolve(
+    native = calculations.rematerialize_definition(reference, parameters, references)
+    registration = calculations.resolve(
         reference.kind, reference.type_id, reference.semantic_version, OnlyCalculationBackendKind.TRADING
     )
     if (
@@ -125,6 +127,7 @@ class _Node:
     descriptor: dict[str, Any]
     bar_type: OnlyBarType
     instance: Any
+    calculations: OnlyCalculationRegistry
     samples: int = 0
     receipt: dict[str, Any] | None = None
 
@@ -138,7 +141,7 @@ class _Node:
         }
 
     def fresh(self) -> Any:
-        return OnlyTradingCalculationBackendResolver(registry()).create(
+        return OnlyTradingCalculationBackendResolver(self.calculations).create(
             self.native, OnlyIndicatorBackendRequest(OnlyIndicatorId(self.binding["scope"]), self.bar_type)
         )
 
@@ -209,13 +212,14 @@ class _Node:
 
 
 class NodeBackend:
-    def __init__(self, generation: str, artifact: str):
+    def __init__(self, generation: str, artifact: str, *, calculations: OnlyCalculationRegistry | None = None):
         self.generation = sha(generation)
         self.artifact = sha(artifact)
         self.nodes: dict[str, _Node] = {}
+        self.calculations = calculations if calculations is not None else registry()
 
     def resolve(self, request: object) -> dict[str, Any]:
-        return _resolve(request)[2]
+        return _resolve(request, self.calculations)[2]
 
     def create(self, request: object) -> dict[str, Any]:
         r = exact(
@@ -224,7 +228,7 @@ class NodeBackend:
         if type(r["schema_version"]) is not int or r["schema_version"] != 1 or r["op"] != "CREATE":
             raise ValueError("NODE_SCHEMA")
         b = binding(r["binding"])
-        native, registration, descriptor = _resolve(r["resolution"])
+        native, registration, descriptor = _resolve(r["resolution"], self.calculations)
         bar_type = OnlyBarType.from_dict(r["bar_type"])
         context = digest(
             encode(
@@ -250,7 +254,7 @@ class NodeBackend:
             or len(self.nodes) >= MAX_INSTANCES
         ):
             raise ValueError("NODE_BINDING")
-        node = _Node(b, native, registration, descriptor, bar_type, None)
+        node = _Node(b, native, registration, descriptor, bar_type, None, self.calculations)
         node.instance = node.fresh()
         node.candidate(node.plugin(node.instance))
         checkpoint = node.checkpoint()

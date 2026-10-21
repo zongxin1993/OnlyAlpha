@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha"
-version = "0.10.20"
+version = "0.10.21"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
@@ -99,6 +99,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/onlyalpha"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"database/postgres/migrations" = "onlyalpha/persistence/postgres/migrations"
 
 [tool.hatch.build]
 exclude = ["src/onlyalpha/_build_provenance.json", "src/onlyalpha/_build_provenance.sha256"]

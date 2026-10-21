@@ -1,6 +1,6 @@
 ﻿# Internal Backtest Engine Contract
 
-> 本文描述 Kernel 内部 Backtest Engine/Runtime 组合，不是外部 Product client 使用指南。当前尚无 governed Backtest Product API；
+> 本文描述 Kernel 内部 Backtest Engine/Runtime 组合，不是外部 Product client 使用指南。正式 Product 操作由现有 versioned Backtest Product API 与 Shipping Web 工作台承接（原生组合见 [Rust Backtest Replay](rust-backtest-replay.md)）；
 > direct `OnlyEngine` composition 仅供 Worker、Scenario 和测试使用，外部用户不得据此绕过 Product Control Plane。
 
 验证边界的 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；它不注册到默认 Product composition。

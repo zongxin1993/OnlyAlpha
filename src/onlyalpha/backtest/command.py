@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandId,
@@ -70,8 +70,18 @@ class OnlyBacktestCommandService:
         self,
         command_id: OnlyProductCommandId,
         specification: OnlyBacktestSpecification,
+        *,
+        run_id: OnlyBacktestRunId | None = None,
+        runtime_generation_fingerprint: str | None = None,
     ) -> OnlyBacktestSubmitOutcome:
-        fingerprint = only_product_command_fingerprint({"specification": specification.to_dict()})
+        intent: dict[str, object] = {"specification": specification.to_dict()}
+        if specification.order_policy is not None:
+            if run_id is None or runtime_generation_fingerprint is None:
+                _conflict("Native creation requires the original Run ID and exact Runtime Generation")
+            intent.update(run_id=run_id.value, runtime_generation_fingerprint=runtime_generation_fingerprint)
+        elif run_id is not None or runtime_generation_fingerprint is not None:
+            _conflict("Operational creation identity requires a native specification")
+        fingerprint = only_product_command_fingerprint(intent)
         existing = self._store.find_product_command_receipt(command_id)
         if existing is not None:
             replayed = self._replay_create(existing, fingerprint)
@@ -80,16 +90,34 @@ class OnlyBacktestCommandService:
         resolution = self._admission.resolve(specification)
         queued_at = self._now_utc()
         run = OnlyBacktestRun.queued(
-            run_id=OnlyBacktestRunId.new(),
+            run_id=run_id or OnlyBacktestRunId.new(),
             specification=specification,
             admission_resolution=resolution,
             queued_at=queued_at,
         )
-        self._runtime_generations.bind_new_work(
-            run.run_id.value,
-            actor="backtest-product-admission",
-            occurred_at=queued_at,
-        )
+        if runtime_generation_fingerprint is None:
+            self._runtime_generations.bind_new_work(
+                run.run_id.value,
+                actor="backtest-product-admission",
+                occurred_at=queued_at,
+            )
+        else:
+            self._runtime_generations.bind_new_work_exact(
+                run.run_id.value,
+                runtime_generation_fingerprint,
+                owner=command_id.value,
+                actor="backtest-product-admission",
+                occurred_at=queued_at,
+            )
+        try:
+            self._admission.validate_runtime(run, self._runtime_generations)
+        except Exception:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="backtest-product-admission-rejected",
+                occurred_at=self._now_utc(),
+            )
+            raise
         prepared = OnlyProductCommandReceipt(
             command_id=command_id,
             command_kind=OnlyProductCommandKind.CREATE_BACKTEST_RUN,
@@ -100,22 +128,17 @@ class OnlyBacktestCommandService:
             ),
             accepted_at=queued_at,
         )
-        try:
-            receipt = self._store.create_queued_with_receipt(run, prepared)
-        except Exception:
-            self._runtime_generations.release_work(
-                run.run_id.value,
-                actor="backtest-product-admission-compensation",
-                occurred_at=self._now_utc(),
-            )
-            raise
+        # The store may have committed before its acknowledgement was lost. Preserve
+        # the exact binding on every uncertain persistence outcome; retry the same intent.
+        receipt = self._store.create_queued_with_receipt(run, prepared)
         if receipt == prepared:
             return OnlyBacktestSubmitOutcome(run, OnlyBacktestSubmissionDisposition.CREATED)
-        self._runtime_generations.release_work(
-            run.run_id.value,
-            actor="backtest-product-admission-concurrency-loser",
-            occurred_at=self._now_utc(),
-        )
+        if receipt.outcome_ref.outcome_id != run.run_id.value:
+            self._runtime_generations.release_work(
+                run.run_id.value,
+                actor="backtest-product-admission-concurrency-loser",
+                occurred_at=self._now_utc(),
+            )
         replayed = self._replay_create(receipt, fingerprint)
         self._runtime_generations.require_work_binding(replayed.run.run_id.value)
         return replayed
@@ -189,7 +212,7 @@ class OnlyBacktestCommandService:
             _conflict("Product Command ID is already bound to another intent")
 
 
-def _conflict(detail: str) -> None:
+def _conflict(detail: str) -> NoReturn:
     raise OnlyBacktestError(OnlyBacktestErrorPhase.COMMAND, "PRODUCT_COMMAND_CONFLICT", detail)
 
 

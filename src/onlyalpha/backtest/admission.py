@@ -3,33 +3,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset import (
     OnlyResearchDatasetDefinition,
     OnlyResearchDatasetEconomicBinding,
-    OnlyResearchDatasetSnapshotStore,
 )
+from onlyalpha.research.dataset.ports import OnlyBoundedResearchDatasetSnapshotStore
 from onlyalpha.runtime.backtest.input_requirements import OnlyKernelEconomicInputRequirement
 from onlyalpha.strategy.promotion import OnlyStrategyPromotionStage
 from onlyalpha.strategy.revision import OnlyStrategyRevision
 from onlyalpha.strategy.store import OnlyStrategyRevisionReader
 
-from .errors import OnlyBacktestError, OnlyBacktestErrorPhase
+from .errors import OnlyBacktestError, OnlyBacktestErrorPhase, OnlyBacktestProofUnavailableError
+from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .model import (
     OnlyBacktestAdmissionResolution,
     OnlyBacktestProfileReference,
+    OnlyBacktestRun,
     OnlyBacktestSpecification,
 )
 from .profiles import OnlyBacktestProfile
+
+if TYPE_CHECKING:
+    from .worker import OnlyBacktestEnginePlanBuilder
 
 
 class _PromotionAuthority(Protocol):
     def current_stage(self, strategy_fingerprint: str) -> OnlyStrategyPromotionStage: ...
 
 
-class _DatasetBindingAuthority(Protocol):
+class OnlyBacktestDatasetBindingReader(Protocol):
     def load_verified(self, fingerprint: str) -> OnlyResearchDatasetEconomicBinding: ...
 
 
@@ -59,14 +65,16 @@ class OnlyBacktestAdmissionService:
         *,
         strategies: OnlyStrategyRevisionReader,
         promotions: _PromotionAuthority,
-        dataset_bindings: _DatasetBindingAuthority,
-        datasets: OnlyResearchDatasetSnapshotStore,
+        dataset_bindings: OnlyBacktestDatasetBindingReader,
+        datasets: OnlyBoundedResearchDatasetSnapshotStore,
         market_products: _MarketProductAuthority,
         profiles: _ProfileAuthority,
         kernel_semantics_version: str,
+        plans: OnlyBacktestEnginePlanBuilder | None = None,
     ) -> None:
         if not kernel_semantics_version.strip():
             raise ValueError("Kernel semantics version is required")
+        self._plans = plans
         self._strategies = strategies
         self._promotions = promotions
         self._dataset_bindings = dataset_bindings
@@ -75,13 +83,45 @@ class OnlyBacktestAdmissionService:
         self._profiles = profiles
         self._kernel_semantics_version = kernel_semantics_version
 
+    def validate_runtime(self, run: OnlyBacktestRun, authority: OnlyRuntimeGenerationWorkAuthority) -> None:
+        authority.validate_backtest_work(run, self._load_strategy(run.specification.strategy_fingerprint))
+
+    def verify_evidence(
+        self,
+        run: OnlyBacktestRun,
+        manifest: OnlyBacktestEvidenceManifest,
+        evidence: OnlyBacktestEvidenceStore,
+        authority: OnlyRuntimeGenerationWorkAuthority,
+    ) -> dict[str, Any]:
+        from .native_evidence import only_verify_native_backtest_evidence
+
+        try:
+            dataset = self._load_dataset(run.admission_resolution.base_dataset_snapshot_fingerprint, native=True)
+        except OnlyBacktestError as exc:
+            if exc.code.endswith(("_NOT_FOUND", "_UNAVAILABLE")):
+                raise OnlyBacktestProofUnavailableError("Native Dataset proof is unavailable") from exc
+            raise
+        return only_verify_native_backtest_evidence(
+            run,
+            manifest,
+            evidence,
+            authority,
+            dataset=dataset,
+            plans=self._plans,
+            strategies=self._strategies,
+            datasets=self._datasets,
+            dataset_bindings=self._dataset_bindings,
+        )
+
     def resolve(self, specification: OnlyBacktestSpecification) -> OnlyBacktestAdmissionResolution:
         strategy = self._load_strategy(specification.strategy_fingerprint)
         stage = self._promotions.current_stage(specification.strategy_fingerprint)
         if stage is OnlyStrategyPromotionStage.RESEARCH:
             _reject("STRATEGY_NOT_ADMITTED_TO_BACKTEST", specification.strategy_fingerprint)
         binding = self._load_binding(specification.dataset_binding_fingerprint)
-        dataset = self._load_dataset(binding.base_dataset_snapshot_fingerprint)
+        dataset = self._load_dataset(
+            binding.base_dataset_snapshot_fingerprint, native=specification.order_policy is not None
+        )
         self._verify_strategy_dataset(strategy, dataset.snapshot.definition)
         market = self._market_products.resolve_for_backtest(
             specification.market_product_configuration_fingerprint,
@@ -133,9 +173,18 @@ class OnlyBacktestAdmissionService:
             _reject("DATASET_BINDING_CORRUPT", fingerprint)
         return binding
 
-    def _load_dataset(self, fingerprint: str):  # type: ignore[no-untyped-def]
+    def _load_dataset(self, fingerprint: str, *, native: bool = False):  # type: ignore[no-untyped-def]
         try:
+            if native:
+                snapshot = self._datasets.load(fingerprint)
+                if snapshot.row_count > 4096:
+                    _reject("BACKTEST_NATIVE_DATASET_ROW_BOUND", "Native input is bounded to 4096 sealed bars")
+                return self._datasets.bounded(max_rows=4096, max_bytes=128 * 1024 * 1024).load_verified_table(
+                    fingerprint
+                )
             return self._datasets.load_verified_table(fingerprint)
+        except OnlyBacktestError:
+            raise
         except Exception as exc:
             code = getattr(exc, "code", "DATASET_NOT_FOUND")
             _reject(str(code), fingerprint, cause=exc)

@@ -441,7 +441,7 @@ def test_0052_migration_preserves_original_facts_and_is_atomic_restartable(postg
             AND column_name='representation_version'""").fetchone() == (0,)
         connection.execute("DROP TRIGGER reject_watchlist_upgrade ON onlyalpha_schema_migration")
         connection.execute("DROP FUNCTION reject_watchlist_upgrade()")
-    assert migrator.migrate() == ("0052_watchlist_member_sources",)
+    assert migrator.migrate() == ("0052_watchlist_member_sources", "0053_backtest_native_specification")
     assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
     with psycopg.connect(postgres_dsn) as connection:
         assert (
@@ -453,10 +453,12 @@ def test_0052_migration_preserves_original_facts_and_is_atomic_restartable(postg
         assert connection.execute("SELECT * FROM product_command_receipt").fetchall() == receipts
         assert connection.execute("SELECT * FROM product_command_admission").fetchall() == admissions
         assert connection.execute("SELECT representation_version FROM watchlist_revision").fetchall() == [(1,)]
-        assert (
-            connection.execute("SELECT * FROM onlyalpha_schema_migration ORDER BY migration_id").fetchall()[:-1]
-            == ledger
-        )
+        upgraded = connection.execute("SELECT * FROM onlyalpha_schema_migration ORDER BY migration_id").fetchall()
+        assert upgraded[: len(ledger)] == ledger
+        assert [row[0] for row in upgraded[len(ledger) :]] == [
+            "0052_watchlist_member_sources",
+            "0053_backtest_native_specification",
+        ]
     fresh = OnlyPostgresWatchlistStore(postgres_dsn, NAMESPACE)
     assert fresh.read().lists == (LIST,)
     assert fresh.command(command) == fresh.read()
