@@ -110,18 +110,13 @@ def test_exact_read_to_act_and_research_command_do_not_import_advisory() -> None
         assert "onlyalpha.research.memory" not in imports or "command" in relative
 
 
-def test_d2_http_route_dispatches_product_query_without_d1_internals() -> None:
+def test_retired_d2_http_route_has_no_current_serving_fallback() -> None:
     route = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/advisory_routes.py"
-    source = route.read_text(encoding="utf-8")
-    assert "product.queries.dispatch(" in source
-    for forbidden in (
-        "only_query_near_duplicates",
-        "OnlyExperimentMemoryAdvisoryProjectionBuilder",
-        "OnlyResearchAdvisorySourceRefV1",
-    ):
-        assert forbidden not in source
-    assert '"RESEARCH_NEAR_DUPLICATE_QUERY"' in source
-    assert '"requires_product_command_id": False' in source
+    assert not route.exists()
+    native = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    assert "/api/v2/research/advisory/near-duplicates" not in native
+    assert "OnlyExperimentMemoryAdvisoryProjectionBuilder" not in native
+    assert "OnlyResearchAdvisorySourceRefV1" not in native
 
 
 def test_d2_product_service_does_not_launder_unexpected_failures() -> None:

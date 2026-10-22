@@ -27,7 +27,7 @@ pub fn fingerprint(raw: &[u8]) -> String {
 fn invalid<T>(_: T) -> WorkerError {
     WorkerError::Invalid
 }
-fn keys(v: &Value, fields: &[&str]) -> bool {
+pub(crate) fn keys(v: &Value, fields: &[&str]) -> bool {
     v.as_object()
         .is_some_and(|m| m.len() == fields.len() && fields.iter().all(|k| m.contains_key(*k)))
 }

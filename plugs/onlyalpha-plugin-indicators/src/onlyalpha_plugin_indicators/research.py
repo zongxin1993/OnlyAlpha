@@ -8,6 +8,12 @@ from decimal import Decimal, localcontext
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from onlyalpha.algorithm.batch import (
+    OnlyResearchCalculationBackendExecutionV2,
+    OnlyResearchOutputReadiness,
+    OnlyResearchReadinessReason,
+    OnlyResearchReadinessState,
+)
 from onlyalpha.calculation import (
     OnlyCalculationDefinition,
     OnlyCalculationKind,
@@ -18,12 +24,6 @@ from onlyalpha.calculation import (
 from onlyalpha.calculation.chart_decimal import only_chart_study_effective_numeric
 from onlyalpha.calculation.chart_study import OnlyChartStudySupport
 from onlyalpha.calculation.definition import OnlyNumericDefinition
-from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2
-from onlyalpha.research.calculation.readiness import (
-    OnlyResearchOutputReadiness,
-    OnlyResearchReadinessReason,
-    OnlyResearchReadinessState,
-)
 from onlyalpha_plugin_indicators.calibrated import OnlyCalibratedIndicator
 from onlyalpha_plugin_indicators.chart import chart_execution, chart_support, require_chart_capacity
 from onlyalpha_plugin_indicators.financial_semantics import evaluate_financial
@@ -41,7 +41,7 @@ class OnlyOfficialResearchIndicatorBackend:
     def execute_chart_study(
         self, definition: OnlyCalculationDefinition, inputs: Mapping[str, pa.Array | pa.ChunkedArray]
     ) -> OnlyResearchCalculationBackendExecutionV2:
-        from onlyalpha_plugin_indicators.registration import ATR_V2, CALIBRATED_TYPES, FINANCIAL_TYPES, TYPES
+        from onlyalpha_plugin_indicators.definitions import ATR_V2, CALIBRATED_TYPES, FINANCIAL_TYPES, TYPES
 
         matches = [
             item

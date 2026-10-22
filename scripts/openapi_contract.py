@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -13,45 +14,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha_http_server import create_product_app
-from onlyalpha_http_server.agent_gateway import OnlyAgentNodeGateway
-from onlyalpha_http_server.chart_studies.routes import create_chart_study_router
-from onlyalpha_http_server.health import OnlyKernelResearchReadinessProjection
-from onlyalpha_http_server.search import OnlySearchProductHttpBoundary
-from onlyalpha_http_server.watchlists.routes import create_watchlist_router
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from onlyalpha.application.catalog_context import OnlyExactCatalogContextQueryService
-from onlyalpha.application.chart_study_product_query import OnlyChartStudyProductQueryService
-from onlyalpha.application.integration_application import (
-    OnlyIntegrationCommandService,
-    OnlyIntegrationQueryService,
-)
-from onlyalpha.application.integration_type_catalog import OnlyIntegrationTypeCatalog
-from onlyalpha.application.market_data_product import OnlyMarketDataProductService
-from onlyalpha.application.private_asset_product import (
-    OnlyPrivateAssetProductService,
-    OnlyProductAssetSearchProjectionService,
-)
-from onlyalpha.application.product_boundary import only_compose_research_product_boundary
-from onlyalpha.application.qualification_product import (
-    OnlyQualificationProductService,
-    OnlyQualificationQueryService,
-)
-from onlyalpha.application.strategy_product import (
-    OnlyStrategyFreezeProductService,
-    OnlyStrategyPromotionProductService,
-    OnlyStrategyQueryService,
-)
-from onlyalpha.application.watchlists import OnlyWatchlistService
-from onlyalpha.backtest import OnlyBacktestCommandService, OnlyBacktestQueryService
-from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
-from onlyalpha.kernel import OnlyAlphaKernelHost
-from onlyalpha.research.artifact.model import OnlyResearchArtifact
-from onlyalpha.research.command import OnlyResearchCommandService, OnlyResearchRunQueryService
-from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
-from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
+from scripts.native_http_contract import exported
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_RELATIVE = Path("contracts/product-api/v2/openapi.json")
@@ -148,44 +113,6 @@ class _AdditionalPropertiesKind(StrEnum):
 @dataclass(slots=True)
 class _ComparisonState:
     visited: set[tuple[str, str, str]]
-
-
-class _ContractReader:
-    def load_verified(self, research_result_fingerprint: str) -> OnlyResearchArtifact:
-        raise RuntimeError(f"OpenAPI generation must not load Artifact {research_result_fingerprint}")
-
-
-class _ContractDatasetResolver:
-    def resolve_verified(self, definition: object) -> object:
-        raise RuntimeError(f"OpenAPI generation must not resolve Dataset {definition}")
-
-
-class _ContractExactReferences:
-    def load(self, _fingerprint: str) -> object:
-        raise RuntimeError("OpenAPI generation must not load a Dataset Snapshot")
-
-    def load_evaluation_contract_intrinsic_verified(self, _fingerprint: str) -> object:
-        raise RuntimeError("OpenAPI generation must not load an Evaluation Context")
-
-
-class _ContractAgentGateway:
-    def post_json_verified(self, _path: str, _payload: Mapping[str, object]) -> Mapping[str, object]:
-        raise RuntimeError("OpenAPI generation must not call the Agent node")
-
-
-class _ContractRuntimeGenerations:
-    def projection(self) -> object:
-        raise RuntimeError("OpenAPI generation must not read Runtime Generation state")
-
-
-class _ContractSearchAuthoring:
-    def load_search_authoring_input_verified(self, _kind: str, _fingerprint: str) -> object:
-        raise RuntimeError("OpenAPI generation must not read Search authoring inputs")
-
-
-class _ContractExactStatistics:
-    def load_verified(self, _fingerprint: str) -> object:
-        raise RuntimeError("OpenAPI generation must not read Research Statistics")
 
 
 def canonical_bytes(document: Mapping[str, Any]) -> bytes:
@@ -330,55 +257,7 @@ def authorize_pre_freeze_correction(
 
 
 def render_document() -> JsonObject:
-    calculations = OnlyCalculationRegistry()
-    kernel = OnlyAlphaKernelHost()
-    kernel.start()
-    try:
-        app = create_product_app(
-            _ContractReader(),
-            only_compose_research_product_boundary(
-                admission=kernel,
-                commands=cast(OnlyResearchCommandService, object()),
-                queries=cast(OnlyResearchRunQueryService, object()),
-            ),
-            calculations,
-            OnlyResearchDefinitionResolver(calculations, _ContractDatasetResolver()),  # type: ignore[arg-type]
-            OnlyKernelResearchReadinessProjection(
-                kernel,
-                OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ()),
-            ),
-            cast(OnlyStrategyFreezeProductService, object()),
-            cast(OnlyStrategyPromotionProductService, object()),
-            cast(OnlyStrategyQueryService, object()),
-            cast(OnlyQualificationProductService, object()),
-            cast(OnlyQualificationQueryService, object()),
-            cast(OnlyBacktestCommandService, object()),
-            cast(OnlyBacktestQueryService, object()),
-            None,
-            cast(OnlyExactCatalogContextQueryService, object()),
-            cast(OnlySearchProductHttpBoundary, object()),
-            cast(Any, _ContractExactReferences()),
-            cast(Any, _ContractExactReferences()),
-            cast(OnlyAgentNodeGateway, _ContractAgentGateway()),
-            cast(Any, _ContractRuntimeGenerations()),
-            cast(Any, _ContractSearchAuthoring()),
-            cast(Any, _ContractExactStatistics()),
-            private_asset_product=cast(OnlyPrivateAssetProductService, object()),
-            private_asset_search=cast(OnlyProductAssetSearchProjectionService, object()),
-            integration_types=OnlyIntegrationTypeCatalog(OnlyDataSourceFactoryRegistry(), OnlyBrokerFactoryRegistry()),
-            integration_commands=cast(OnlyIntegrationCommandService, object()),
-            integration_queries=cast(OnlyIntegrationQueryService, object()),
-            integration_probes=cast(Any, object()),
-            integration_operational_queries=cast(Any, object()),
-            market_data=cast(OnlyMarketDataProductService, object()),
-        )
-        app.include_router(create_watchlist_router(cast(OnlyWatchlistService, object())))
-        # Document the conditional protected family without admitting a runtime
-        # installation or exposing these routes in anonymous Product composition.
-        app.include_router(create_chart_study_router(cast(OnlyChartStudyProductQueryService, object())))
-        return app.openapi()
-    finally:
-        kernel.stop()
+    return exported("openapi")
 
 
 def rendered_contract() -> bytes:

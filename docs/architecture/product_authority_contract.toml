@@ -1,3 +1,8 @@
+# This machine contract resolves Python import/constructor ownership only.
+# Empty retired Python sites do not remove canonical facts, capabilities or future Product goals.
+# Native AuthoritySession, Source and Watchlist implementation ownership remains governed by
+# ADR 0141, docs/rust-product-backend.md and their actual native boundary/security/recovery gates.
+# Python binding entries below do not certify or stand in for Rust implementation coverage.
 contract_version = 1
 name = "P9.K Product Authority Contract"
 
@@ -437,13 +442,13 @@ allowed_capabilities = []
 id = "A03"
 name = "HTTP_COMPOSITION_ROOT"
 production = true
-allowed_capabilities = ["C01", "C05", "C06", "C09", "C10", "C17", "C18", "C19", "C20", "C21", "C23", "C24", "C25", "C26", "C27", "C28", "C29", "C30", "C31", "C32"]
+allowed_capabilities = []
 
 [[actors]]
 id = "A04"
 name = "HTTP_TRANSPORT_ADAPTER"
 production = true
-allowed_capabilities = ["C05", "C18", "C19", "C20", "C26", "C27", "C31", "C32"]
+allowed_capabilities = []
 
 [[actors]]
 id = "A05"
@@ -974,7 +979,7 @@ symbols = ["onlyalpha.application.integration_probe.OnlyIntegrationProbeService"
 
 [[ownership]]
 capability = "C01"
-approved_production_holders = ["A03", "A05", "A10", "A16", "A17", "A23"]
+approved_production_holders = ["A05", "A10", "A16", "A17", "A23"]
 [[ownership]]
 capability = "C02"
 approved_production_holders = ["A05", "A06", "A16", "A23"]
@@ -986,10 +991,10 @@ capability = "C04"
 approved_production_holders = ["A15", "A16"]
 [[ownership]]
 capability = "C05"
-approved_production_holders = ["A03", "A07", "A08", "A14", "A15", "A19", "A20", "A21"]
+approved_production_holders = ["A07", "A08", "A14", "A15", "A19", "A20", "A21"]
 [[ownership]]
 capability = "C06"
-approved_production_holders = ["A03", "A14"]
+approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C07"
 approved_production_holders = ["A14"]
@@ -998,10 +1003,10 @@ capability = "C08"
 approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C09"
-approved_production_holders = ["A03", "A14"]
+approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C10"
-approved_production_holders = ["A03", "A05", "A10", "A16", "A18"]
+approved_production_holders = ["A05", "A10", "A16", "A18"]
 [[ownership]]
 capability = "C11"
 approved_production_holders = ["A10"]
@@ -1022,49 +1027,49 @@ capability = "C16"
 approved_production_holders = []
 [[ownership]]
 capability = "C17"
-approved_production_holders = ["A03", "A12"]
+approved_production_holders = ["A12"]
 [[ownership]]
 capability = "C18"
-approved_production_holders = ["A03", "A04", "A12", "A17"]
+approved_production_holders = ["A12", "A17"]
 [[ownership]]
 capability = "C19"
-approved_production_holders = ["A03", "A04", "A12", "A17"]
+approved_production_holders = ["A12", "A17"]
 [[ownership]]
 capability = "C20"
-approved_production_holders = ["A03", "A04", "A19", "A20", "A22"]
+approved_production_holders = ["A19", "A20", "A22"]
 [[ownership]]
 capability = "C21"
-approved_production_holders = ["A03", "A20", "A21", "A22"]
+approved_production_holders = ["A20", "A21", "A22"]
 [[ownership]]
 capability = "C22"
 approved_production_holders = ["A20", "A21"]
 [[ownership]]
 capability = "C23"
-approved_production_holders = ["A03", "A19", "A20", "A21"]
+approved_production_holders = ["A19", "A20", "A21"]
 [[ownership]]
 capability = "C24"
-approved_production_holders = ["A03", "A20", "A22"]
+approved_production_holders = ["A20", "A22"]
 [[ownership]]
 capability = "C25"
-approved_production_holders = ["A03", "A14"]
+approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C26"
-approved_production_holders = ["A03", "A04", "A14"]
+approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C27"
-approved_production_holders = ["A03", "A04", "A14"]
+approved_production_holders = ["A14"]
 [[ownership]]
 capability = "C28"
-approved_production_holders = ["A03", "A16"]
+approved_production_holders = ["A16"]
 [[ownership]]
 capability = "C29"
-approved_production_holders = ["A03", "A16"]
+approved_production_holders = ["A16"]
 [[ownership]]
 capability = "C30"
-approved_production_holders = ["A03", "A14", "A16"]
+approved_production_holders = ["A14", "A16"]
 [[ownership]]
 capability = "C31"
-approved_production_holders = ["A03", "A04", "A24", "A25"]
+approved_production_holders = ["A24", "A25"]
 
 [[constructors]]
 id = "K01"
@@ -1125,7 +1130,7 @@ approved_paths = ["src/onlyalpha/runtime/sim/factory.py"]
 id = "K12"
 capability = "C17"
 symbol = "onlyalpha.kernel.host.OnlyAlphaKernelHost"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "scripts/openapi_contract.py"]
+approved_paths = []
 [[constructors]]
 id = "K13"
 capability = "C18"
@@ -1140,17 +1145,17 @@ approved_paths = ["src/onlyalpha/application/product_boundary.py"]
 id = "K15"
 capability = "C26"
 symbol = "onlyalpha.strategy.qualification_store._only_compose_qualification_decision_authority"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K16"
 capability = "C26"
 symbol = "onlyalpha.strategy.qualification.OnlyQualificationEvaluator"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K17"
 capability = "C26"
 symbol = "onlyalpha.application.qualification_product.OnlyQualificationProductService"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K18"
 capability = "C07"
@@ -1160,27 +1165,27 @@ approved_paths = ["src/onlyalpha/application/strategy_product.py"]
 id = "K19"
 capability = "C28"
 symbol = "onlyalpha.application.private_strategy_research.OnlyPrivateStrategyResearchApplicationService"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K20"
 capability = "C28"
 symbol = "onlyalpha.persistence.postgres.private_strategy_research_composition_store.OnlyPostgresPrivateStrategyResearchCompositionStore"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K21"
 capability = "C30"
 symbol = "onlyalpha.quant_assets.private_strategy_composition.OnlyPrivateStrategyResearchCompositionVerifier"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K22"
 capability = "C31"
 symbol = "onlyalpha.application.integration_probe.OnlyIntegrationProbeService"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "scripts/agent_provider_bootstrap.py"]
+approved_paths = ["scripts/agent_provider_bootstrap.py"]
 [[constructors]]
 id = "K23"
 capability = "C31"
 symbol = "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py", "src/onlyalpha/persistence/postgres/integration_runtime_composition.py", "scripts/agent_provider_bootstrap.py"]
+approved_paths = ["src/onlyalpha/persistence/postgres/integration_runtime_composition.py", "scripts/agent_provider_bootstrap.py"]
 
 [[bindings]]
 capability = "C32"
@@ -1188,15 +1193,15 @@ symbols = ["onlyalpha.application.watchlists.OnlyWatchlistService", "onlyalpha.a
 
 [[ownership]]
 capability = "C32"
-approved_production_holders = ["A03", "A04", "A26", "A27"]
+approved_production_holders = ["A26", "A27"]
 
 [[constructors]]
 id = "K24"
 capability = "C32"
 symbol = "onlyalpha.application.watchlists.OnlyWatchlistService"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []
 [[constructors]]
 id = "K25"
 capability = "C32"
 symbol = "onlyalpha.persistence.postgres.watchlist_store.OnlyPostgresWatchlistStore"
-approved_paths = ["packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"]
+approved_paths = []

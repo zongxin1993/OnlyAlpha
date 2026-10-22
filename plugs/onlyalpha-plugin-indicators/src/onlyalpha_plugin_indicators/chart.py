@@ -5,10 +5,9 @@ from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from onlyalpha.algorithm.batch import OnlyResearchCalculationBackendExecutionV2, OnlyResearchOutputReadiness
 from onlyalpha.calculation import OnlyCalculationDefinition, OnlyCalculationTypeDefinition
 from onlyalpha.calculation.chart_study import OnlyChartStudySeries, OnlyChartStudySupport
-from onlyalpha.research.calculation.backend import OnlyResearchCalculationBackendExecutionV2
-from onlyalpha.research.calculation.readiness import OnlyResearchOutputReadiness
 
 # Conservative operation upper bound for this plugin's finite-series chart kernels.
 CHART_STUDY_MAX_WORK_UNITS = 5_000_000
@@ -30,7 +29,7 @@ def require_chart_capacity(definition: OnlyCalculationDefinition, row_count: int
 
 
 def chart_support(item: OnlyCalculationTypeDefinition) -> OnlyChartStudySupport | None:
-    from onlyalpha_plugin_indicators.registration import ATR_V2, CALIBRATED_TYPES, FINANCIAL_TYPES, TYPES
+    from onlyalpha_plugin_indicators.definitions import ATR_V2, CALIBRATED_TYPES, FINANCIAL_TYPES, TYPES
 
     admitted = (*TYPES[:3], *TYPES[4:], ATR_V2, *FINANCIAL_TYPES, *CALIBRATED_TYPES)
     if item not in admitted:

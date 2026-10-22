@@ -13,7 +13,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Admit */
         post: operations["admit_agent_session_v2"];
         delete?: never;
         options?: never;
@@ -30,7 +29,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Advance */
         post: operations["advance_agent_session_once_v2"];
         delete?: never;
         options?: never;
@@ -45,7 +43,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Creation Context */
         get: operations["creation_context_api_v2_backtest_creation_context_get"];
         put?: never;
         post?: never;
@@ -62,10 +59,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Recent Runs */
         get: operations["recent_runs_api_v2_backtest_runs_get"];
         put?: never;
-        /** Create Run */
         post: operations["create_run_api_v2_backtest_runs_post"];
         delete?: never;
         options?: never;
@@ -80,7 +75,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run */
         get: operations["get_run_api_v2_backtest_runs__run_id__get"];
         put?: never;
         post?: never;
@@ -99,7 +93,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Run */
         post: operations["cancel_run_api_v2_backtest_runs__run_id__cancellation_post"];
         delete?: never;
         options?: never;
@@ -114,7 +107,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Evidence */
         get: operations["get_evidence_api_v2_backtest_runs__run_id__evidence_get"];
         put?: never;
         post?: never;
@@ -131,7 +123,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Artifact */
         get: operations["get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get"];
         put?: never;
         post?: never;
@@ -148,7 +139,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Result */
         get: operations["result_api_v2_backtest_runs__run_id__result_get"];
         put?: never;
         post?: never;
@@ -165,7 +155,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Capabilities */
         get: operations["capabilities_api_v2_chart_studies_capabilities_get"];
         put?: never;
         post?: never;
@@ -184,7 +173,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Evaluate */
         post: operations["evaluate_api_v2_chart_studies_evaluate_post"];
         delete?: never;
         options?: never;
@@ -199,7 +187,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Integration Types */
         get: operations["list_integration_types_api_v2_integration_types_get"];
         put?: never;
         post?: never;
@@ -216,7 +203,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration Type */
         get: operations["get_integration_type_api_v2_integration_types__type_id__get"];
         put?: never;
         post?: never;
@@ -233,10 +219,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Integrations */
         get: operations["list_integrations_api_v2_integrations_get"];
         put?: never;
-        /** Create Integration */
         post: operations["create_integration_api_v2_integrations_post"];
         delete?: never;
         options?: never;
@@ -251,7 +235,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration */
         get: operations["get_integration_api_v2_integrations__integration_id__get"];
         put?: never;
         post?: never;
@@ -268,9 +251,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration Draft */
         get: operations["get_integration_draft_api_v2_integrations__integration_id__draft_get"];
-        /** Update Integration Draft */
         put: operations["update_integration_draft_api_v2_integrations__integration_id__draft_put"];
         post?: never;
         delete?: never;
@@ -288,7 +269,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reset Integration Draft Contract */
         post: operations["reset_integration_draft_contract_api_v2_integrations__integration_id__draft_contract_reset_post"];
         delete?: never;
         options?: never;
@@ -304,10 +284,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set Integration Secret */
         put: operations["set_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__put"];
         post?: never;
-        /** Clear Integration Secret */
         delete: operations["clear_integration_secret_api_v2_integrations__integration_id__draft_secrets__field_id__delete"];
         options?: never;
         head?: never;
@@ -322,7 +300,6 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set Integration Lifecycle */
         put: operations["set_integration_lifecycle_api_v2_integrations__integration_id__lifecycle_put"];
         post?: never;
         delete?: never;
@@ -338,7 +315,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration Operational Status */
         get: operations["get_integration_operational_status_api_v2_integrations__integration_id__operational_status_get"];
         put?: never;
         post?: never;
@@ -357,7 +333,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Probe Integration */
         post: operations["probe_integration_api_v2_integrations__integration_id__probe_post"];
         delete?: never;
         options?: never;
@@ -372,7 +347,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Integration Probe Attempts */
         get: operations["list_integration_probe_attempts_api_v2_integrations__integration_id__probe_attempts_get"];
         put?: never;
         post?: never;
@@ -389,7 +363,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration Probe Attempt */
         get: operations["get_integration_probe_attempt_api_v2_integrations__integration_id__probe_attempts__probe_attempt_id__get"];
         put?: never;
         post?: never;
@@ -406,10 +379,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Integration Revisions */
         get: operations["list_integration_revisions_api_v2_integrations__integration_id__revisions_get"];
         put?: never;
-        /** Publish Integration Revision */
         post: operations["publish_integration_revision_api_v2_integrations__integration_id__revisions_post"];
         delete?: never;
         options?: never;
@@ -424,7 +395,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Integration Revision */
         get: operations["get_integration_revision_api_v2_integrations__integration_id__revisions__revision_fingerprint__get"];
         put?: never;
         post?: never;
@@ -443,7 +413,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Acquisition */
         post: operations["create_acquisition_api_v2_market_data_acquisitions_post"];
         delete?: never;
         options?: never;
@@ -458,7 +427,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Acquisition */
         get: operations["get_acquisition_api_v2_market_data_acquisitions__acquisition_id__get"];
         put?: never;
         post?: never;
@@ -475,7 +443,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Query Bars */
         get: operations["query_bars_api_v2_market_data_bars_get"];
         put?: never;
         post?: never;
@@ -492,7 +459,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Latest Bar */
         get: operations["latest_bar_api_v2_market_data_latest_bar_get"];
         put?: never;
         post?: never;
@@ -509,7 +475,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Quotes */
         get: operations["quotes_api_v2_market_data_quotes_get"];
         put?: never;
         post?: never;
@@ -526,8 +491,23 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Sources */
         get: operations["list_sources_api_v2_market_data_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/market-data/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["market_data_stream_upgrade"];
         put?: never;
         post?: never;
         delete?: never;
@@ -543,7 +523,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Instruments */
         get: operations["list_instruments_api_v2_market_instruments_get"];
         put?: never;
         post?: never;
@@ -560,7 +539,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search Instruments */
         get: operations["search_instruments_api_v2_market_instruments_search_get"];
         put?: never;
         post?: never;
@@ -577,7 +555,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Browse Current */
         get: operations["browse_current_private_assets_v2"];
         put?: never;
         post?: never;
@@ -594,7 +571,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Factor */
         get: operations["get_exact_private_factor_revision_v2"];
         put?: never;
         post?: never;
@@ -611,7 +587,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search Assets */
         get: operations["search_private_assets_v2"];
         put?: never;
         post?: never;
@@ -628,7 +603,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Strategy */
         get: operations["get_exact_private_strategy_revision_v2"];
         put?: never;
         post?: never;
@@ -645,7 +619,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Qualification Decision */
         get: operations["get_qualification_decision_api_v2_qualification_decisions__decision_fingerprint__get"];
         put?: never;
         post?: never;
@@ -662,7 +635,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Qualification Policies */
         get: operations["list_qualification_policies_api_v2_qualification_policies_get"];
         put?: never;
         post?: never;
@@ -679,7 +651,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Qualification Policy */
         get: operations["get_qualification_policy_api_v2_qualification_policies__policy_id__revisions__policy_version__get"];
         put?: never;
         post?: never;
@@ -696,7 +667,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Artifact Summary */
         get: operations["artifact_summary_api_v2_research_artifacts__research_result_fingerprint__get"];
         put?: never;
         post?: never;
@@ -713,7 +683,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Candidate Catalog */
         get: operations["candidate_catalog_api_v2_research_artifacts__research_result_fingerprint__candidates_get"];
         put?: never;
         post?: never;
@@ -730,7 +699,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Candidate Graph */
         get: operations["candidate_graph_api_v2_research_artifacts__research_result_fingerprint__candidates__candidate_fingerprint__graph_get"];
         put?: never;
         post?: never;
@@ -747,7 +715,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Market Series */
         get: operations["market_series_api_v2_research_artifacts__research_result_fingerprint__market_series_get"];
         put?: never;
         post?: never;
@@ -764,7 +731,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Signal Series */
         get: operations["signal_series_api_v2_research_artifacts__research_result_fingerprint__signals__candidate_fingerprint___role__series_get"];
         put?: never;
         post?: never;
@@ -781,7 +747,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Statistics Catalog */
         get: operations["statistics_catalog_api_v2_research_artifacts__research_result_fingerprint__statistics_get"];
         put?: never;
         post?: never;
@@ -798,7 +763,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Statistic Series */
         get: operations["statistic_series_api_v2_research_artifacts__research_result_fingerprint__statistics__statistics_fingerprint__series_get"];
         put?: never;
         post?: never;
@@ -815,7 +779,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Variable Catalog */
         get: operations["variable_catalog_api_v2_research_artifacts__research_result_fingerprint__variables_get"];
         put?: never;
         post?: never;
@@ -832,7 +795,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Variable Series */
         get: operations["variable_series_api_v2_research_artifacts__research_result_fingerprint__variables__calculation_fingerprint___node_fingerprint___output_name__series_get"];
         put?: never;
         post?: never;
@@ -849,7 +811,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Exact Catalog Context */
         get: operations["get_complete_exact_catalog_context_v2"];
         put?: never;
         post?: never;
@@ -866,7 +827,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Exact Catalog Readiness */
         get: operations["get_exact_catalog_readiness_v2"];
         put?: never;
         post?: never;
@@ -883,10 +843,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Legacy Catalog Context
-         * @deprecated
-         */
         get: operations["get_exact_catalog_context_v2"];
         put?: never;
         post?: never;
@@ -903,7 +859,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Calculations */
         get: operations["calculations_api_v2_research_catalog_calculations_get"];
         put?: never;
         post?: never;
@@ -920,7 +875,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Dataset Fields */
         get: operations["dataset_fields_api_v2_research_catalog_dataset_fields_get"];
         put?: never;
         post?: never;
@@ -937,7 +891,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Statistics */
         get: operations["statistics_api_v2_research_catalog_statistics_get"];
         put?: never;
         post?: never;
@@ -954,7 +907,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Universes */
         get: operations["universes_api_v2_research_catalog_universes_get"];
         put?: never;
         post?: never;
@@ -971,7 +923,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset */
         get: operations["get_exact_dataset_snapshot_identity_v2"];
         put?: never;
         post?: never;
@@ -990,7 +941,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resolve Definition */
         post: operations["resolve_definition_api_v2_research_definitions_resolve_post"];
         delete?: never;
         options?: never;
@@ -1005,7 +955,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Evaluation */
         get: operations["get_exact_evaluation_context_identity_v2"];
         put?: never;
         post?: never;
@@ -1022,10 +971,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Runs */
         get: operations["list_runs_api_v2_research_runs_get"];
         put?: never;
-        /** Submit Run */
         post: operations["submit_run_api_v2_research_runs_post"];
         delete?: never;
         options?: never;
@@ -1042,7 +989,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Run Command */
         post: operations["submit_research_run_command_v2"];
         delete?: never;
         options?: never;
@@ -1059,7 +1005,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Private Strategy Run */
         post: operations["submit_private_strategy_research_v2"];
         delete?: never;
         options?: never;
@@ -1074,7 +1019,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run */
         get: operations["get_run_api_v2_research_runs__run_id__get"];
         put?: never;
         post?: never;
@@ -1093,7 +1037,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Run */
         post: operations["cancel_run_api_v2_research_runs__run_id__cancellation_post"];
         delete?: never;
         options?: never;
@@ -1108,7 +1051,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Execution Evidence */
         get: operations["get_run_execution_evidence_api_v2_research_runs__run_id__execution_evidence_get"];
         put?: never;
         post?: never;
@@ -1125,7 +1067,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Active */
         get: operations["get_active_runtime_generation_v2"];
         put?: never;
         post?: never;
@@ -1142,7 +1083,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Exact */
         get: operations["get_exact_runtime_generation_v2"];
         put?: never;
         post?: never;
@@ -1159,7 +1099,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Input */
         get: operations["get_exact_search_authoring_input_v2"];
         put?: never;
         post?: never;
@@ -1176,7 +1115,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Experiment */
         get: operations["get_search_experiment_v2"];
         put?: never;
         post?: never;
@@ -1193,7 +1131,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Ledger */
         get: operations["get_search_iteration_ledger_v2"];
         put?: never;
         post?: never;
@@ -1210,7 +1147,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Terminal */
         get: operations["get_search_terminal_v2"];
         put?: never;
         post?: never;
@@ -1229,7 +1165,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Parameter */
         post: operations["submit_parameter_search_experiment_v2"];
         delete?: never;
         options?: never;
@@ -1246,7 +1181,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Advance Parameter */
         post: operations["advance_parameter_search_experiment_v2"];
         delete?: never;
         options?: never;
@@ -1263,7 +1197,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Symbolic */
         post: operations["submit_symbolic_search_experiment_v2"];
         delete?: never;
         options?: never;
@@ -1280,7 +1213,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Advance Symbolic */
         post: operations["advance_symbolic_search_experiment_v2"];
         delete?: never;
         options?: never;
@@ -1295,7 +1227,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Statistics */
         get: operations["get_exact_research_statistics_v2"];
         put?: never;
         post?: never;
@@ -1312,7 +1243,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Strategy */
         get: operations["get_strategy_api_v2_strategies__strategy_fingerprint__get"];
         put?: never;
         post?: never;
@@ -1331,7 +1261,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Promote Strategy */
         post: operations["promote_strategy_api_v2_strategies__strategy_fingerprint__promotions_post"];
         delete?: never;
         options?: never;
@@ -1346,7 +1275,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Qualification Decisions */
         get: operations["list_qualification_decisions_api_v2_strategies__strategy_fingerprint__qualification_decisions_get"];
         put?: never;
         post?: never;
@@ -1365,7 +1293,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Promote Qualified Strategy */
         post: operations["promote_qualified_strategy_api_v2_strategies__strategy_fingerprint__qualification_promotions_post"];
         delete?: never;
         options?: never;
@@ -1382,7 +1309,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Evaluate Qualification */
         post: operations["evaluate_qualification_api_v2_strategies__strategy_fingerprint__qualifications_post"];
         delete?: never;
         options?: never;
@@ -1399,7 +1325,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Freeze Strategy */
         post: operations["freeze_strategy_api_v2_strategy_freezes_post"];
         delete?: never;
         options?: never;
@@ -1414,9 +1339,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read */
         get: operations["read_api_v2_watchlists_get"];
-        /** Save */
         put: operations["save_api_v2_watchlists_put"];
         post?: never;
         delete?: never;
@@ -1432,7 +1355,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Command */
         get: operations["command_api_v2_watchlists_commands__command_id__get"];
         put?: never;
         post?: never;
@@ -1449,7 +1371,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Execution */
         get: operations["execution_health_execution_get"];
         put?: never;
         post?: never;
@@ -1466,7 +1387,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Live */
         get: operations["live_health_live_get"];
         put?: never;
         post?: never;
@@ -1483,7 +1403,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Ready */
         get: operations["ready_health_ready_get"];
         put?: never;
         post?: never;
@@ -1497,4225 +1416,1175 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** ActiveRuntimeGenerationDto */
-        ActiveRuntimeGenerationDto: {
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** AgentAdvanceResponseDto */
-        AgentAdvanceResponseDto: {
-            /** Derived Status */
-            derived_status: string;
-            /** Failure Code */
-            failure_code: string | null;
-            /** Next Action Kind */
-            next_action_kind: string | null;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Session Fingerprint */
-            session_fingerprint: string;
-        };
-        /** AgentSessionRequestDto */
-        AgentSessionRequestDto: {
-            /** Research Brief */
-            research_brief: {
-                [key: string]: unknown;
-            };
-        };
-        /** AgentSessionResponseDto */
-        AgentSessionResponseDto: {
-            /** Research Brief Fingerprint */
-            research_brief_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Session Disposition */
-            session_disposition: string;
-            /** Session Fingerprint */
-            session_fingerprint: string;
-            /** Workflow Implementation Fingerprint */
-            workflow_implementation_fingerprint: string;
-        };
-        /** BacktestCancellationResponse */
-        BacktestCancellationResponse: {
-            /** Revision */
-            revision: number;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** State */
-            state: string;
-        };
-        /** BacktestCreationContextDto */
-        BacktestCreationContextDto: {
-            /** Denied */
-            denied: components["schemas"]["BacktestCreationDeniedDto"][];
-            /** Options */
-            options: components["schemas"]["BacktestCreationOptionDto"][];
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** BacktestCreationDeniedDto */
-        BacktestCreationDeniedDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** BacktestCreationOptionDto */
-        BacktestCreationOptionDto: {
-            /** Base Currency */
-            base_currency: string;
-            /** Dataset Binding Fingerprint */
-            dataset_binding_fingerprint: string;
-            /** End */
-            end: string;
-            /** Instruments */
-            instruments: string[];
-            /** Market Product Configuration Fingerprint */
-            market_product_configuration_fingerprint: string;
-            /** Row Count */
-            row_count: number;
-            /** Start */
-            start: string;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** BacktestEvidenceArtifactDto */
-        BacktestEvidenceArtifactDto: {
-            /** Media Type */
-            media_type: string;
-            /** Name */
-            name: string;
-            /** Sha256 */
-            sha256: string;
-            /** Size */
-            size: number;
-        };
-        /** BacktestEvidenceDto */
-        BacktestEvidenceDto: {
-            manifest: components["schemas"]["BacktestEvidenceManifestDto"];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** BacktestEvidenceManifestDto */
-        BacktestEvidenceManifestDto: {
-            /** Admission Resolution Fingerprint */
-            admission_resolution_fingerprint: string;
-            /** Artifacts */
-            artifacts: components["schemas"]["BacktestEvidenceArtifactDto"][];
-            /** Backtest Run Id */
-            backtest_run_id: string;
-            /** Base Dataset Snapshot Fingerprint */
-            base_dataset_snapshot_fingerprint: string;
-            /** Dataset Binding Fingerprint */
-            dataset_binding_fingerprint: string;
-            /** Determinism Fingerprint */
-            determinism_fingerprint: string;
-            /** Evidence Fingerprint */
-            evidence_fingerprint: string;
-            /** Execution Profile Fingerprint */
-            execution_profile_fingerprint: string;
-            /** Implementation Fingerprints */
-            implementation_fingerprints: string[];
-            /** Kernel Semantics Version */
-            kernel_semantics_version: string;
-            /** Market Product Composition Fingerprint */
-            market_product_composition_fingerprint: string;
-            /** Portfolio Profile Fingerprint */
-            portfolio_profile_fingerprint: string;
-            /** Result Fingerprint */
-            result_fingerprint: string;
-            /** Risk Profile Fingerprint */
-            risk_profile_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Specification Fingerprint */
-            specification_fingerprint: string;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** BacktestFailureDto */
-        BacktestFailureDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Phase */
-            phase: string;
-        };
-        /** BacktestInitialAccountDto */
-        BacktestInitialAccountDto: {
-            /** Base Currency */
-            base_currency: string;
-            /** Capital */
-            capital: string;
-        };
-        /** BacktestLimitPolicyDto */
-        BacktestLimitPolicyDto: {
-            /** Entry Limit */
-            entry_limit: string;
-            /** Exit Limit */
-            exit_limit: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "FINITE_LONG_LIMIT";
-            /** Maximum Fill Quantity */
-            maximum_fill_quantity: string;
-            /** Quantity */
-            quantity: string;
-            /** Round Trips */
-            round_trips: number;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** BacktestProfileReferenceDto */
-        BacktestProfileReferenceDto: {
-            /** Profile Id */
-            profile_id: string;
-            /** Version */
-            version: string;
-        };
-        /** BacktestResultDto */
-        BacktestResultDto: {
-            /**
-             * Implementation
-             * @enum {string}
-             */
-            implementation: "RUST" | "PYTHON";
-            /** Result */
-            result: {
-                [key: string]: unknown;
-            };
-            /** Runtime */
-            runtime: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** BacktestRunCreateRequest */
-        BacktestRunCreateRequest: {
-            /** Backtest Run Id */
-            backtest_run_id?: string | null;
-            /** Dataset Binding Fingerprint */
-            dataset_binding_fingerprint: string;
-            execution_profile: components["schemas"]["BacktestProfileReferenceDto"];
-            initial_account: components["schemas"]["BacktestInitialAccountDto"];
-            /** Market Product Configuration Fingerprint */
-            market_product_configuration_fingerprint: string;
-            portfolio_profile: components["schemas"]["BacktestProfileReferenceDto"];
-            risk_profile: components["schemas"]["BacktestProfileReferenceDto"];
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint?: string | null;
-            /**
-             * @default {
-             *       "ordered_fact_policy": "ORDERED_FACTS_V1"
-             *     }
-             */
-            runtime_options: components["schemas"]["BacktestRuntimeOptionsDto"];
-            /**
-             * Schema Version
-             * @default 1
-             * @enum {integer}
-             */
-            schema_version: 1 | 2;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** BacktestRunCreateResponse */
-        BacktestRunCreateResponse: {
-            /** Backtest Run Id */
-            backtest_run_id: string;
-            /** Disposition */
-            disposition: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** State */
-            state: string;
-        };
-        /** BacktestRunDto */
-        BacktestRunDto: {
-            /** Admission Resolution Fingerprint */
-            admission_resolution_fingerprint: string;
-            /** Cancel Requested At */
-            cancel_requested_at: string | null;
-            /** Determinism Fingerprint */
-            determinism_fingerprint: string | null;
-            /** Evidence Fingerprint */
-            evidence_fingerprint: string | null;
-            failure: components["schemas"]["BacktestFailureDto"] | null;
-            /** Finished At */
-            finished_at: string | null;
-            /** Queued At */
-            queued_at: string;
-            /** Result Fingerprint */
-            result_fingerprint: string | null;
-            /** Revision */
-            revision: number;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Specification Fingerprint */
-            specification_fingerprint: string;
-            /** Started At */
-            started_at: string | null;
-            /** State */
-            state: string;
-        };
-        /** BacktestRuntimeOptionsDto */
-        BacktestRuntimeOptionsDto: {
-            order_policy?: components["schemas"]["BacktestLimitPolicyDto"] | null;
-            /**
-             * Ordered Fact Policy
-             * @default ORDERED_FACTS_V1
-             * @constant
-             */
-            ordered_fact_policy: "ORDERED_FACTS_V1";
-        };
-        /** ChartStudyBooleanDto */
         ChartStudyBooleanDto: {
-            /**
-             * Type
-             * @constant
-             */
-            type: "BOOLEAN";
-            /** Value */
+            type: components["schemas"]["ChartStudyBooleanDtoType"];
             value: boolean;
         };
-        /** ChartStudyCalculationDto */
+        /** @enum {string} */
+        ChartStudyBooleanDtoType: "BOOLEAN";
         ChartStudyCalculationDto: {
-            /**
-             * Backend
-             * @constant
-             */
-            backend: "RESEARCH";
-            /** Capability Projection Fingerprint */
+            backend: components["schemas"]["ChartStudyCalculationDtoBackend"];
             capability_projection_fingerprint: string;
-            /** Catalog Generation Fingerprint */
             catalog_generation_fingerprint: string;
-            /** Definition Fingerprint */
             definition_fingerprint: string;
-            /** Descriptor Fingerprint */
             descriptor_fingerprint: string;
-            /** Implementation Fingerprint */
             implementation_fingerprint: string;
-            /** Invocation Implementation Fingerprint */
             invocation_implementation_fingerprint: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
+            kind: components["schemas"]["ChartStudyCalculationDtoKind"];
             normalized_definition: components["schemas"]["ChartStudyDefinitionDto"];
-            /** Normalized Typed Parameters */
             normalized_typed_parameters: {
-                [key: string]: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
+                [key: string]: components["schemas"]["ChartStudyCalculationDtoNormalizedTypedParametersItem"];
             };
             numeric: components["schemas"]["ChartStudyNumericDto"];
             numeric_execution_binding: components["schemas"]["ChartStudyNumericBindingDto"];
-            /** Output Members */
             output_members: components["schemas"]["ChartStudyOutputDto"][];
-            /** Provider Content Fingerprint */
             provider_content_fingerprint: string;
-            /** Provider Id */
             provider_id: string;
-            /** Provider Version */
             provider_version: string;
-            /** Semantic Version */
             semantic_version: string;
-            /** Type Id */
             type_id: string;
         };
-        /** ChartStudyCalculationRequestDto */
+        /** @enum {string} */
+        ChartStudyCalculationDtoBackend: "RESEARCH";
+        /** @enum {string} */
+        ChartStudyCalculationDtoKind: "INDICATOR";
+        ChartStudyCalculationDtoNormalizedTypedParametersItem: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
         ChartStudyCalculationRequestDto: {
-            /** Expected Capability Projection Fingerprint */
             expected_capability_projection_fingerprint: string;
-            /** Expected Descriptor Fingerprint */
             expected_descriptor_fingerprint: string;
-            /** Expected Implementation Fingerprint */
             expected_implementation_fingerprint: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
-            /** Output Members */
+            kind: components["schemas"]["ChartStudyCalculationRequestDtoKind"];
             output_members: string[];
-            /** Semantic Version */
             semantic_version: string;
-            /** Type Id */
             type_id: string;
-            /** Typed Parameters */
             typed_parameters: {
-                [key: string]: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
+                [key: string]: components["schemas"]["ChartStudyCalculationRequestDtoTypedParametersItem"];
             };
         };
-        /** ChartStudyCapabilitiesDto */
+        /** @enum {string} */
+        ChartStudyCalculationRequestDtoKind: "INDICATOR";
+        ChartStudyCalculationRequestDtoTypedParametersItem: components["schemas"]["ChartStudyIntegerDto"] | components["schemas"]["ChartStudyStringDto"] | components["schemas"]["ChartStudyDecimalDto"] | components["schemas"]["ChartStudyBooleanDto"];
         ChartStudyCapabilitiesDto: {
-            /** Capabilities */
             capabilities: components["schemas"]["ChartStudyCapabilityDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
+            schema_version: components["schemas"]["Version2"];
         };
-        /** ChartStudyCapabilityDto */
         ChartStudyCapabilityDto: {
-            /**
-             * Backend
-             * @constant
-             */
-            backend: "RESEARCH";
+            backend: components["schemas"]["ChartStudyCapabilityDtoBackend"];
             capability_projection: components["schemas"]["ChartStudyCapabilityProjectionDto"];
-            /** Capability Projection Fingerprint */
             capability_projection_fingerprint: string;
-            /** Catalog Generation Fingerprint */
             catalog_generation_fingerprint: string;
             descriptor: components["schemas"]["ChartStudyDescriptorDto"];
-            /** Descriptor Fingerprint */
             descriptor_fingerprint: string;
-            /**
-             * Execution Shape
-             * @constant
-             */
-            execution_shape: "TIME_SERIES";
-            /** Implementation Fingerprint */
+            execution_shape: components["schemas"]["ChartStudyCapabilityDtoExecutionShape"];
             implementation_fingerprint: string;
-            /** Invocation Implementation Fingerprint */
             invocation_implementation_fingerprint: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
+            kind: components["schemas"]["ChartStudyCapabilityDtoKind"];
             limits: components["schemas"]["ChartStudyLimitsDto"];
             numeric_execution_binding: components["schemas"]["ChartStudyNumericBindingDto"];
-            /** Output Members */
             output_members: string[];
             presentation: components["schemas"]["ChartStudyPresentationDto"];
-            /** Provider Content Fingerprint */
             provider_content_fingerprint: string;
-            /** Provider Id */
             provider_id: string;
-            /** Provider Version */
             provider_version: string;
-            /**
-             * Readiness Contract Version
-             * @constant
-             */
-            readiness_contract_version: 1;
-            /** Semantic Version */
+            readiness_contract_version: components["schemas"]["Version1"];
             semantic_version: string;
-            /** Type Id */
             type_id: string;
         };
-        /**
-         * ChartStudyCapabilityProjectionDto
-         * @description Exact installed admission hash payload, not a second capability identity.
-         */
+        /** @enum {string} */
+        ChartStudyCapabilityDtoBackend: "RESEARCH";
+        /** @enum {string} */
+        ChartStudyCapabilityDtoExecutionShape: "TIME_SERIES";
+        /** @enum {string} */
+        ChartStudyCapabilityDtoKind: "INDICATOR";
         ChartStudyCapabilityProjectionDto: {
-            /**
-             * Authority
-             * @constant
-             */
-            authority: "DISPLAY_ONLY";
-            /**
-             * Backend
-             * @constant
-             */
-            backend: "RESEARCH";
-            /** Catalog Generation Fingerprint */
+            authority: components["schemas"]["ChartStudyCapabilityProjectionDtoAuthority"];
+            backend: components["schemas"]["ChartStudyCapabilityProjectionDtoBackend"];
             catalog_generation_fingerprint: string;
             descriptor: components["schemas"]["ChartStudyDescriptorDto"];
-            /**
-             * Domain
-             * @constant
-             */
-            domain: "onlyalpha.chart-study.capability-projection";
-            /**
-             * Finite Initialization
-             * @constant
-             */
-            finite_initialization: "PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START";
+            domain: components["schemas"]["ChartStudyCapabilityProjectionDtoDomain"];
+            finite_initialization: components["schemas"]["ChartStudyCapabilityProjectionDtoFiniteInitialization"];
             implementation: components["schemas"]["ChartStudyManifestDto"];
             input_support: components["schemas"]["ChartStudyInputSupportDto"];
             invocation: components["schemas"]["ChartStudyManifestDto"];
             limits: components["schemas"]["ChartStudyLimitsDto"];
             numeric_binding: components["schemas"]["ChartStudyNumericBindingDto"];
-            /** Output Members */
             output_members: string[];
             presentation: components["schemas"]["ChartStudyPresentationDto"];
-            /** Provider Content Fingerprint */
             provider_content_fingerprint: string;
             provider_manifest: components["schemas"]["ChartStudyProviderManifestDto"];
-            /**
-             * Publication Status
-             * @constant
-             */
-            publication_status: "NOT_A_RESEARCH_RESULT";
-            /** Readiness Contract Versions */
-            readiness_contract_versions: 1[];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /**
-             * Source Kind
-             * @constant
-             */
-            source_kind: "CHART_STUDY_TRANSIENT";
-            /**
-             * Supported Shape
-             * @constant
-             */
-            supported_shape: "TIME_SERIES/BAR_FIELDS";
+            publication_status: components["schemas"]["ChartStudyCapabilityProjectionDtoPublicationStatus"];
+            readiness_contract_versions: components["schemas"]["Version1"][];
+            schema_version: components["schemas"]["Version2"];
+            source_kind: components["schemas"]["ChartStudyCapabilityProjectionDtoSourceKind"];
+            supported_shape: components["schemas"]["ChartStudyCapabilityProjectionDtoSupportedShape"];
         };
-        /** ChartStudyDecimalDto */
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoAuthority: "DISPLAY_ONLY";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoBackend: "RESEARCH";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoDomain: "onlyalpha.chart-study.capability-projection";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoFiniteInitialization: "PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoPublicationStatus: "NOT_A_RESEARCH_RESULT";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoSourceKind: "CHART_STUDY_TRANSIENT";
+        /** @enum {string} */
+        ChartStudyCapabilityProjectionDtoSupportedShape: "TIME_SERIES/BAR_FIELDS";
         ChartStudyDecimalDto: {
-            /**
-             * Type
-             * @constant
-             */
-            type: "DECIMAL";
-            /** Value */
+            type: components["schemas"]["ChartStudyDecimalDtoType"];
             value: string;
         };
-        /** ChartStudyDecimalPolicyDto */
+        /** @enum {string} */
+        ChartStudyDecimalDtoType: "DECIMAL";
         ChartStudyDecimalPolicyDto: {
-            /**
-             * Capitals
-             * @constant
-             */
-            capitals: 1;
-            /**
-             * Clamp
-             * @constant
-             */
-            clamp: 0;
-            /**
-             * Domain
-             * @constant
-             */
-            domain: "onlyalpha.decimal.execution-policy";
-            /**
-             * Emax
-             * @constant
-             */
-            emax: 999999;
-            /**
-             * Emin
-             * @constant
-             */
-            emin: -999999;
-            /**
-             * Entry Flags
-             * @constant
-             */
-            entry_flags: "CLEAR";
-            /**
-             * Policy Id
-             * @constant
-             */
-            policy_id: "onlyalpha.decimal.execution";
-            /**
-             * Semantic Version
-             * @constant
-             */
-            semantic_version: "1";
-            /** Trapped Signals */
-            trapped_signals: ("DivisionByZero" | "InvalidOperation" | "Overflow")[];
+            capitals: components["schemas"]["Version1"];
+            clamp: components["schemas"]["Version0"];
+            domain: components["schemas"]["ChartStudyDecimalPolicyDtoDomain"];
+            emax: components["schemas"]["Version999999"];
+            emin: components["schemas"]["VersionNegative999999"];
+            entry_flags: components["schemas"]["ChartStudyDecimalPolicyDtoEntryFlags"];
+            policy_id: components["schemas"]["ChartStudyDecimalPolicyDtoPolicyId"];
+            semantic_version: components["schemas"]["ChartStudyDecimalPolicyDtoSemanticVersion"];
+            trapped_signals: components["schemas"]["ChartStudyDecimalPolicyDtoTrappedSignalsItem"][];
         };
-        /** ChartStudyDefinitionDto */
+        /** @enum {string} */
+        ChartStudyDecimalPolicyDtoDomain: "onlyalpha.decimal.execution-policy";
+        /** @enum {string} */
+        ChartStudyDecimalPolicyDtoEntryFlags: "CLEAR";
+        /** @enum {string} */
+        ChartStudyDecimalPolicyDtoPolicyId: "onlyalpha.decimal.execution";
+        /** @enum {string} */
+        ChartStudyDecimalPolicyDtoSemanticVersion: "1";
+        /** @enum {string} */
+        ChartStudyDecimalPolicyDtoTrappedSignalsItem: "DivisionByZero" | "InvalidOperation" | "Overflow";
         ChartStudyDefinitionDto: {
             extensions: components["schemas"]["ChartStudyExtensionsDto"];
-            /** Factor Kind */
-            factor_kind: null;
-            /** Input Bindings */
+            /** @default null */
+            factor_kind: unknown;
             input_bindings: {
                 [key: string]: components["schemas"]["ChartStudyInputBindingDto"];
             };
-            /** Inputs */
             inputs: components["schemas"]["ChartStudyPortDto"][];
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
-            /**
-             * Missing Values
-             * @enum {string}
-             */
-            missing_values: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
+            kind: components["schemas"]["ChartStudyDefinitionDtoKind"];
+            missing_values: components["schemas"]["ChartStudyDefinitionDtoMissingValues"];
             numeric: components["schemas"]["ChartStudyNumericDto"];
-            /** Outputs */
             outputs: components["schemas"]["ChartStudyPortDto"][];
-            /** Parameters */
             parameters: {
-                [key: string]: number | string | boolean | null;
+                [key: string]: components["schemas"]["ChartStudyDefinitionDtoParametersItem"];
             };
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Semantic Version */
+            schema_version: components["schemas"]["Version2"];
             semantic_version: string;
-            /**
-             * Timestamp
-             * @constant
-             */
-            timestamp: "EVENT_TIME";
-            /** Type Id */
+            timestamp: components["schemas"]["ChartStudyDefinitionDtoTimestamp"];
             type_id: string;
             warmup: components["schemas"]["ChartStudyWarmupDto"];
         };
-        /** ChartStudyDependencyDto */
+        /** @enum {string} */
+        ChartStudyDefinitionDtoKind: "INDICATOR";
+        /** @enum {string} */
+        ChartStudyDefinitionDtoMissingValues: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
+        ChartStudyDefinitionDtoParametersItem: unknown | number | string | boolean;
+        /** @enum {string} */
+        ChartStudyDefinitionDtoTimestamp: "EVENT_TIME";
         ChartStudyDependencyDto: {
-            /** Artifact Fingerprint */
             artifact_fingerprint: string | null;
-            /** Dependency Id */
             dependency_id: string;
-            /** Semantic Version */
             semantic_version: string;
         };
-        /** ChartStudyDescriptorDto */
         ChartStudyDescriptorDto: {
-            /**
-             * Execution Shape
-             * @constant
-             */
-            execution_shape: "TIME_SERIES";
-            /** Factor Kind */
-            factor_kind: null;
-            /** Inputs */
+            execution_shape: components["schemas"]["ChartStudyDescriptorDtoExecutionShape"];
+            /** @default null */
+            factor_kind: unknown;
             inputs: components["schemas"]["ChartStudyPortDto"][];
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
-            /**
-             * Missing Values
-             * @enum {string}
-             */
-            missing_values: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
+            kind: components["schemas"]["ChartStudyDescriptorDtoKind"];
+            missing_values: components["schemas"]["ChartStudyDescriptorDtoMissingValues"];
             numeric: components["schemas"]["ChartStudyNumericDto"];
-            /** Outputs */
             outputs: components["schemas"]["ChartStudyPortDto"][];
-            /** Parameters */
             parameters: components["schemas"]["ChartStudyParameterDescriptorDto"][];
-            /** Semantic Bounds */
             semantic_bounds: {
                 [key: string]: string[] | null;
             };
-            /** Semantic Version */
             semantic_version: string;
-            /**
-             * Timestamp
-             * @constant
-             */
-            timestamp: "EVENT_TIME";
-            /** Type Id */
+            timestamp: components["schemas"]["ChartStudyDescriptorDtoTimestamp"];
             type_id: string;
         };
-        /** ChartStudyDistributionDto */
+        /** @enum {string} */
+        ChartStudyDescriptorDtoExecutionShape: "TIME_SERIES";
+        /** @enum {string} */
+        ChartStudyDescriptorDtoKind: "INDICATOR";
+        /** @enum {string} */
+        ChartStudyDescriptorDtoMissingValues: "FAIL" | "PROPAGATE" | "SKIP" | "RESET";
+        /** @enum {string} */
+        ChartStudyDescriptorDtoTimestamp: "EVENT_TIME";
         ChartStudyDistributionDto: {
-            /** Distribution Name */
             distribution_name: string;
-            /** Distribution Version */
             distribution_version: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "DISTRIBUTION";
+            kind: components["schemas"]["ChartStudyDistributionDtoKind"];
         };
-        /** ChartStudyErrorDto */
-        ChartStudyErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /**
-             * Phase
-             * @constant
-             */
-            phase: "QUERY";
-        };
-        /** ChartStudyErrorEnvelopeDto */
-        ChartStudyErrorEnvelopeDto: {
-            error: components["schemas"]["ChartStudyErrorDto"];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ChartStudyEvaluateDto */
+        /** @enum {string} */
+        ChartStudyDistributionDtoKind: "DISTRIBUTION";
         ChartStudyEvaluateDto: {
-            /**
-             * Authority
-             * @constant
-             */
-            authority: "DISPLAY_ONLY";
+            authority: components["schemas"]["ChartStudyEvaluateDtoAuthority"];
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             calculation: components["schemas"]["ChartStudyCalculationDto"];
             coverage: components["schemas"]["MarketDataCoverageDto"];
             input: components["schemas"]["ChartStudyInputDto"];
-            /** Instrument Id */
             instrument_id: string;
             preview: components["schemas"]["ChartStudyPreviewDto"] | null;
-            /**
-             * Publication Status
-             * @constant
-             */
-            publication_status: "NOT_A_RESEARCH_RESULT";
-            /**
-             * Query Status
-             * @enum {string}
-             */
-            query_status: "DISPLAYABLE" | "INPUT_INCOMPLETE";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Series */
+            publication_status: components["schemas"]["ChartStudyEvaluateDtoPublicationStatus"];
+            query_status: components["schemas"]["ChartStudyEvaluateDtoQueryStatus"];
+            schema_version: components["schemas"]["Version2"];
             series: components["schemas"]["ChartStudySeriesDto"][];
-            /**
-             * Source Kind
-             * @constant
-             */
-            source_kind: "CHART_STUDY_TRANSIENT";
+            source_kind: components["schemas"]["ChartStudyEvaluateDtoSourceKind"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
         };
-        /** ChartStudyEvaluateRequestDto */
+        /** @enum {string} */
+        ChartStudyEvaluateDtoAuthority: "DISPLAY_ONLY";
+        /** @enum {string} */
+        ChartStudyEvaluateDtoPublicationStatus: "NOT_A_RESEARCH_RESULT";
+        /** @enum {string} */
+        ChartStudyEvaluateDtoQueryStatus: "DISPLAYABLE" | "INPUT_INCOMPLETE";
+        /** @enum {string} */
+        ChartStudyEvaluateDtoSourceKind: "CHART_STUDY_TRANSIENT";
         ChartStudyEvaluateRequestDto: {
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             calculation: components["schemas"]["ChartStudyCalculationRequestDto"];
-            /** Expected History Projection Fingerprint */
             expected_history_projection_fingerprint: string;
-            /** Include Unclosed Preview */
             include_unclosed_preview: boolean;
-            /** Instrument Id */
             instrument_id: string;
-            /** Preview Stream Id */
             preview_stream_id: string | null;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
+            schema_version: components["schemas"]["Version2"];
             source_reference: components["schemas"]["ChartStudySourceReferenceDto"];
             window: components["schemas"]["ChartStudyWindowDto"];
         };
-        /** ChartStudyExtensionsDto */
         ChartStudyExtensionsDto: Record<string, never>;
-        /** ChartStudyInputBindingDto */
         ChartStudyInputBindingDto: {
-            /** Node Fingerprint */
-            node_fingerprint: null;
-            /** Output Name */
+            /** @default null */
+            node_fingerprint: unknown;
             output_name: string;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "bar.open" | "bar.high" | "bar.low" | "bar.close" | "bar.volume" | "bar.start_ns";
+            source: components["schemas"]["ChartStudyInputBindingDtoSource"];
         };
-        /** ChartStudyInputDto */
+        /** @enum {string} */
+        ChartStudyInputBindingDtoSource: "bar.open" | "bar.high" | "bar.low" | "bar.close" | "bar.volume" | "bar.start_ns";
         ChartStudyInputDto: {
-            /** Aggregation Semantics Version */
             aggregation_semantics_version: string | null;
-            /**
-             * Anchor Kind
-             * @constant
-             */
-            anchor_kind: "BEFORE_TIME";
-            /** Before Ns */
+            anchor_kind: components["schemas"]["ChartStudyInputDtoAnchorKind"];
             before_ns: string;
-            /** Calendar Fingerprint */
             calendar_fingerprint: string;
-            /** Derived Projection Fingerprint */
-            derived_projection_fingerprint: null;
-            /** History Projection Fingerprint */
+            /** @default null */
+            derived_projection_fingerprint: unknown;
             history_projection_fingerprint: string | null;
-            /**
-             * Initialization
-             * @constant
-             */
-            initialization: "FINITE_WINDOW_START";
-            /**
-             * Resolution Mode
-             * @constant
-             */
-            resolution_mode: "PROVIDER_NATIVE";
-            /** Resolution Plan Fingerprint */
+            initialization: components["schemas"]["ChartStudyInputDtoInitialization"];
+            resolution_mode: components["schemas"]["ChartStudyInputDtoResolutionMode"];
             resolution_plan_fingerprint: string;
-            /** Resolved End Ns */
             resolved_end_ns: string;
-            /** Resolved Start Ns */
             resolved_start_ns: string;
-            /** Resume After Sequence */
             resume_after_sequence: string | null;
-            /** Resume Plan Fingerprint */
             resume_plan_fingerprint: string | null;
-            /** Revision Evidence */
             revision_evidence: components["schemas"]["MarketDataRevisionEvidenceDto"][];
-            /** Target Bar Count */
+            /** Format: int64 */
             target_bar_count: number;
         };
-        /** ChartStudyInputSupportDto */
+        /** @enum {string} */
+        ChartStudyInputDtoAnchorKind: "BEFORE_TIME";
+        /** @enum {string} */
+        ChartStudyInputDtoInitialization: "FINITE_WINDOW_START";
+        /** @enum {string} */
+        ChartStudyInputDtoResolutionMode: "PROVIDER_NATIVE";
         ChartStudyInputSupportDto: {
-            /**
-             * Alignment
-             * @constant
-             */
-            alignment: "UTC_24X7";
-            /**
-             * Bar Formation
-             * @constant
-             */
-            bar_formation: "FIXED_DURATION";
-            /**
-             * Closed Only
-             * @constant
-             */
-            closed_only: false;
-            /**
-             * Coverage Policy
-             * @constant
-             */
-            coverage_policy: "COMPLETE_VERIFIED_WINDOW";
-            /**
-             * Instrument Policy
-             * @constant
-             */
-            instrument_policy: "EXACT_SOURCE_CATALOG";
-            /**
-             * Preview Mode
-             * @constant
-             */
-            preview_mode: "OWNING_STREAM_SNAPSHOT";
-            /**
-             * Resolution Mode
-             * @constant
-             */
-            resolution_mode: "PROVIDER_NATIVE";
+            alignment: components["schemas"]["ChartStudyInputSupportDtoAlignment"];
+            bar_formation: components["schemas"]["ChartStudyInputSupportDtoBarFormation"];
+            closed_only: components["schemas"]["VersionFalse"];
+            coverage_policy: components["schemas"]["ChartStudyInputSupportDtoCoveragePolicy"];
+            instrument_policy: components["schemas"]["ChartStudyInputSupportDtoInstrumentPolicy"];
+            preview_mode: components["schemas"]["ChartStudyInputSupportDtoPreviewMode"];
+            resolution_mode: components["schemas"]["ChartStudyInputSupportDtoResolutionMode"];
         };
-        /** ChartStudyIntegerDto */
+        /** @enum {string} */
+        ChartStudyInputSupportDtoAlignment: "UTC_24X7";
+        /** @enum {string} */
+        ChartStudyInputSupportDtoBarFormation: "FIXED_DURATION";
+        /** @enum {string} */
+        ChartStudyInputSupportDtoCoveragePolicy: "COMPLETE_VERIFIED_WINDOW";
+        /** @enum {string} */
+        ChartStudyInputSupportDtoInstrumentPolicy: "EXACT_SOURCE_CATALOG";
+        /** @enum {string} */
+        ChartStudyInputSupportDtoPreviewMode: "OWNING_STREAM_SNAPSHOT";
+        /** @enum {string} */
+        ChartStudyInputSupportDtoResolutionMode: "VERIFIED_NATIVE_OR_DERIVED";
         ChartStudyIntegerDto: {
-            /**
-             * Type
-             * @constant
-             */
-            type: "INTEGER";
-            /** Value */
+            type: components["schemas"]["ChartStudyIntegerDtoType"];
+            /** Format: int64 */
             value: number;
         };
-        /** ChartStudyLimitsDto */
+        /** @enum {string} */
+        ChartStudyIntegerDtoType: "INTEGER";
         ChartStudyLimitsDto: {
-            /**
-             * Max Concurrent Invocations
-             * @constant
-             */
-            max_concurrent_invocations: 1;
-            /**
-             * Max Input Rows
-             * @constant
-             */
-            max_input_rows: 2000;
-            /**
-             * Max Period
-             * @constant
-             */
-            max_period: 10000;
+            max_concurrent_invocations: components["schemas"]["Version1"];
+            max_input_rows: components["schemas"]["Version2000"];
+            max_period: components["schemas"]["Version10000"];
         };
-        /** ChartStudyManifestDto */
         ChartStudyManifestDto: {
-            /**
-             * Backend Kind
-             * @constant
-             */
-            backend_kind: "RESEARCH";
+            backend_kind: components["schemas"]["ChartStudyManifestDtoBackendKind"];
             calculation_type_reference: components["schemas"]["ChartStudyTypeReferenceDto"];
-            /** Entrypoint Identity */
             entrypoint_identity: string;
-            /** Implementation Bundle Fingerprint */
             implementation_bundle_fingerprint: string;
-            /** Implementation Fingerprint */
             implementation_fingerprint: string;
-            /** Resources */
             resources: components["schemas"]["ChartStudyResourceDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Semantic Dependencies */
+            schema_version: components["schemas"]["Version1"];
             semantic_dependencies: components["schemas"]["ChartStudyDependencyDto"][];
         };
-        /** ChartStudyNumericBindingDto */
+        /** @enum {string} */
+        ChartStudyManifestDtoBackendKind: "RESEARCH";
         ChartStudyNumericBindingDto: {
             core_policy: components["schemas"]["ChartStudyDecimalPolicyDto"];
-            /** Core Policy Fingerprint */
             core_policy_fingerprint: string;
-            /**
-             * Declared Rounding
-             * @enum {string}
-             */
-            declared_rounding: "CONTEXT" | "ROUND_HALF_EVEN";
-            /**
-             * Domain
-             * @constant
-             */
-            domain: "onlyalpha.chart-study.decimal-binding";
-            /**
-             * Effective Rounding
-             * @constant
-             */
-            effective_rounding: "ROUND_HALF_EVEN";
-            /**
-             * Output Quantum
-             * @constant
-             */
-            output_quantum: "0.000000000001";
-            /**
-             * Precision
-             * @constant
-             */
-            precision: 28;
-            /**
-             * Representation
-             * @constant
-             */
-            representation: "DECIMAL";
-            /**
-             * Resolution Policy
-             * @constant
-             */
-            resolution_policy: "CONTEXT_HALF_EVEN_V1";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            declared_rounding: components["schemas"]["ChartStudyNumericBindingDtoDeclaredRounding"];
+            domain: components["schemas"]["ChartStudyNumericBindingDtoDomain"];
+            effective_rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
+            output_quantum: components["schemas"]["ChartStudyNumericBindingDtoOutputQuantum"];
+            precision: components["schemas"]["Version28"];
+            representation: components["schemas"]["ChartStudyNumericBindingDtoRepresentation"];
+            resolution_policy: components["schemas"]["ChartStudyNumericBindingDtoResolutionPolicy"];
+            schema_version: components["schemas"]["Version1"];
         };
-        /** ChartStudyNumericDto */
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoDeclaredRounding: "CONTEXT" | "ROUND_HALF_EVEN";
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoDomain: "onlyalpha.chart-study.decimal-binding";
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoEffectiveRounding: "ROUND_HALF_EVEN";
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoOutputQuantum: "0.000000000001";
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoRepresentation: "DECIMAL";
+        /** @enum {string} */
+        ChartStudyNumericBindingDtoResolutionPolicy: "CONTEXT_HALF_EVEN_V1";
         ChartStudyNumericDto: {
-            /**
-             * Output Quantum
-             * @constant
-             */
-            output_quantum: "0.000000000001";
-            /**
-             * Precision
-             * @constant
-             */
-            precision: 28;
-            /**
-             * Representation
-             * @constant
-             */
-            representation: "DECIMAL";
-            /**
-             * Rounding
-             * @enum {string}
-             */
-            rounding: "CONTEXT" | "ROUND_HALF_EVEN";
+            output_quantum: components["schemas"]["ChartStudyNumericDtoOutputQuantum"];
+            precision: components["schemas"]["Version28"];
+            representation: components["schemas"]["ChartStudyNumericDtoRepresentation"];
+            rounding: components["schemas"]["ChartStudyNumericDtoRounding"];
         };
-        /** ChartStudyOutputDto */
+        /** @enum {string} */
+        ChartStudyNumericDtoOutputQuantum: "0.000000000001";
+        /** @enum {string} */
+        ChartStudyNumericDtoRepresentation: "DECIMAL";
+        /** @enum {string} */
+        ChartStudyNumericDtoRounding: "CONTEXT" | "ROUND_HALF_EVEN";
         ChartStudyOutputDto: {
-            /**
-             * Data Type
-             * @constant
-             */
-            data_type: "DECIMAL";
-            /** Name */
+            data_type: components["schemas"]["ChartStudyOutputDtoDataType"];
             name: string;
-            /** Nullable */
             nullable: boolean;
-            /**
-             * Unit
-             * @enum {string}
-             */
-            unit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
+            unit: components["schemas"]["ChartStudyOutputDtoUnit"];
         };
-        /** ChartStudyParameterDescriptorDto */
+        /** @enum {string} */
+        ChartStudyOutputDtoDataType: "DECIMAL";
+        /** @enum {string} */
+        ChartStudyOutputDtoUnit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
         ChartStudyParameterDescriptorDto: {
-            /** Default */
-            default: number | string | boolean | null;
-            /** Enum Values */
-            enum_values: (number | string | boolean | null)[];
-            /** Maximum */
-            maximum: number | string | null;
-            /** Minimum */
-            minimum: number | string | null;
-            /** Name */
+            default: components["schemas"]["ChartStudyParameterDescriptorDtoDefault"] | null;
+            enum_values: (components["schemas"]["ChartStudyParameterDescriptorDtoEnumValuesItem"] | null)[];
+            maximum: components["schemas"]["ChartStudyParameterDescriptorDtoMaximum"] | null;
+            minimum: components["schemas"]["ChartStudyParameterDescriptorDtoMinimum"] | null;
             name: string;
-            /**
-             * Parameter Type
-             * @enum {string}
-             */
-            parameter_type: "INTEGER" | "STRING" | "DECIMAL" | "BOOLEAN";
-            /** Required */
+            parameter_type: components["schemas"]["ChartStudyParameterDescriptorDtoParameterType"];
             required: boolean;
-            /** Uppercase */
             uppercase: boolean;
         };
-        /** ChartStudyPointDto */
+        ChartStudyParameterDescriptorDtoDefault: number | string | boolean;
+        ChartStudyParameterDescriptorDtoEnumValuesItem: number | string | boolean;
+        ChartStudyParameterDescriptorDtoMaximum: number | string;
+        ChartStudyParameterDescriptorDtoMinimum: number | string;
+        /** @enum {string} */
+        ChartStudyParameterDescriptorDtoParameterType: "INTEGER" | "STRING" | "DECIMAL" | "BOOLEAN";
         ChartStudyPointDto: {
-            /**
-             * Closed
-             * @constant
-             */
-            closed: true;
-            /**
-             * Quality
-             * @constant
-             */
-            quality: "CLOSED_COMPLETE";
-            /**
-             * Readiness
-             * @enum {string}
-             */
-            readiness: "PARTIAL" | "READY" | "UNAVAILABLE";
-            /**
-             * Reason
-             * @enum {string}
-             */
-            reason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
-            /** Time Ns */
+            closed: components["schemas"]["VersionTrue"];
+            quality: components["schemas"]["ChartStudyPointDtoQuality"];
+            readiness: components["schemas"]["ChartStudyPointDtoReadiness"];
+            reason: components["schemas"]["ChartStudyPointDtoReason"];
             time_ns: string;
-            /** Value */
             value: string | null;
         };
-        /** ChartStudyPortDto */
+        /** @enum {string} */
+        ChartStudyPointDtoQuality: "CLOSED_COMPLETE";
+        /** @enum {string} */
+        ChartStudyPointDtoReadiness: "PARTIAL" | "READY" | "UNAVAILABLE";
+        /** @enum {string} */
+        ChartStudyPointDtoReason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
         ChartStudyPortDto: {
-            /**
-             * Data Type
-             * @enum {string}
-             */
-            data_type: "DECIMAL" | "INTEGER" | "STRING" | "BOOLEAN";
-            /** Dimensions */
-            dimensions: "TIME"[];
-            /** Name */
+            data_type: components["schemas"]["ChartStudyPortDtoDataType"];
+            dimensions: components["schemas"]["ChartStudyPortDtoDimensionsItem"][];
             name: string;
-            /** Nullable */
             nullable: boolean;
-            /** Semantic Type */
             semantic_type: string;
-            /** Unit */
             unit: string | null;
         };
-        /** ChartStudyPresentationDto */
+        /** @enum {string} */
+        ChartStudyPortDtoDataType: "DECIMAL" | "INTEGER" | "STRING" | "BOOLEAN";
+        /** @enum {string} */
+        ChartStudyPortDtoDimensionsItem: "TIME";
         ChartStudyPresentationDto: {
-            /** Category */
             category: string;
-            /** Default Parameters */
             default_parameters: {
-                [key: string]: number | string | boolean;
+                [key: string]: components["schemas"]["ChartStudyPresentationDtoDefaultParametersItem"];
             };
-            /** Default Variant */
             default_variant: boolean;
-            /** Display Name */
             display_name: string;
-            /** Fill */
             fill: string[] | null;
-            /**
-             * Placement
-             * @enum {string}
-             */
-            placement: "PRICE_OVERLAY" | "SEPARATE_PANE";
-            /** Preview Supported */
+            placement: components["schemas"]["ChartStudyPresentationDtoPlacement"];
             preview_supported: boolean;
-            /** Series */
             series: components["schemas"]["ChartStudyPresentationSeriesDto"][];
         };
-        /** ChartStudyPresentationSeriesDto */
+        ChartStudyPresentationDtoDefaultParametersItem: number | string | boolean;
+        /** @enum {string} */
+        ChartStudyPresentationDtoPlacement: "PRICE_OVERLAY" | "SEPARATE_PANE";
         ChartStudyPresentationSeriesDto: {
-            /** Color */
             color: string;
-            /** Default Visible */
             default_visible: boolean;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "LINE" | "HISTOGRAM";
-            /** Label */
+            kind: components["schemas"]["ChartStudyPresentationSeriesDtoKind"];
             label: string;
-            /** Output Name */
             output_name: string;
-            /**
-             * Unit
-             * @enum {string}
-             */
-            unit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
+            unit: components["schemas"]["ChartStudyPresentationSeriesDtoUnit"];
         };
-        /** ChartStudyPreviewDto */
+        /** @enum {string} */
+        ChartStudyPresentationSeriesDtoKind: "LINE" | "HISTOGRAM";
+        /** @enum {string} */
+        ChartStudyPresentationSeriesDtoUnit: "PRICE" | "RATIO" | "VOLUME" | "SCALAR";
         ChartStudyPreviewDto: {
-            /** Bar End Ns */
             bar_end_ns: string;
-            /** Bar Start Ns */
             bar_start_ns: string;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /** Series */
             series: components["schemas"]["ChartStudyPreviewSeriesDto"][];
-            /**
-             * Source Kind
-             * @constant
-             */
-            source_kind: "PREVIEW_UNCLOSED";
-            /** Stream Id */
+            source_kind: components["schemas"]["ChartStudyPreviewDtoSourceKind"];
             stream_id: string;
         };
-        /** ChartStudyPreviewPointDto */
+        /** @enum {string} */
+        ChartStudyPreviewDtoSourceKind: "PREVIEW_UNCLOSED";
         ChartStudyPreviewPointDto: {
-            /**
-             * Closed
-             * @constant
-             */
-            closed: false;
-            /**
-             * Quality
-             * @constant
-             */
-            quality: "PREVIEW_UNCLOSED";
-            /**
-             * Readiness
-             * @enum {string}
-             */
-            readiness: "PARTIAL" | "READY" | "UNAVAILABLE";
-            /**
-             * Reason
-             * @enum {string}
-             */
-            reason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
-            /** Time Ns */
+            closed: components["schemas"]["VersionFalse"];
+            quality: components["schemas"]["ChartStudyPreviewPointDtoQuality"];
+            readiness: components["schemas"]["ChartStudyPreviewPointDtoReadiness"];
+            reason: components["schemas"]["ChartStudyPreviewPointDtoReason"];
             time_ns: string;
-            /** Value */
             value: string | null;
         };
-        /** ChartStudyPreviewSeriesDto */
+        /** @enum {string} */
+        ChartStudyPreviewPointDtoQuality: "PREVIEW_UNCLOSED";
+        /** @enum {string} */
+        ChartStudyPreviewPointDtoReadiness: "PARTIAL" | "READY" | "UNAVAILABLE";
+        /** @enum {string} */
+        ChartStudyPreviewPointDtoReason: "NONE" | "WARMUP_INCOMPLETE" | "VALUE_UNDEFINED" | "INPUT_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
         ChartStudyPreviewSeriesDto: {
-            /** Output Name */
             output_name: string;
             point: components["schemas"]["ChartStudyPreviewPointDto"];
         };
-        /** ChartStudyProviderManifestDto */
         ChartStudyProviderManifestDto: {
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
-            /** Provider Id */
+            kind: components["schemas"]["ChartStudyProviderManifestDtoKind"];
             provider_id: string;
-            /** Provider Version */
             provider_version: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
             source: components["schemas"]["ChartStudyDistributionDto"];
         };
-        /** ChartStudyResourceDto */
+        /** @enum {string} */
+        ChartStudyProviderManifestDtoKind: "INDICATOR";
         ChartStudyResourceDto: {
-            /** Byte Sha256 */
             byte_sha256: string;
-            /** Relative Path */
             relative_path: string;
         };
-        /** ChartStudySeriesDto */
         ChartStudySeriesDto: {
-            /** Output Name */
             output_name: string;
-            /** Points */
             points: components["schemas"]["ChartStudyPointDto"][];
         };
-        /** ChartStudySourceReferenceDto */
         ChartStudySourceReferenceDto: {
-            /** Expected Type Id */
             expected_type_id: string;
-            /** Integration Id */
             integration_id: string;
-            /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
         };
-        /** ChartStudyStringDto */
         ChartStudyStringDto: {
-            /**
-             * Type
-             * @constant
-             */
-            type: "STRING";
-            /** Value */
+            type: components["schemas"]["ChartStudyStringDtoType"];
             value: string;
         };
-        /** ChartStudyTypeReferenceDto */
+        /** @enum {string} */
+        ChartStudyStringDtoType: "STRING";
         ChartStudyTypeReferenceDto: {
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "INDICATOR";
-            /** Semantic Version */
+            kind: components["schemas"]["ChartStudyTypeReferenceDtoKind"];
             semantic_version: string;
-            /** Type Id */
             type_id: string;
         };
-        /** ChartStudyWarmupDto */
+        /** @enum {string} */
+        ChartStudyTypeReferenceDtoKind: "INDICATOR";
         ChartStudyWarmupDto: {
-            /** Initialization */
             initialization: string;
-            /** Minimum Observations */
+            /** Format: int64 */
             minimum_observations: number;
-            /**
-             * Pre Ready Output
-             * @enum {string}
-             */
-            pre_ready_output: "PARTIAL" | "NULL";
-            /** Ready Condition */
+            pre_ready_output: components["schemas"]["ChartStudyWarmupDtoPreReadyOutput"];
             ready_condition: string;
         };
-        /** ChartStudyWindowDto */
+        /** @enum {string} */
+        ChartStudyWarmupDtoPreReadyOutput: "PARTIAL" | "NULL";
         ChartStudyWindowDto: {
-            /**
-             * Anchor Kind
-             * @constant
-             */
-            anchor_kind: "BEFORE_TIME";
-            /** Before Ns */
+            anchor_kind: components["schemas"]["ChartStudyWindowDtoAnchorKind"];
             before_ns: string;
-            /** Target Bar Count */
+            /** Format: int64 */
             target_bar_count: number;
         };
-        /** ExactCatalogCalculationReadinessCapabilityDto */
-        ExactCatalogCalculationReadinessCapabilityDto: {
-            backend: components["schemas"]["OnlyCalculationBackendKind"];
-            /** Capability Fingerprint */
-            capability_fingerprint: string;
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Implementation Fingerprint */
-            implementation_fingerprint: string;
-            kind: components["schemas"]["OnlyCalculationKind"];
-            /** Provider Id */
-            provider_id: string;
-            provider_kind: components["schemas"]["OnlyQuantAssetKind"];
-            /** Provider Version */
-            provider_version: string;
-            /** Readiness Contract Versions */
-            readiness_contract_versions: number[];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Semantic Version */
-            semantic_version: string;
-            /** Type Id */
-            type_id: string;
-        };
-        /**
-         * ExactCatalogContextLegacyResponseDto
-         * @description Frozen compatibility projection; not sufficient for Agent decisions.
-         */
-        ExactCatalogContextLegacyResponseDto: {
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Ordered Calculation Capabilities */
-            ordered_calculation_capabilities: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Ordered Providers */
-            ordered_providers: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Projection Fingerprint */
-            projection_fingerprint: string;
-            /** Projection Schema Fingerprint */
-            projection_schema_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ExactCatalogContextResponseDto */
-        ExactCatalogContextResponseDto: {
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Ordered Calculation Capabilities */
-            ordered_calculation_capabilities: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Ordered Dataset Field Contracts */
-            ordered_dataset_field_contracts: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Ordered Providers */
-            ordered_providers: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Ordered Registered Universes */
-            ordered_registered_universes: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Ordered Statistics Capabilities */
-            ordered_statistics_capabilities: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Projection Fingerprint */
-            projection_fingerprint: string;
-            /** Projection Schema Fingerprint */
-            projection_schema_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ExactCatalogReadinessProjectionResponseDto */
-        ExactCatalogReadinessProjectionResponseDto: {
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Exact Catalog Context Projection Fingerprint */
-            exact_catalog_context_projection_fingerprint: string;
-            /** Exact Catalog Context Projection Schema Fingerprint */
-            exact_catalog_context_projection_schema_fingerprint: string;
-            /** Ordered Calculation Readiness Capabilities */
-            ordered_calculation_readiness_capabilities: components["schemas"]["ExactCatalogCalculationReadinessCapabilityDto"][];
-            /** Projection Fingerprint */
-            projection_fingerprint: string;
-            /** Projection Schema Fingerprint */
-            projection_schema_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ExactDatasetSnapshotDto */
-        ExactDatasetSnapshotDto: {
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Snapshot Fingerprint */
-            snapshot_fingerprint: string;
-        };
-        /** ExactEvaluationContextDto */
-        ExactEvaluationContextDto: {
-            /** Evaluation Fingerprint */
-            evaluation_fingerprint: string;
-            /** Evaluation Kind */
-            evaluation_kind: string;
-            /** Evaluation Schema Version */
-            evaluation_schema_version: number;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ExactResearchStatisticsDto */
-        ExactResearchStatisticsDto: {
-            /** Payload */
-            payload: {
-                [key: string]: unknown;
-            };
-            /**
-             * Schema Version
-             * @default 1
-             */
-            schema_version: number;
-            /** Statistics Result Fingerprint */
-            statistics_result_fingerprint: string;
-        };
-        /** ExactRuntimeGenerationDto */
-        ExactRuntimeGenerationDto: {
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** IntegrationCommandResponseDto */
+        /** @enum {string} */
+        ChartStudyWindowDtoAnchorKind: "BEFORE_TIME";
         IntegrationCommandResponseDto: {
-            /** Command Id */
             command_id: string;
-            /** Integration Id */
             integration_id: string;
-            /** Outcome Id */
             outcome_id: string;
-            /** Outcome Kind */
             outcome_kind: string;
-            /** Replayed */
             replayed: boolean;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
+            schema_version?: components["schemas"]["Version1"] | null;
         };
-        /** IntegrationConfigurationContractDto */
         IntegrationConfigurationContractDto: {
-            /** Fields */
             fields: components["schemas"]["IntegrationConfigurationFieldDto"][];
-            /** Fingerprint */
             fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationConfigurationFieldDto */
         IntegrationConfigurationFieldDto: {
-            /** Advanced */
             advanced: boolean;
-            /** Default */
-            default: string | number | boolean | null;
-            /** Description */
+            default: components["schemas"]["IntegrationConfigurationFieldDtoDefault"] | null;
             description: string;
-            /** Display Name */
             display_name: string;
-            /** Enum Values */
             enum_values: string[];
-            /** Exclusive Minimum */
             exclusive_minimum: boolean;
-            /** Field Id */
             field_id: string;
-            /** Maximum */
-            maximum: number | null;
-            /** Minimum */
-            minimum: number | null;
-            /** Required */
+            maximum: components["schemas"]["IntegrationConfigurationFieldDtoMaximum"] | null;
+            minimum: components["schemas"]["IntegrationConfigurationFieldDtoMinimum"] | null;
             required: boolean;
-            /** Secret */
             secret: boolean;
             value_kind: components["schemas"]["OnlyIntegrationValueKind"];
         };
-        /** IntegrationCreateRequestDto */
+        IntegrationConfigurationFieldDtoDefault: string | components["schemas"]["JsonNumber"] | boolean;
+        IntegrationConfigurationFieldDtoMaximum: components["schemas"]["JsonNumber"];
+        IntegrationConfigurationFieldDtoMinimum: components["schemas"]["JsonNumber"];
         IntegrationCreateRequestDto: {
-            /** Display Name */
             display_name: string;
-            /** Integration Id */
             integration_id: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Type Id */
+            schema_version: components["schemas"]["Version1"];
             type_id: string;
         };
-        /** IntegrationDraftContractResetRequestDto */
         IntegrationDraftContractResetRequestDto: {
-            /** Expected Draft Version */
+            /** Format: int64 */
             expected_draft_version: number;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationDraftDto */
         IntegrationDraftDto: {
-            /** Base Revision Fingerprint */
             base_revision_fingerprint?: string | null;
-            /** Created At */
             created_at: string;
-            /** Draft Fingerprint */
             draft_fingerprint: string;
-            /** Draft Version */
+            /** Format: int64 */
             draft_version: number;
-            /** Integration Id */
             integration_id: string;
-            /** Pinned Type Descriptor Fingerprint */
             pinned_type_descriptor_fingerprint: string;
-            /** Probe Configuration */
             probe_configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             } | null;
-            /** Public Configuration */
             public_configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Secret Statuses */
+            schema_version?: components["schemas"]["Version1"] | null;
             secret_statuses: components["schemas"]["IntegrationSecretStatusDto"][];
             type_descriptor: components["schemas"]["IntegrationTypeDto"];
-            /** Updated At */
             updated_at: string;
         };
-        /** IntegrationDraftUpdateRequestDto */
         IntegrationDraftUpdateRequestDto: {
-            /** Expected Draft Version */
+            /** Format: int64 */
             expected_draft_version: number;
-            /** Probe Configuration */
             probe_configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             } | null;
-            /** Public Configuration */
             public_configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationDto */
         IntegrationDto: {
-            /** Created At */
             created_at: string;
-            /** Current Revision Fingerprint */
             current_revision_fingerprint?: string | null;
-            /** Display Name */
             display_name: string;
-            /** Integration Id */
             integration_id: string;
             lifecycle_state: components["schemas"]["OnlyIntegrationLifecycleState"];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Type Id */
+            schema_version?: components["schemas"]["Version1"] | null;
             type_id: string;
-            /** Updated At */
             updated_at: string;
         };
-        /** IntegrationErrorDto */
-        IntegrationErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-        };
-        /** IntegrationErrorEnvelopeDto */
-        IntegrationErrorEnvelopeDto: {
-            error: components["schemas"]["IntegrationErrorDto"];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** IntegrationLifecycleUpdateRequestDto */
         IntegrationLifecycleUpdateRequestDto: {
-            /**
-             * Expected Lifecycle State
-             * @enum {string}
-             */
-            expected_lifecycle_state: "ACTIVE" | "DISABLED" | "ARCHIVED";
-            /**
-             * Lifecycle State
-             * @enum {string}
-             */
-            lifecycle_state: "ACTIVE" | "DISABLED" | "ARCHIVED";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            expected_lifecycle_state: components["schemas"]["IntegrationLifecycleUpdateRequestDtoExpectedLifecycleState"];
+            lifecycle_state: components["schemas"]["IntegrationLifecycleUpdateRequestDtoLifecycleState"];
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationListDto */
+        /** @enum {string} */
+        IntegrationLifecycleUpdateRequestDtoExpectedLifecycleState: "ACTIVE" | "DISABLED" | "ARCHIVED";
+        /** @enum {string} */
+        IntegrationLifecycleUpdateRequestDtoLifecycleState: "ACTIVE" | "DISABLED" | "ARCHIVED";
         IntegrationListDto: {
-            /** Items */
             items: components["schemas"]["IntegrationSummaryDto"][];
         };
-        /** IntegrationOperationalStatusDto */
         IntegrationOperationalStatusDto: {
-            /** Checked At */
             checked_at: string | null;
-            /** Integration Id */
             integration_id: string;
-            /** Probe Attempt Id */
             probe_attempt_id: string | null;
-            /** Probe Supported */
             probe_supported: boolean;
-            /** Revision Fingerprint */
             revision_fingerprint?: string | null;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Status */
+            schema_version?: components["schemas"]["Version1"] | null;
             status: string;
         };
-        /** IntegrationProbeAttemptDto */
         IntegrationProbeAttemptDto: {
-            /** Checks */
             checks: components["schemas"]["IntegrationProbeCheckDto"][];
-            /** Completed At */
             completed_at: string;
-            /** Integration Id */
             integration_id: string;
-            /** Overall Status */
             overall_status: string;
-            /** Probe Attempt Id */
             probe_attempt_id: string;
-            /** Probe Configuration Fingerprint */
             probe_configuration_fingerprint?: string | null;
-            /** Probe Contract Fingerprint */
             probe_contract_fingerprint: string;
-            /** Probe Instrument */
             probe_instrument: string | null;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /** Runtime Configuration Fingerprint */
             runtime_configuration_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Started At */
+            schema_version?: components["schemas"]["Version1"] | null;
             started_at: string;
-            /** Type Descriptor Fingerprint */
             type_descriptor_fingerprint: string;
-            /** Type Id */
             type_id: string;
         };
-        /** IntegrationProbeAttemptListDto */
         IntegrationProbeAttemptListDto: {
-            /** Items */
             items: components["schemas"]["IntegrationProbeAttemptDto"][];
         };
-        /** IntegrationProbeCheckDto */
         IntegrationProbeCheckDto: {
-            /** Check */
             check: string;
-            /** Detail */
             detail: string;
-            /** Error Code */
             error_code: string | null;
-            /** Failure Kind */
             failure_kind: string | null;
-            /** Latency Ms */
+            /** Format: int64 */
             latency_ms: number;
-            /** Observations */
             observations: string[];
-            /** Status */
             status: string;
         };
-        /** IntegrationProbeContractDto */
         IntegrationProbeContractDto: {
-            /** Default Probe Instrument */
             default_probe_instrument: string | null;
-            /** Fingerprint */
             fingerprint: string;
-            /** Probe Checks */
             probe_checks: components["schemas"]["OnlyIntegrationProbeCheck"][];
             probe_mode: components["schemas"]["OnlyIntegrationProbeMode"];
-            /**
-             * Probe Version
-             * @constant
-             */
-            probe_version: 1;
-            /** User Selectable Probe Instrument */
+            probe_version: components["schemas"]["Version1"];
             user_selectable_probe_instrument: boolean;
         };
-        /** IntegrationProbeRequestDto */
         IntegrationProbeRequestDto: {
-            /** Expected Revision Fingerprint */
             expected_revision_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationPublishRequestDto */
         IntegrationPublishRequestDto: {
-            /** Expected Draft Version */
+            /** Format: int64 */
             expected_draft_version: number;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
         };
-        /** IntegrationRevisionDto */
         IntegrationRevisionDto: {
-            /** Configuration */
             configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /** Configuration Fingerprint */
             configuration_fingerprint: string;
-            /** Created At */
             created_at: string;
-            /** Integration Id */
             integration_id: string;
-            /** Probe Configuration */
             probe_configuration: {
                 [key: string]: components["schemas"]["JsonValue"];
             } | null;
-            /** Probe Configuration Fingerprint */
             probe_configuration_fingerprint?: string | null;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /** Revision Sequence */
+            /** Format: int64 */
             revision_sequence: number;
-            /** Runtime Configuration Fingerprint */
             runtime_configuration_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Secret Binding Fingerprint */
+            schema_version?: components["schemas"]["Version1"] | null;
             secret_binding_fingerprint: string;
-            /** Secret Bindings */
             secret_bindings: components["schemas"]["IntegrationSecretStatusDto"][];
             type_descriptor: components["schemas"]["IntegrationTypeDto"];
-            /** Type Descriptor Fingerprint */
             type_descriptor_fingerprint: string;
-            /** Type Id */
             type_id: string;
         };
-        /** IntegrationRevisionListDto */
         IntegrationRevisionListDto: {
-            /** Items */
             items: components["schemas"]["IntegrationRevisionSummaryDto"][];
         };
-        /** IntegrationRevisionSummaryDto */
         IntegrationRevisionSummaryDto: {
-            /** Configuration Fingerprint */
             configuration_fingerprint: string;
-            /** Created At */
             created_at: string;
-            /** Probe Configuration Fingerprint */
             probe_configuration_fingerprint?: string | null;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /** Revision Sequence */
+            /** Format: int64 */
             revision_sequence: number;
-            /** Runtime Configuration Fingerprint */
             runtime_configuration_fingerprint: string;
-            /** Secret Binding Fingerprint */
             secret_binding_fingerprint: string;
-            /** Type Descriptor Fingerprint */
             type_descriptor_fingerprint: string;
-            /** Type Id */
             type_id: string;
         };
-        /** IntegrationSecretSetRequestDto */
         IntegrationSecretSetRequestDto: {
-            /** Expected Draft Version */
+            /** Format: int64 */
             expected_draft_version: number;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /**
-             * Secret
-             * Format: password
-             */
+            schema_version: components["schemas"]["Version1"];
             secret: string;
         };
-        /** IntegrationSecretStatusDto */
         IntegrationSecretStatusDto: {
-            /** Configured */
             configured: boolean;
-            /** Field Id */
             field_id: string;
-            /** Generation */
+            /** Format: int64 */
             generation: number | null;
         };
-        /** IntegrationSummaryDto */
         IntegrationSummaryDto: {
             category: components["schemas"]["OnlyIntegrationCategory"];
-            /** Created At */
             created_at: string;
-            /** Current Revision Fingerprint */
             current_revision_fingerprint?: string | null;
-            /** Display Name */
             display_name: string;
-            /** Draft Version */
+            /** Format: int64 */
             draft_version: number;
-            /** Integration Id */
             integration_id: string;
             lifecycle_state: components["schemas"]["OnlyIntegrationLifecycleState"];
-            /** Pinned Type Descriptor Fingerprint */
             pinned_type_descriptor_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Type Id */
+            schema_version?: components["schemas"]["Version1"] | null;
             type_id: string;
-            /** Updated At */
             updated_at: string;
         };
-        /** IntegrationTypeDto */
         IntegrationTypeDto: {
-            /** Capabilities */
             capabilities: string[];
             category: components["schemas"]["OnlyIntegrationCategory"];
             configuration_contract: components["schemas"]["IntegrationConfigurationContractDto"];
-            /** Description */
             description: string;
-            /** Display Name */
             display_name: string;
-            /** Fingerprint */
             fingerprint: string;
-            /** Implementation Id */
             implementation_id: string;
-            /** Implementation Version */
             implementation_version: string;
             probe_contract: components["schemas"]["IntegrationProbeContractDto"] | null;
-            /** Provider Id */
             provider_id: string;
-            /** Public Api Version */
             public_api_version: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Type Id */
+            schema_version: components["schemas"]["Version1"];
             type_id: string;
         };
-        /** IntegrationTypeErrorDto */
-        IntegrationTypeErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-        };
-        /** IntegrationTypeErrorEnvelopeDto */
-        IntegrationTypeErrorEnvelopeDto: {
-            error: components["schemas"]["IntegrationTypeErrorDto"];
-        };
-        /** IntegrationTypeListDto */
         IntegrationTypeListDto: {
-            /** Items */
             items: components["schemas"]["IntegrationTypeDto"][];
         };
+        JsonNumber: number;
         JsonValue: unknown;
-        /** MarketDataAcquisitionDto */
         MarketDataAcquisitionDto: {
-            /** Acquisition Id */
             acquisition_id: string;
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
             coverage: components["schemas"]["MarketDataCoverageDto"];
-            /** End Ns */
             end_ns: string;
-            /** Failure Detail */
             failure_detail: string | null;
-            /** Instrument Id */
             instrument_id: string;
-            /** Integration Binding Fingerprint */
             integration_binding_fingerprint: string | null;
-            /** Provenance */
             provenance: string;
-            /** Revision Fingerprint */
             revision_fingerprint: string | null;
-            /** Revision Id */
             revision_id: string | null;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Seal Id */
+            schema_version: components["schemas"]["Version1"];
             seal_id: string | null;
-            /** Source Id */
             source_id: string;
-            /** Start Ns */
             start_ns: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
+            status: components["schemas"]["MarketDataAcquisitionDtoStatus"];
         };
-        /** MarketDataAcquisitionRequestDto */
+        /** @enum {string} */
+        MarketDataAcquisitionDtoStatus: "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
         MarketDataAcquisitionRequestDto: {
-            /**
-             * @default {
-             *       "adjustment_policy": "RAW",
-             *       "formation": {
-             *         "alignment": "SESSION_START",
-             *         "kind": "FIXED_DURATION",
-             *         "schema_version": 1,
-             *         "stride_minutes": 1,
-             *         "window_minutes": 1
-             *       },
-             *       "price_type": "LAST",
-             *       "schema_version": 3
-             *     }
-             */
-            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
-            /** End Ns */
+            bar_semantic?: components["schemas"]["MarketDataBarSemanticDto"] | null;
             end_ns: string;
-            /** Instrument Id */
             instrument_id: string;
-            /**
-             * Provenance
-             * @default REST_BACKFILL
-             * @constant
-             */
-            provenance: "REST_BACKFILL";
+            provenance?: components["schemas"]["MarketDataAcquisitionRequestDtoProvenance"] | null;
             source_reference: components["schemas"]["MarketDataSourceReferenceDto"];
-            /** Start Ns */
             start_ns: string;
         };
-        /** MarketDataBarDto */
+        /** @enum {string} */
+        MarketDataAcquisitionRequestDtoProvenance: "REST_BACKFILL";
         MarketDataBarDto: {
-            /** Bar End Ns */
             bar_end_ns: string;
-            /** Bar Start Ns */
             bar_start_ns: string;
-            /** Close */
             close: string;
-            /** Closed */
             closed: boolean;
-            /** High */
             high: string;
-            /** Low */
             low: string;
-            /** Open */
             open: string;
-            /** Volume */
             volume: string;
         };
-        /** MarketDataBarSemanticDto */
         MarketDataBarSemanticDto: {
-            /**
-             * Adjustment Policy
-             * @enum {string}
-             */
-            adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
-            /** Formation */
-            formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
+            adjustment_policy: components["schemas"]["MarketDataBarSemanticDtoAdjustmentPolicy"];
+            formation: components["schemas"]["MarketDataBarSemanticDtoFormation"];
             price_type: components["schemas"]["OnlyPriceType"];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 3;
+            schema_version: components["schemas"]["Version3"];
         };
-        /** MarketDataBarWindowDto */
+        /** @enum {string} */
+        MarketDataBarSemanticDtoAdjustmentPolicy: "RAW" | "FORWARD" | "BACKWARD";
+        MarketDataBarSemanticDtoFormation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
         MarketDataBarWindowDto: {
-            /** Aggregation Semantics Version */
             aggregation_semantics_version: string | null;
-            /**
-             * Anchor Kind
-             * @enum {string}
-             */
-            anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
+            anchor_kind: components["schemas"]["MarketDataBarWindowDtoAnchorKind"];
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
-            /** Bars */
             bars: components["schemas"]["MarketDataBarDto"][];
-            /** Calendar Fingerprint */
             calendar_fingerprint: string | null;
-            /** Closed Only */
             closed_only: boolean;
             coverage: components["schemas"]["MarketDataCoverageDto"];
-            /** Derived Projection Fingerprint */
             derived_projection_fingerprint: string | null;
-            /** Display Symbol */
             display_symbol: string;
-            /** History Projection Fingerprint */
             history_projection_fingerprint: string | null;
-            /** Instrument Id */
             instrument_id: string;
-            /** Market */
             market: string;
-            /** Requested Bar Count */
+            /** Format: int64 */
             requested_bar_count: number;
-            /** Requested Before Ns */
             requested_before_ns: string | null;
-            /** Resolution Mode */
-            resolution_mode: ("PROVIDER_NATIVE" | "DERIVED") | null;
-            /** Resolution Plan Fingerprint */
+            resolution_mode: components["schemas"]["MarketDataBarWindowDtoResolutionModeValue"] | null;
             resolution_plan_fingerprint: string | null;
-            /** Resolved End Ns */
             resolved_end_ns: string;
-            /** Resolved Start Ns */
             resolved_start_ns: string;
-            /** Resume After Sequence */
             resume_after_sequence: string | null;
-            /** Resume Plan Fingerprint */
             resume_plan_fingerprint: string | null;
-            /** Revision Evidence */
             revision_evidence: components["schemas"]["MarketDataRevisionEvidenceDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
-            /** Venue */
             venue: string;
         };
-        /** MarketDataCalendarPeriodFormationDto */
+        /** @enum {string} */
+        MarketDataBarWindowDtoAnchorKind: "LATEST_CLOSED" | "BEFORE_TIME";
+        /** @enum {string} */
+        MarketDataBarWindowDtoResolutionModeValue: "PROVIDER_NATIVE" | "DERIVED";
         MarketDataCalendarPeriodFormationDto: {
-            /**
-             * Alignment
-             * @enum {string}
-             */
-            alignment: "UTC" | "SESSION_START";
-            /** Count */
+            alignment: components["schemas"]["MarketDataCalendarPeriodFormationDtoAlignment"];
+            /** Format: int64 */
             count: number;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "CALENDAR_PERIOD";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /**
-             * Unit
-             * @enum {string}
-             */
-            unit: "DAY" | "WEEK" | "MONTH";
+            kind: components["schemas"]["MarketDataCalendarPeriodFormationDtoKind"];
+            schema_version: components["schemas"]["Version1"];
+            unit: components["schemas"]["MarketDataCalendarPeriodFormationDtoUnit"];
         };
-        /** MarketDataCoverageDto */
+        /** @enum {string} */
+        MarketDataCalendarPeriodFormationDtoAlignment: "UTC" | "SESSION_START";
+        /** @enum {string} */
+        MarketDataCalendarPeriodFormationDtoKind: "CALENDAR_PERIOD";
+        /** @enum {string} */
+        MarketDataCalendarPeriodFormationDtoUnit: "DAY" | "WEEK" | "MONTH";
         MarketDataCoverageDto: {
-            /** Actual Bar Count */
+            /** Format: int64 */
             actual_bar_count: number;
-            /** Expected Bar Count */
+            /** Format: int64 */
             expected_bar_count: number;
-            /** Gaps */
             gaps: components["schemas"]["MarketDataCoverageGapDto"][];
-            /** Issues */
             issues: string[];
-            /** Manifest Fingerprint */
             manifest_fingerprint: string | null;
-            /** Manifest Id */
             manifest_id: string | null;
-            /** Planned Acquisition Ranges */
             planned_acquisition_ranges: components["schemas"]["MarketDataCoverageGapDto"][];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "COMPLETE" | "INCOMPLETE" | "UNPROVABLE";
+            status: components["schemas"]["MarketDataCoverageDtoStatus"];
         };
-        /** MarketDataCoverageGapDto */
+        /** @enum {string} */
+        MarketDataCoverageDtoStatus: "COMPLETE" | "INCOMPLETE" | "UNPROVABLE";
         MarketDataCoverageGapDto: {
-            /** End Ns */
             end_ns: string;
-            /** Start Ns */
             start_ns: string;
         };
-        /** MarketDataErrorDto */
-        MarketDataErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /**
-             * Phase
-             * @enum {string}
-             */
-            phase: "QUERY" | "COMMAND";
-        };
-        /** MarketDataErrorEnvelopeDto */
-        MarketDataErrorEnvelopeDto: {
-            error: components["schemas"]["MarketDataErrorDto"];
-        };
-        /** MarketDataFixedDurationFormationDto */
         MarketDataFixedDurationFormationDto: {
-            /**
-             * Alignment
-             * @enum {string}
-             */
-            alignment: "UTC" | "SESSION_START";
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "FIXED_DURATION";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Stride Minutes */
+            alignment: components["schemas"]["MarketDataFixedDurationFormationDtoAlignment"];
+            kind: components["schemas"]["MarketDataFixedDurationFormationDtoKind"];
+            schema_version: components["schemas"]["Version1"];
+            /** Format: int64 */
             stride_minutes: number;
-            /** Window Minutes */
+            /** Format: int64 */
             window_minutes: number;
         };
-        /** MarketDataInstrumentDto */
+        /** @enum {string} */
+        MarketDataFixedDurationFormationDtoAlignment: "UTC" | "SESSION_START";
+        /** @enum {string} */
+        MarketDataFixedDurationFormationDtoKind: "FIXED_DURATION";
         MarketDataInstrumentDto: {
-            /** Asset Class */
             asset_class: string;
-            /** Display Symbol */
             display_symbol: string;
-            /** Instrument Id */
             instrument_id: string;
-            /** Instrument Type */
             instrument_type: string;
-            /** Market */
             market: string;
-            /** Market Data Capabilities */
             market_data_capabilities: string[];
-            /** Status */
             status: string;
-            /** Venue */
             venue: string;
         };
-        /** MarketDataInstrumentListDto */
         MarketDataInstrumentListDto: {
-            /** Instruments */
             instruments: components["schemas"]["MarketDataInstrumentDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
         };
-        /** MarketDataQuoteDto */
         MarketDataQuoteDto: {
-            /** Change Basis */
-            change_basis: ("ROLLING_24H" | "PREVIOUS_CLOSE") | null;
-            /** Change Pct */
+            change_basis: components["schemas"]["MarketDataQuoteDtoChangeBasisValue"] | null;
             change_pct: string | null;
-            /** Instrument Id */
             instrument_id: string;
-            /** Last Price */
             last_price: string | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "AVAILABLE" | "UNAVAILABLE";
-            /** Ts Event Ns */
+            status: components["schemas"]["MarketDataQuoteDtoStatus"];
             ts_event_ns: string | null;
         };
-        /** MarketDataQuoteListDto */
+        /** @enum {string} */
+        MarketDataQuoteDtoChangeBasisValue: "ROLLING_24H" | "PREVIOUS_CLOSE";
+        /** @enum {string} */
+        MarketDataQuoteDtoStatus: "AVAILABLE" | "UNAVAILABLE";
         MarketDataQuoteListDto: {
-            /** Quotes */
             quotes: components["schemas"]["MarketDataQuoteDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            schema_version: components["schemas"]["Version1"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "COMPLETE" | "TIMEOUT" | "UNAVAILABLE" | "UNSUPPORTED";
+            status: components["schemas"]["MarketDataQuoteListDtoStatus"];
         };
-        /** MarketDataRevisionEvidenceDto */
+        /** @enum {string} */
+        MarketDataQuoteListDtoStatus: "COMPLETE" | "TIMEOUT" | "UNAVAILABLE" | "UNSUPPORTED";
         MarketDataRevisionEvidenceDto: {
-            /** Covered End Ns */
             covered_end_ns: string;
-            /** Covered Start Ns */
             covered_start_ns: string;
-            /** Manifest Fingerprint */
             manifest_fingerprint: string;
-            /** Manifest Id */
             manifest_id: string;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /** Revision Id */
             revision_id: string;
-            /** Seal Id */
             seal_id: string;
         };
-        /** MarketDataSearchDto */
         MarketDataSearchDto: {
-            /** Results */
             results: components["schemas"]["MarketDataSearchResultDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Sources */
+            schema_version: components["schemas"]["Version1"];
             sources: components["schemas"]["MarketDataSearchSourceDto"][];
-            /** Truncated */
             truncated: boolean;
         };
-        /** MarketDataSearchResultDto */
         MarketDataSearchResultDto: {
             instrument: components["schemas"]["MarketDataInstrumentDto"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
         };
-        /** MarketDataSearchSourceDto */
         MarketDataSearchSourceDto: {
-            /** Asset Classes */
             asset_classes: string[];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "COMPLETE" | "TIMEOUT" | "UNAVAILABLE" | "UNSUPPORTED";
-            /** Truncated */
+            status: components["schemas"]["MarketDataSearchSourceDtoStatus"];
             truncated: boolean;
         };
-        /** MarketDataSourceListDto */
+        /** @enum {string} */
+        MarketDataSearchSourceDtoStatus: "COMPLETE" | "TIMEOUT" | "UNAVAILABLE" | "UNSUPPORTED";
         MarketDataSourceListDto: {
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Sources */
+            schema_version: components["schemas"]["Version1"];
             sources: components["schemas"]["MarketDataSourceProjectionDto"][];
         };
-        /** MarketDataSourceProjectionDto */
         MarketDataSourceProjectionDto: {
-            /** Display Name */
             display_name: string;
-            /** Environment */
             environment: string;
-            /** Integration Id */
+            history_read_policy: components["schemas"]["SourceHistoryPolicy"];
             integration_id: string;
-            /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
-            /** Source Id */
+            is_current_revision: boolean;
+            new_work_status: components["schemas"]["SourceNewWorkStatus"];
+            new_work_unavailable_code: string | null;
             source_id: string;
             time_bar_capability: components["schemas"]["MarketDataTimeBarCapabilityDto"];
-            /** Type Id */
             type_id: string;
         };
-        /**
-         * MarketDataSourceReferenceDto
-         * @description Client request reference; the client asserts no canonical source identity.
-         */
         MarketDataSourceReferenceDto: {
-            /** Expected Type Id */
             expected_type_id?: string | null;
-            /** Integration Id */
             integration_id: string;
-            /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
         };
-        /**
-         * MarketDataSourceSelectionDto
-         * @description Server-derived canonical Market Source identity reported back to the client.
-         */
         MarketDataSourceSelectionDto: {
-            /** Environment */
             environment: string;
-            /** Integration Id */
             integration_id: string;
-            /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
-            /** Source Id */
             source_id: string;
-            /** Type Id */
             type_id: string;
         };
-        /** MarketDataTickCountFormationDto */
         MarketDataTickCountFormationDto: {
-            /** Count */
+            /** Format: int64 */
             count: number;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "TICK_COUNT";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
+            kind: components["schemas"]["MarketDataTickCountFormationDtoKind"];
+            schema_version: components["schemas"]["Version1"];
         };
-        /** MarketDataTimeBarCapabilityDto */
+        /** @enum {string} */
+        MarketDataTickCountFormationDtoKind: "TICK_COUNT";
         MarketDataTimeBarCapabilityDto: {
-            /** Derived Algorithm */
-            derived_algorithm: "TIME_BAR@1" | null;
-            /** Maximum Window Minutes */
+            derived_algorithm: components["schemas"]["MarketDataTimeBarCapabilityDtoDerivedAlgorithmValue"] | null;
+            /** Format: int64 */
             maximum_window_minutes: number;
-            /** Minimum Window Minutes */
+            /** Format: int64 */
             minimum_window_minutes: number;
             provider_base_semantic: components["schemas"]["MarketDataBarSemanticDto"];
         };
-        /** MarketDataValueFormationDto */
+        /** @enum {string} */
+        MarketDataTimeBarCapabilityDtoDerivedAlgorithmValue: "TIME_BAR@1";
         MarketDataValueFormationDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "VALUE";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Value */
+            kind: components["schemas"]["MarketDataValueFormationDtoKind"];
+            schema_version: components["schemas"]["Version2"];
             value: string;
         };
-        /** MarketDataVolumeFormationDto */
+        /** @enum {string} */
+        MarketDataValueFormationDtoKind: "VALUE";
         MarketDataVolumeFormationDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "VOLUME";
-            /** Quantity */
+            kind: components["schemas"]["MarketDataVolumeFormationDtoKind"];
             quantity: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
+            schema_version: components["schemas"]["Version2"];
         };
-        /**
-         * OnlyCalculationBackendKind
-         * @enum {string}
-         */
-        OnlyCalculationBackendKind: "TRADING" | "RESEARCH";
-        /**
-         * OnlyCalculationDataType
-         * @enum {string}
-         */
-        OnlyCalculationDataType: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
-        /**
-         * OnlyCalculationKind
-         * @enum {string}
-         */
-        OnlyCalculationKind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
-        /**
-         * OnlyIntegrationCategory
-         * @enum {string}
-         */
-        OnlyIntegrationCategory: "DATA_SOURCE" | "BROKER" | "AGENT_PROVIDER";
-        /**
-         * OnlyIntegrationLifecycleState
-         * @enum {string}
-         */
-        OnlyIntegrationLifecycleState: "ACTIVE" | "DISABLED" | "ARCHIVED";
-        /**
-         * OnlyIntegrationProbeCheck
-         * @enum {string}
-         */
-        OnlyIntegrationProbeCheck: "CONNECTIVITY" | "AUTHENTICATION" | "REFERENCE_DATA" | "HISTORICAL_DATA" | "REALTIME_DATA" | "MODEL_DISCOVERY";
-        /**
-         * OnlyIntegrationProbeMode
-         * @enum {string}
-         */
-        OnlyIntegrationProbeMode: "DEFAULT_INSTRUMENT";
-        /**
-         * OnlyIntegrationValueKind
-         * @enum {string}
-         */
-        OnlyIntegrationValueKind: "STRING" | "INTEGER" | "NUMBER" | "BOOLEAN" | "ENUM" | "DURATION" | "PATH" | "STRING_INTEGER_MAP";
-        /**
-         * OnlyPriceType
-         * @enum {string}
-         */
-        OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
-        /**
-         * OnlyPrivateAssetKind
-         * @enum {string}
-         */
-        OnlyPrivateAssetKind: "FACTOR" | "STRATEGY";
-        /**
-         * OnlyProductAssetProjectionCompleteness
-         * @enum {string}
-         */
-        OnlyProductAssetProjectionCompleteness: "CERTIFIED_COMPLETE" | "INCOMPLETE";
-        /**
-         * OnlyProductAssetSearchStatus
-         * @enum {string}
-         */
-        OnlyProductAssetSearchStatus: "MATCH" | "NO_MATCH_ON_CERTIFIED_COMPLETE_PROJECTION" | "PROJECTION_INCOMPLETE" | "PROJECTION_UNAVAILABLE";
-        /**
-         * OnlyQuantAssetKind
-         * @enum {string}
-         */
-        OnlyQuantAssetKind: "OPERATOR" | "INDICATOR" | "FACTOR" | "STRATEGY";
-        /**
-         * OnlyResearchPairingPolicy
-         * @enum {string}
-         */
-        OnlyResearchPairingPolicy: "PAIRWISE_COMPLETE";
-        /**
-         * OnlyResearchRankTieMethod
-         * @enum {string}
-         */
-        OnlyResearchRankTieMethod: "AVERAGE";
-        /**
-         * OnlyResearchStatisticsMethod
-         * @enum {string}
-         */
-        OnlyResearchStatisticsMethod: "IC" | "RANK_IC";
-        /**
-         * OnlyResearchUniverseKind
-         * @enum {string}
-         */
-        OnlyResearchUniverseKind: "SINGLE_INSTRUMENT" | "EXPLICIT_INSTRUMENT_SET" | "REGISTERED_POOL" | "REGISTERED_UNIVERSE";
-        /**
-         * OnlyResearchUniversePolicy
-         * @enum {string}
-         */
-        OnlyResearchUniversePolicy: "OBSERVED_PAIRWISE";
-        /**
-         * OnlyResearchWeighting
-         * @enum {string}
-         */
-        OnlyResearchWeighting: "EQUAL";
-        /** ParameterSearchSubmitRequestDto */
-        ParameterSearchSubmitRequestDto: {
-            /** Algorithm Manifest */
-            algorithm_manifest: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Dataset Snapshot Fingerprint */
-            dataset_snapshot_fingerprint: string;
-            /** Decision Engine Binding */
-            decision_engine_binding: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Evaluation Contract */
-            evaluation_contract: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Hypothesis */
-            hypothesis: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Parent Experiment Fingerprint */
-            parent_experiment_fingerprint?: string | null;
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Search Budget */
-            search_budget: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Search Policy */
-            search_policy: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Search Space */
-            search_space: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Workflow Binding */
-            workflow_binding: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-        };
-        /** PrivateAssetErrorDto */
-        PrivateAssetErrorDto: {
-            /** Code */
+        /** @enum {string} */
+        MarketDataVolumeFormationDtoKind: "VOLUME";
+        NativeError: {
             code: string;
-            /** Detail */
             detail: string;
+            phase: components["schemas"]["NativeErrorPhase"];
         };
-        /** PrivateAssetErrorEnvelopeDto */
-        PrivateAssetErrorEnvelopeDto: {
-            error: components["schemas"]["PrivateAssetErrorDto"];
+        NativeErrorEnvelope: {
+            error: components["schemas"]["NativeError"];
+            schema_version: components["schemas"]["Version1"];
         };
-        /** PrivateAssetLocatorDto */
+        /** @enum {string} */
+        NativeErrorPhase: "QUERY" | "COMMAND";
+        NativeHealthDto: {
+            status: components["schemas"]["NativeHealthStatus"];
+        };
+        /** @enum {string} */
+        NativeHealthStatus: "LIVE" | "READY";
+        /** @enum {string} */
+        OnlyIntegrationCategory: "DATA_SOURCE" | "BROKER" | "AGENT_PROVIDER";
+        /** @enum {string} */
+        OnlyIntegrationLifecycleState: "ACTIVE" | "DISABLED" | "ARCHIVED";
+        /** @enum {string} */
+        OnlyIntegrationProbeCheck: "CONNECTIVITY" | "AUTHENTICATION" | "REFERENCE_DATA" | "HISTORICAL_DATA" | "REALTIME_DATA" | "MODEL_DISCOVERY";
+        /** @enum {string} */
+        OnlyIntegrationProbeMode: "DEFAULT_INSTRUMENT";
+        /** @enum {string} */
+        OnlyIntegrationValueKind: "STRING" | "INTEGER" | "NUMBER" | "BOOLEAN" | "ENUM" | "DURATION" | "PATH" | "STRING_INTEGER_MAP";
+        /** @enum {string} */
+        OnlyPriceType: "LAST" | "BID" | "ASK" | "MID" | "MARK";
+        /** @enum {string} */
+        OnlyPrivateAssetKind: "FACTOR" | "STRATEGY";
         PrivateAssetLocatorDto: {
-            /** Content Fingerprint */
             content_fingerprint: string;
-            /** Private Asset Id */
             private_asset_id: string;
             private_asset_kind: components["schemas"]["OnlyPrivateAssetKind"];
-            /** Revision Fingerprint */
             revision_fingerprint: string;
         };
-        /** PrivateAssetRegistryDto */
         PrivateAssetRegistryDto: {
-            /** Entries */
             entries: components["schemas"]["PrivateAssetRegistryEntryDto"][];
-            /** Registry Fingerprint */
             registry_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
+            schema_version?: components["schemas"]["Version1"] | null;
         };
-        /** PrivateAssetRegistryEntryDto */
         PrivateAssetRegistryEntryDto: {
-            /** Category */
             category: string | null;
-            /** Description */
             description: string;
             locator: components["schemas"]["PrivateAssetLocatorDto"];
-            /** Semantic Version */
             semantic_version: string;
-            /** Tags */
             tags: string[];
         };
-        /** PrivateAssetSearchResultDto */
-        PrivateAssetSearchResultDto: {
-            /** Built At */
-            built_at: string | null;
-            completeness: components["schemas"]["OnlyProductAssetProjectionCompleteness"] | null;
-            /** Projection Fingerprint */
-            projection_fingerprint?: string | null;
-            /** Projection Stale */
-            projection_stale: boolean;
-            /** Registry Fingerprint */
-            registry_fingerprint?: string | null;
-            /** Results */
-            results: components["schemas"]["PrivateAssetRegistryEntryDto"][];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            status: components["schemas"]["OnlyProductAssetSearchStatus"];
-        };
-        /** PrivateFactorRevisionDto */
         PrivateFactorRevisionDto: {
-            /** Category */
             category: string;
-            /** Description */
             description: string;
-            /** Economic Rationale */
             economic_rationale: string;
-            /** Factor Api Contract Fingerprint */
             factor_api_contract_fingerprint: string;
-            /**
-             * Factor Api Version
-             * @constant
-             */
-            factor_api_version: 1;
-            /** Factor Id */
+            factor_api_version: components["schemas"]["Version1"];
             factor_id: string;
-            /** Input Contract */
             input_contract: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /** Output Contract */
             output_contract: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /** Parameter Contract */
             parameter_contract: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
-            /** Parent Revision Fingerprint */
             parent_revision_fingerprint: string | null;
-            /** Revision Fingerprint */
             revision_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Semantic Version */
+            schema_version: components["schemas"]["Version1"];
             semantic_version: string;
-            /** Source Sha256 */
             source_sha256: string;
-            /** Source Text */
             source_text: string;
-            /** Tags */
             tags: string[];
         };
-        /** PrivateStrategyRevisionDto */
-        PrivateStrategyRevisionDto: {
-            /** Definition */
-            definition: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Definition Fingerprint */
-            definition_fingerprint: string;
-            /** Description */
-            description: string;
-            /** Parent Revision Fingerprint */
-            parent_revision_fingerprint: string | null;
-            /** Revision Fingerprint */
-            revision_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-            /** Semantic Version */
-            semantic_version: string;
-            /** Strategy Id */
-            strategy_id: string;
-            /** Tags */
-            tags: string[];
-        };
-        /** ProductErrorDto */
-        ProductErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Phase */
-            phase: string;
-        };
-        /** ProductErrorEnvelopeDto */
-        ProductErrorEnvelopeDto: {
-            error: components["schemas"]["ProductErrorDto"];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ProductExecutionHealthDto */
-        ProductExecutionHealthDto: {
-            /** Checks */
-            checks: {
-                [key: string]: string;
-            };
-            /** Reason */
-            reason?: string | null;
-            /** Status */
-            status: string;
-        };
-        /** QualificationDecisionListResponse */
-        QualificationDecisionListResponse: {
-            /** Decisions */
-            decisions: {
-                [key: string]: unknown;
-            }[];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** QualificationDecisionResponse */
-        QualificationDecisionResponse: {
-            /** Decision */
-            decision: {
-                [key: string]: unknown;
-            };
-            /**
-             * Replayed
-             * @default false
-             */
-            replayed: boolean;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** QualificationEvaluationRequest */
-        QualificationEvaluationRequest: {
-            /** Evidence */
-            evidence: components["schemas"]["QualificationEvidenceReferenceDto"][];
-            /** Policy Id */
-            policy_id: string;
-            /** Policy Version */
-            policy_version: string;
-        };
-        /** QualificationEvidenceReferenceDto */
-        QualificationEvidenceReferenceDto: {
-            /** Evidence Fingerprint */
-            evidence_fingerprint: string;
-            /** Kind */
-            kind: string;
-            /** Locator Fingerprint */
-            locator_fingerprint?: string | null;
-            /** Subject Binding Fingerprint */
-            subject_binding_fingerprint?: string | null;
-        };
-        /** QualificationPolicyListResponse */
-        QualificationPolicyListResponse: {
-            /** Policies */
-            policies: {
-                [key: string]: unknown;
-            }[];
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** QualificationPolicyResponse */
-        QualificationPolicyResponse: {
-            /** Policy */
-            policy: {
-                [key: string]: unknown;
-            };
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** QualifiedStrategyPromotionRequest */
-        QualifiedStrategyPromotionRequest: {
-            /** Actor */
-            actor: string;
-            /** Policy Fingerprint */
-            policy_fingerprint: string;
-            /** Qualification Decision Fingerprint */
-            qualification_decision_fingerprint: string;
-            /** Reason */
-            reason: string;
-            /**
-             * To Stage
-             * @enum {string}
-             */
-            to_stage: "BACKTEST" | "SIM";
-        };
-        /** ResearchAndDto */
-        ResearchAndDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "AND";
-            /** Operands */
-            operands: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"])[];
-        };
-        /** ResearchArtifactSummaryDto */
-        ResearchArtifactSummaryDto: {
-            /** Artifact Content Fingerprint */
-            artifact_content_fingerprint: string;
-            /** Artifact Profile */
-            artifact_profile: string;
-            /** Artifact Schema Version */
-            artifact_schema_version: number;
-            /** Candidate Count */
-            candidate_count: number;
-            /** Created At */
-            created_at: string;
-            /** Dataset Snapshot Fingerprint */
-            dataset_snapshot_fingerprint: string;
-            /** Instrument Ids */
-            instrument_ids: string[];
-            /** Market Row Count */
-            market_row_count: number;
-            /** Published Series Count */
-            published_series_count: number;
-            /** Research Result Content Fingerprint */
-            research_result_content_fingerprint: string;
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /** Research Result Plan Fingerprint */
-            research_result_plan_fingerprint: string;
-            /** Research Result Schema Version */
-            research_result_schema_version: number;
-            /** Row Count */
-            row_count: number;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Signal Series Count */
-            signal_series_count: number;
-            /** Statistics Count */
-            statistics_count: number;
-        };
-        /** ResearchAuthoringProvenanceDto */
-        ResearchAuthoringProvenanceDto: {
-            /** Candidate Provider Content Fingerprint */
-            candidate_provider_content_fingerprint: string;
-            /** Candidate Provider Id */
-            candidate_provider_id: string;
-            /** Candidate Provider Version */
-            candidate_provider_version: string;
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Execution Generation Fingerprint */
-            execution_generation_fingerprint: string;
-            /** Experiment Id */
-            experiment_id: string;
-            /** Private Asset Content Fingerprint */
-            private_asset_content_fingerprint: string;
-            /** Private Asset Id */
-            private_asset_id: string;
-            /**
-             * Private Asset Kind
-             * @enum {string}
-             */
-            private_asset_kind: "FACTOR" | "STRATEGY";
-            /** Private Asset Revision Fingerprint */
-            private_asset_revision_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ResearchBarSemanticDto */
-        ResearchBarSemanticDto: {
-            /**
-             * Adjustment Policy
-             * @enum {string}
-             */
-            adjustment_policy: "RAW" | "FORWARD" | "BACKWARD";
-            /** Formation */
-            formation: components["schemas"]["MarketDataFixedDurationFormationDto"] | components["schemas"]["MarketDataCalendarPeriodFormationDto"] | components["schemas"]["MarketDataTickCountFormationDto"] | components["schemas"]["MarketDataVolumeFormationDto"] | components["schemas"]["MarketDataValueFormationDto"];
-            price_type: components["schemas"]["OnlyPriceType"];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 3;
-        };
-        /** ResearchCalculationCatalogDto */
         ResearchCalculationCatalogDto: {
-            /** Calculations */
             calculations: components["schemas"]["ResearchCalculationCatalogItemDto"][];
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
+            schema_version?: components["schemas"]["Version2"] | null;
         };
-        /** ResearchCalculationCatalogItemDto */
         ResearchCalculationCatalogItemDto: {
-            /** Inputs */
             inputs: components["schemas"]["ResearchInputDefinitionDto"][];
-            /** Kind */
             kind: string;
-            /** Outputs */
             outputs: components["schemas"]["ResearchOutputDefinitionDto"][];
-            /** Parameter Sweep Allowed */
             parameter_sweep_allowed: boolean;
-            /** Parameters */
             parameters: components["schemas"]["ResearchParameterDefinitionDto"][];
             type_reference: components["schemas"]["ResearchCalculationTypeReferenceDto"];
         };
-        /** ResearchCalculationGraphDto */
-        ResearchCalculationGraphDto: {
-            /** Nodes */
-            nodes: components["schemas"]["ResearchGraphNodeDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ResearchCalculationInputDto */
-        ResearchCalculationInputDto: {
-            /** Input Name */
-            input_name: string;
-            /** Source */
-            source: string | components["schemas"]["ResearchVariableRefDto"];
-        };
-        /** ResearchCalculationInstanceDto */
-        ResearchCalculationInstanceDto: {
-            /** Input Bindings */
-            input_bindings: components["schemas"]["ResearchCalculationInputDto"][];
-            /** Instance Key */
-            instance_key: string;
-            /** Parameters */
-            parameters: {
-                [key: string]: components["schemas"]["ResearchFixedParameterDto"] | components["schemas"]["ResearchSweepParameterDto"];
-            };
-            /** Primary Output */
-            primary_output: string | null;
-            /** Published Outputs */
-            published_outputs: string[];
-            type_reference: components["schemas"]["ResearchCalculationTypeReferenceDto"];
-        };
-        /** ResearchCalculationTypeReferenceDto */
         ResearchCalculationTypeReferenceDto: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "INDICATOR" | "FACTOR" | "TARGET";
-            /** Semantic Version */
+            kind: components["schemas"]["ResearchCalculationTypeReferenceDtoKind"];
             semantic_version: string;
-            /** Type Id */
             type_id: string;
         };
-        /** ResearchCandidateCatalogDto */
-        ResearchCandidateCatalogDto: {
-            /** Candidates */
-            candidates: components["schemas"]["ResearchCandidateDto"][];
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchCandidateDto */
-        ResearchCandidateDto: {
-            /** Assignment */
-            assignment: {
-                [key: string]: boolean | number | string | null;
-            };
-            /** Assignment Types */
-            assignment_types: {
-                [key: string]: "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
-            };
-            /** Calculation Fingerprint */
-            calculation_fingerprint: string;
-            /** Candidate Calculation Id */
-            candidate_calculation_id: string;
-            /** Candidate Fingerprint */
-            candidate_fingerprint: string;
-            /** Graph Fingerprint */
-            graph_fingerprint: string;
-            /** Signal Roles */
-            signal_roles: ("ELIGIBILITY" | "ENTRY_SIGNAL" | "EXIT_SIGNAL")[];
-            /** Statistics Fingerprints */
-            statistics_fingerprints: string[];
-        };
-        /** ResearchCandidateGraphDto */
-        ResearchCandidateGraphDto: {
-            /** Calculation Fingerprint */
-            calculation_fingerprint: string;
-            /** Candidate Fingerprint */
-            candidate_fingerprint: string;
-            graph: components["schemas"]["ResearchCalculationGraphDto"];
-            /** Graph Fingerprint */
-            graph_fingerprint: string;
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchComparisonDto */
-        ResearchComparisonDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "COMPARISON";
-            /** Left */
-            left: components["schemas"]["ResearchDatasetFieldRefDto"] | components["schemas"]["ResearchVariableRefDto"] | components["schemas"]["ResearchTypedLiteralDto"];
-            /**
-             * Operator
-             * @enum {string}
-             */
-            operator: "==" | "!=" | "<" | "<=" | ">" | ">=";
-            /** Right */
-            right: components["schemas"]["ResearchDatasetFieldRefDto"] | components["schemas"]["ResearchVariableRefDto"] | components["schemas"]["ResearchTypedLiteralDto"];
-        };
-        /** ResearchDatasetFieldCatalogDto */
-        ResearchDatasetFieldCatalogDto: {
-            /** Dataset Fields */
-            dataset_fields: components["schemas"]["ResearchDatasetFieldDto"][];
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchDatasetFieldDto */
-        ResearchDatasetFieldDto: {
-            /** Data Type */
-            data_type: string;
-            /** Dimensions */
-            dimensions: string[];
-            /** Field Name */
-            field_name: string;
-            /** Semantic Roles */
-            semantic_roles: string[];
-            /** Source */
-            source: string;
-            /** Unit */
-            unit: string | null;
-        };
-        /** ResearchDatasetFieldRefDto */
-        ResearchDatasetFieldRefDto: {
-            /** Field Name */
-            field_name: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "DATASET_FIELD";
-        };
-        /** ResearchDatasetSelectionDto */
-        ResearchDatasetSelectionDto: {
-            bar_semantic: components["schemas"]["ResearchBarSemanticDto"];
-            /** End */
-            end: string;
-            /** Start */
-            start: string;
-            universe: components["schemas"]["ResearchUniverseSelectionDto"];
-        };
-        /** ResearchDefinitionCandidateDto */
-        ResearchDefinitionCandidateDto: {
-            /** Assignment */
-            assignment: {
-                [key: string]: components["schemas"]["ResearchScalarDto"];
-            };
-            /** Calculation Fingerprint */
-            calculation_fingerprint: string;
-            /** Candidate Fingerprint */
-            candidate_fingerprint: string;
-            /** Graph Fingerprint */
-            graph_fingerprint: string;
-            /** Ordinal */
-            ordinal: number;
-        };
-        /** ResearchDefinitionErrorDto */
-        ResearchDefinitionErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Path */
-            path: string;
-            /** Phase */
-            phase: string;
-        };
-        /** ResearchDefinitionErrorEnvelopeDto */
-        ResearchDefinitionErrorEnvelopeDto: {
-            error: components["schemas"]["ResearchDefinitionErrorDto"];
-        };
-        /** ResearchDefinitionRequestDto */
-        ResearchDefinitionRequestDto: {
-            /** Calculations */
-            calculations: components["schemas"]["ResearchCalculationInstanceDto"][];
-            dataset: components["schemas"]["ResearchDatasetSelectionDto"];
-            /** Display Metadata */
-            display_metadata: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Eligibility */
-            eligibility: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
-            /** Schema Version */
-            schema_version: number;
-            signals: components["schemas"]["ResearchSignalsDto"];
-            /** Statistics */
-            statistics: components["schemas"]["ResearchStatisticsRequestDto"][];
-            /** Targets */
-            targets: components["schemas"]["ResearchCalculationInstanceDto"][];
-        };
-        /** ResearchDefinitionResolutionDto */
-        ResearchDefinitionResolutionDto: {
-            /** Authoring Definition Fingerprint */
-            authoring_definition_fingerprint: string;
-            /** Candidate Count */
-            candidate_count: number;
-            /** Candidates */
-            candidates: components["schemas"]["ResearchDefinitionCandidateDto"][];
-            /** Dataset Snapshot Fingerprint */
-            dataset_snapshot_fingerprint: string;
-            /** Diagnostics */
-            diagnostics: components["schemas"]["JsonValue"][];
-            /** Exact Specification */
-            exact_specification: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Instrument Count */
-            instrument_count: number;
-            /** Published Variables */
-            published_variables: components["schemas"]["ResearchPublishedVariableDto"][];
-            /** Resolved Dataset Definition */
-            resolved_dataset_definition: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Resolved Definition Fingerprint */
-            resolved_definition_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Specification Fingerprint */
-            specification_fingerprint: string;
-        };
-        /** ResearchErrorDto */
-        ResearchErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchFixedParameterDto */
-        ResearchFixedParameterDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "FIXED";
-            value: components["schemas"]["ResearchScalarDto"];
-        };
-        /** ResearchGraphBooleanScalarDto */
-        ResearchGraphBooleanScalarDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "BOOLEAN";
-            /** Value */
-            value: boolean;
-        };
-        /** ResearchGraphDecimalScalarDto */
-        ResearchGraphDecimalScalarDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "DECIMAL";
-            /** Value */
-            value: string;
-        };
-        /** ResearchGraphDefinitionDto */
-        ResearchGraphDefinitionDto: {
-            /** Extensions */
-            extensions: {
-                [key: string]: components["schemas"]["ResearchGraphNullScalarDto"] | components["schemas"]["ResearchGraphBooleanScalarDto"] | components["schemas"]["ResearchGraphIntegerScalarDto"] | components["schemas"]["ResearchGraphDecimalScalarDto"] | components["schemas"]["ResearchGraphStringScalarDto"];
-            };
-            /** Factor Kind */
-            factor_kind: ("TIME_SERIES" | "CROSS_SECTION") | null;
-            /** Input Bindings */
-            input_bindings: {
-                [key: string]: components["schemas"]["ResearchGraphReferenceDto"];
-            };
-            /** Inputs */
-            inputs: components["schemas"]["ResearchGraphPortDto"][];
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "INDICATOR" | "FACTOR" | "TARGET" | "PREDICATE";
-            /**
-             * Missing Values
-             * @enum {string}
-             */
-            missing_values: "FAIL" | "SKIP" | "PROPAGATE" | "RESET";
-            numeric: components["schemas"]["ResearchGraphNumericDto"];
-            /** Outputs */
-            outputs: components["schemas"]["ResearchGraphPortDto"][];
-            /** Parameters */
-            parameters: {
-                [key: string]: components["schemas"]["ResearchGraphNullScalarDto"] | components["schemas"]["ResearchGraphBooleanScalarDto"] | components["schemas"]["ResearchGraphIntegerScalarDto"] | components["schemas"]["ResearchGraphDecimalScalarDto"] | components["schemas"]["ResearchGraphStringScalarDto"];
-            };
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Semantic Version */
-            semantic_version: string;
-            /**
-             * Timestamp
-             * @enum {string}
-             */
-            timestamp: "BAR_OPEN" | "BAR_CLOSE" | "EVENT_TIME" | "OBSERVATION_TIME" | "AVAILABILITY_TIME";
-            /** Type Id */
-            type_id: string;
-            warmup: components["schemas"]["ResearchGraphWarmupDto"];
-        };
-        /** ResearchGraphIntegerScalarDto */
-        ResearchGraphIntegerScalarDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "INTEGER";
-            /** Value */
-            value: string;
-        };
-        /** ResearchGraphNodeDto */
-        ResearchGraphNodeDto: {
-            /** Alias */
-            alias: string | null;
-            definition: components["schemas"]["ResearchGraphDefinitionDto"];
-            /** Node Fingerprint */
-            node_fingerprint: string;
-        };
-        /** ResearchGraphNullScalarDto */
-        ResearchGraphNullScalarDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "NULL";
-            /** Value */
-            value: null;
-        };
-        /** ResearchGraphNumericDto */
-        ResearchGraphNumericDto: {
-            /** Output Quantum */
-            output_quantum: string | null;
-            /** Precision */
-            precision: number;
-            /** Representation */
-            representation: string;
-            /** Rounding */
-            rounding: string;
-        };
-        /** ResearchGraphPortDto */
-        ResearchGraphPortDto: {
-            /**
-             * Data Type
-             * @enum {string}
-             */
-            data_type: "DECIMAL" | "INTEGER" | "BOOLEAN" | "STRING";
-            /** Dimensions */
-            dimensions: string[];
-            /** Name */
-            name: string;
-            /** Nullable */
-            nullable: boolean;
-            /** Semantic Type */
-            semantic_type: string;
-            /** Unit */
-            unit: string | null;
-        };
-        /** ResearchGraphReferenceDto */
-        ResearchGraphReferenceDto: {
-            /** Node Fingerprint */
-            node_fingerprint: string | null;
-            /** Output Name */
-            output_name: string;
-            /** Source */
-            source: string | null;
-        };
-        /** ResearchGraphStringScalarDto */
-        ResearchGraphStringScalarDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "STRING";
-            /** Value */
-            value: string;
-        };
-        /** ResearchGraphWarmupDto */
-        ResearchGraphWarmupDto: {
-            /** Initialization */
-            initialization: string;
-            /** Minimum Observations */
-            minimum_observations: number;
-            /**
-             * Pre Ready Output
-             * @enum {string}
-             */
-            pre_ready_output: "NULL" | "PARTIAL";
-            /** Ready Condition */
-            ready_condition: string;
-        };
-        /** ResearchHealthDto */
-        ResearchHealthDto: {
-            /** Checks */
-            checks: {
-                [key: string]: string;
-            };
-            /** Reason */
-            reason?: string | null;
-            /** Status */
-            status: string;
-        };
-        /** ResearchInputDefinitionDto */
+        /** @enum {string} */
+        ResearchCalculationTypeReferenceDtoKind: "INDICATOR" | "FACTOR" | "TARGET";
         ResearchInputDefinitionDto: {
-            /** Data Type */
             data_type: string;
-            /** Dimensions */
             dimensions: string[];
-            /** Name */
             name: string;
-            /** Nullable */
             nullable: boolean;
-            /** Semantic Type */
             semantic_type: string;
-            /** Unit */
             unit: string | null;
         };
-        /** ResearchMarketPointDto */
-        ResearchMarketPointDto: {
-            /** Close */
-            close: string;
-            /** High */
-            high: string;
-            /** Instrument Id */
-            instrument_id: string;
-            /** Low */
-            low: string;
-            /** Open */
-            open: string;
-            /** Ts Event Ns */
-            ts_event_ns: string;
-            /** Volume */
-            volume: string;
-        };
-        /** ResearchNotDto */
-        ResearchNotDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "NOT";
-            /** Operand */
-            operand: components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"];
-        };
-        /** ResearchNumericDefinitionDto */
-        ResearchNumericDefinitionDto: {
-            /** Output Quantum */
-            output_quantum: string;
-            /** Precision */
-            precision: number;
-            /** Representation */
-            representation: string;
-            /** Rounding */
-            rounding: string;
-        };
-        /** ResearchOrDto */
-        ResearchOrDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "OR";
-            /** Operands */
-            operands: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"])[];
-        };
-        /** ResearchOutputDefinitionDto */
         ResearchOutputDefinitionDto: {
-            /** Data Type */
             data_type: string;
-            /** Dimensions */
             dimensions: string[];
-            /** Name */
             name: string;
-            /** Nullable */
             nullable: boolean;
-            /** Semantic Type */
             semantic_type: string;
-            /** Unit */
             unit: string | null;
         };
-        /** ResearchParameterDefinitionDto */
         ResearchParameterDefinitionDto: {
             default: components["schemas"]["ResearchScalarDto"];
-            /** Enum Values */
             enum_values: components["schemas"]["ResearchScalarDto"][];
             maximum: components["schemas"]["ResearchScalarDto"] | null;
             minimum: components["schemas"]["ResearchScalarDto"] | null;
-            /** Name */
             name: string;
-            /** Required */
             required: boolean;
-            /** Type */
             type: string;
-            /** Uppercase */
             uppercase: boolean;
         };
-        /** ResearchPublishedSeriesCatalogDto */
-        ResearchPublishedSeriesCatalogDto: {
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Series */
-            series: components["schemas"]["ResearchPublishedSeriesDto"][];
-        };
-        /** ResearchPublishedSeriesDto */
-        ResearchPublishedSeriesDto: {
-            /** Calculation Fingerprint */
-            calculation_fingerprint: string;
-            /** Candidate Fingerprint */
-            candidate_fingerprint: string | null;
-            /** Node Fingerprint */
-            node_fingerprint: string;
-            /** Output Name */
-            output_name: string;
-            /** Value Kind */
-            value_kind: string;
-        };
-        /** ResearchPublishedVariableDto */
-        ResearchPublishedVariableDto: {
-            /** Data Type */
-            data_type: string;
-            /** Instance Key */
-            instance_key: string;
-            /** Output Name */
-            output_name: string;
-            /** Semantic Type */
-            semantic_type: string;
-        };
-        /** ResearchRegisteredUniverseDto */
-        ResearchRegisteredUniverseDto: {
-            /** Display Metadata */
-            display_metadata: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Kind */
-            kind: string;
-            /** Registered Id */
-            registered_id: string;
-        };
-        /** ResearchRunDto */
-        ResearchRunDto: {
-            /** Admission Resolution Fingerprint */
-            admission_resolution_fingerprint: string;
-            /** Artifact Ref */
-            artifact_ref: string | null;
-            /** Cancel Requested At */
-            cancel_requested_at: string | null;
-            failure: components["schemas"]["ResearchRunFailureDto"] | null;
-            /** Finished At */
-            finished_at: string | null;
-            /** Queued At */
-            queued_at: string;
-            /** Result Ref */
-            result_ref: string | null;
-            /** Revision */
-            revision: string;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Specification */
-            specification: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Specification Fingerprint */
-            specification_fingerprint: string;
-            /** Specification Schema Version */
-            specification_schema_version: number;
-            /** Started At */
-            started_at: string | null;
-            /** State */
-            state: string;
-        };
-        /** ResearchRunErrorDto */
-        ResearchRunErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Phase */
-            phase: string;
-        };
-        /** ResearchRunErrorEnvelopeDto */
-        ResearchRunErrorEnvelopeDto: {
-            error: components["schemas"]["ResearchRunErrorDto"];
-        };
-        /** ResearchRunExecutionEvidenceDto */
-        ResearchRunExecutionEvidenceDto: {
-            authoring_provenance: components["schemas"]["ResearchAuthoringProvenanceDto"] | null;
-            /** Calculation Execution Evidence Refs */
-            calculation_execution_evidence_refs: string[];
-            /** Result Ref */
-            result_ref: string | null;
-            /** Revision */
-            revision: string;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** ResearchRunFailureDto */
-        ResearchRunFailureDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-            /** Phase */
-            phase: string;
-        };
-        /** ResearchRunPageDto */
-        ResearchRunPageDto: {
-            /** Has More */
-            has_more: boolean;
-            /** Next Cursor */
-            next_cursor: string | null;
-            /** Runs */
-            runs: components["schemas"]["ResearchRunSummaryDto"][];
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchRunSummaryDto */
-        ResearchRunSummaryDto: {
-            /** Admission Resolution Fingerprint */
-            admission_resolution_fingerprint: string;
-            /** Artifact Ref */
-            artifact_ref: string | null;
-            /** Cancel Requested At */
-            cancel_requested_at: string | null;
-            failure: components["schemas"]["ResearchRunFailureDto"] | null;
-            /** Finished At */
-            finished_at: string | null;
-            /** Queued At */
-            queued_at: string;
-            /** Result Ref */
-            result_ref: string | null;
-            /** Revision */
-            revision: string;
-            /** Run Id */
-            run_id: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Specification Fingerprint */
-            specification_fingerprint: string;
-            /** Specification Schema Version */
-            specification_schema_version: number;
-            /** Started At */
-            started_at: string | null;
-            /** State */
-            state: string;
-        };
-        /** ResearchScalarDto */
         ResearchScalarDto: {
-            /**
-             * Type
-             * @enum {string}
-             */
-            type: "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
-            /** Value */
-            value: boolean | number | string | null;
+            type: components["schemas"]["ResearchScalarDtoType"];
+            value: components["schemas"]["ResearchScalarDtoValue"] | null;
         };
-        /** ResearchScientificSeriesPageDto */
-        ResearchScientificSeriesPageDto: {
-            /** Has More */
-            has_more: boolean;
-            /** Next After Ts Event Ns */
-            next_after_ts_event_ns: string | null;
-            /** Points */
-            points: (components["schemas"]["ResearchMarketPointDto"] | components["schemas"]["ResearchVariablePointDto"] | components["schemas"]["ResearchSignalPointDto"])[];
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-        };
-        /** ResearchSeriesReferenceDto */
-        ResearchSeriesReferenceDto: {
-            /** Calculation Fingerprint */
-            calculation_fingerprint: string;
-            /** Node Fingerprint */
-            node_fingerprint: string;
-            /** Output Name */
-            output_name: string;
-        };
-        /** ResearchSignalPointDto */
-        ResearchSignalPointDto: {
-            /** Instrument Id */
-            instrument_id: string;
-            /** Ts Event Ns */
-            ts_event_ns: string;
-            /** Value */
-            value: boolean | null;
-        };
-        /** ResearchSignalsDto */
-        ResearchSignalsDto: {
-            /** Entry */
-            entry: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
-            /** Exit */
-            exit: (components["schemas"]["ResearchComparisonDto"] | components["schemas"]["ResearchNotDto"] | components["schemas"]["ResearchAndDto"] | components["schemas"]["ResearchOrDto"]) | null;
-        };
-        /** ResearchStatisticPointDto */
-        ResearchStatisticPointDto: {
-            /** Sample Count */
-            sample_count: number;
-            /** Statistic Value */
-            statistic_value: string | null;
-            /** Status */
-            status: string;
-            /** Ts Event Ns */
-            ts_event_ns: string;
-        };
-        /** ResearchStatisticSeriesPageDto */
-        ResearchStatisticSeriesPageDto: {
-            /** Has More */
-            has_more: boolean;
-            /** Next After Ts Event Ns */
-            next_after_ts_event_ns: string | null;
-            /** Points */
-            points: components["schemas"]["ResearchStatisticPointDto"][];
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Statistics Fingerprint */
-            statistics_fingerprint: string;
-        };
-        /** ResearchStatisticsCapabilityCatalogDto */
-        ResearchStatisticsCapabilityCatalogDto: {
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Statistics */
-            statistics: components["schemas"]["ResearchStatisticsCapabilityDto"][];
-        };
-        /** ResearchStatisticsCapabilityDto */
-        ResearchStatisticsCapabilityDto: {
-            /** Executable */
-            executable: boolean;
-            /** Statistic Type */
-            statistic_type: string;
-            /** Target Required */
-            target_required: boolean;
-            /** Target Semantic Roles */
-            target_semantic_roles: string[];
-            /** Variable Kinds */
-            variable_kinds: string[];
-            /** Variable Semantic Roles */
-            variable_semantic_roles: string[];
-        };
-        /** ResearchStatisticsCatalogDto */
-        ResearchStatisticsCatalogDto: {
-            /** Research Result Fingerprint */
-            research_result_fingerprint: string;
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Statistics */
-            statistics: components["schemas"]["ResearchStatisticsDescriptorDto"][];
-        };
-        /** ResearchStatisticsDefinitionDto */
-        ResearchStatisticsDefinitionDto: {
-            /** Method */
-            method: string;
-            /** Minimum Observations */
-            minimum_observations: number;
-            numeric: components["schemas"]["ResearchNumericDefinitionDto"];
-            /** Pairing Policy */
-            pairing_policy: string;
-            /** Rank Tie Method */
-            rank_tie_method: string;
-            /** Universe Policy */
-            universe_policy: string;
-            /** Weighting */
-            weighting: string;
-        };
-        /** ResearchStatisticsDefinitionRequestDto */
-        ResearchStatisticsDefinitionRequestDto: {
-            method: components["schemas"]["OnlyResearchStatisticsMethod"];
-            /** Minimum Observations */
-            minimum_observations: number;
-            numeric: components["schemas"]["ResearchStatisticsNumericDto"];
-            pairing_policy: components["schemas"]["OnlyResearchPairingPolicy"];
-            rank_tie_method: components["schemas"]["OnlyResearchRankTieMethod"];
-            /** Schema Version */
-            schema_version: number;
-            universe_policy: components["schemas"]["OnlyResearchUniversePolicy"];
-            weighting: components["schemas"]["OnlyResearchWeighting"];
-        };
-        /** ResearchStatisticsDescriptorDto */
-        ResearchStatisticsDescriptorDto: {
-            definition: components["schemas"]["ResearchStatisticsDefinitionDto"];
-            feature: components["schemas"]["ResearchSeriesReferenceDto"];
-            /** Result Content Fingerprint */
-            result_content_fingerprint: string;
-            /** Row Count */
-            row_count: number;
-            /** Statistics Fingerprint */
-            statistics_fingerprint: string;
-            /** Statistics Result Fingerprint */
-            statistics_result_fingerprint: string;
-            /** Statistics Result Schema Version */
-            statistics_result_schema_version: number;
-            target: components["schemas"]["ResearchSeriesReferenceDto"];
-        };
-        /** ResearchStatisticsNumericDto */
-        ResearchStatisticsNumericDto: {
-            /** Output Quantum */
-            output_quantum: string;
-            /** Precision */
-            precision: number;
-            /** Representation */
-            representation: string;
-            /** Rounding */
-            rounding: string;
-        };
-        /** ResearchStatisticsRequestDto */
-        ResearchStatisticsRequestDto: {
-            definition: components["schemas"]["ResearchStatisticsDefinitionRequestDto"];
-            /** Target Instance Key */
-            target_instance_key: string;
-            variable: components["schemas"]["ResearchVariableRefDto"];
-        };
-        /** ResearchSweepParameterDto */
-        ResearchSweepParameterDto: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "SWEEP";
-            /** Values */
-            values: components["schemas"]["ResearchScalarDto"][];
-        };
-        /** ResearchTypedLiteralDto */
-        ResearchTypedLiteralDto: {
-            data_type: components["schemas"]["OnlyCalculationDataType"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "LITERAL";
-            value: components["schemas"]["ResearchScalarDto"];
-        };
-        /** ResearchUniverseCatalogDto */
-        ResearchUniverseCatalogDto: {
-            /** Registered Universes */
-            registered_universes: components["schemas"]["ResearchRegisteredUniverseDto"][];
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Selection Kinds */
-            selection_kinds: string[];
-        };
-        /** ResearchUniverseSelectionDto */
-        ResearchUniverseSelectionDto: {
-            /** Instrument Ids */
-            instrument_ids: string[];
-            kind: components["schemas"]["OnlyResearchUniverseKind"];
-            /** Registered Id */
-            registered_id: string | null;
-        };
-        /** ResearchVariablePointDto */
-        ResearchVariablePointDto: {
-            /** Boolean Value */
-            boolean_value: boolean | null;
-            /** Decimal Value */
-            decimal_value: string | null;
-            /** Instrument Id */
-            instrument_id: string;
-            /** Integer Value */
-            integer_value: string | null;
-            /** String Value */
-            string_value: string | null;
-            /** Ts Event Ns */
-            ts_event_ns: string;
-            /** Value Kind */
-            value_kind: string;
-        };
-        /** ResearchVariableRefDto */
-        ResearchVariableRefDto: {
-            /** Instance Key */
-            instance_key: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "VARIABLE";
-            /** Output Name */
-            output_name: string;
-        };
-        /** SaveWatchlistsDto */
+        /** @enum {string} */
+        ResearchScalarDtoType: "NULL" | "BOOLEAN" | "INTEGER" | "DECIMAL" | "STRING";
+        ResearchScalarDtoValue: boolean | number | string;
         SaveWatchlistsDto: {
-            /** Command Id */
             command_id: string;
-            /** Expected Version */
+            /** Format: int64 */
             expected_version: number;
-            /** Lists */
             lists: components["schemas"]["WatchlistDto"][];
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
+            schema_version: components["schemas"]["Version2"];
         };
-        /** SearchAdvanceRequestDto */
-        SearchAdvanceRequestDto: {
-            /** Expected State */
-            expected_state: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Experiment Fingerprint */
-            experiment_fingerprint: string;
-            /**
-             * Method
-             * @enum {string}
-             */
-            method: "SYMBOLIC" | "PARAMETER";
-            /**
-             * Operation
-             * @enum {string}
-             */
-            operation: "ADVANCE_ONE_SYMBOLIC_OCCURRENCE" | "RECONCILE_ONE_SYMBOLIC_OCCURRENCE" | "ADVANCE_ONE_PARAMETER_DECISION" | "RECONCILE_OPEN_PARAMETER_BATCH";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** SearchAuthoringInputDto */
-        SearchAuthoringInputDto: {
-            /** Payload */
-            payload: {
-                [key: string]: unknown;
-            };
-            /** Reference Fingerprint */
-            reference_fingerprint: string;
-            /** Reference Kind */
-            reference_kind: string;
-            /**
-             * Schema Version
-             * @default 1
-             */
-            schema_version: number;
-        };
-        /** SearchCommandResponseDto */
-        SearchCommandResponseDto: {
-            /** Experiment Fingerprint */
-            experiment_fingerprint: string;
-            /** Ledger */
-            ledger: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /**
-             * Method
-             * @enum {string}
-             */
-            method: "SYMBOLIC" | "PARAMETER";
-            /** Product Command Id */
-            product_command_id: string;
-            /** Receipt */
-            receipt: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Replayed */
-            replayed: boolean;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Terminal */
-            terminal: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-        };
-        /** SearchErrorDto */
-        SearchErrorDto: {
-            /** Code */
-            code: string;
-            /** Detail */
-            detail: string;
-        };
-        /** SearchErrorEnvelopeDto */
-        SearchErrorEnvelopeDto: {
-            error: components["schemas"]["SearchErrorDto"];
-        };
-        /** SearchExperimentResponseDto */
-        SearchExperimentResponseDto: {
-            /** Experiment */
-            experiment: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Experiment Fingerprint */
-            experiment_fingerprint: string;
-            /**
-             * Method
-             * @enum {string}
-             */
-            method: "SYMBOLIC" | "PARAMETER";
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** SearchLedgerResponseDto */
-        SearchLedgerResponseDto: {
-            /** Experiment Fingerprint */
-            experiment_fingerprint: string;
-            /** Ledger */
-            ledger: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /**
-             * Method
-             * @enum {string}
-             */
-            method: "SYMBOLIC" | "PARAMETER";
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-        };
-        /** SearchTerminalResponseDto */
-        SearchTerminalResponseDto: {
-            /** Experiment Fingerprint */
-            experiment_fingerprint: string;
-            /**
-             * Method
-             * @enum {string}
-             */
-            method: "SYMBOLIC" | "PARAMETER";
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Stop Reason */
-            stop_reason: string | null;
-            /** Terminal Fact */
-            terminal_fact: {
-                [key: string]: components["schemas"]["JsonValue"];
-            } | null;
-            /**
-             * Terminal Kind
-             * @enum {string}
-             */
-            terminal_kind: "NON_TERMINAL" | "TERMINAL_SYMBOLIC_COMPLETION" | "TERMINAL_PARAMETER_STOP";
-        };
-        /** StrategyDto */
-        StrategyDto: {
-            /** Current Stage */
-            current_stage: string;
-            /** Freeze Relation Fingerprints */
-            freeze_relation_fingerprints: string[];
-            /** Promotion Records */
-            promotion_records: {
-                [key: string]: unknown;
-            }[];
-            /** Revision */
-            revision: {
-                [key: string]: unknown;
-            };
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** StrategyFreezeRequest */
-        StrategyFreezeRequest: {
-            /** Actor */
-            actor: string;
-            /** Candidate Fingerprint */
-            candidate_fingerprint: string;
-            /** Comment */
-            comment?: string | null;
-            /** Research Run Id */
-            research_run_id: string;
-        };
-        /** StrategyFreezeResponse */
-        StrategyFreezeResponse: {
-            /** Disposition */
-            disposition: string;
-            /** Freeze Record Fingerprint */
-            freeze_record_fingerprint: string;
-            /** Replayed */
-            replayed: boolean;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-        };
-        /** StrategyPromotionRequest */
-        StrategyPromotionRequest: {
-            /** Actor */
-            actor: string;
-            /** Freeze Relation Fingerprint */
-            freeze_relation_fingerprint: string;
-            /** Reason */
-            reason: string;
-        };
-        /** StrategyPromotionResponse */
-        StrategyPromotionResponse: {
-            /** Decision */
-            decision: string;
-            /** From Stage */
-            from_stage: string;
-            /** Promotion Record Fingerprint */
-            promotion_record_fingerprint: string;
-            /** Replayed */
-            replayed: boolean;
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            /** Strategy Fingerprint */
-            strategy_fingerprint: string;
-            /** To Stage */
-            to_stage: string;
-        };
-        /** SubmitPrivateStrategyResearchRequest */
-        SubmitPrivateStrategyResearchRequest: {
-            /** Research Context */
-            research_context: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /** Strategy Id */
-            strategy_id: string;
-            /** Strategy Revision Fingerprint */
-            strategy_revision_fingerprint: string;
-        };
-        /** SubmitResearchRunRequest */
-        SubmitResearchRunRequest: {
-            /** Authoring Generation Fingerprint */
-            authoring_generation_fingerprint?: string | null;
-            /** Specification */
-            specification: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-        };
-        /** SubmitResearchRunResponse */
-        SubmitResearchRunResponse: {
-            run: components["schemas"]["ResearchRunDto"];
-            /** Submission Disposition */
-            submission_disposition: string;
-        };
-        /** SymbolicSearchSubmitRequestDto */
-        SymbolicSearchSubmitRequestDto: {
-            /** Algorithm Manifest */
-            algorithm_manifest: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Catalog Generation Fingerprint */
-            catalog_generation_fingerprint: string;
-            /** Dataset Snapshot Fingerprint */
-            dataset_snapshot_fingerprint: string;
-            /** Decision Engine Binding */
-            decision_engine_binding: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Evaluation Contract */
-            evaluation_contract: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Hypothesis */
-            hypothesis: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Parent Experiment Fingerprint */
-            parent_experiment_fingerprint?: string | null;
-            /** Runtime Generation Fingerprint */
-            runtime_generation_fingerprint: string;
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: 2;
-            /** Search Budget */
-            search_budget: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Search Space */
-            search_space: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Workflow Binding */
-            workflow_binding: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-        };
-        /** WatchlistBookDto */
+        /** @enum {string} */
+        SourceHistoryPolicy: "EXACT_SEALED_PROOF";
+        /** @enum {string} */
+        SourceNewWorkStatus: "AVAILABLE" | "UNAVAILABLE";
+        /** @enum {integer} */
+        Version0: 0;
+        /** @enum {integer} */
+        Version1: 1;
+        /** @enum {integer} */
+        Version10000: 10000;
+        /** @enum {integer} */
+        Version2: 2;
+        /** @enum {integer} */
+        Version2000: 2000;
+        /** @enum {integer} */
+        Version28: 28;
+        /** @enum {integer} */
+        Version3: 3;
+        /** @enum {integer} */
+        Version999999: 999999;
+        /** @enum {boolean} */
+        VersionFalse: false;
+        /** @enum {integer} */
+        VersionNegative999999: -999999;
+        /** @enum {boolean} */
+        VersionTrue: true;
         WatchlistBookDto: {
-            /** Lists */
             lists: components["schemas"]["WatchlistDto"][];
-            /**
-             * Schema Version
-             * @default 2
-             * @constant
-             */
-            schema_version: 2;
-            /** Version */
+            schema_version?: components["schemas"]["Version2"] | null;
+            /** Format: int64 */
             version: number;
         };
-        /** WatchlistDto */
         WatchlistDto: {
-            /** List Id */
             list_id: string;
-            /** Members */
             members: components["schemas"]["WatchlistMemberDto"][];
-            /** Name */
             name: string;
         };
-        /** WatchlistErrorDto */
-        WatchlistErrorDto: {
-            /** Code */
-            code: string;
-        };
-        /** WatchlistErrorEnvelopeDto */
-        WatchlistErrorEnvelopeDto: {
-            error: components["schemas"]["WatchlistErrorDto"];
-        };
-        /** WatchlistMemberDto */
         WatchlistMemberDto: {
-            /** Instrument Id */
             instrument_id: string;
             source: components["schemas"]["WatchlistSourceDto"];
         };
-        /** WatchlistSourceDto */
         WatchlistSourceDto: {
-            /** Expected Type Id */
             expected_type_id: string;
-            /** Integration Id */
             integration_id: string;
-            /** Integration Revision Fingerprint */
             integration_revision_fingerprint: string;
         };
     };
@@ -5734,28 +2603,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgentSessionRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentSessionResponseDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -5771,22 +2626,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentAdvanceResponseDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -5800,58 +2645,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestCreationContextDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -5865,58 +2664,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestRunDto"][];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -5930,64 +2683,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BacktestRunCreateRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestRunCreateResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6003,58 +2706,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestRunDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6072,58 +2729,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestCancellationResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6139,58 +2750,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestEvidenceDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6207,58 +2772,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6274,58 +2793,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BacktestResultDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6339,7 +2812,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6348,67 +2820,68 @@ export interface operations {
                     "application/json": components["schemas"]["ChartStudyCapabilitiesDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6426,7 +2899,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6435,78 +2907,68 @@ export interface operations {
                     "application/json": components["schemas"]["ChartStudyEvaluateDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
-                    /** @description Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage. */
-                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChartStudyErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6514,7 +2976,7 @@ export interface operations {
     list_integration_types_api_v2_integration_types_get: {
         parameters: {
             query?: {
-                category?: string | null;
+                category?: string;
             };
             header?: never;
             path?: never;
@@ -6522,7 +2984,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6531,13 +2992,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationTypeListDto"];
                 };
             };
-            /** @description Invalid Integration Type query */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationTypeErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6553,7 +3069,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6562,13 +3077,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationTypeDto"];
                 };
             };
-            /** @description Integration Type not found */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationTypeErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6576,8 +3146,8 @@ export interface operations {
     list_integrations_api_v2_integrations_get: {
         parameters: {
             query?: {
-                type_id?: string | null;
-                lifecycle_state?: components["schemas"]["OnlyIntegrationLifecycleState"] | null;
+                type_id?: string;
+                lifecycle_state?: string;
             };
             header?: never;
             path?: never;
@@ -6585,7 +3155,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6594,49 +3163,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationListDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6656,58 +3244,76 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6723,7 +3329,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6732,49 +3337,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6790,7 +3414,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6799,49 +3422,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationDraftDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6863,7 +3505,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6872,49 +3513,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -6936,7 +3596,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6945,49 +3604,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7010,7 +3688,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7019,49 +3696,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7082,7 +3778,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7091,49 +3786,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7155,7 +3869,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7164,49 +3877,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7222,7 +3954,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7231,49 +3962,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationOperationalStatusDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7293,7 +4043,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7302,49 +4051,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationProbeAttemptDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7360,7 +4128,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7369,49 +4136,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationProbeAttemptListDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7428,7 +4214,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7437,49 +4222,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationProbeAttemptDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7495,7 +4299,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7504,49 +4307,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationRevisionListDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7568,7 +4390,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7577,49 +4398,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7636,7 +4476,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7645,49 +4484,68 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationRevisionDto"];
                 };
             };
-            /** @description Invalid Integration request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration resource not found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority corrupt */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Integration authority unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IntegrationErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7705,94 +4563,76 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataAcquisitionDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7802,7 +4642,7 @@ export interface operations {
             query: {
                 integration_id: string;
                 integration_revision_fingerprint: string;
-                expected_type_id?: string | null;
+                expected_type_id?: string;
             };
             header?: never;
             path: {
@@ -7812,7 +4652,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7821,85 +4660,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataAcquisitionDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -7910,11 +4732,11 @@ export interface operations {
                 integration_id: string;
                 integration_revision_fingerprint: string;
                 instrument_id: string;
-                anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
+                anchor_kind: string;
                 bar_semantic: string;
                 target_bar_count: number;
-                before_ns?: string | null;
-                expected_type_id?: string | null;
+                before_ns?: string;
+                expected_type_id?: string;
             };
             header?: never;
             path?: never;
@@ -7922,7 +4744,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7931,87 +4752,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataBarWindowDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
-                    /** @description Positive delta-seconds only for MARKET_DATA_WINDOW_NOT_CLOSED; reobservation never proves coverage. */
-                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8023,7 +4825,7 @@ export interface operations {
                 integration_revision_fingerprint: string;
                 instrument_id: string;
                 bar_semantic: string;
-                expected_type_id?: string | null;
+                expected_type_id?: string;
             };
             header?: never;
             path?: never;
@@ -8031,7 +4833,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8040,85 +4841,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataBarWindowDto"] | null;
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8128,8 +4912,8 @@ export interface operations {
             query: {
                 integration_id: string;
                 integration_revision_fingerprint: string;
-                instrument_ids: string[];
-                expected_type_id?: string | null;
+                instrument_ids: string;
+                expected_type_id?: string;
             };
             header?: never;
             path?: never;
@@ -8137,7 +4921,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8146,85 +4929,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataQuoteListDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8238,7 +5004,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8247,76 +5012,110 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataSourceListDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    market_data_stream_upgrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated native WebSocket; its versioned message schema is separate */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8326,10 +5125,10 @@ export interface operations {
             query: {
                 integration_id: string;
                 integration_revision_fingerprint: string;
-                expected_type_id?: string | null;
+                expected_type_id?: string;
                 query?: string;
                 limit?: number;
-                instrument_ids?: string[] | null;
+                instrument_ids?: string;
             };
             header?: never;
             path?: never;
@@ -8337,7 +5136,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8346,85 +5144,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataInstrumentListDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8433,9 +5214,9 @@ export interface operations {
         parameters: {
             query: {
                 query: string;
-                asset_class?: string | null;
+                asset_class?: string;
                 limit?: number;
-                instrument_types?: string[] | null;
+                instrument_types?: string;
             };
             header?: never;
             path?: never;
@@ -8443,7 +5224,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8452,85 +5232,68 @@ export interface operations {
                     "application/json": components["schemas"]["MarketDataSearchDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MarketDataErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8544,7 +5307,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8553,49 +5315,68 @@ export interface operations {
                     "application/json": components["schemas"]["PrivateAssetRegistryDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8614,7 +5395,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8623,49 +5403,68 @@ export interface operations {
                     "application/json": components["schemas"]["PrivateFactorRevisionDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Not Found */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Internal Server Error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8673,10 +5472,10 @@ export interface operations {
     search_private_assets_v2: {
         parameters: {
             query?: {
-                text?: string | null;
-                kind?: components["schemas"]["OnlyPrivateAssetKind"] | null;
-                category?: string | null;
-                tag?: string | null;
+                text?: string;
+                kind?: string;
+                category?: string;
+                tag?: string;
             };
             header?: never;
             path?: never;
@@ -8684,58 +5483,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateAssetSearchResultDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8754,58 +5507,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivateStrategyRevisionDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PrivateAssetErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8821,58 +5528,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QualificationDecisionResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8886,58 +5547,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QualificationPolicyListResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -8954,58 +5569,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QualificationPolicyResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9021,58 +5590,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchArtifactSummaryDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9088,58 +5611,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCandidateCatalogDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9156,58 +5633,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCandidateGraphDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9216,9 +5647,9 @@ export interface operations {
         parameters: {
             query: {
                 instrument_id: string;
-                from_ts_event_ns?: string | null;
-                to_ts_event_ns?: string | null;
-                after_ts_event_ns?: string | null;
+                from_ts_event_ns?: string;
+                to_ts_event_ns?: string;
+                after_ts_event_ns?: string;
                 limit?: number;
             };
             header?: never;
@@ -9229,58 +5660,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9289,9 +5674,9 @@ export interface operations {
         parameters: {
             query: {
                 instrument_id: string;
-                from_ts_event_ns?: string | null;
-                to_ts_event_ns?: string | null;
-                after_ts_event_ns?: string | null;
+                from_ts_event_ns?: string;
+                to_ts_event_ns?: string;
+                after_ts_event_ns?: string;
                 limit?: number;
             };
             header?: never;
@@ -9304,58 +5689,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9371,58 +5710,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchStatisticsCatalogDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9430,9 +5723,9 @@ export interface operations {
     statistic_series_api_v2_research_artifacts__research_result_fingerprint__statistics__statistics_fingerprint__series_get: {
         parameters: {
             query?: {
-                from_ts_event_ns?: string | null;
-                to_ts_event_ns?: string | null;
-                after_ts_event_ns?: string | null;
+                from_ts_event_ns?: string;
+                to_ts_event_ns?: string;
+                after_ts_event_ns?: string;
                 limit?: number;
             };
             header?: never;
@@ -9444,58 +5737,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchStatisticSeriesPageDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9511,58 +5758,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchPublishedSeriesCatalogDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9571,10 +5772,10 @@ export interface operations {
         parameters: {
             query: {
                 instrument_id: string;
-                candidate_fingerprint?: string | null;
-                from_ts_event_ns?: string | null;
-                to_ts_event_ns?: string | null;
-                after_ts_event_ns?: string | null;
+                candidate_fingerprint?: string;
+                from_ts_event_ns?: string;
+                to_ts_event_ns?: string;
+                after_ts_event_ns?: string;
                 limit?: number;
             };
             header?: never;
@@ -9588,58 +5789,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchScientificSeriesPageDto"];
-                };
-            };
-            /** @description Invalid Research query */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Exact Artifact or Statistics identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Scientific evidence is unavailable for this profile */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Research Artifact verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchErrorDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9655,22 +5810,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactCatalogContextResponseDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9686,22 +5831,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactCatalogReadinessProjectionResponseDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9717,22 +5852,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactCatalogContextLegacyResponseDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9746,13 +5871,76 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchCalculationCatalogDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9766,13 +5954,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchDatasetFieldCatalogDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9786,13 +5973,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchStatisticsCapabilityCatalogDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9806,13 +5992,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchUniverseCatalogDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9828,22 +6013,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactDatasetSnapshotDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9855,37 +6030,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchDefinitionRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchDefinitionResolutionDto"];
-                };
-            };
-            /** @description Invalid Research Definition */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchDefinitionErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9903,22 +6055,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactEvaluationContextDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -9927,7 +6069,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
-                cursor?: string | null;
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -9935,149 +6077,33 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunPageDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
     };
     submit_run_api_v2_research_runs_post: {
         parameters: {
-            query?: never;
-            header?: {
-                "Idempotency-Key"?: string | null;
+            query?: {
+                "Idempotency-Key"?: string;
             };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SubmitResearchRunRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10091,75 +6117,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SubmitResearchRunRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10173,75 +6138,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SubmitPrivateStrategyResearchRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitResearchRunResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10257,77 +6161,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
     };
     cancel_run_api_v2_research_runs__run_id__cancellation_post: {
         parameters: {
-            query?: never;
-            header?: {
-                "Idempotency-Key"?: string | null;
+            query?: {
+                "Idempotency-Key"?: string;
             };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -10335,67 +6184,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10411,67 +6205,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunExecutionEvidenceDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10485,13 +6224,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ActiveRuntimeGenerationDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10507,22 +6245,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactRuntimeGenerationDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10539,22 +6267,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchAuthoringInputDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10570,67 +6288,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchExperimentResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10646,67 +6309,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchLedgerResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10722,67 +6330,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchTerminalResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10796,75 +6349,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ParameterSearchSubmitRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchCommandResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10878,75 +6370,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SearchAdvanceRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchCommandResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -10960,75 +6391,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SymbolicSearchSubmitRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchCommandResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11042,75 +6412,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SearchAdvanceRequestDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    /** @description Exact admitted Product Command identity */
-                    "Idempotency-Key"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchCommandResponseDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11126,22 +6435,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExactResearchStatisticsDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11157,58 +6456,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StrategyDto"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11224,64 +6477,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StrategyPromotionRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StrategyPromotionResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11297,58 +6500,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QualificationDecisionListResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11364,64 +6521,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QualifiedStrategyPromotionRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StrategyPromotionResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11437,64 +6544,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QualificationEvaluationRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QualificationDecisionResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11508,64 +6565,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StrategyFreezeRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            202: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StrategyFreezeResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11579,7 +6586,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11588,40 +6594,68 @@ export interface operations {
                     "application/json": components["schemas"]["WatchlistBookDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11639,7 +6673,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11648,49 +6681,68 @@ export interface operations {
                     "application/json": components["schemas"]["WatchlistBookDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11706,58 +6758,76 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistBookDto"] | null;
+                    "application/json": components["schemas"]["WatchlistBookDto"];
                 };
             };
-            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Forbidden */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Conflict */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
-            /** @description Service Unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WatchlistErrorEnvelopeDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11771,22 +6841,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProductExecutionHealthDto"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductExecutionHealthDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11800,13 +6860,20 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchHealthDto"];
+                    "application/json": components["schemas"]["NativeHealthDto"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };
@@ -11820,22 +6887,20 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchHealthDto"];
+                    "application/json": components["schemas"]["NativeHealthDto"];
                 };
             };
-            /** @description Service Unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchHealthDto"];
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
                 };
             };
         };

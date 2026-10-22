@@ -8,6 +8,9 @@ from typing import Protocol, cast, runtime_checkable
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from onlyalpha.algorithm.batch import (
+    OnlyResearchCalculationBackendExecutionV2 as OnlyResearchCalculationBackendExecutionV2,
+)
 from onlyalpha.calculation.chart_study import OnlyChartStudySupport
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -19,7 +22,6 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 
 from .errors import OnlyResearchCalculationError
 from .publication import OnlyResearchCalculationPublicationContract
-from .readiness import OnlyResearchOutputReadiness
 
 
 @runtime_checkable
@@ -35,12 +37,6 @@ class OnlyResearchCalculationBackend(Protocol):
 class OnlyResolvedResearchCalculationBackend:
     provider: OnlyResearchCalculationBackend
     implementation_manifest: OnlyCalculationImplementationManifest
-
-
-@dataclass(frozen=True, slots=True)
-class OnlyResearchCalculationBackendExecutionV2:
-    outputs: Mapping[str, pa.Array | pa.ChunkedArray]
-    readiness: Mapping[str, OnlyResearchOutputReadiness]
 
 
 @runtime_checkable

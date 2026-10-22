@@ -1,0 +1,72 @@
+[
+  {
+    "op": "create",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "type_id": "controlled.source",
+      "display_name": "Data source"
+    },
+    "fingerprint": "34e29e6eaa70778dc7446b782ab263f374fdabe0986fc2959fae64f93bca7c73"
+  },
+  {
+    "op": "create",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "type_id": "controlled.source",
+      "display_name": "中\u0000文"
+    },
+    "fingerprint": "589a1b0044f3bd0e8844574b2b0c6f966a94701e4db238b8109ee10ef5b22dec"
+  },
+  {
+    "op": "create",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "type_id": "controlled.source",
+      "display_name": "  Exact name  "
+    },
+    "fingerprint": "d7378f69e64322fd263bf296331dff67a01dc64ad590199731d7e2ac8402654c"
+  },
+  {
+    "op": "lifecycle",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "expected_lifecycle_state": "ACTIVE",
+      "lifecycle_state": "DISABLED"
+    },
+    "fingerprint": "d2046f89a70c8ba013c421f14a49a4d943f2b0f07f04f3131089e7be29dc37e4"
+  },
+  {
+    "op": "lifecycle",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "expected_lifecycle_state": "DISABLED",
+      "lifecycle_state": "ACTIVE"
+    },
+    "fingerprint": "564540f50f080b4da5488a36a0ae7be2e8bbed1bbb3943048ee39648e73a5f9a"
+  },
+  {
+    "op": "lifecycle",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "expected_lifecycle_state": "ACTIVE",
+      "lifecycle_state": "ARCHIVED"
+    },
+    "fingerprint": "fcb1f4a61e8c8476f1543e845fcc02bd5033e40e6b4fe2f8e0b06087d99a0fd6"
+  },
+  {
+    "op": "lifecycle",
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "payload": {
+      "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+      "expected_lifecycle_state": "DISABLED",
+      "lifecycle_state": "ARCHIVED"
+    },
+    "fingerprint": "3cc545c0460dc296eaa667b3ca03d5affe22b4df6a6aaba99266866fa87d2125"
+  }
+]

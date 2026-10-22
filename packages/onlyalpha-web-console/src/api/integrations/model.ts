@@ -1,3 +1,4 @@
+import { nativeErrorSchema } from "../errors.generated";
 import { z } from "zod";
 import type { components } from "../research/generated";
 
@@ -183,8 +184,5 @@ export const schemas = {
             })
         )
     }),
-    error: z.strictObject({
-        schema_version: z.literal(1),
-        error: z.strictObject({ code: z.string().min(1), detail: z.string() })
-    })
+    error: nativeErrorSchema
 };

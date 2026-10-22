@@ -141,7 +141,7 @@ def test_private_asset_product_discovery_and_exact_read_paths_are_canonical() ->
         parameters = {item["name"]: item for item in operation["parameters"]}
         assert parameters["revision_fingerprint"]["required"] is True
         assert parameters["content_fingerprint"]["required"] is True
-        assert "400" in operation["responses"]
+        assert ("501" if "/strategies/" in path else "400") in operation["responses"]
         assert "422" not in operation["responses"]
 
 
@@ -487,37 +487,24 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
     document = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text(encoding="utf-8"))
     vocabulary = governance.schema_vocabulary(document)
     assert vocabulary == {
-        "$ref",
-        "additionalProperties",
-        "anyOf",
-        "const",
-        "default",
-        "description",
-        "discriminator",
-        "enum",
-        "format",
-        "items",
-        "maxItems",
-        "maxLength",
-        "maxProperties",
-        "maximum",
-        "minItems",
-        "minLength",
-        "minimum",
-        "oneOf",
-        "pattern",
-        "properties",
-        "propertyNames",
-        "required",
-        "title",
-        "type",
-        "uniqueItems",
-        "writeOnly",
-        "x-onlyalpha-reference-canonical-fingerprint",
-        "x-onlyalpha-reference-kind",
-        "x-onlyalpha-reference-locator-kind",
-        "x-onlyalpha-reference-schema-version",
-        "x-onlyalpha-reference-value-field",
+        '$ref',
+        'additionalProperties',
+        'default',
+        'enum',
+        'format',
+        'items',
+        'maxItems',
+        'maxLength',
+        'maximum',
+        'minItems',
+        'minLength',
+        'minimum',
+        'oneOf',
+        'pattern',
+        'properties',
+        'propertyNames',
+        'required',
+        'type',
     }
     governance.validate_schema_vocabulary(document)
 
@@ -558,10 +545,10 @@ def test_strategy_and_backtest_routes_declare_exact_product_errors_without_422()
     assert operations
     for operation in operations:
         assert "422" not in operation["responses"]
-        for status in ("400", "404", "409", "500", "503"):
-            assert operation["responses"][status]["content"]["application/json"]["schema"] == {
-                "$ref": "#/components/schemas/ProductErrorEnvelopeDto"
-            }
+        assert set(operation["responses"]) == {"501"}
+        assert operation["responses"]["501"]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/NativeErrorEnvelope"
+        }
 
 
 @pytest.mark.parametrize("direction", ("request", "response"))

@@ -3,9 +3,7 @@ import { createContext, useContext, useState, useSyncExternalStore, type ReactNo
 import { LocalReadCredentials } from "../api/marketData/localReadCredentials";
 import { FetchIntegrationApiClient, type IntegrationApiClient } from "../api/integrations/client";
 import { FetchMarketDataApiClient, type MarketDataApiClient } from "../api/marketData/client";
-import { FetchResearchApiClient, type ResearchApiClient } from "../api/research/client";
 
-const ResearchApiContext = createContext<ResearchApiClient | null>(null);
 const IntegrationApiContext = createContext<IntegrationApiClient | null>(null);
 const MarketDataApiContext = createContext<MarketDataApiClient | null>(null);
 const LocalReadCredentialsContext = createContext<LocalReadCredentials | null>(null);
@@ -14,12 +12,6 @@ export function useLocalReadCredentials(): LocalReadCredentials {
     const value = useContext(LocalReadCredentialsContext);
     if (value === null) throw new Error("Local read credentials provider is missing");
     return value;
-}
-
-export function useResearchApi(): ResearchApiClient {
-    const client = useContext(ResearchApiContext);
-    if (client === null) throw new Error("Research API provider is missing");
-    return client;
 }
 
 export function useIntegrationApi(): IntegrationApiClient {
@@ -36,12 +28,10 @@ export function useMarketDataApi(): MarketDataApiClient {
 
 export function AppProviders({
     children,
-    client,
     integrationClient,
     marketDataClient
 }: {
     readonly children: ReactNode;
-    readonly client?: ResearchApiClient;
     readonly integrationClient?: IntegrationApiClient;
     readonly marketDataClient?: MarketDataApiClient;
 }) {
@@ -49,7 +39,6 @@ export function AppProviders({
         () => new LocalReadCredentials(import.meta.env.VITE_ONLYALPHA_LOCAL_SESSION === "true")
     );
     const authGeneration = useSyncExternalStore(credentials.subscribe, credentials.getGeneration);
-    const [apiClient] = useState<ResearchApiClient>(() => client ?? new FetchResearchApiClient());
     const [integrationApiClient] = useState<IntegrationApiClient>(
         () => integrationClient ?? new FetchIntegrationApiClient()
     );
@@ -57,15 +46,13 @@ export function AppProviders({
         () => marketDataClient ?? new FetchMarketDataApiClient(credentials)
     );
     return (
-        <ResearchApiContext value={apiClient}>
-            <IntegrationApiContext value={integrationApiClient}>
-                <MarketDataApiContext value={marketDataApiClient}>
-                    <LocalReadCredentialsContext value={credentials}>
-                        <SessionQueries key={authGeneration}>{children}</SessionQueries>
-                    </LocalReadCredentialsContext>
-                </MarketDataApiContext>
-            </IntegrationApiContext>
-        </ResearchApiContext>
+        <IntegrationApiContext value={integrationApiClient}>
+            <MarketDataApiContext value={marketDataApiClient}>
+                <LocalReadCredentialsContext value={credentials}>
+                    <SessionQueries key={authGeneration}>{children}</SessionQueries>
+                </LocalReadCredentialsContext>
+            </MarketDataApiContext>
+        </IntegrationApiContext>
     );
 }
 

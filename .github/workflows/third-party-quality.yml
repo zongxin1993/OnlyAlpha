@@ -97,41 +97,22 @@ jobs:
 
   schemathesis:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Same real native Host/build boundary as the existing Web Product lane.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - name: Start the deterministic Research HTTP test surface
-        run: |
-          uv run python scripts/serve_research_web_e2e.py > /tmp/onlyalpha-schemathesis.log 2>&1 &
-          echo $! > /tmp/onlyalpha-schemathesis.pid
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8000/openapi.json >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          cat /tmp/onlyalpha-schemathesis.log
-          exit 1
-      - name: Fuzz the published OpenAPI surface for server errors
-        run: >-
-          uvx --from schemathesis==4.26.1 schemathesis run
-          http://127.0.0.1:8000/openapi.json
-          --checks=not_a_server_error
-          --max-examples=25
-          --generation-deterministic
-          --workers=1
-      - name: Stop Research HTTP test surface
+      - name: Validate the canonical Compose model
+        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
+      - name: Prepare fixed native validation tools
+        run: python scripts/dev_verification.py prepare
+      - name: Fuzz the admitted native OpenAPI surface
+        run: deploy/run-web-e2e.sh --contract-fuzz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
-        run: |
-          if test -f /tmp/onlyalpha-schemathesis.pid; then
-            kill "$(cat /tmp/onlyalpha-schemathesis.pid)" 2>/dev/null || true
-          fi
-          cat /tmp/onlyalpha-schemathesis.log 2>/dev/null || true
+        with:
+          name: native-contract-fuzz-${{ github.sha }}
+          path: test-results/native-web-e2e/
+          if-no-files-found: warn
 
   testcontainers:
     runs-on: ubuntu-latest

@@ -10,7 +10,10 @@ from onlyalpha.persistence.postgres.migration import (
     OnlyPostgresMigrationAuthority,
     OnlyPostgresSchemaVerifier,
 )
-from tests.architecture._capability_reachability import ModuleIndex, actual_constructor_sites
+from tests.architecture._capability_reachability import (
+    ModuleIndex,
+    actual_constructor_sites,
+)
 from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
@@ -45,10 +48,12 @@ def test_migration_authority_surface_does_not_masquerade_as_verifier() -> None:
 
 def test_worker_and_api_construct_only_schema_verifier() -> None:
     worker = (ROOT / "src/onlyalpha/research/worker_main.py").read_text(encoding="utf-8")
-    api = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
-    for source in (worker, api):
-        assert "OnlyPostgresSchemaVerifier(" in source
-        assert "OnlyPostgresMigrationAuthority" not in source
+    api = "".join(((ROOT / "packages/onlyalpha-http-server/rust/startup.rs").read_text(encoding="utf-8")).split())
+    assert "OnlyPostgresSchemaVerifier(" in worker
+    assert ".inspect(client,max_rows)" in api
+    assert "schema::Verdict::Compatible" in api
+    assert "OnlyPostgresMigrationAuthority" not in worker + api
+    assert ".migrate(" not in api
 
 
 def test_database_operator_is_only_production_migration_composer() -> None:
@@ -73,7 +78,8 @@ def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> N
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
     production_path = "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
     tooling_path = "scripts/openapi_contract.py"
-    assert CONSTRUCTOR_SITES[lifecycle.id] == {production_path, tooling_path}
+    assert CONSTRUCTOR_SITES[lifecycle.id] == set()
+    assert not (ROOT / production_path).exists()
     assert CONTRACT.classify_path(production_path).production
     assert not CONTRACT.classify_path(tooling_path).production
     query = next(item for item in CONTRACT.constructors.values() if item.capability == "C19")

@@ -7,16 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGeneration,
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
-)
-from onlyalpha_http_server.private_assets import (
-    create_private_asset_router,
-    install_private_asset_error_handlers,
 )
 
 from onlyalpha.application import (
@@ -26,6 +20,7 @@ from onlyalpha.application import (
 from onlyalpha.application.private_asset_product import (
     OnlyPrivateAssetProductService,
     OnlyProductAssetSearchProjectionService,
+    OnlyProductAssetSearchQueryV1,
 )
 from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchApplicationService
 from onlyalpha.application.product_boundary import (
@@ -40,7 +35,7 @@ from onlyalpha.calculation import (
     OnlyCalculationRegistry,
     OnlyCalculationTypeReference,
 )
-from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.distribution import OnlyArtifactCalculationImplementation
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
@@ -478,7 +473,7 @@ class _ExactRuntimeAdmissionResolver:
             resolution.specification,
             resolution.specification_fingerprint,
             OnlyResearchAdmissionResolutionEvidence.from_resolution(resolution.specification_resolution),
-            tuple(item.to_dict() for item in manifest.private_factor_bindings),
+            tuple(sorted((item.to_dict() for item in manifest.private_factor_bindings), key=only_canonical_json)),
             resolution.specification_resolution.candidates,
             resolution.specification_resolution.signals,
             resolution.workload.result_plan,
@@ -559,41 +554,28 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
         lambda: NOW,
     )
     product_search.rebuild()
-    product_app = FastAPI()
-    install_private_asset_error_handlers(product_app)
-    product_app.include_router(create_private_asset_router(product_assets, product_search))
-    product_client = TestClient(product_app)
-    factor_search = product_client.get(
-        "/api/v2/private-assets/search",
-        params={"text": factor_reference.private_asset_id, "kind": "FACTOR"},
-    ).json()
-    factor_locator = factor_search["results"][0]["locator"]
-    assert factor_locator["revision_fingerprint"] == factor_reference.private_asset_revision_fingerprint
-    factor_read = product_client.get(
-        "/api/v2/private-assets/factors/"
-        f"{factor_locator['private_asset_id']}/revisions/{factor_locator['revision_fingerprint']}",
-        params={"content_fingerprint": factor_locator["content_fingerprint"]},
+    # Historical reference metadata setup, not current Research/Strategy HTTP admission.
+    factor_search = product_search.search(
+        OnlyProductAssetSearchQueryV1(text=factor_reference.private_asset_id, kind=OnlyPrivateAssetKind.FACTOR)
     )
-    assert factor_read.status_code == 200
-    assert factor_read.json()["source_sha256"] == factor_locator["content_fingerprint"]
-    strategy_search = product_client.get(
-        "/api/v2/private-assets/search",
-        params={"text": strategy_reference.private_asset_id, "kind": "STRATEGY"},
-    ).json()
-    strategy_locator = strategy_search["results"][0]["locator"]
+    factor_exact = factor_search.results[0].locator
+    factor_locator = factor_exact.to_dict()
+    assert factor_locator["revision_fingerprint"] == factor_reference.private_asset_revision_fingerprint
+    factor_read = product_assets.read_exact(factor_exact)
+    assert factor_read.source_sha256 == factor_locator["content_fingerprint"]
+    strategy_search = product_search.search(
+        OnlyProductAssetSearchQueryV1(text=strategy_reference.private_asset_id, kind=OnlyPrivateAssetKind.STRATEGY)
+    )
+    strategy_exact = strategy_search.results[0].locator
+    strategy_locator = strategy_exact.to_dict()
     discovered_strategy_reference = OnlyPrivateAssetRevisionReferenceV1(
         OnlyPrivateAssetKind.STRATEGY,
         strategy_locator["private_asset_id"],
         strategy_locator["revision_fingerprint"],
     )
     assert discovered_strategy_reference == strategy_reference
-    strategy_read = product_client.get(
-        "/api/v2/private-assets/strategies/"
-        f"{strategy_locator['private_asset_id']}/revisions/{strategy_locator['revision_fingerprint']}",
-        params={"content_fingerprint": strategy_locator["content_fingerprint"]},
-    )
-    assert strategy_read.status_code == 200
-    assert strategy_read.json()["definition_fingerprint"] == strategy_locator["content_fingerprint"]
+    strategy_read = product_assets.read_exact(strategy_exact)
+    assert strategy_read.definition_fingerprint == strategy_locator["content_fingerprint"]
     generation, authoring = _generation(
         assets,
         factor_reference,

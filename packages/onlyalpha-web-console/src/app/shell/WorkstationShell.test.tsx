@@ -5,11 +5,11 @@ import { WorkstationShell } from "./WorkstationShell";
 
 const destinations = [
     { path: "/", label: "工作台" },
-    { path: "/research/new", label: "研究" },
-    { path: "/data/inputs", label: "数据" },
-    { path: "/strategies", label: "策略" },
-    { path: "/backtest/runs", label: "回测" },
-    { path: "/system/health", label: "系统" }
+    { path: "/research/new", label: "研究 · 未实现" },
+    { path: "/data/inputs", label: "数据 · 未实现" },
+    { path: "/strategies", label: "策略 · 未实现" },
+    { path: "/backtest/runs", label: "回测 · 未实现" },
+    { path: "/system/health", label: "系统 · 未实现" }
 ] as const;
 
 function renderShell(entry = "/") {
@@ -60,8 +60,8 @@ it("states the browser authority boundary and reaches the workspace by keyboard"
     expect(document.getElementById("workspace-content")).toHaveAttribute("tabindex", "-1");
 });
 
-it("offers the formal research destination from the persistent toolbar", () => {
+it("does not advertise a deferred research command as available", () => {
     renderShell();
-    expect(screen.getByRole("link", { name: "新建研究" })).toHaveAttribute("href", "/research/new");
+    expect(screen.queryByRole("link", { name: "新建研究" })).not.toBeInTheDocument();
     expect(screen.getByText("Control + Presentation")).toBeInTheDocument();
 });

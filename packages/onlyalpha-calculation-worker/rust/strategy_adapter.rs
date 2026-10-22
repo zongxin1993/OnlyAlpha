@@ -1,11 +1,12 @@
 //! Registered node Infrastructure; all semantic state belongs to Strategy.
-use crate::{Worker, WorkerError};
-use onlyalpha_calculation::ExecutionBinding;
+use crate::{Worker, WorkerError, client::keys, process::MAX_FRAME};
+use onlyalpha_calculation::{Definition, ExecutionBinding, product::TypeDeclaration};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarType};
 use onlyalpha_gateway_protocol::{CalculationNode, calculation_request::Operation};
 use onlyalpha_strategy::{NodeDescriptor, NodeFailure, NodePort, NodeRequest, Program};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+const PRODUCT_WORK: usize = 8 * MAX_FRAME;
 fn failure(e: WorkerError) -> NodeFailure {
     if matches!(e, WorkerError::Unknown(_)) {
         NodeFailure::Unknown
@@ -36,8 +37,55 @@ impl StrategyNodes {
         request: Value,
         deadline: Duration,
     ) -> Result<NodeDescriptor, NodeFailure> {
+        let reference = request["reference"].clone();
+        if !keys(&reference, &["kind", "type_id", "semantic_version"])
+            || reference
+                .as_object()
+                .is_none_or(|r| r.values().any(|v| !v.is_string()))
+        {
+            return Err(NodeFailure::Known);
+        }
         let v = exchange(worker, request, deadline)?;
-        NodeDescriptor::from_record(&v).map_err(|_| NodeFailure::Known)
+        let checked = (|| {
+            if !keys(
+                &v,
+                &[
+                    "schema_version",
+                    "descriptor",
+                    "product_definition",
+                    "type_declaration",
+                ],
+            ) || v["schema_version"].as_u64() != Some(2)
+            {
+                return Err(NodeFailure::Known);
+            }
+            let declaration = TypeDeclaration::from_record(&v["type_declaration"], PRODUCT_WORK)
+                .map_err(|_| NodeFailure::Known)?;
+            let native = declaration
+                .validate_candidate(&v["product_definition"], PRODUCT_WORK)
+                .map_err(|_| NodeFailure::Known)?;
+            let mut projection = native.to_record();
+            for key in ["kind", "type_id", "semantic_version"] {
+                if projection[key] != reference[key] {
+                    return Err(NodeFailure::Known);
+                }
+            }
+            let descriptor =
+                NodeDescriptor::from_record(&v["descriptor"]).map_err(|_| NodeFailure::Known)?;
+            if descriptor.native_definition != native.fingerprint() {
+                return Err(NodeFailure::Known);
+            }
+            // Product2 keeps its own identity. Verify the existing typed
+            // component projection independently; never trust only its digest.
+            projection["schema_version"] = json!(3);
+            if Definition::from_record(&projection).map_err(|_| NodeFailure::Known)?
+                != descriptor.definition
+            {
+                return Err(NodeFailure::Known);
+            }
+            Ok(descriptor)
+        })();
+        checked.or_else(|_| worker.poison("PRODUCT_RESOLUTION").map_err(failure))
     }
     pub fn new(
         interpreter: PathBuf,

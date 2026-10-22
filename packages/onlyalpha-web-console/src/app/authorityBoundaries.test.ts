@@ -1,9 +1,9 @@
 const productionModules = import.meta.glob<string>(
     [
-        "../features/research/**/*.ts",
-        "../features/research/**/*.tsx",
-        "../features/data/**/*.ts",
-        "../features/data/**/*.tsx",
+        "../features/**/*.ts",
+        "../features/**/*.tsx",
+        "./*.tsx",
+        "./shell/*.tsx",
         "../visualization/**/*.ts",
         "../visualization/**/*.tsx",
         "../charts/**/*.ts",
@@ -54,8 +54,14 @@ it("contains third-party renderer imports inside their OnlyAlpha adapters", () =
     }
 });
 
-it("has exactly one Draft to Definition transport owner", () => {
-    expect(source.match(/function buildResearchDefinitionTransport\(/g)).toHaveLength(1);
+it("keeps deferred Research commands out of the Shipping features", () => {
+    for (const retired of [
+        "useResearchApi",
+        "buildResearchDefinitionTransport",
+        "FetchResearchApiClient"
+    ]) {
+        expect(source).not.toContain(retired);
+    }
 });
 
 it("gives the data source surface no second persistence or provider authority", () => {

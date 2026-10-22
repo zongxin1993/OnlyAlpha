@@ -499,3 +499,23 @@
         flex-direction: column;
     }
 }
+.factor-explorer > section {
+    margin: 1.25rem 0;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+.factor-explorer > section li {
+    list-style: none;
+    border-bottom: 1px solid var(--line-soft);
+    padding: 0.75rem 0;
+}
+.factor-explorer dd,
+.factor-explorer pre {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    margin-inline-start: 0;
+}
+.factor-explorer > input {
+    width: min(100%, 36rem);
+}

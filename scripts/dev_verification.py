@@ -27,6 +27,12 @@ CONTAINER_LOCK = Path("/tmp/onlyalpha-dev-verification.lock")
 HOST_STATE = Path.home() / ".cache/onlyalpha"
 CUT_METADATA = ".onlyalpha-dev-source-cut.json"
 BROWSER_RESET_FENCE = Path("test-results/dev-verification/browser-reset.pending.json")
+# Immutable historical regression inputs, not mutable release baselines. These
+# two original commits prove the non-reusable ADR 0109 authorization guard.
+HISTORICAL_CONTRACT_TEST_REVISIONS = (
+    "8901fec27faf8599c965df792d07a84b902583f3",
+    "a09da64745e92848b0f618f7ba5f2bf6ca6771b8",
+)
 EXCLUDED_DIRECTORIES = {
     ".git",
     ".venv",
@@ -52,6 +58,7 @@ def environment_inputs(root: Path) -> dict[str, str]:
     paths += [root / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml") if (root / name).is_file()]
     paths += sorted((root / "crates/onlyalpha-kernel").rglob("Cargo.toml"))
     paths += sorted((root / "packages").glob("*/Cargo.toml"))
+    paths += sorted((root / "plugs").glob("*/Cargo.toml"))
     for directory in ("packages", "plugs"):
         paths += sorted((root / directory).glob("*/pyproject.toml"))
     paths += [
@@ -110,7 +117,11 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
         timeout=15,
     )
     base = base_result.stdout.strip() if base_result.returncode == 0 else ""
-    revisions = list(dict.fromkeys([revision, *([base] if base else [])]))
+    historical = HISTORICAL_CONTRACT_TEST_REVISIONS if (root / "contracts/product-api/v2/authorized-a0-corrections.json").is_file() else ()
+    # Missing exact objects are a hard refusal, never a latest/current fallback.
+    for required in historical:
+        subprocess.run([*git, "cat-file", "-e", required + "^{commit}"], capture_output=True, check=True, timeout=15)
+    revisions = list(dict.fromkeys([revision, *([base] if base else []), *historical]))
     index_path = Path(
         subprocess.check_output(
             [*git, "rev-parse", "--path-format=absolute", "--git-path", "index"], text=True, timeout=15

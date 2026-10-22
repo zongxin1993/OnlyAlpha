@@ -554,7 +554,7 @@ class OnlyMarketDataStreamProductService:
                 self._clock,
             )
             self._bootstrap(resolved, instrument_id, resume_after_sequence, calendar, aggregator, provider_plan)
-        stream_id = uuid.uuid4().hex
+        stream_id = str(uuid.uuid4())
         root = self._wal_root / str(resolved.source_id) / "realtime" / stream_id
         wal = OnlyMarketDataWal(root / "wal", capacity_bytes=_WAL_CAPACITY_BYTES)
         descriptor = resolved.factory.descriptor  # type: ignore[attr-defined]

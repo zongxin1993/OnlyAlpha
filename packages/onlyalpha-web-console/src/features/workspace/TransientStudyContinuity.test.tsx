@@ -9,9 +9,12 @@ import {
     ChartStudyEvaluateSchema
 } from "../../api/chartStudies/http.generated";
 import { MarketDataWebError, type MarketDataBarsQuery } from "../../api/marketData/client";
-import type { MarketDataSourceReference } from "../../api/marketData/model";
+import type { MarketDataBarSemantic, MarketDataSourceReference } from "../../api/marketData/model";
 import { marketDataClient } from "../../test/marketDataClient";
-import { projectMarketDataBar } from "../../charts/lightweight/marketDataChartProjection";
+import {
+    projectMarketDataBar,
+    type MarketDataChartBarProjection
+} from "../../charts/lightweight/marketDataChartProjection";
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
 import { isAdmittedChartStudyEvidence } from "../../api/chartStudies/client";
@@ -19,10 +22,23 @@ import type { LocalReadCredentials } from "../../api/marketData/localReadCredent
 import type { ChartStudyInstance } from "./chartStudy";
 
 const observedEvidence: (readonly object[])[] = [];
+const observedMainChartInputs: {
+    readonly bars: readonly MarketDataChartBarProjection[];
+    readonly barSemantic: MarketDataBarSemantic | undefined;
+}[] = [];
 
 vi.mock("../../charts/lightweight/PriceChart", () => ({
-    PriceChart: ({ studyEvidence }: { studyEvidence: readonly { instanceId: string }[] }) => {
+    PriceChart: ({
+        studyEvidence,
+        bars,
+        barSemantic
+    }: {
+        studyEvidence: readonly { instanceId: string }[];
+        bars: readonly MarketDataChartBarProjection[];
+        barSemantic?: MarketDataBarSemantic;
+    }) => {
         observedEvidence.push(studyEvidence);
+        observedMainChartInputs.push({ bars, barSemantic });
         return (
             <output data-testid="overlays">
                 {studyEvidence
@@ -60,6 +76,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
     observedEvidence.length = 0;
+    observedMainChartInputs.length = 0;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     document.documentElement.style.removeProperty("--accent-solid");
@@ -75,7 +92,11 @@ function required<T>(value: T | undefined): T {
     return value;
 }
 
-function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
+function setup(
+    minutes = 15,
+    instrument = "BTCUSDT.BINANCE",
+    alignment: "SESSION_START" | "UTC" = "SESSION_START"
+) {
     const capability = ChartStudyCapabilitiesSchema.parse({
         schema_version: 2,
         capabilities: [sample.capability]
@@ -87,7 +108,16 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         const history = marketDataBarsSchema.parse(structuredClone(sample.history));
         const start = BigInt(anchor) - 2000n * duration;
         history.instrument_id = instrument;
-        history.bar_semantic = marketDataBarSemantic(minutes);
+        history.bar_semantic = {
+            ...marketDataBarSemantic(minutes),
+            formation: {
+                schema_version: 1,
+                kind: "FIXED_DURATION",
+                window_minutes: minutes,
+                stride_minutes: minutes,
+                alignment
+            }
+        };
         history.requested_before_ns = anchor;
         history.resolved_start_ns = start.toString();
         history.resolved_end_ns = anchor;
@@ -151,24 +181,17 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
         siblingBody?: string;
         retryAfter?: string;
         conflict: boolean;
-        derived: boolean;
     } = {
         anchors: [],
         held: [],
         hold: false,
         failSibling: false,
         siblingFailure: { code: "CHART_STUDY_CAPACITY_UNAVAILABLE", status: 503 },
-        conflict: false,
-        derived: false
+        conflict: false
     };
     const queryBars = vi.fn((_source: MarketDataSourceReference, query: MarketDataBarsQuery) => {
         const result = page(required(query.before_ns));
         if (traffic.conflict) required(result.bars.at(-1)).close = "999";
-        if (traffic.derived) {
-            result.resolution_mode = "DERIVED";
-            result.derived_projection_fingerprint = "d".repeat(64);
-            result.aggregation_semantics_version = "TIME_BAR@1";
-        }
         return Promise.resolve(result);
     });
     vi.stubGlobal(
@@ -287,7 +310,7 @@ function setup(minutes = 15, instrument = "BTCUSDT.BINANCE") {
                 expectedEnvironment={initial.source_selection.environment}
                 contextKey={context.key}
                 incarnationKey={incarnation}
-                previewStreamId={stream ? "a".repeat(32) : null}
+                previewStreamId={stream ? "f47ac10b-58cc-4372-a567-0e02b2c3d479" : null}
                 studies={
                     siblings
                         ? [
@@ -445,9 +468,8 @@ it("focus-stale intent is revalidated through fresh capability and finite owning
     expect(test.queryBars).toHaveBeenCalledTimes(1);
 });
 
-it("proved complete derived 7m stays on the main chart while Study is explicitly unsupported", async () => {
-    const test = setup(7);
-    test.traffic.derived = true;
+it("preserves 7m main-chart input while refusing an unsupported UTC-aligned Study request", async () => {
+    const test = setup(7, "BTCUSDT.BINANCE", "UTC");
     render(test.tree());
     await waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
@@ -456,6 +478,19 @@ it("proved complete derived 7m stays on the main chart while Study is explicitly
         );
     });
     expect(test.traffic.anchors).toHaveLength(0);
+    expect(test.queryBars).not.toHaveBeenCalled();
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    const main = required(observedMainChartInputs.at(-1));
+    expect(main.barSemantic?.formation).toEqual({
+        schema_version: 1,
+        kind: "FIXED_DURATION",
+        window_minutes: 7,
+        stride_minutes: 7,
+        alignment: "UTC"
+    });
+    expect(main.bars).toHaveLength(2000);
+    expect(main.bars[0]?.barStartNs).toBe((test.baseEnd - 2000n * test.duration).toString());
+    expect(main.bars.at(-1)?.barEndNs).toBe(test.baseEnd.toString());
 });
 
 it("retrying one failed Study retains the other failed sibling's retry and valid sibling evidence", async () => {

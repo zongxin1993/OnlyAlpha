@@ -4,10 +4,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_product_websocket_adapter_has_no_binance_or_persistence_logic() -> None:
-    route = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/market_data/stream_routes.py").read_text(
-        encoding="utf-8"
-    )
+    route = (ROOT / "packages/onlyalpha-http-server/rust/stream_wire.rs").read_text(encoding="utf-8")
     assert "onlyalpha_plugin_binance" not in route
+    assert "tokio_postgres" not in route
+    assert "AuthoritySession" not in route
     assert "OnlyMarketDataWal" not in route
 
 

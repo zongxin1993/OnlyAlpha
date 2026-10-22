@@ -200,7 +200,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?,
     );
     assert!(!plan.evaluate(&nodes, &stale)?.ready());
-    client.cancellation()?.cancel();
+    client.cancellation()?.cancel()?;
     assert_eq!(
         client.snapshot("runtime/cluster/first")?.outcome(),
         StateOutcome::Unknown

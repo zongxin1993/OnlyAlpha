@@ -330,239 +330,34 @@ jobs:
       - name: Run integration demo suite
         run: uv run python -m tests.integration_demo.run_all
 
-  # ---------------------------------------------------------------------------
-  # 每个正式 distribution 必须：
-  #
-  # 1. 独立构建 wheel 和 sdist；
-  # 2. 通过 twine check；
-  # 3. 在干净虚拟环境中从 wheel 安装；
-  # 4. 导入公开 Python 包；
-  # 5. 发现并加载正式 Entry Point。
-  # ---------------------------------------------------------------------------
+  # Maintained distribution: native HTTP service and exact isolated algorithm SDK.
+  # Python reference-package installation in the jobs above is test tooling.
   build-smoke:
-    name: Build smoke / ${{ matrix.distribution }}
-    needs:
-      - metadata
-      - core
-      - virtual-broker
-      - tushare
-      - generic-market-product
-      - product-gates
-    runs-on: ${{ matrix.os }}
+    name: Native runtime distribution smoke
+    needs: [metadata, core, virtual-broker, tushare, generic-market-product, product-gates]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - distribution: onlyalpha
-            os: ubuntu-latest
-            import-name: onlyalpha
-            entry-points: "console_scripts=onlyalpha"
-
-          - distribution: onlyalpha-plugin-tushare
-            os: ubuntu-latest
-            import-name: onlyalpha_plugin_tushare
-            entry-points: "onlyalpha.data_sources=tushare;console_scripts=onlyalpha-tushare"
-
-          - distribution: onlyalpha-plugin-broker-virtual
-            os: ubuntu-latest
-            import-name: onlyalpha_plugin_broker_virtual
-            entry-points: "onlyalpha.brokers=virtual"
-
-          - distribution: onlyalpha-plugin-generic-t0-cash
-            os: ubuntu-latest
-            import-name: onlyalpha_plugin_generic_t0_cash
-            entry-points: "onlyalpha.market_products=generic-t0-cash"
-
-          - distribution: onlyalpha-plugin-cn-ashare
-            os: ubuntu-latest
-            import-name: onlyalpha_plugin_cn_ashare
-            entry-points: "onlyalpha.market_products=cn-ashare"
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Synchronize workspace
-        run: uv sync --frozen --all-packages --all-groups
-
-      - name: Build Core and target distribution
-        shell: bash
-        env:
-          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
+      - uses: actions/checkout@v6
+      - name: Build the maintained runtime
+        run: docker build --file deploy/Dockerfile.dev --target runtime --tag onlyalpha-runtime:ci .
+      - name: Exercise pure native contract export without deployment inputs
+        run: docker run --rm onlyalpha-runtime:ci --export-openapi > native-openapi.json
+      - name: Check the installed algorithm boundary
         run: |
-          rm -rf dist-ci
-          mkdir -p dist-ci/core
-          mkdir -p dist-ci/target
-
-          uv build \
-            --package onlyalpha \
-            --out-dir dist-ci/core
-
-          if [ "$TARGET_DISTRIBUTION" != "onlyalpha" ]; then
-            uv build \
-              --package "$TARGET_DISTRIBUTION" \
-              --out-dir dist-ci/target
-          fi
-
-      - name: Validate built metadata
-        shell: bash
-        env:
-          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
-        run: |
-          uv run twine check dist-ci/core/*
-
-          if [ "$TARGET_DISTRIBUTION" != "onlyalpha" ]; then
-            uv run twine check dist-ci/target/*
-          fi
-
-      - name: Install wheels into a clean environment
-        shell: bash
-        env:
-          TARGET_DISTRIBUTION: ${{ matrix.distribution }}
-          TARGET_IMPORT_NAME: ${{ matrix.import-name }}
-          TARGET_ENTRY_POINTS: ${{ matrix.entry-points }}
-        run: |
-          python - <<'PY'
-          from __future__ import annotations
-
+          expected_version="$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          docker run --rm --env "EXPECTED_VERSION=$expected_version" --entrypoint /opt/onlyalpha/algorithms/bin/python onlyalpha-runtime:ci -I -c '
+          import importlib.util
           import os
-          import shutil
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          target_distribution = os.environ["TARGET_DISTRIBUTION"]
-          target_import_name = os.environ["TARGET_IMPORT_NAME"]
-          target_entry_points = os.environ["TARGET_ENTRY_POINTS"]
-
-          core_wheels = sorted(Path("dist-ci/core").glob("*.whl"))
-          if len(core_wheels) != 1:
-              raise SystemExit(
-                  f"Expected exactly one Core wheel, found: {core_wheels}"
-              )
-
-          install_wheels = [core_wheels[0]]
-
-          if target_distribution != "onlyalpha":
-              target_wheels = sorted(Path("dist-ci/target").glob("*.whl"))
-              if len(target_wheels) != 1:
-                  raise SystemExit(
-                      "Expected exactly one target wheel for "
-                      f"{target_distribution}, found: {target_wheels}"
-                  )
-              install_wheels.append(target_wheels[0])
-
-          smoke_dir = Path(".ci-smoke-env")
-          if smoke_dir.exists():
-              shutil.rmtree(smoke_dir)
-
-          subprocess.run(
-              [sys.executable, "-m", "venv", str(smoke_dir)],
-              check=True,
-          )
-
-          if os.name == "nt":
-              smoke_python = smoke_dir / "Scripts" / "python.exe"
-          else:
-              smoke_python = smoke_dir / "bin" / "python"
-
-          subprocess.run(
-              [
-                  str(smoke_python),
-                  "-m",
-                  "pip",
-                  "install",
-                  "--disable-pip-version-check",
-                  "--upgrade",
-                  "pip",
-              ],
-              check=True,
-          )
-
-          subprocess.run(
-              [
-                  str(smoke_python),
-                  "-m",
-                  "pip",
-                  "install",
-                  "--disable-pip-version-check",
-                  *(str(path.resolve()) for path in install_wheels),
-              ],
-              check=True,
-          )
-
-          smoke_code = """
-          import importlib
-          import importlib.metadata as metadata
-          import os
-
-          distribution = os.environ["TARGET_DISTRIBUTION"]
-          import_name = os.environ["TARGET_IMPORT_NAME"]
-          entry_point_specs = os.environ["TARGET_ENTRY_POINTS"]
-
-          module = importlib.import_module(import_name)
-          print(f"Imported {module.__name__}")
-
-          installed_version = metadata.version(distribution)
-          print(f"{distribution}=={installed_version}")
-
-          entry_points = metadata.entry_points()
-
-          if distribution == "onlyalpha":
-              if entry_points.select(group="onlyalpha.brokers", name="virtual"):
-                  raise RuntimeError("Core-only install must not provide the virtual Broker")
-              try:
-                  importlib.import_module("onlyalpha.broker.virtual")
-              except ModuleNotFoundError:
-                  pass
-              else:
-                  raise RuntimeError("Core-only install contains onlyalpha.broker.virtual")
-
-          for specification in entry_point_specs.split(";"):
-              group, name = specification.split("=", 1)
-              selected = tuple(
-                  entry_points.select(
-                      group=group,
-                      name=name,
-                  )
-              )
-
-              if len(selected) != 1:
-                  raise RuntimeError(
-                      "Expected exactly one Entry Point for "
-                      f"{group}:{name}, found {len(selected)}"
-                  )
-
-              loaded = selected[0].load()
-              print(
-                  "Loaded Entry Point "
-                  f"{group}:{name} -> {loaded!r}"
-              )
-          """
-
-          smoke_environment = dict(os.environ)
-          smoke_environment["TARGET_DISTRIBUTION"] = target_distribution
-          smoke_environment["TARGET_IMPORT_NAME"] = target_import_name
-          smoke_environment["TARGET_ENTRY_POINTS"] = target_entry_points
-
-          subprocess.run(
-              [
-                  str(smoke_python),
-                  "-c",
-                  smoke_code,
-              ],
-              check=True,
-              env=smoke_environment,
-          )
-          PY
+          from importlib.metadata import distribution, version
+          import pyarrow
+          import onlyalpha_calculation_worker.chart_worker
+          assert version("onlyalpha") == os.environ["EXPECTED_VERSION"]
+          for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
+              assert importlib.util.find_spec(name) is None, name
+          for name in ("onlyalpha", "onlyalpha-calculation-worker", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+              assert not distribution(name).entry_points, name
+          '
 
   # ---------------------------------------------------------------------------
   # 为分支保护提供一个固定名称的最终检查。

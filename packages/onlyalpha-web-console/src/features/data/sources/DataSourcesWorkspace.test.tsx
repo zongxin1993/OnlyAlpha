@@ -12,7 +12,6 @@ import type {
     IntegrationType
 } from "../../../api/integrations/model";
 import { AppProviders } from "../../../app/providers";
-import { researchClient } from "../../../test/researchClient";
 import { DataSourceDetailPage } from "./DataSourceDetailPage";
 import { DataSourcesPage } from "./DataSourcesPage";
 import { NewDataSourcePage } from "./NewDataSourcePage";
@@ -230,7 +229,7 @@ function renderDataSources(path: string, client: IntegrationApiClient) {
         { initialEntries: [path] }
     );
     render(
-        <AppProviders client={researchClient()} integrationClient={client}>
+        <AppProviders integrationClient={client}>
             <RouterProvider router={router} />
         </AppProviders>
     );

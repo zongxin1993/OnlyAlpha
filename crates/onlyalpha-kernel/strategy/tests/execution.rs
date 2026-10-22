@@ -366,6 +366,18 @@ fn product_revision_preserves_authoritative_identity_and_proves_every_compiled_n
         Revision::from_record(&admitted.to_record()).unwrap(),
         admitted
     );
+    // Alias is presentation-only identity, but its declared wire type remains
+    // mandatory; ignoring it must not admit a malformed public source.
+    let mut invalid_alias = source.clone();
+    invalid_alias["decision_graph"]["nodes"][0]["alias"] = json!(1);
+    assert!(
+        Revision::from_product(
+            invalid_alias,
+            admitted.descriptors().values().cloned().collect(),
+            mapping.clone(),
+        )
+        .is_err()
+    );
     for field in [
         "universe",
         "market_input_contract",

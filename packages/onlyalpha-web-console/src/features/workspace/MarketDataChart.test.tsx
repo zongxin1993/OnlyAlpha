@@ -1,3 +1,4 @@
+import { marketDataSourceChoiceKey } from "../../api/marketData/model";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
@@ -27,7 +28,6 @@ import {
     marketDataSource,
     marketDataInstrument
 } from "../../test/marketDataClient";
-import { researchClient } from "../../test/researchClient";
 import { chartCatalogFixture } from "../../test/chartCatalog";
 import {
     projectMarketDataBar,
@@ -181,11 +181,7 @@ function configuredSources() {
 
 function renderWorkspace(client: MarketDataApiClient) {
     return render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={configuredSources()}
-            marketDataClient={client}
-        >
+        <AppProviders integrationClient={configuredSources()} marketDataClient={client}>
             <WorkspacePage />
         </AppProviders>
     );
@@ -205,7 +201,10 @@ async function searchInput(user: ReturnType<typeof userEvent.setup>) {
 
 async function selectSource(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByRole("option", { name: /Fixture Source/ });
-    await user.selectOptions(await sourceControl(user), "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    await user.selectOptions(
+        await sourceControl(user),
+        marketDataSourceChoiceKey(marketDataSource())
+    );
     // These existing manual-context regressions explicitly request their 1m fixture.
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "1");
 }
@@ -308,7 +307,9 @@ it("refreshes chart sources after returning from management without restarting t
         })
     );
     await waitFor(() => {
-        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+        expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
+            marketDataSourceChoiceKey(source)
+        );
     });
     expect(screen.getByRole("button", { name: "搜索商品" })).toBeEnabled();
     expect(listSources).toHaveBeenCalledTimes(2);
@@ -354,7 +355,9 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
             name: "关闭"
         })
     );
-    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(source.integration_id);
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
+        marketDataSourceChoiceKey(source)
+    );
     expect(queryBars).toHaveBeenCalledTimes(2);
     expect(queryBars.mock.calls.at(-1)?.[1].instrument_id).toBe(eth.instrument_id);
     expect(listInstruments).toHaveBeenCalledTimes(3);
@@ -454,7 +457,7 @@ it.each(["name", "revision"])(
             ).toBe(false);
         } else {
             expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
-                source.integration_id
+                marketDataSourceChoiceKey(source)
             );
             expect(renderedPrices()).toEqual([101, 102.5]);
         }
@@ -654,7 +657,7 @@ it("keeps the default chart incarnation when reselecting its source, instrument 
     const user = userEvent.setup();
     const observation = screen.getByTestId("market-data-observation");
     const context = observation.getAttribute("data-chart-context-key");
-    await user.selectOptions(await sourceControl(user), source.integration_id);
+    await user.selectOptions(await sourceControl(user), marketDataSourceChoiceKey(source));
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "15");
     await user.type(await searchInput(user), "BTCUSDT{Enter}");
     await user.click(await screen.findByRole("button", { name: /查看 BTCUSDT/ }));
@@ -736,7 +739,9 @@ it("defaults to explicit source choice for multiple GLOBAL sources, then bootstr
     expect(queryBars).not.toHaveBeenCalled();
     expect(listInstruments).not.toHaveBeenCalled();
     const user = userEvent.setup();
-    await user.selectOptions(await sourceControl(user), "second-source");
+    const chosen = sources[1];
+    if (chosen === undefined) throw new Error("fixture requires the second exact Source");
+    await user.selectOptions(await sourceControl(user), marketDataSourceChoiceKey(chosen));
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(1);
     });
@@ -793,7 +798,7 @@ it("defaults reject duplicate source ownership rather than choosing by array ord
             listSources: () =>
                 Promise.resolve([
                     binanceSource(),
-                    binanceSource({ integration_revision_fingerprint: "c".repeat(64) })
+                    binanceSource({ source_id: "conflicting-owner-for-the-same-exact-reference" })
                 ]),
             listInstruments
         })
@@ -829,13 +834,18 @@ it("defaults discard a delayed bootstrap response after an explicit source chang
         expect(listInstruments).toHaveBeenCalledTimes(1);
     });
     const user = userEvent.setup();
-    await user.selectOptions(await sourceControl(user), "other-source");
+    await user.selectOptions(
+        await sourceControl(user),
+        marketDataSourceChoiceKey(marketDataSource({ integration_id: "other-source" }))
+    );
     await act(async () => {
         release([binanceInstrument()]);
         await Promise.resolve();
     });
     expect(queryBars).not.toHaveBeenCalled();
-    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue("other-source");
+    expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
+        marketDataSourceChoiceKey(marketDataSource({ integration_id: "other-source" }))
+    );
     expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
         "data-observation-mode",
         "unavailable"
@@ -856,7 +866,6 @@ it("defaults ignore aborted source discovery during StrictMode effect replay", a
     render(
         <StrictMode>
             <AppProviders
-                client={researchClient()}
                 integrationClient={configuredSources()}
                 marketDataClient={marketDataClient({ listSources, listInstruments, queryBars })}
             >
@@ -1917,7 +1926,7 @@ it("offers only the sources the Market Data Product reports as eligible", async 
             .map((item) => item.textContent)
     ).toEqual([
         "未选择数据源",
-        "Fixture Source · test.market_data",
-        "Testnet Source · test.market_data"
+        "Fixture Source · 当前 Revision · aaaaaaaa · 可采集",
+        "Testnet Source · 当前 Revision · aaaaaaaa · 可采集"
     ]);
 });

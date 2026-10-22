@@ -41,17 +41,7 @@ def test_dev_compose_has_pinned_private_databases_and_zero_config_defaults() -> 
     compose = _compose()
     services = compose["services"]
     assert isinstance(services, dict)
-    assert {
-        "postgres",
-        "clickhouse",
-        "bootstrap",
-        "api",
-        "web",
-        "research-worker",
-        "backtest-worker",
-        "agent",
-        "agent-provider-fixture",
-    } <= set(services)
+    assert set(services) == {"postgres", "clickhouse", "test", "validation", "dev"}
     postgres = services["postgres"]
     clickhouse = services["clickhouse"]
     assert postgres["image"].startswith("postgres:18.6@sha256:")
@@ -108,56 +98,26 @@ def test_local_debugging_has_no_separate_read_only_deployment_or_preflight() -> 
     assert not (DEPLOY / "run-local-operator.sh").exists()
 
 
-def test_playwright_and_fixture_are_application_boundary_profile_services() -> None:
+def test_business_deployment_does_not_activate_deferred_services_or_seed_user_goals() -> None:
     services = _compose()["services"]
-    playwright = services["playwright"]
-    fixture = services["web-e2e-fixture"]
-    assert playwright["profiles"] == ["web-e2e"]
-    assert fixture["profiles"] == ["web-e2e"]
-    assert playwright["build"]["target"] == "playwright"
-    assert fixture["build"]["target"] == "test"
-    assert playwright["networks"] == ["application"]
-    assert fixture["networks"] == ["database"]
-    assert playwright["environment"] == {"CI": "1", "PLAYWRIGHT_BASE_URL": "http://web:5173"}
-    assert playwright["init"] is True
-    assert playwright["depends_on"]["web"]["condition"] == "service_healthy"
-    assert playwright["depends_on"]["web-e2e-fixture"]["condition"] == "service_completed_successfully"
-    for forbidden in (
-        "ONLYALPHA_POSTGRES_DSN",
-        "ONLYALPHA_CLICKHOUSE_URL",
-        "ONLYALPHA_CLICKHOUSE_USER",
-        "ONLYALPHA_CLICKHOUSE_PASSWORD",
-        "DOCKER_HOST",
-    ):
-        assert forbidden not in playwright["environment"]
-    assert services["web"]["environment"]["ONLYALPHA_WEB_API_TARGET"] == "http://api:8000"
-
-
-def test_bootstrap_is_the_only_schema_mutation_startup_and_api_waits_for_it() -> None:
-    compose = _compose()
-    services = compose["services"]
-    bootstrap = services["bootstrap"]
-    api = services["api"]
-    assert bootstrap["command"] == ["python", "scripts/bootstrap.py"]
-    assert set(bootstrap["depends_on"]) == {"postgres", "clickhouse", "agent-provider-fixture"}
-    assert all(item["condition"] == "service_healthy" for item in bootstrap["depends_on"].values())
-    assert api["depends_on"]["bootstrap"]["condition"] == "service_completed_successfully"
-    assert api["command"][-4:] == ["--host", "0.0.0.0", "--port", "8000"]
-    assert api["ports"] == ["127.0.0.1:${ONLYALPHA_HTTP_PORT:-8000}:8000"]
-
-
-def test_web_and_workers_use_the_same_zero_config_topology() -> None:
-    services = _compose()["services"]
-    web = services["web"]
-    assert web["environment"] == {"ONLYALPHA_WEB_API_TARGET": "http://api:8000"}
-    assert web["ports"] == ["127.0.0.1:${ONLYALPHA_WEB_PORT:-5173}:5173"]
-    assert web["depends_on"]["api"]["condition"] == "service_healthy"
-    for name in ("research-worker", "backtest-worker"):
-        assert services[name]["depends_on"]["bootstrap"]["condition"] == "service_completed_successfully"
-    agent = services["agent"]
-    assert "--model-api-url" not in agent["command"]
-    assert "--model-token-file" not in agent["command"]
-    assert agent["depends_on"]["api"]["condition"] == "service_healthy"
+    assert not {
+        "bootstrap",
+        "api",
+        "web",
+        "research-worker",
+        "backtest-worker",
+        "agent",
+        "market-data-bootstrap",
+        "web-e2e-fixture",
+        "binance-probe-fixture",
+        "agent-provider-fixture",
+        "playwright",
+    }.intersection(services)
+    assert "depends_on" not in services["dev"]
+    assert services["dev"]["networks"] == ["database", "application"]
+    assert services["validation"]["networks"] == ["database"]
+    assert "ports" not in services["validation"]
+    assert services["validation"]["environment"]["ONLYALPHA_POSTGRES_DSN"].endswith("_test")
 
 
 def test_ordinary_dev_reuses_fixed_dependencies_without_any_preparation_chain() -> None:
@@ -170,23 +130,15 @@ def test_ordinary_dev_reuses_fixed_dependencies_without_any_preparation_chain() 
     assert dev["command"] == ["python", "-m", "scripts.dev", "inside"]
     assert dev["ports"] == ["127.0.0.1:5173:5173"]
     assert "depends_on" not in dev and "build" not in dev
-    assert dev["environment"]["ONLYALPHA_POSTGRES_DSN"].endswith("/onlyalpha")
+    assert (
+        dev["environment"]["ONLYALPHA_POSTGRES_DSN"]
+        == "postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha?sslmode=disable"
+    )
     assert dev["environment"]["VITE_ONLYALPHA_LOCAL_SESSION"] == "true"
     assert {m["source"] for m in dev["volumes"] if m["type"] == "volume"} == {"user-data"}
     assert dev["volumes"][0]["source"] == "../.test-cache/dev-product-source"
     assert all(m["read_only"] for m in dev["volumes"] if m["type"] != "volume")
     assert compose["volumes"]["user-data"]["external"] == "${ONLYALPHA_DEV_EXISTING_USER_DATA:-false}"
-    for name in (
-        "api",
-        "web",
-        "bootstrap",
-        "market-data-bootstrap",
-        "agent",
-        "research-worker",
-        "backtest-worker",
-        "agent-provider-fixture",
-    ):
-        assert services[name]["profiles"] == ["integration", "web-e2e"]
 
 
 def test_test_service_is_a_profile_of_the_canonical_topology_and_isolated() -> None:
@@ -199,22 +151,11 @@ def test_test_service_is_a_profile_of_the_canonical_topology_and_isolated() -> N
     assert test["depends_on"]["clickhouse"]["condition"] == "service_healthy"
 
 
-def test_dev_market_data_seed_uses_only_product_api_before_web_starts() -> None:
-    services = _compose()["services"]
-    seed = services["market-data-bootstrap"]
-    assert seed["command"] == ["python", "-m", "scripts.provision_dev_market_data"]
-    assert seed["environment"] == {"ONLYALPHA_PRODUCT_API_URL": "http://api:8000"}
-    assert seed["networks"] == ["application"]
-    assert "volumes" not in seed and "ports" not in seed
-    assert seed["depends_on"] == {"api": {"condition": "service_healthy"}}
-    assert services["web"]["depends_on"]["market-data-bootstrap"] == {"condition": "service_completed_successfully"}
-
-
 def test_dev_dockerfile_builds_python_and_web_targets_without_business_credentials() -> None:
     dockerfile = (DEPLOY / "Dockerfile.dev").read_text(encoding="utf-8")
     assert "FROM python:3.12.12-slim-bookworm@sha256:" in dockerfile
     assert "FROM node:24-bookworm-slim AS web" in dockerfile
-    assert "FROM runtime AS test" in dockerfile
+    assert "FROM reference-tools AS test" in dockerfile
     assert "FROM web AS playwright" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
     assert "npx playwright install --with-deps chromium" in dockerfile
@@ -267,17 +208,11 @@ def test_ci_validates_and_runs_the_canonical_topology() -> None:
         assert forbidden not in workflow
 
 
-def test_web_e2e_runner_isolated_and_artifact_safe() -> None:
+def test_web_e2e_runner_reuses_the_frozen_native_validation_entry() -> None:
     runner = (DEPLOY / "run-web-e2e.sh").read_text(encoding="utf-8")
-    assert 'export ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-web-e2e-$$"' in runner
-    assert "onlyalpha_web_e2e" in runner
-    assert "ONLYALPHA_WEB_E2E_ARTIFACTS_DIR" in runner
-    assert "up -d --build --wait" in runner
-    assert "run --build --rm playwright" in runner
-    assert "compose --profile web-e2e down -v --remove-orphans" in runner
-    assert "localhost,127.0.0.1,postgres,clickhouse,api,web" in runner
-    assert "data-api.binance.vision,data-stream.binance.vision" in runner
-    assert "--abort-on-container-exit" not in runner
+    assert "scripts/dev_verification.py run -- python scripts/native_web_e2e.py" in runner
+    for forbidden in ("down -v", "compose run", "--profile web-e2e", "ONLYALPHA_COMPOSE_NAMESPACE="):
+        assert forbidden not in runner
 
 
 def test_local_test_runner_uses_only_the_isolated_canonical_test_profile() -> None:

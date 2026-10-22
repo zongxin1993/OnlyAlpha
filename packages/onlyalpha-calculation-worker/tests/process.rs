@@ -34,7 +34,7 @@ fn cancellation_wakes_blocked_exchange_without_sleep() {
     let task = thread::spawn(move || worker.handshake(Duration::from_secs(10)));
     let mut head = [0; 4];
     peer.read_exact(&mut head).unwrap();
-    cancellation.cancel();
+    cancellation.cancel().unwrap();
     assert!(matches!(task.join().unwrap(), Err(WorkerError::Unknown(_))));
 }
 
@@ -118,6 +118,37 @@ fn stale_scope_generation_sequence_and_malformed_wire_are_never_accepted() {
             worker.handshake(Duration::from_secs(2)),
             Err(WorkerError::Unknown(_))
         ));
+        task.join().unwrap();
+    }
+}
+
+#[test]
+fn chart_operation_uses_the_same_fail_closed_wire_and_does_not_retry() {
+    use onlyalpha_gateway_protocol::{CalculationRequest, calculation_request};
+    use prost::Message;
+    for crash in [false, true] {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let task = thread::spawn(move || {
+            let mut head = [0; 4];
+            peer.read_exact(&mut head).unwrap();
+            let mut body = vec![0; u32::from_be_bytes(head) as usize];
+            peer.read_exact(&mut body).unwrap();
+            let request = CalculationRequest::decode(body.as_slice()).unwrap();
+            assert!(matches!(
+                request.operation,
+                Some(calculation_request::Operation::Chart(_))
+            ));
+            if !crash {
+                peer.write_all(&u32::MAX.to_be_bytes()).unwrap();
+            }
+        });
+        let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+        for _ in 0..2 {
+            assert!(matches!(
+                worker.exchange_chart(serde_json::json!({"op":"CATALOG"}), Duration::from_secs(2)),
+                Err(WorkerError::Unknown(_))
+            ));
+        }
         task.join().unwrap();
     }
 }

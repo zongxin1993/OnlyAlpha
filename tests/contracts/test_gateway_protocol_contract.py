@@ -41,7 +41,7 @@ def test_gateway_protocol_generation_is_stable_and_current(tmp_path: Path) -> No
     second_files = sorted(path.relative_to(second) for path in second.rglob("*") if path.is_file())
     assert first_files == second_files
     assert all((first / path).read_bytes() == (second / path).read_bytes() for path in first_files)
-    assert gateway_protocol.check() == "bbe573c3cb4c102a6a8d7cc49d586b8300ddde41568f6a2aa0f214883058d26c"
+    assert gateway_protocol.check() == "8ce92be0a41f548556a8d9b04a7499fd879bca38b375dc6e47de314b91ff8bef"
 
 
 @pytest.mark.contract

@@ -33,12 +33,14 @@ def test_integration_contract_and_catalog_remain_provider_neutral_and_reuse_regi
 def test_integration_http_depends_on_application_contract_not_concrete_plugins() -> None:
     forbidden = {"onlyalpha_plugin_binance", "onlyalpha_plugin_miniqmt", "onlyalpha_plugin_tushare"}
 
-    for path in HTTP_ROOT.rglob("*.py"):
-        assert not (imported_modules_for_path(path, ROOT) & forbidden), path
+    assert not tuple(HTTP_ROOT.rglob("*.py"))
+    source = (ROOT / "packages/onlyalpha-http-server/rust/integration_types.rs").read_text()
+    assert not any(name in source for name in forbidden)
+    assert "integration_catalog::AuthoringCatalog" in source
 
 
 def test_integration_l1_adds_no_environment_or_database_authority() -> None:
-    scoped = (CORE_CONTRACT, CATALOG, *HTTP_ROOT.rglob("*.py"))
+    scoped = (CORE_CONTRACT, CATALOG, ROOT / "packages/onlyalpha-http-server/rust/integration_types.rs")
     forbidden = ("os.getenv", "os.environ", "product_credential", "integration_revision", "integration_draft")
 
     for path in scoped:

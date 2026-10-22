@@ -1,0 +1,68 @@
+[
+  {
+    "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+    "type_id": "controlled.source",
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"43dcb1761d5f55adf648a35bc50dec4d7d8bf47ca3d1c3f7db58d4642cbd19c9\",\"schema_version\":1},\"description\":\"Deterministic metadata vectors.\",\"display_name\":\"Controlled source\",\"implementation_id\":\"controlled\",\"implementation_version\":\"1.0.0\",\"probe_contract\":null,\"provider_id\":\"controlled\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.source\"}",
+    "public": "{\"ratio\":1.25,\"weights\":{\"$serde_json::private::Number\":1,\"x\":100000000000000000000000000000000000000000000000000}}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "descriptor_fingerprint": "28615f0633c0ab0b61b6fbbd9a97d2ec064d74acaadc2bfaa90071a4327c5cb5",
+    "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+    "draft_fingerprint": "9034c516fba7f93e5172aa9b14677994bfbb74cff244cca6c1b5539db80d71da",
+    "configuration_fingerprint": "9ae4af0a852e9281a40eb43b033e5198d450d5818d82907ba058b8116cb4dcc3",
+    "probe_fingerprint": null,
+    "runtime_fingerprint": "5a2c58fade04a903ffac1d59083e6a1e03ae067c81197aaac6a5fdf5f9926687",
+    "revision_fingerprint": "4195472f55ee3b898d35acbd391143d6b5605e7238a3f16ffa73e50a01b64438",
+    "runtime_binding_fingerprint": "d4e1bf53394331e665919cfba5c4c14a086cc4f6aec6610fe90245bdc9087ef3"
+  },
+  {
+    "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+    "type_id": "controlled.source",
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"43dcb1761d5f55adf648a35bc50dec4d7d8bf47ca3d1c3f7db58d4642cbd19c9\",\"schema_version\":1},\"description\":\"Deterministic metadata vectors.\",\"display_name\":\"Controlled source\",\"implementation_id\":\"controlled\",\"implementation_version\":\"1.0.0\",\"probe_contract\":null,\"provider_id\":\"controlled\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.source\"}",
+    "public": "{\"ratio\":-0.0,\"weights\":{\"$serde_json::private::RawValue\":2}}",
+    "probe": "{}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "descriptor_fingerprint": "28615f0633c0ab0b61b6fbbd9a97d2ec064d74acaadc2bfaa90071a4327c5cb5",
+    "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+    "draft_fingerprint": "4495c5ce500b7591ce22105dc088e42df127353a9ae01686fa038019ee833386",
+    "configuration_fingerprint": "79d5907ece71e51d0e2a1252051e2b9702774eaa8b457e65f92eb2379b03b3db",
+    "probe_fingerprint": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "runtime_fingerprint": "27be2e4cf3b4fadabf949bdfe13a8f2b46d3bf1c0219980210ad43c356ad138f",
+    "revision_fingerprint": "b7b3c5436209fb30ae025284462e4539b9c6c9aa2b4167dbcb60cd38032ab5d1",
+    "runtime_binding_fingerprint": "1d77c2084a1e6da04bfcd9bbefef7c2b087cc3b11acbe9fa38f3f937e263b444"
+  },
+  {
+    "integration_id": "b52eb762-34cf-47d4-8cca-56ef93f0d2ac",
+    "type_id": "controlled.source",
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"43dcb1761d5f55adf648a35bc50dec4d7d8bf47ca3d1c3f7db58d4642cbd19c9\",\"schema_version\":1},\"description\":\"Deterministic metadata vectors.\",\"display_name\":\"Controlled source\",\"implementation_id\":\"controlled\",\"implementation_version\":\"1.0.0\",\"probe_contract\":null,\"provider_id\":\"controlled\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "descriptor_fingerprint": "28615f0633c0ab0b61b6fbbd9a97d2ec064d74acaadc2bfaa90071a4327c5cb5",
+    "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+    "draft_fingerprint": "a2de8a654e2d2bc454385a8cee87e21407fa6414d2ce8c24e6e7eba0bd75498e",
+    "configuration_fingerprint": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "probe_fingerprint": null,
+    "runtime_fingerprint": "07e85c20b5fff43f0134bb911f5b2ee558da17eea9b8511e3e10b32541066f06",
+    "revision_fingerprint": "00b382ce4a12c8d36b20797f7440c4f26cb81b39eaed82509c638fdd4babacd9",
+    "runtime_binding_fingerprint": "5728583c8e4383039ce35c8ea69d05ebb151a94998ddc940ae3fa6fd24108516"
+  }
+]

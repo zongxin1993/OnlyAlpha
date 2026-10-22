@@ -1,11 +1,16 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppProviders } from "../../app/providers";
-import type { MarketDataStreamEvent } from "../../api/marketData/stream";
+import {
+    marketDataStreamEventSchema,
+    type MarketDataStreamEvent
+} from "../../api/marketData/stream";
 import {
     fixedDurationMinutes,
     marketDataBarSemantic,
+    marketDataSourceChoiceKey,
     type MarketDataBars,
+    type MarketDataSource,
     type MarketDataSourceReference
 } from "../../api/marketData/model";
 import type { MarketDataBarsQuery } from "../../api/marketData/client";
@@ -24,7 +29,6 @@ import {
     marketDataInstrument,
     marketDataSource
 } from "../../test/marketDataClient";
-import { researchClient } from "../../test/researchClient";
 import { useMarketDataChart } from "./useMarketDataChart";
 
 const stream = vi.hoisted(() => ({
@@ -88,7 +92,6 @@ it.each(["merge", "stale", "mismatch"] as const)(
         const user = userEvent.setup();
         render(
             <AppProviders
-                client={researchClient()}
                 integrationClient={integrationClient()}
                 marketDataClient={marketDataClient({ queryBars })}
             >
@@ -207,11 +210,7 @@ it.each(["initial", "reload"] as const)(
         const client = marketDataClient({ queryBars });
         const acquire = vi.spyOn(client, "createAcquisition");
         render(
-            <AppProviders
-                client={researchClient()}
-                integrationClient={integrationClient()}
-                marketDataClient={client}
-            >
+            <AppProviders integrationClient={integrationClient()} marketDataClient={client}>
                 <Harness />
             </AppProviders>
         );
@@ -230,14 +229,20 @@ it.each(["initial", "reload"] as const)(
     }
 );
 
-function Harness() {
+function Harness({
+    source = marketDataSource(),
+    secondSource = marketDataSource({ integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })
+}: {
+    source?: MarketDataSource;
+    secondSource?: MarketDataSource;
+}) {
     const state = useMarketDataChart();
     return (
         <>
             <button
                 type="button"
                 onClick={() => {
-                    state.selectSource(marketDataSource().integration_id);
+                    state.selectSource(marketDataSourceChoiceKey(source));
                 }}
             >
                 source
@@ -245,7 +250,7 @@ function Harness() {
             <button
                 type="button"
                 onClick={() => {
-                    state.selectSource("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+                    state.selectSource(marketDataSourceChoiceKey(secondSource));
                 }}
             >
                 second source
@@ -334,7 +339,6 @@ it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
         const user = userEvent.setup();
         render(
             <AppProviders
-                client={researchClient()}
                 integrationClient={integrationClient()}
                 marketDataClient={marketDataClient({ queryBars })}
             >
@@ -399,72 +403,77 @@ it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
     }
 );
 
-it("retains exact history and idempotently projects preview updates and close", async () => {
-    resetStream();
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient()}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
-    const projected = JSON.parse(screen.getByTestId("exact-bars").textContent) as {
-        barStartNs: string;
-        open: string;
-        volume: string;
-    }[];
-    const first = projected[0];
-    const original = marketDataBars().bars[0];
-    if (original === undefined) throw new Error("fixture requires a Bar");
-    expect(first).toMatchObject({
-        barStartNs: original.bar_start_ns,
-        open: original.open,
-        volume: original.volume
-    });
-    const bar = {
-        ...original,
-        bar_start_ns: "1767225720000000000",
-        bar_end_ns: "1767225780000000000",
-        closed: false,
-        close: "103.000000000000000001"
-    };
-    const preview = {
-        schema_version: 2 as const,
-        event: "BAR_PREVIEW" as const,
-        timing: null,
-        source_id: FIXTURE_SELECTION.source_id,
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar
-    };
-    act(() => stream.callbacks[0]?.(preview));
-    const exact = screen.getByTestId("exact-preview").textContent;
-    act(() => stream.callbacks[0]?.(preview));
-    expect(screen.getByTestId("exact-preview").textContent).toBe(exact);
-    act(() =>
-        stream.callbacks[0]?.({ ...preview, bar: { ...bar, close: "104.000000000000000001" } })
-    );
-    expect(screen.getByTestId("exact-preview")).toHaveTextContent("104.000000000000000001");
-    act(() =>
-        stream.callbacks[0]?.({
-            ...preview,
-            event: "BAR_CLOSED",
+it.each(["controlled", "native-schema"] as const)(
+    "retains exact history and idempotently projects preview updates and close: %s",
+    async (projection) => {
+        resetStream();
+        const user = userEvent.setup();
+        render(
+            <AppProviders
+                integrationClient={integrationClient()}
+                marketDataClient={marketDataClient()}
+            >
+                <Harness />
+            </AppProviders>
+        );
+        await selectFixtureSource(user);
+        await user.click(screen.getByRole("button", { name: "btc" }));
+        await waitFor(() => {
+            expect(stream.requests).toHaveLength(1);
+        });
+        const projected = JSON.parse(screen.getByTestId("exact-bars").textContent) as {
+            barStartNs: string;
+            open: string;
+            volume: string;
+        }[];
+        const first = projected[0];
+        const original = marketDataBars().bars[0];
+        if (original === undefined) throw new Error("fixture requires a Bar");
+        expect(first).toMatchObject({
+            barStartNs: original.bar_start_ns,
+            open: original.open,
+            volume: original.volume
+        });
+        const bar = {
+            ...original,
+            bar_start_ns: "1767225720000000000",
+            bar_end_ns: "1767225780000000000",
+            closed: false,
+            close: "103.000000000000000001"
+        };
+        const controlled = {
+            schema_version: 2 as const,
+            event: "BAR_PREVIEW" as const,
             timing: null,
-            sequence: "29453762",
-            bar: { ...bar, closed: true }
-        })
-    );
-    expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
-    expect(screen.getByTestId("exact-bars")).toHaveTextContent("103.000000000000000001");
-});
+            source_id: FIXTURE_SELECTION.source_id,
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(1),
+            bar
+        };
+        const admitted = marketDataStreamEventSchema.parse(controlled);
+        if (admitted.event !== "BAR_PREVIEW") throw new Error("fixture requires a preview");
+        const preview = projection === "native-schema" ? admitted : controlled;
+        act(() => stream.callbacks[0]?.(preview));
+        const exact = screen.getByTestId("exact-preview").textContent;
+        act(() => stream.callbacks[0]?.(preview));
+        expect(screen.getByTestId("exact-preview").textContent).toBe(exact);
+        act(() =>
+            stream.callbacks[0]?.({ ...preview, bar: { ...bar, close: "104.000000000000000001" } })
+        );
+        expect(screen.getByTestId("exact-preview")).toHaveTextContent("104.000000000000000001");
+        act(() =>
+            stream.callbacks[0]?.({
+                ...preview,
+                event: "BAR_CLOSED",
+                timing: null,
+                sequence: "29453762",
+                bar: { ...bar, closed: true }
+            })
+        );
+        expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
+        expect(screen.getByTestId("exact-bars")).toHaveTextContent("103.000000000000000001");
+    }
+);
 
 it("keeps initial history, realtime closed Bars, and preview in one ledger projection", async () => {
     stream.callbacks.length = 0;
@@ -473,11 +482,7 @@ it("keeps initial history, realtime closed Bars, and preview in one ledger proje
     stream.closed.count = 0;
     const user = userEvent.setup();
     render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient()}
-        >
+        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
             <Harness />
         </AppProviders>
     );
@@ -552,7 +557,6 @@ it("preserves current Bars when an older page fails", async () => {
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({ queryBars })}
         >
@@ -578,11 +582,7 @@ it("fails the exact chart context on a conflicting realtime closed Bar", async (
     stream.closed.count = 0;
     const user = userEvent.setup();
     render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient()}
-        >
+        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
             <Harness />
         </AppProviders>
     );
@@ -621,7 +621,6 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
     const view = (revision: string) => (
         <AppProviders
             key={revision}
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({
                 listSources: () =>
@@ -639,7 +638,7 @@ it("replaces the ledger when the exact Integration Revision changes", async () =
                     )
             })}
         >
-            <Harness />
+            <Harness source={marketDataSource({ integration_revision_fingerprint: revision })} />
         </AppProviders>
     );
     const rendered = render(view("a".repeat(64)));
@@ -689,7 +688,6 @@ it("ignores queued events from a stale source or instrument stream", async () =>
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient({
                 listTypes: () => Promise.resolve([dataSourceType()]),
                 listDataSources: () => Promise.resolve([dataSourceSummary()]),
@@ -827,7 +825,6 @@ it("switches 1m to 7m to 37m by closing each old stream and loading typed histor
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient({
                 listTypes: () => Promise.resolve([dataSourceType()]),
                 listDataSources: () => Promise.resolve([dataSourceSummary()]),
@@ -917,11 +914,7 @@ it("fails a mismatched plan without reconnecting", async () => {
     stream.requests.length = 0;
     const user = userEvent.setup();
     render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient()}
-        >
+        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
             <Harness />
         </AppProviders>
     );
@@ -956,11 +949,7 @@ it("reconnects transient closes with bounded exponential delays and the same res
     stream.requests.length = 0;
     const user = userEvent.setup();
     render(
-        <AppProviders
-            client={researchClient()}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient()}
-        >
+        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
             <Harness />
         </AppProviders>
     );
@@ -992,7 +981,6 @@ it("keeps the active ledger, cursor and stream when reselecting the current cont
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({ queryBars })}
         >
@@ -1027,7 +1015,6 @@ it("keeps admitted history and its live consumer when an instrument search fails
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({
                 listInstruments: () => Promise.reject(new Error("search unavailable"))
@@ -1063,7 +1050,6 @@ it.each(["btc", "1m"])(
         const user = userEvent.setup();
         render(
             <AppProviders
-                client={researchClient()}
                 integrationClient={integrationClient()}
                 marketDataClient={marketDataClient({ queryBars })}
             >
@@ -1115,7 +1101,6 @@ it.each(["btc", "1m"])("allows explicit %s re-entry after incomplete history", a
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({ queryBars })}
         >
@@ -1165,14 +1150,13 @@ it("fences held out-of-order history across rapid source, instrument and period 
     const user = userEvent.setup();
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({
                 listSources: () => Promise.resolve([marketDataSource(), secondSource]),
                 queryBars
             })}
         >
-            <Harness />
+            <Harness secondSource={secondSource} />
         </AppProviders>
     );
     await selectFixtureSource(user);
@@ -1226,7 +1210,6 @@ it("admits same-occurrence timing, keeps signed ns, and fences reconnect/context
     );
     render(
         <AppProviders
-            client={researchClient()}
             integrationClient={integrationClient()}
             marketDataClient={marketDataClient({ queryBars })}
         >

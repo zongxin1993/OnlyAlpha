@@ -273,6 +273,19 @@ async function mockDataSources(page: Page) {
     return state;
 }
 
+async function openManager(page: Page) {
+    await page.goto("/");
+    await page
+        .locator(".data-source-entry")
+        .getByRole("button", { name: /数据源/ })
+        .click();
+    await page
+        .getByRole("dialog", { name: "数据源状态" })
+        .getByRole("button", { name: "管理数据源…" })
+        .click();
+    await expect(page.getByRole("dialog", { name: "管理数据源" })).toBeVisible();
+}
+
 for (const width of [1440, 390]) {
     test(`data source entry, popover and manager at ${String(width)}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -315,7 +328,7 @@ for (const width of [1440, 390]) {
 test("configure, publish, probe and change lifecycle through the formal API", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const state = await mockDataSources(page);
-    await page.goto("/data/sources");
+    await openManager(page);
     const card = page.getByRole("article", { name: "Fixture Market Data" });
     await card.getByRole("button", { name: "配置" }).click();
     await expect(page.getByRole("heading", { name: "Fixture Market Data" })).toBeVisible();
@@ -348,7 +361,7 @@ test("configure, publish, probe and change lifecycle through the formal API", as
 test("an undeclared probe contract is explained instead of disabled", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mockDataSources(page);
-    await page.goto("/data/sources");
+    await openManager(page);
     const card = page.getByRole("article", { name: "Untestable Market Data" });
     await card.getByRole("button", { name: "配置" }).click();
     await expect(page.getByText("该类型未提供连接测试")).toBeVisible();
@@ -358,7 +371,7 @@ test("an undeclared probe contract is explained instead of disabled", async ({ p
 test("binding tab exposes the missing capability without a fake save", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const state = await mockDataSources(page);
-    await page.goto("/data/sources");
+    await openManager(page);
     await page.getByRole("tab", { name: /数据源绑定/ }).click();
     await expect(page.getByText(/尚无来源绑定资源/)).toBeVisible();
     await expect(page.getByRole("button", { name: /保存绑定/ })).toHaveCount(0);

@@ -247,7 +247,7 @@ describe("one server-derived strict Chart schema", () => {
         );
         expect(evidence?.[0]?.points[19]).toEqual({
             timeNs: v.evaluated.series[0]?.points[19]?.time_ns,
-            value: "101.000000000000",
+            value: "10.500000000000",
             readiness: "READY",
             reason: "NONE"
         });
@@ -354,8 +354,10 @@ describe("one server-derived strict Chart schema", () => {
                 source_reference: { ...request().source_reference, credentials: "secret" }
             }
         ];
-        for (const variant of variants)
-            expect(ChartStudyEvaluateRequestSchema.safeParse(variant).success).toBe(false);
+        const admissions = variants.map(
+            (variant) => ChartStudyEvaluateRequestSchema.safeParse(variant).success
+        );
+        expect(admissions).toEqual(variants.map(() => false));
         expect(
             ChartStudyEvaluateSchema.safeParse({
                 schema_version: 1,
@@ -520,13 +522,13 @@ it.each(["type", "version", "unrequested-output", "duplicate-series", "unit"])(
 it("admits an owning preview separately and rejects stream substitution", async () => {
     const v = vector();
     v.input.include_unclosed_preview = true;
-    v.input.preview_stream_id = "a".repeat(32);
+    v.input.preview_stream_id = "10000000-0000-4000-8000-000000000001";
     const time = v.input.window.before_ns;
     const point = v.evaluated.series[0]?.points.at(-1);
     if (point === undefined) throw new Error("Missing point");
     v.evaluated.preview = {
         source_kind: "PREVIEW_UNCLOSED",
-        stream_id: "a".repeat(32),
+        stream_id: "10000000-0000-4000-8000-000000000001",
         revision_fingerprint: "e".repeat(64),
         bar_start_ns: time,
         bar_end_ns: (BigInt(time) + 900_000_000_000n).toString(),
@@ -557,7 +559,7 @@ it("admits an owning preview separately and rejects stream substitution", async 
     );
     expect(evidence?.[0]?.previewPoint?.timeNs).toBe(time);
     expect(evidence?.[0]?.points.some((row) => row.timeNs === time)).toBe(false);
-    v.evaluated.preview.stream_id = "b".repeat(32);
+    v.evaluated.preview.stream_id = "10000000-0000-4000-8000-000000000002";
     await expect(
         readChartStudyEvaluation(v.credentials, v.input, v.capability, v.history)
     ).rejects.toMatchObject({ code: "INVALID" });

@@ -1,0 +1,180 @@
+{
+  "updates": [
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{\"count\":7,\"ratio\":1.0,\"weights\":{\"$serde_json::private::Number\":1,\"x\":100000000000000000000000000000000000000000000000000}}",
+      "probe": "{}",
+      "fingerprint": "e8e60d97d7731c4f36e40b2d6a25b4d28a46ff3366781b461338026c5c17b917"
+    },
+    {
+      "public": "{\"ratio\":-0.0,\"weights\":{\"$serde_json::private::RawValue\":2}}",
+      "probe": "{\"instrument\":null}",
+      "fingerprint": "3766cdfb07a7484a8e14936e7d9561ced9fe88b0045b9b4d45dc804682d1b2df"
+    },
+    {
+      "public": "{\"choice\":\"b\",\"flag\":false,\"text\":\"中\\u0000文\"}",
+      "probe": "{\"instrument\":\"ETHUSDT\"}",
+      "fingerprint": "9774909f01c8ee7b061276c6b13a2de6c1461f2f71632cd32a8145a83b27e061"
+    },
+    {
+      "public": "{\"unknown\":1}",
+      "probe": null,
+      "fingerprint": "d44855323f4519dfda67306db1b0d4a84ac2cad8e8adc08ea54861a67625a81a"
+    },
+    {
+      "public": "{\"api_key\":\"controlled-test-only\"}",
+      "probe": null,
+      "fingerprint": "4c453bb0ba2356a73415d18dafb8155b507634b1368134c93698ff788e310221"
+    },
+    {
+      "public": "{\"ratio\":\"1.5\"}",
+      "probe": null,
+      "fingerprint": "a0d4c7201fb60999009f3277edbaa4b559df6e572d2446ba79f6d03bda0a13dc"
+    },
+    {
+      "public": "{\"count\":1.0}",
+      "probe": null,
+      "fingerprint": "f0a5aceaddcebf4872b1034ed3ffaf6802add4e71d81bed45c1099dbb921943b"
+    },
+    {
+      "public": "{\"weights\":{\"x\":1.0}}",
+      "probe": null,
+      "fingerprint": "fc012f1a0723836df5ff1a48711963df4bd5e48efc81e033bb99fc28612ce312"
+    },
+    {
+      "public": "{\"weights\":{\"\":1}}",
+      "probe": null,
+      "fingerprint": "492ab649afb12fc2c644c3cba3e6e565e8c10121df6570a63df9567a49af2610"
+    },
+    {
+      "public": "{\"ratio\":6}",
+      "probe": null,
+      "fingerprint": "f8f0e9dd208bfabf56ab80329268080a32a7646dbaac46225e5f6dc2d555bedb"
+    },
+    {
+      "public": "{\"delay\":0}",
+      "probe": null,
+      "fingerprint": "5f9710a3c42d01d5bde79bdc596014e2533f43b7c4ec008468ed51cc17f2f438"
+    },
+    {
+      "public": "{\"choice\":\"c\"}",
+      "probe": null,
+      "fingerprint": "d12270036d9865a71c7db03c5efa6c82236a79912733e397815377054014a9dd"
+    },
+    {
+      "public": "{\"ratio\":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "probe": null,
+      "fingerprint": "a88af5edc8f0bc6f0c6bdbe8f11cb0e2c42f4849487b29412b30c3692fe5908a"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"other\":1}",
+      "fingerprint": "cb292e9646997c917a8f1a499a67cd89b139d1cd31a300136572324db9cd26a6"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"instrument\":true}",
+      "fingerprint": "5c0995a5e39bb7b3745f625b0364a9d07736b2c83814032a4819dba9e87b9c46"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"instrument\":\" \"}",
+      "fingerprint": "c696c37af58bda0bbecf79ad38cbb4f4957372bd118d126efccbc4ed11b4a10d"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{}",
+      "probe": "{}",
+      "fingerprint": "1e100dd01ec1b7ef110b715fb3883ae89fc61971c2df6ddd486d66921d2d989b"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "fingerprint": "764b0577f2dcfe6945b91ed4b30c9bd08f9908757a506e777fa2b1c3cccc7b06"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"instrument\":\"ETHUSDT\"}",
+      "fingerprint": "0937f7f4217355e8c872ea245072f5131fac04fc55ede7d244c2dbcb6efc1ee3"
+    },
+    {
+      "public": "{}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "fingerprint": "764b0577f2dcfe6945b91ed4b30c9bd08f9908757a506e777fa2b1c3cccc7b06"
+    },
+    {
+      "public": "{\"ratio\":1e+308}",
+      "probe": null,
+      "fingerprint": "ea646184514f0d8df8bc7913b7ca18ce287aa91aa3272247fe82633ba85e4a83"
+    },
+    {
+      "public": "{\"count\":1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "probe": null,
+      "fingerprint": "68dafe4b119cdf383492adc1383faf38cdbc7e8efb4eebff75e8209e267b28a7"
+    },
+    {
+      "public": "{\"ratio\":1e-30}",
+      "probe": null,
+      "fingerprint": "dda292e16db96e6f2784aa7bc286e222d84703f2bb27ad90c959d4d3812799cc"
+    },
+    {
+      "public": "{}",
+      "probe": null,
+      "fingerprint": "f7756b0e69b95838fab9a61e8bc9116aa3d9e4ff15cafb339c523bfdeaa96a0b"
+    },
+    {
+      "public": "{\"ratio\":9007199254740993.0}",
+      "probe": null,
+      "fingerprint": "355b988c9f510809f549cf0a5a2f89bff405c3fc6b26fb40cec1a249562f1daa"
+    },
+    {
+      "public": "{\"ratio\":9007199254740995.0}",
+      "probe": null,
+      "fingerprint": "b06d1088cf54ceb55b645bd88b2eeba534672682622e7fbb2714a9e72a944163"
+    },
+    {
+      "public": "{\"ratio\":0.99999999999999995}",
+      "probe": null,
+      "fingerprint": "7a242ec3d0a07014c38eac0cd898b505f9f7dd8e5033a69cf4bd48ff2aefe5ea"
+    },
+    {
+      "public": "{\"ratio\":1.00000000000000011102230246251565404236316680908203125}",
+      "probe": null,
+      "fingerprint": "7a242ec3d0a07014c38eac0cd898b505f9f7dd8e5033a69cf4bd48ff2aefe5ea"
+    }
+  ],
+  "reset": "4517526ad137edd22c80fcd9dde756922fd56a4ce9f3458b9996cb358476559b"
+}

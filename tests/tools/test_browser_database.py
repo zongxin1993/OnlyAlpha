@@ -159,30 +159,3 @@ def test_uncertain_reset_retains_fence_and_refuses_repeat_without_network_or_see
     with pytest.raises(ValueError, match="UNKNOWN_REQUIRES_OWNER_RECOVERY"):
         browser_database.reset_dev_browser_test_namespace(browser_database.DEV_TEST_DSN, clickhouse)
     assert connect.call_count == 1
-
-
-@pytest.mark.parametrize(
-    "module_name", ["tests.runtime_support.chart_study_browser", "tests.runtime_support.local_read_browser"]
-)
-def test_unknown_reset_stops_fixture_before_migrations_or_seeding(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, module_name: str
-) -> None:
-    import importlib
-
-    fixture = importlib.import_module(module_name)
-    monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", browser_database.DEV_TEST_DSN)
-    monkeypatch.setenv("ONLYALPHA_DEV_SOURCE_ROOT", str(tmp_path))
-    monkeypatch.setattr(fixture, "_clickhouse", lambda name: object())
-
-    def refuse(*args: object) -> None:
-        raise ValueError("BROWSER_TEST_RESET_UNKNOWN_REQUIRES_OWNER_RECOVERY")
-
-    monkeypatch.setattr(fixture, "reset_dev_browser_test_namespace", refuse)
-    monkeypatch.setattr(
-        fixture, "OnlyPostgresMigrationAuthority", lambda *a: pytest.fail("no migration or seed after UNKNOWN")
-    )
-    monkeypatch.setattr(
-        fixture, "OnlyClickHouseMigrationAuthority", lambda *a: pytest.fail("no migration or seed after UNKNOWN")
-    )
-    with pytest.raises(ValueError, match="UNKNOWN_REQUIRES_OWNER_RECOVERY"):
-        fixture.main()

@@ -122,11 +122,10 @@ def test_worker_presence_is_not_attempt_ownership_authority() -> None:
 
 
 def test_api_and_worker_startup_check_compatibility_without_migrating() -> None:
-    api = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text()
+    api = "".join((Path("packages/onlyalpha-http-server/rust/startup.rs").read_text()).split())
     worker = Path("src/onlyalpha/research/worker_main.py").read_text()
-    startup = "\n".join((api, worker))
-    assert startup.count("OnlyPostgresSchemaVerifier(") == 2
-    assert "schema_status=schema.status" in api
-    assert 'OnlyKernelLifecycleStep("research_product_scope", verification.verify)' in api
+    assert ".inspect(client,max_rows)" in api
+    assert "schema::Verdict::Compatible" in api
+    assert worker.count("OnlyPostgresSchemaVerifier(") == 1
     assert "schema.assert_compatible()" in worker
-    assert ".migrate(" not in startup
+    assert ".migrate(" not in api + worker

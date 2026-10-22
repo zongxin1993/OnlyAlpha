@@ -21,7 +21,11 @@ import type {
     MarketDataSource,
     MarketDataSourceReference
 } from "../../api/marketData/model";
-import { marketDataBarSemantic } from "../../api/marketData/model";
+import {
+    marketDataBarSemantic,
+    marketDataBarSemanticSchema,
+    marketDataSourceChoiceKey
+} from "../../api/marketData/model";
 import { useMarketDataApi, useLocalReadCredentials } from "../../app/providers";
 import {
     MarketDataBarLedgerConflictError,
@@ -163,7 +167,7 @@ export function useMarketDataChart(): MarketDataChartState {
         () =>
             selectableSources.find(
                 (item) =>
-                    item.integration_id === sourceId &&
+                    marketDataSourceChoiceKey(item) === sourceId &&
                     (watchlistSource === null ||
                         (item.integration_revision_fingerprint ===
                             watchlistSource.integration_revision_fingerprint &&
@@ -368,7 +372,9 @@ export function useMarketDataChart(): MarketDataChartState {
             specification: MarketDataBarSemantic,
             generation: number
         ) => {
-            const query = {
+            const historyOnly = target.market_data_capabilities.includes("HISTORICAL_ONLY");
+            if (historyOnly) automaticPreparation.current = false;
+            let query: MarketDataBarsQuery = {
                 instrument_id: target.instrument_id,
                 anchor_kind: "LATEST_CLOSED" as const,
                 // The ordinary workspace prepares the full admitted Study input
@@ -396,6 +402,36 @@ export function useMarketDataChart(): MarketDataChartState {
             setRealtimeStatus("disabled");
             setMessage(null);
             try {
+                if (historyOnly) {
+                    const retained = await client.queryLatestBar(
+                        active,
+                        target.instrument_id,
+                        specification
+                    );
+                    if (generation !== historyGeneration.current) return;
+                    if (retained === null)
+                        throw new MarketDataWebError(
+                            "MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE",
+                            "原数据源没有可证明的封存行情"
+                        );
+                    onlyAssertMarketDataBarsAuthority(
+                        {
+                            reference: active,
+                            expectedSourceId,
+                            instrumentId: target.instrument_id,
+                            barSemantic: specification,
+                            anchorKind: "BEFORE_TIME",
+                            beforeNs: retained.resolved_end_ns,
+                            targetBarCount: 1
+                        },
+                        retained
+                    );
+                    query = {
+                        ...query,
+                        anchor_kind: "BEFORE_TIME",
+                        before_ns: retained.resolved_end_ns
+                    };
+                }
                 const loaded = await client.queryBars(active, query);
                 if (generation !== historyGeneration.current) return;
                 onlyAssertMarketDataBarsAuthority(
@@ -405,7 +441,8 @@ export function useMarketDataChart(): MarketDataChartState {
                         instrumentId: query.instrument_id,
                         barSemantic: query.bar_semantic,
                         anchorKind: query.anchor_kind,
-                        targetBarCount: query.target_bar_count
+                        targetBarCount: query.target_bar_count,
+                        ...(query.before_ns === undefined ? {} : { beforeNs: query.before_ns })
                     },
                     loaded
                 );
@@ -418,6 +455,10 @@ export function useMarketDataChart(): MarketDataChartState {
                         activeLedger,
                         loaded
                     );
+                    if (historyOnly)
+                        setMessage(
+                            "历史只读 · 原数据源当前不能执行新采集或实时行情；显示已验证的原封存事实"
+                        );
                     return;
                 }
                 setHistoryProjectionFingerprint(null);
@@ -482,6 +523,7 @@ export function useMarketDataChart(): MarketDataChartState {
             status !== "ready" ||
             reference === null ||
             instrument === null ||
+            instrument.market_data_capabilities.includes("HISTORICAL_ONLY") ||
             resolvedSourceId === null ||
             ledger.current?.snapshot().closedBars.length === 0 ||
             resume.current === null
@@ -532,7 +574,10 @@ export function useMarketDataChart(): MarketDataChartState {
                         (event.source_id !== resolvedSourceId ||
                             event.instrument_id !== instrument.instrument_id ||
                             (event.event !== "SUBSCRIBED" &&
-                                JSON.stringify(event.bar_semantic) !== JSON.stringify(barSemantic)))
+                                JSON.stringify(
+                                    marketDataBarSemanticSchema.parse(event.bar_semantic)
+                                ) !==
+                                    JSON.stringify(marketDataBarSemanticSchema.parse(barSemantic))))
                     ) {
                         terminal = true;
                         setStreamError("MARKET_DATA_BAR_SEMANTIC_MISMATCH");
@@ -776,15 +821,17 @@ export function useMarketDataChart(): MarketDataChartState {
             .listSources(controller.signal)
             .then((found) => {
                 if (controller.signal.aborted) return;
-                if (new Set(found.map((item) => item.integration_id)).size !== found.length)
+                if (new Set(found.map(marketDataSourceChoiceKey)).size !== found.length)
                     throw new MarketDataWebError(
                         "CONTRACT_ERROR",
-                        "数据源 Integration identity 重复"
+                        "数据源 exact Revision reference 重复"
                     );
                 setSources((current) =>
                     found.map((item) => {
                         const previous = current.find(
-                            (source) => source.integration_id === item.integration_id
+                            (source) =>
+                                marketDataSourceChoiceKey(source) ===
+                                marketDataSourceChoiceKey(item)
                         );
                         return previous !== undefined &&
                             JSON.stringify(previous) === JSON.stringify(item)
@@ -796,16 +843,24 @@ export function useMarketDataChart(): MarketDataChartState {
                 // or an old response's choice after management changed the catalog.
                 if (
                     watchlistSourceRef.current !== null ||
-                    found.some((item) => item.integration_id === selectedSourceId.current)
+                    found.some(
+                        (item) => marketDataSourceChoiceKey(item) === selectedSourceId.current
+                    )
                 )
                     return;
+                if (selectedSourceId.current !== "") {
+                    selectSource("");
+                    setMessage("原数据源 Revision 已不可用，请明确重新选择来源。");
+                    return;
+                }
                 const matches = found.filter(
                     (item) =>
+                        item.is_current_revision &&
                         item.type_id === DEFAULT_SOURCE_TYPE &&
                         item.environment === DEFAULT_SOURCE_ENVIRONMENT
                 );
                 if (matches.length === 1 && matches[0] !== undefined)
-                    selectSource(matches[0].integration_id);
+                    selectSource(marketDataSourceChoiceKey(matches[0]));
                 else {
                     selectSource("");
                     setMessage(
@@ -996,7 +1051,7 @@ export function useMarketDataChart(): MarketDataChartState {
                 if (found.length !== 1 || target === undefined)
                     throw new MarketDataWebError("CONTRACT_ERROR", "未取得 exact 自选标的");
                 automaticPreparation.current = prepare;
-                selectSource(source.integration_id, true);
+                selectSource(marketDataSourceChoiceKey(source), true);
                 watchlistSourceRef.current = active;
                 setWatchlistSource(active);
                 streamGeneration.current++;

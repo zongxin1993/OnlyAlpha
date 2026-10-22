@@ -54,17 +54,18 @@ def test_lifecycle_has_no_public_arbitrary_state_writer() -> None:
 
 
 def test_api_startup_owns_host_and_only_read_only_schema_verification() -> None:
-    source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
-    assert "OnlyAlphaKernelHost(" in source
-    assert "OnlyPostgresSchemaVerifier(" in source
-    assert "OnlyPostgresMigrationAuthority" not in source
-    assert ".migrate(" not in source
-    assert "OnlyKernelResearchReadinessProjection(kernel, verification.evidence)" in source
-    assert (
-        "registry_check=lambda: _verify_product_registries(calculations, market_products, catalog, resources)" in source
-    )
-    assert source.index("kernel.start()") < source.index("uvicorn.run(")
-    assert source.index("kernel = OnlyAlphaKernelHost(") < source.index("kernel.start()")
-    app_source = (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py").read_text(encoding="utf-8")
-    assert "readiness_probe: OnlyKernelResearchReadinessProjection" in app_source
-    assert "readiness_probe: OnlyResearchServiceReadinessProbe" not in app_source
+    native = ROOT / "packages/onlyalpha-http-server/rust"
+    source = "".join(((native / "main.rs").read_text(encoding="utf-8")).split())
+    startup = "".join(((native / "workstation_startup.rs").read_text(encoding="utf-8")).split())
+    storage = "".join(((native / "startup.rs").read_text(encoding="utf-8")).split())
+    assert not (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").exists()
+    assert "Running::open(config,&shutdown)" in source
+    assert source.index("Running::open(config,&shutdown)") < source.index("running.serve(")
+    assert "inputs.verify(" in startup
+    assert "letresolver=Resolver::new(" in startup
+    assert startup.index("letresolver=Resolver::new(") < startup.index("AuthoritySession::acquire(")
+    assert ".inspect(client,max_rows)" in storage
+    assert "deployment::verify_binding(client,&self.namespace)" in storage
+    for text in (source, startup, storage):
+        assert "OnlyPostgresMigrationAuthority" not in text
+        assert ".migrate(" not in text

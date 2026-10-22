@@ -313,7 +313,10 @@ it.each([
 it("preserves an admitted Product error code, detail and status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
         response(
-            { schema_version: 1, error: { code: "INTEGRATION_NOT_FOUND", detail: "missing" } },
+            {
+                schema_version: 1,
+                error: { code: "INTEGRATION_NOT_FOUND", detail: "missing", phase: "QUERY" }
+            },
             404
         )
     );

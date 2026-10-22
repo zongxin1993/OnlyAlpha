@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import fields
 from pathlib import Path
 
@@ -97,8 +98,6 @@ def test_private_authoring_has_no_git_checkout_or_package_resource_authority() -
 
 
 def test_reference_product_and_http_intent_exclude_authority_derived_provenance() -> None:
-    from onlyalpha_http_server.research.run_schema import SubmitResearchRunRequest
-
     from onlyalpha.application.product_boundary import OnlyCreateResearchRun
     from onlyalpha.quant_assets import OnlyPrivateAssetRevisionReferenceV1
 
@@ -108,8 +107,10 @@ def test_reference_product_and_http_intent_exclude_authority_derived_provenance(
         "private_asset_revision_fingerprint",
     }
     assert "authoring_provenance" not in {item.name for item in fields(OnlyCreateResearchRun)}
-    assert "authoring_provenance" not in SubmitResearchRunRequest.model_fields
-    assert "authoring_generation_fingerprint" in SubmitResearchRunRequest.model_fields
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    operation = native["paths"]["/api/v2/research/runs"]["post"]
+    assert set(operation["responses"]) == {"501"}
+    assert not _HTTP.exists()
 
 
 def test_generation_factory_and_reader_reanchor_without_latest_or_source_execution() -> None:
@@ -121,7 +122,7 @@ def test_generation_factory_and_reader_reanchor_without_latest_or_source_executi
     assert "load_factor_revision" in contract and "load_strategy_revision" in contract
     assert "load_latest" not in generation + contract
     assert "load_current" not in generation + contract
-    for path in (_GENERATION, _PRODUCT, _HTTP):
+    for path in (_GENERATION, _PRODUCT):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         calls = {
             node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
@@ -130,7 +131,7 @@ def test_generation_factory_and_reader_reanchor_without_latest_or_source_executi
 
 
 def test_memory_composition_does_not_use_raw_generation_descriptor_store_as_authority() -> None:
-    tree = ast.parse(_HTTP_MAIN.read_text(encoding="utf-8"))
+    tree = ast.parse(Path("tests/support/research_reference_composition.py").read_text(encoding="utf-8"))
     composition = next(
         node
         for node in tree.body
@@ -159,7 +160,9 @@ def test_private_strategy_revision_is_not_a_runtime_strategy_identity() -> None:
 
 
 def test_private_asset_registry_and_search_are_projection_only() -> None:
-    from onlyalpha.application.private_asset_product import OnlyProductAssetRegistryEntryV1
+    from onlyalpha.application.private_asset_product import (
+        OnlyProductAssetRegistryEntryV1,
+    )
 
     assert {item.name for item in fields(OnlyProductAssetRegistryEntryV1)} == {
         "locator",
@@ -184,7 +187,6 @@ def test_product_search_store_and_authority_content_have_no_production_bypass() 
     assert projection_store_users == {
         _PRODUCT_STORE,
         Path("src/onlyalpha/persistence/postgres/__init__.py"),
-        _HTTP_MAIN,
     }
     for path, source in sources.items():
         if "runtime" in path.parts or "onlyalpha-agent-orchestrator" in path.parts:
@@ -203,4 +205,9 @@ def test_exact_product_read_has_no_current_latest_or_legacy_fallback() -> None:
     assert names.isdisjoint({"current_registry", "list_current_factor_revisions", "list_current_strategy_revisions"})
     assert "source_text" not in _PRODUCT_STORE.read_text(encoding="utf-8")
     assert "definition" not in _PRODUCT_STORE.read_text(encoding="utf-8")
-    assert "create_private_asset_router" in _PRODUCT_HTTP.read_text(encoding="utf-8")
+    assert not _PRODUCT_HTTP.exists()
+    native = Path("packages/onlyalpha-http-server/rust/host_observations.rs").read_text()
+    assert ".factor_revision(" in native
+    exact = native[native.index(".factor_revision(") : native.index(".await?", native.index(".factor_revision("))]
+    assert "current_registry" not in exact
+    assert 'required(&p,"content_fingerprint")?' in "".join(exact.split())

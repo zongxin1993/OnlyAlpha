@@ -11,6 +11,7 @@ import {
     type RegisteredCalculation
 } from "../../api/research/chartCatalog";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
+import { FactorExplorerPage } from "../research/factors/FactorExplorerPage";
 import { keepDialogFocus } from "./dialogFocus";
 import "./calculationPicker.css";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
@@ -112,7 +113,11 @@ export function CalculationPicker({
     );
     useEffect(() => {
         // Observe canonical identity again on return, not a timer/TTL-based claim.
-        if (category === null && draft === null) return;
+        if (
+            (category === null && draft === null) ||
+            (category === "FACTOR" && credentials !== undefined)
+        )
+            return;
         const onFocus = () => {
             void refresh();
         };
@@ -120,7 +125,7 @@ export function CalculationPicker({
         return () => {
             window.removeEventListener("focus", onFocus);
         };
-    }, [category, draft, refresh]);
+    }, [category, draft, refresh, credentials]);
 
     function close() {
         request.current?.abort();
@@ -190,7 +195,7 @@ export function CalculationPicker({
                     onClick={(event) => {
                         trigger.current = event.currentTarget;
                         setCategory(value);
-                        void refresh();
+                        if (value !== "FACTOR" || credentials === undefined) void refresh();
                     }}
                 >
                     <WorkspaceIcon name="results" />
@@ -202,6 +207,7 @@ export function CalculationPicker({
                     category={category}
                     state={state}
                     selecting={selecting}
+                    metadataBoard={category === "FACTOR" && credentials !== undefined}
                     onClose={close}
                     onRefresh={() => {
                         void refresh();
@@ -248,6 +254,7 @@ export function CalculationSelectionSummary({ draft }: { readonly draft: ChartCa
 
 function CatalogDialog({
     category,
+    metadataBoard,
     state,
     selecting,
     onClose,
@@ -255,6 +262,7 @@ function CatalogDialog({
     onSelect
 }: {
     readonly category: Category;
+    readonly metadataBoard: boolean;
     readonly state: CatalogState;
     readonly selecting: boolean;
     readonly onClose: () => void;
@@ -312,64 +320,151 @@ function CatalogDialog({
                     关闭
                 </button>
             </header>
-            <p>正式目录元数据 · 选择仅保存配置草稿，不启动计算，不改变行情。</p>
-            <div className="calculation-picker__search">
-                <input
-                    ref={search}
-                    type="search"
-                    aria-label="搜索指标或因子"
-                    placeholder="名称 / type_id"
-                    value={query}
-                    onChange={(event) => {
-                        setQuery(event.target.value);
-                    }}
-                />
-                <button
-                    type="button"
-                    onClick={onRefresh}
-                    disabled={state.status === "loading" || selecting}
-                >
-                    刷新目录
-                </button>
-            </div>
-            {state.status === "loading" || state.status === "idle" ? (
-                <p role="status">正在读取目录…</p>
-            ) : state.status === "error" ? (
-                <p role="alert">{messages[state.error]}</p>
-            ) : state.status === "transient" ? (
+            {metadataBoard ? (
+                <FactorExplorerPage />
+            ) : (
                 <>
-                    <p>CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result</p>
-                    {category === "FACTOR" ? (
-                        <p role="status">此只读切片不支持 Factor</p>
-                    ) : (
+                    <p>正式目录元数据 · 选择仅保存配置草稿，不启动计算，不改变行情。</p>
+                    <div className="calculation-picker__search">
+                        <input
+                            ref={search}
+                            type="search"
+                            aria-label="搜索指标或因子"
+                            placeholder="名称 / type_id"
+                            value={query}
+                            onChange={(event) => {
+                                setQuery(event.target.value);
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={onRefresh}
+                            disabled={state.status === "loading" || selecting}
+                        >
+                            刷新目录
+                        </button>
+                    </div>
+                    {state.status === "loading" || state.status === "idle" ? (
+                        <p role="status">正在读取目录…</p>
+                    ) : state.status === "error" ? (
+                        <p role="alert">{messages[state.error]}</p>
+                    ) : state.status === "transient" ? (
+                        <>
+                            <p>CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result</p>
+                            {category === "FACTOR" ? (
+                                <p role="status">此只读切片不支持 Factor</p>
+                            ) : (
+                                <>
+                                    <p role="status">
+                                        {
+                                            new Set(
+                                                state.capabilities.map((entry) => entry.type_id)
+                                            ).size
+                                        }{" "}
+                                        类指标
+                                    </p>
+                                    <ul className="calculation-picker__entries">
+                                        {state.capabilities
+                                            .filter((entry) =>
+                                                `${label(entry)} ${entry.type_id} ${entry.presentation.category}`
+                                                    .toLowerCase()
+                                                    .includes(query.trim().toLowerCase())
+                                            )
+                                            .map((entry) => (
+                                                <li
+                                                    key={`${entry.type_id}@${entry.semantic_version}`}
+                                                >
+                                                    <h3>
+                                                        {label(entry)}
+                                                        {entry.presentation.default_variant
+                                                            ? ""
+                                                            : ` · 语义版本 ${entry.semantic_version}`}
+                                                    </h3>
+                                                    <p>
+                                                        {entry.presentation.category} ·{" "}
+                                                        {entry.presentation.placement ===
+                                                        "PRICE_OVERLAY"
+                                                            ? "主图"
+                                                            : "独立窗格"}
+                                                    </p>
+                                                    <p>
+                                                        {entry.type_id}@{entry.semantic_version}
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        disabled={selecting}
+                                                        onClick={() => {
+                                                            onSelect(entry);
+                                                        }}
+                                                    >
+                                                        选择 {label(entry)}
+                                                        {entry.presentation.default_variant
+                                                            ? ""
+                                                            : ` · 语义版本 ${entry.semantic_version}`}{" "}
+                                                        · 配置草稿
+                                                    </button>
+                                                </li>
+                                            ))}
+                                    </ul>
+                                </>
+                            )}
+                        </>
+                    ) : state.status === "registered" ? (
                         <>
                             <p role="status">
-                                {new Set(state.capabilities.map((entry) => entry.type_id)).size}{" "}
-                                类指标
+                                已登记目录 · Runtime 未激活，执行未接入；仍可选择配置草稿。
                             </p>
-                            <ul className="calculation-picker__entries">
-                                {state.capabilities
-                                    .filter((entry) =>
-                                        `${label(entry)} ${entry.type_id} ${entry.presentation.category}`
-                                            .toLowerCase()
-                                            .includes(query.trim().toLowerCase())
-                                    )
-                                    .map((entry) => (
-                                        <li key={`${entry.type_id}@${entry.semantic_version}`}>
-                                            <h3>
-                                                {label(entry)}
-                                                {entry.presentation.default_variant
-                                                    ? ""
-                                                    : ` · 语义版本 ${entry.semantic_version}`}
-                                            </h3>
-                                            <p>
-                                                {entry.presentation.category} ·{" "}
-                                                {entry.presentation.placement === "PRICE_OVERLAY"
-                                                    ? "主图"
-                                                    : "独立窗格"}
+                            <p>
+                                来源：当前服务的正式发现 API；不是精确 Catalog、readiness
+                                或执行许可。
+                            </p>
+                            {registrations.length === 0 ? (
+                                <p role="status">
+                                    {query.trim() === ""
+                                        ? category === "FACTOR"
+                                            ? "当前发现目录没有此类已登记项；尚未登记为 Calculation 的因子资产不在此列表中。"
+                                            : "当前发现目录没有此类已登记项。"
+                                        : "没有匹配的注册项。"}
+                                </p>
+                            ) : (
+                                <ul className="calculation-picker__entries">
+                                    {registrations.map((entry) => (
+                                        <li
+                                            key={JSON.stringify([
+                                                entry.kind,
+                                                entry.type_reference.type_id,
+                                                entry.type_reference.semantic_version
+                                            ])}
+                                        >
+                                            <h3>{label(entry)}</h3>
+                                            <p className="value">
+                                                {entry.kind} / {entry.type_reference.type_id}@
+                                                {entry.type_reference.semantic_version}
                                             </p>
+                                            <p>已登记 · 执行未接入</p>
+                                            <dl>
+                                                {entry.parameters.map((parameter) => (
+                                                    <div key={parameter.name}>
+                                                        <dt>
+                                                            {parameter.name} · {parameter.type}
+                                                        </dt>
+                                                        <dd>
+                                                            {parameter.default.value === null
+                                                                ? "无默认值"
+                                                                : `默认 ${String(parameter.default.value)}`}
+                                                            {parameter.required ? " · 必填" : ""}
+                                                        </dd>
+                                                    </div>
+                                                ))}
+                                            </dl>
                                             <p>
-                                                {entry.type_id}@{entry.semantic_version}
+                                                输出：
+                                                {entry.outputs
+                                                    .map(
+                                                        (output) =>
+                                                            `${output.name} (${output.semantic_type})`
+                                                    )
+                                                    .join(" · ")}
                                             </p>
                                             <button
                                                 type="button"
@@ -378,180 +473,115 @@ function CatalogDialog({
                                                     onSelect(entry);
                                                 }}
                                             >
-                                                选择 {label(entry)}
-                                                {entry.presentation.default_variant
-                                                    ? ""
-                                                    : ` · 语义版本 ${entry.semantic_version}`}{" "}
-                                                · 配置草稿
+                                                选择 {label(entry)} · 配置草稿
                                             </button>
+                                            <p>
+                                                选择不证明可执行，也不会生成曲线；计算与绘制需另行正式准入。
+                                            </p>
                                         </li>
                                     ))}
-                            </ul>
+                                </ul>
+                            )}
                         </>
-                    )}
-                </>
-            ) : state.status === "registered" ? (
-                <>
-                    <p role="status">已登记目录 · Runtime 未激活，执行未接入；仍可选择配置草稿。</p>
-                    <p>来源：当前服务的正式发现 API；不是精确 Catalog、readiness 或执行许可。</p>
-                    {registrations.length === 0 ? (
-                        <p role="status">
-                            {query.trim() === ""
-                                ? category === "FACTOR"
-                                    ? "当前发现目录没有此类已登记项；尚未登记为 Calculation 的因子资产不在此列表中。"
-                                    : "当前发现目录没有此类已登记项。"
-                                : "没有匹配的注册项。"}
-                        </p>
                     ) : (
-                        <ul className="calculation-picker__entries">
-                            {registrations.map((entry) => (
-                                <li
-                                    key={JSON.stringify([
-                                        entry.kind,
-                                        entry.type_reference.type_id,
-                                        entry.type_reference.semantic_version
-                                    ])}
-                                >
-                                    <h3>{label(entry)}</h3>
-                                    <p className="value">
-                                        {entry.kind} / {entry.type_reference.type_id}@
-                                        {entry.type_reference.semantic_version}
-                                    </p>
-                                    <p>已登记 · 执行未接入</p>
-                                    <dl>
-                                        {entry.parameters.map((parameter) => (
-                                            <div key={parameter.name}>
-                                                <dt>
-                                                    {parameter.name} · {parameter.type}
-                                                </dt>
-                                                <dd>
-                                                    {parameter.default.value === null
-                                                        ? "无默认值"
-                                                        : `默认 ${String(parameter.default.value)}`}
-                                                    {parameter.required ? " · 必填" : ""}
-                                                </dd>
-                                            </div>
-                                        ))}
-                                    </dl>
-                                    <p>
-                                        输出：
-                                        {entry.outputs
-                                            .map(
-                                                (output) =>
-                                                    `${output.name} (${output.semantic_type})`
-                                            )
-                                            .join(" · ")}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        disabled={selecting}
-                                        onClick={() => {
-                                            onSelect(entry);
-                                        }}
-                                    >
-                                        选择 {label(entry)} · 配置草稿
-                                    </button>
-                                    <p>
-                                        选择不证明可执行，也不会生成曲线；计算与绘制需另行正式准入。
-                                    </p>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </>
-            ) : (
-                <>
-                    <details className="calculation-picker__identity">
-                        <summary>精确目录身份</summary>
-                        <p>Runtime：{state.catalog.runtimeGenerationFingerprint}</p>
-                        <p>Catalog：{state.catalog.catalogGenerationFingerprint}</p>
-                        <p>Projection：{state.catalog.projectionFingerprint}</p>
-                    </details>
-                    {entries.length === 0 ? (
-                        <p role="status">
-                            {query.trim() === ""
-                                ? "当前目录没有此类注册项。"
-                                : "没有匹配的注册项。"}
-                        </p>
-                    ) : (
-                        <ul className="calculation-picker__entries">
-                            {entries.map((entry) => (
-                                <li
-                                    key={JSON.stringify([
-                                        entry.capability.kind,
-                                        entry.capability.type_id,
-                                        entry.capability.semantic_version,
-                                        entry.capability.backend
-                                    ])}
-                                >
-                                    <h3>{label(entry)}</h3>
-                                    <p className="value">
-                                        {entry.capability.kind} / {entry.capability.type_id}@
-                                        {entry.capability.semantic_version}
-                                    </p>
-                                    <p>
-                                        {entry.capability.backend} ·{" "}
-                                        {entry.capability.type_descriptor.execution_shape} ·{" "}
-                                        {entry.availability}
-                                    </p>
-                                    <p>
-                                        Readiness：
-                                        {entry.readiness === null
-                                            ? "未接入"
-                                            : entry.readiness.readiness_contract_versions.join(
-                                                  ", "
-                                              ) || "不支持"}
-                                    </p>
-                                    <p>
-                                        Provider：{entry.capability.provider_id}@
-                                        {entry.capability.provider_version}
-                                    </p>
-                                    <dl>
-                                        {entry.capability.type_descriptor.parameters.map(
-                                            (parameter) => (
-                                                <div key={parameter.name}>
-                                                    <dt>
-                                                        {parameter.name} ·{" "}
-                                                        {parameter.parameter_type}
-                                                    </dt>
-                                                    <dd>
-                                                        {parameter.default === null
-                                                            ? "无默认值"
-                                                            : `默认 ${String(parameter.default)}`}
-                                                        {parameter.required ? " · 必填" : ""}
-                                                    </dd>
-                                                </div>
-                                            )
-                                        )}
-                                    </dl>
-                                    <p>
-                                        输出：
-                                        {entry.capability.type_descriptor.outputs
-                                            .map(
-                                                (output) =>
-                                                    `${output.name} (${output.semantic_type})`
-                                            )
-                                            .join(" · ")}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        disabled={entry.availability !== "AVAILABLE" || selecting}
-                                        onClick={() => {
-                                            onSelect(entry);
-                                        }}
-                                    >
-                                        选择 {label(entry)} · {entry.capability.backend}
-                                    </button>
-                                    <p>
-                                        {entry.availability === "AVAILABLE"
-                                            ? "可进入下一步配置；不是执行许可或数值就绪证明。"
-                                            : entry.availability === "NOT_CONNECTED"
-                                              ? "缺少精确 readiness 证明，不可选择。"
-                                              : "当前后端、计算形状或 readiness 版本不支持此配置入口。"}
-                                    </p>
-                                </li>
-                            ))}
-                        </ul>
+                        <>
+                            <details className="calculation-picker__identity">
+                                <summary>精确目录身份</summary>
+                                <p>Runtime：{state.catalog.runtimeGenerationFingerprint}</p>
+                                <p>Catalog：{state.catalog.catalogGenerationFingerprint}</p>
+                                <p>Projection：{state.catalog.projectionFingerprint}</p>
+                            </details>
+                            {entries.length === 0 ? (
+                                <p role="status">
+                                    {query.trim() === ""
+                                        ? "当前目录没有此类注册项。"
+                                        : "没有匹配的注册项。"}
+                                </p>
+                            ) : (
+                                <ul className="calculation-picker__entries">
+                                    {entries.map((entry) => (
+                                        <li
+                                            key={JSON.stringify([
+                                                entry.capability.kind,
+                                                entry.capability.type_id,
+                                                entry.capability.semantic_version,
+                                                entry.capability.backend
+                                            ])}
+                                        >
+                                            <h3>{label(entry)}</h3>
+                                            <p className="value">
+                                                {entry.capability.kind} / {entry.capability.type_id}
+                                                @{entry.capability.semantic_version}
+                                            </p>
+                                            <p>
+                                                {entry.capability.backend} ·{" "}
+                                                {entry.capability.type_descriptor.execution_shape} ·{" "}
+                                                {entry.availability}
+                                            </p>
+                                            <p>
+                                                Readiness：
+                                                {entry.readiness === null
+                                                    ? "未接入"
+                                                    : entry.readiness.readiness_contract_versions.join(
+                                                          ", "
+                                                      ) || "不支持"}
+                                            </p>
+                                            <p>
+                                                Provider：{entry.capability.provider_id}@
+                                                {entry.capability.provider_version}
+                                            </p>
+                                            <dl>
+                                                {entry.capability.type_descriptor.parameters.map(
+                                                    (parameter) => (
+                                                        <div key={parameter.name}>
+                                                            <dt>
+                                                                {parameter.name} ·{" "}
+                                                                {parameter.parameter_type}
+                                                            </dt>
+                                                            <dd>
+                                                                {parameter.default === null
+                                                                    ? "无默认值"
+                                                                    : `默认 ${String(parameter.default)}`}
+                                                                {parameter.required
+                                                                    ? " · 必填"
+                                                                    : ""}
+                                                            </dd>
+                                                        </div>
+                                                    )
+                                                )}
+                                            </dl>
+                                            <p>
+                                                输出：
+                                                {entry.capability.type_descriptor.outputs
+                                                    .map(
+                                                        (output) =>
+                                                            `${output.name} (${output.semantic_type})`
+                                                    )
+                                                    .join(" · ")}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                disabled={
+                                                    entry.availability !== "AVAILABLE" || selecting
+                                                }
+                                                onClick={() => {
+                                                    onSelect(entry);
+                                                }}
+                                            >
+                                                选择 {label(entry)} · {entry.capability.backend}
+                                            </button>
+                                            <p>
+                                                {entry.availability === "AVAILABLE"
+                                                    ? "可进入下一步配置；不是执行许可或数值就绪证明。"
+                                                    : entry.availability === "NOT_CONNECTED"
+                                                      ? "缺少精确 readiness 证明，不可选择。"
+                                                      : "当前后端、计算形状或 readiness 版本不支持此配置入口。"}
+                                            </p>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </>
                     )}
                 </>
             )}

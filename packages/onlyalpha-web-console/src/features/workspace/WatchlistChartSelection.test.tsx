@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { MarketDataApiClient } from "../../api/marketData/client";
 import { AppProviders } from "../../app/providers";
-import { marketDataBarSemantic } from "../../api/marketData/model";
+import { marketDataBarSemantic, marketDataSourceChoiceKey } from "../../api/marketData/model";
 import {
     marketDataAcquisition,
     marketDataBarsForQuery,
@@ -126,7 +126,7 @@ it("switches exact Watchlist sources while retaining the period and automaticall
             "ETHUSDT.TEST"
         )
     );
-    expect(result.current.sourceId).toBe(second.integration_id);
+    expect(result.current.sourceId).toBe(marketDataSourceChoiceKey(second));
     expect(result.current.instrument?.instrument_id).toBe("ETHUSDT.TEST");
     expect(result.current.barSemantic).toEqual(marketDataBarSemantic(7));
     expect(result.current.status).toBe("ready");
@@ -189,3 +189,33 @@ it.each(["changed", "removed"])(
         expect(createAcquisition).not.toHaveBeenCalled();
     }
 );
+
+// One Integration may retain several immutable published Source Revisions.
+// Choosing an exact Watchlist reference must not collapse that lineage.
+it("keeps two original revisions of one Integration separately selectable", async () => {
+    const original = marketDataSource({ is_current_revision: false });
+    const published = marketDataSource({ integration_revision_fingerprint: "b".repeat(64) });
+    const client = marketDataClient({
+        listSources: () => Promise.resolve([original, published]),
+        listInstruments: () => Promise.resolve([marketDataInstrument()])
+    });
+    const wrapper = ({ children }: { readonly children: ReactNode }) => (
+        <AppProviders marketDataClient={client}>{children}</AppProviders>
+    );
+    const { result } = renderHook(() => useMarketDataChart(), { wrapper });
+    await waitFor(() => {
+        expect(result.current.selectableSources).toHaveLength(2);
+    });
+    const exact = onlyMarketDataSourceReference(original);
+    await act(async () => {
+        await result.current.selectWatchlistInstrument(exact, "BTCUSDT.TEST", false);
+    });
+    expect(result.current.reference).toEqual(exact);
+    act(() => {
+        result.current.refreshSources();
+    });
+    await waitFor(() => {
+        expect(result.current.selectableSources).toHaveLength(2);
+    });
+    expect(result.current.reference).toEqual(exact);
+});

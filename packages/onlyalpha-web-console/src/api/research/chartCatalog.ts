@@ -1,12 +1,10 @@
 import { z } from "zod";
-import type { components } from "./generated";
 import type { ChartStudyCapability } from "../chartStudies/client";
 import {
     researchCalculationCatalogSchema,
     type ResearchCalculationCatalogItemTransport
 } from "./schemas";
 
-type Dto<N extends keyof components["schemas"]> = components["schemas"][N];
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const text = z.string().min(1);
 const kind = z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]);
@@ -82,10 +80,10 @@ const capability = z.strictObject({
 const activeSchema = z.strictObject({
     schema_version: z.literal(1),
     runtime_generation_fingerprint: sha
-}) satisfies z.ZodType<Dto<"ActiveRuntimeGenerationDto">>;
+});
 const runtimeSchema = activeSchema.extend({
     catalog_generation_fingerprint: sha
-}) satisfies z.ZodType<Dto<"ExactRuntimeGenerationDto">>;
+});
 const jsonObject = z.record(z.string(), z.json());
 const catalogSchema = z.strictObject({
     schema_version: z.literal(1),
@@ -105,7 +103,7 @@ const catalogSchema = z.strictObject({
     ordered_statistics_capabilities: z.array(jsonObject),
     projection_fingerprint: sha,
     projection_schema_fingerprint: sha
-}) satisfies z.ZodType<Dto<"ExactCatalogContextResponseDto">>;
+});
 const readinessRow = z.strictObject({
     schema_version: z.literal(1),
     catalog_generation_fingerprint: sha,
@@ -119,7 +117,7 @@ const readinessRow = z.strictObject({
     implementation_fingerprint: sha,
     readiness_contract_versions: z.array(z.number().int().positive()),
     capability_fingerprint: sha
-}) satisfies z.ZodType<Dto<"ExactCatalogCalculationReadinessCapabilityDto">>;
+});
 const readinessSchema = z.strictObject({
     schema_version: z.literal(1),
     catalog_generation_fingerprint: sha,
@@ -128,7 +126,7 @@ const readinessSchema = z.strictObject({
     ordered_calculation_readiness_capabilities: z.array(readinessRow),
     projection_fingerprint: sha,
     projection_schema_fingerprint: sha
-}) satisfies z.ZodType<Dto<"ExactCatalogReadinessProjectionResponseDto">>;
+});
 
 export type CatalogCapability = z.infer<typeof capability>;
 export interface ChartCatalogEntry {

@@ -61,6 +61,8 @@ physical column before returning facts. The exact Revision read also rebuilds th
 created before the physical proof migration remain `UNPROVABLE` for exact reads and require new, independently
 captured evidence; current ClickHouse rows alone never create expected authority.
 
+The TRADE physical `provider_event_id` projection is the canonical typed TradeId value; a language-specific object display is not a provider identity. Canonical Fact, WAL and Segment identities do not change. Recovery first authenticates every stored physical column with the original immutable PostgreSQL proof, then requires every current WAL-derived physical column to match exactly before publication or collection. A historical producer's incorrect physical projection is UNPROVABLE: preserve the original WAL and facts without rewriting, a legacy-format fallback or new proof derived from current rows.
+
 数据库不可用时 sealed WAL 仍是 durable backlog，drain health 显式 DEGRADED 并通过同一 idempotent recovery path 重试；不得静默
 丢弃 Trade 或伪造数据库 commit。WAL 容量和内存 queue 均保持有界。
 
@@ -120,18 +122,30 @@ started occurrence 缺少 outcome 明确表示被中断或结果未知。
 canonical 成功权威始终是 Coverage COMPLETE + Market Data Revision + Seal；terminal FAILED 只有在 durable failure evidence
 存在时才可返回，failure evidence 无法持久化时必须返回显式 uncertainty 而不是 FAILED。
 
+旧执行 lease 已释放且新的显式历史采集重新取得独占 lease 时，可以分配新的 attempt occurrence；旧 started 行仍保持其原始
+UNKNOWN，不补造 FAILED。Application 必须先恢复、重新验证现有 sealed coverage，再只获取剩余 gaps。该历史读取执行与
+ClickHouse 写入重发是不同边界：先前不明 submission 的 durable witness 不因新 attempt 而失效，ABSENT 也不能授权盲目重插。
+
 历史查询 fail closed：只有显式 `SEALED_REVISION_NOT_FOUND` 可以投影为"尚无数据"，catalog 不可用、损坏或 schema 不兼容必须
 传播为 Product error，且任何数据库失败都不得触发 provider acquisition。GET 路径只读 canonical database facts，不做任何 mutation。
 
 ## 日内 Time-Bar Product 投影
 
-Product 的 Bar Specification 使用 Core 的 `TIME + step + LAST` 语义；当前规则是 1–240 整数分钟，1m 为唯一外部 canonical base，
-step > 1 的已关闭 Bar 是从精确 sealed 1m Revision、插件提供的 session Calendar 和 `TIME_BAR_V1` 聚合规则计算的 INTERNAL 投影。
-Source capability 显式报告是否提供该 Calendar，以及最小/最大 step。GET 使用请求的 1m 范围查找精确 Revision，只输出完全落在
-该范围内且从 session 起点对齐的目标窗口；范围两端不足一个完整窗口时不伪造部分目标 Bar。响应保留 base Revision ID/fingerprint，
-并报告 Calendar fingerprint 和聚合语义版本。缺少完整 base coverage 时返回 acquisition gaps；显式 Acquisition 仍只获取 1m。
-派生 GET 的 base 范围最多七天。Realtime 订阅也只连接 provider 1m，先从 durable 1m facts 重建当前目标窗口，再以同一聚合器
-生成 operational preview 与已关闭目标 Bar；base minute sequence 独立作为连续性 cursor。重建缺分钟时拒绝 READY 并要求刷新历史。
+Product 的 Bar Specification 使用 Core 的 `TIME + step + LAST` 语义；当前支持 1–240 整数分钟，优先选择 Source
+capability 精确声明的 provider-native interval。当前 Binance Spot 原生分钟为 **1、3、5、15、30、60、120、240**。
+原生 plan 的历史查询、显式 Acquisition 和 Realtime 都使用该选定 interval 与原生 canonical Bar，不得把已支持的原生
+interval 静默改成 1m 派生身份。原生 cursor 使用 bar start 除以选定 interval stride 的序号；session Calendar 和原生
+对齐规则由插件提供，Core 不硬编码 provider 规则。
+
+仅当目标分钟无精确原生 capability 时，已关闭目标 Bar 才从精确 sealed 1m Revision、插件 session Calendar 和
+`TIME_BAR_V1` 聚合规则计算为 INTERNAL 投影。GET 只输出完全落在已证明范围内且从 session 起点对齐的完整目标窗口，
+不为范围两端不足一个窗口的部分伪造目标 Bar。响应保留实际输入 Revision ID/fingerprint、Calendar fingerprint、
+resolution plan 与聚合语义版本；缺少完整 coverage 时返回实际 acquisition gaps。显式 Acquisition 依同一 plan 选择
+原生 interval，只有派生 plan 获取 1m；派生 GET 的 base 范围最多七天。
+
+Realtime 的原生 plan 订阅该原生 interval，并按同一 interval 修复连续性；派生 plan 才订阅 provider 1m，先从 durable
+1m facts 重建当前目标窗口，再以同一聚合器生成 operational preview 与已关闭目标 Bar。派生链的 base minute sequence
+独立作为连续性 cursor。重建缺分钟时拒绝 READY 并要求刷新历史；socket 连接成功本身不构成 READY。
 
 ## Browser Bar Ledger
 

@@ -575,6 +575,8 @@ it("a displayed admitted transient study keeps every Query input and call unchan
             "data-query-status",
             "DISPLAYABLE"
         );
+        // Query admission precedes the child renderer's passive series sync.
+        expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "1");
     });
     const reads = queryBars.mock.calls.length,
         requests = transport.mock.calls.length;

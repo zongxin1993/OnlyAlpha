@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ import pytest
 from onlyalpha.application.integration_application import (
     OnlyClearIntegrationSecret,
     OnlyCreateIntegration,
+    OnlyIntegrationCommandResult,
     OnlyIntegrationCommandService,
     OnlyIntegrationQueryService,
     OnlyPublishIntegrationRevision,
@@ -35,16 +37,9 @@ from onlyalpha.persistence.postgres.credentials import MASTER_KEY_BYTES, OnlyPos
 from onlyalpha.persistence.postgres.integration_product_store import OnlyPostgresIntegrationProductStore
 from onlyalpha.persistence.postgres.migration import DEFAULT_MIGRATION_ROOT, OnlyPostgresMigrationAuthority
 from onlyalpha.plugin.integration import (
-    OnlyIntegrationCategory,
-    OnlyIntegrationConfigurationContractV1,
-    OnlyIntegrationConfigurationFieldV1,
-    OnlyIntegrationProbeCheck,
-    OnlyIntegrationProbeContractV1,
-    OnlyIntegrationProbeMode,
     OnlyIntegrationTypeDescriptorV1,
-    OnlyIntegrationTypeId,
-    OnlyIntegrationValueKind,
 )
+from tests.support.integration_configuration import integration_descriptor as _descriptor
 
 pytestmark = pytest.mark.postgres
 NOW = datetime(2026, 9, 21, tzinfo=UTC)
@@ -54,51 +49,6 @@ INTEGRATION_ID = OnlyIntegrationId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac")
 
 def _command(number: int) -> OnlyProductCommandId:
     return OnlyProductCommandId(f"00000000-0000-4000-8000-{number:012d}")
-
-
-def _descriptor(*, version: str = "1.0.0") -> OnlyIntegrationTypeDescriptorV1:
-    return OnlyIntegrationTypeDescriptorV1(
-        type_id=OnlyIntegrationTypeId("binance.spot.market_data"),
-        category=OnlyIntegrationCategory.DATA_SOURCE,
-        display_name="Binance Spot",
-        description="Binance Spot market data",
-        provider_id="binance",
-        implementation_id="binance",
-        implementation_version=version,
-        public_api_version="1.1",
-        capabilities=("HISTORICAL_BARS",),
-        configuration_contract=OnlyIntegrationConfigurationContractV1(
-            fields=(
-                OnlyIntegrationConfigurationFieldV1(
-                    "api_key",
-                    OnlyIntegrationValueKind.STRING,
-                    required=True,
-                    secret=True,
-                    display_name="API key",
-                ),
-                OnlyIntegrationConfigurationFieldV1(
-                    "name",
-                    OnlyIntegrationValueKind.STRING,
-                    required=True,
-                    display_name="Name",
-                ),
-                OnlyIntegrationConfigurationFieldV1(
-                    "timeout_seconds",
-                    OnlyIntegrationValueKind.DURATION,
-                    required=False,
-                    default=10.0,
-                    minimum=0.1,
-                    display_name="Timeout",
-                ),
-            )
-        ),
-        probe_contract=OnlyIntegrationProbeContractV1(
-            OnlyIntegrationProbeMode.DEFAULT_INSTRUMENT,
-            "BTCUSDT",
-            True,
-            (OnlyIntegrationProbeCheck.REFERENCE_DATA,),
-        ),
-    )
 
 
 @dataclass
@@ -116,12 +66,14 @@ class _CatalogUnavailable:
         raise LookupError(type_id)
 
 
-def _service(postgres_dsn: str, descriptor: OnlyIntegrationTypeDescriptorV1 | None = None):  # type: ignore[no-untyped-def]
+def _service(
+    postgres_dsn: str, descriptor: OnlyIntegrationTypeDescriptorV1 | None = None
+) -> tuple[OnlyIntegrationCommandService, OnlyPostgresIntegrationProductStore]:
     store = OnlyPostgresIntegrationProductStore(postgres_dsn, MASTER_KEY, now=lambda: NOW)
     return OnlyIntegrationCommandService(_Catalog(descriptor or _descriptor()), store, MASTER_KEY), store
 
 
-def _create(service: OnlyIntegrationCommandService, command_id: int = 1):  # type: ignore[no-untyped-def]
+def _create(service: OnlyIntegrationCommandService, command_id: int = 1) -> OnlyIntegrationCommandResult:
     return service.create_integration(
         OnlyCreateIntegration(
             _command(command_id),
@@ -503,7 +455,7 @@ def test_lifecycle_transitions_are_atomic_archived_is_terminal_and_queries_remai
             OnlyUpdateIntegrationDraft(_command(6), INTEGRATION_ID, 4, {"name": "blocked"}, None)
         )
     assert archived.value.code == "INTEGRATION_ARCHIVED"
-    archived_commands = (
+    archived_commands: tuple[Callable[[], OnlyIntegrationCommandResult], ...] = (
         lambda: service.set_integration_secret(
             OnlySetIntegrationSecret(_command(7), INTEGRATION_ID, 4, "api_key", "blocked")
         ),
@@ -519,7 +471,9 @@ def test_lifecycle_transitions_are_atomic_archived_is_terminal_and_queries_remai
         assert blocked.value.code == "INTEGRATION_ARCHIVED"
     query = OnlyIntegrationQueryService(store)
     assert query.get_integration(INTEGRATION_ID).lifecycle_state is OnlyIntegrationLifecycleState.ARCHIVED
-    assert query.get_current_revision(INTEGRATION_ID).revision_fingerprint == published.receipt.outcome_ref.outcome_id
+    current_revision = query.get_current_revision(INTEGRATION_ID)
+    assert current_revision is not None
+    assert current_revision.revision_fingerprint == published.receipt.outcome_ref.outcome_id
     assert (
         query.list_revision_history(INTEGRATION_ID)[0].revision_fingerprint == published.receipt.outcome_ref.outcome_id
     )

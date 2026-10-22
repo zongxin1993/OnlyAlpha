@@ -46,14 +46,16 @@ def test_postgres_binding_is_single_purpose_and_has_no_update_or_semantic_conten
 
 
 def test_api_and_worker_verify_but_never_initialize_or_rebind_deployment() -> None:
-    api = _source("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
+    api = "".join(_source("packages/onlyalpha-http-server/rust/startup.rs").split())
     worker = _source("src/onlyalpha/research/worker_main.py")
-    for startup in (api, worker):
+    for startup in (worker,):
         assert "OnlyResearchDeploymentCoherenceVerifier(" in startup
         assert "OnlyPostgresResearchDeploymentStore(" in startup
         assert ".initialize(" not in startup
         assert ".migrate(" not in startup
-    assert "OnlyResearchFrozenDeploymentCheck(" in api
+    assert "deployment::verify_binding(client,&self.namespace)" in api
+    assert ".initialize(" not in api
+    assert ".migrate(" not in api
     assert worker.index("deployment_check=deployment.verify") < worker.index("service.run_forever")
 
 
@@ -73,19 +75,6 @@ def test_deployment_identity_cannot_enter_research_semantic_fingerprints() -> No
     assert "research.operations.deployment" not in source
 
 
-def test_real_browser_certification_has_no_route_mock_and_uses_process_barrier() -> None:
-    browser = _source("packages/onlyalpha-web-console/e2e-real/research-product.spec.ts")
-    harness = _source("tests/certification/research_product/test_real_browser_product.py")
-    worker_harness = _source("tests/runtime_support/generation_worker_main.py")
-    assert "page.route(" not in browser
-    assert "route.fulfill(" not in browser
-    assert "browser-closed.barrier" in harness
-    assert "tests.runtime_support.generation_worker_main" in harness
-    assert "onlyalpha.research.worker_main import main" in worker_harness
-    for semantic_word in ("recompute", "parquet", "psycopg"):
-        assert semantic_word not in browser.lower()
-
-
 def test_crash_barriers_are_test_owned_and_production_has_no_crash_mode() -> None:
     helper = _source("tests/certification/research_product/crash_worker.py")
     production = "\n".join(
@@ -95,3 +84,21 @@ def test_crash_barriers_are_test_owned_and_production_has_no_crash_mode() -> Non
     assert "Event().wait()" in helper
     assert "RESEARCH_CRASH_TEST_MODE" not in production
     assert "crash_worker" not in production
+
+
+def test_native_workstation_browser_harness_uses_the_selected_binary_without_python_http() -> None:
+    harness = _source("scripts/native_web_e2e.py")
+    browser = _source("packages/onlyalpha-web-console/e2e/factors.spec.ts")
+    assert 'resources / "bin/onlyalpha-http-server"' in harness
+    assert "onlyalpha_http_server.main" not in harness
+    assert "tests.runtime_support.generation_api_main" not in harness
+    for source in (harness, browser):
+        assert "page.route(" not in source
+        assert "route.fulfill(" not in source
+    assert 'await page.goto("/")' in browser
+    assert 'getByRole("button", { name: "因子", exact: true })' in browser
+    assert "expect(commands).toEqual([])" in browser
+    assert "NATIVE_WORKSTATION_READY version=" in harness
+    assert "child.wait(timeout=20)" in harness
+    assert '"remaining_process_group": remaining_processes' in harness
+    assert "if remaining_processes:" in harness

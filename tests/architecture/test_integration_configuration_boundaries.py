@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import tomllib
 from pathlib import Path
 
 import pytest
 
-from onlyalpha.persistence.postgres.integration_store import OnlyPostgresIntegrationStore
+from onlyalpha.persistence.postgres.integration_store import (
+    OnlyPostgresIntegrationStore,
+)
 
 from ._architecture_imports import imported_modules_for_path
 
@@ -181,18 +184,20 @@ def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transp
 
 def test_integration_http_has_only_declared_probe_and_no_delete_or_master_key_creation_authority() -> None:
     http_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
-    integration_source = "\n".join(
-        path.read_text(encoding="utf-8") for path in _python_files(http_root / "integrations")
+    main_source = "".join(
+        ((ROOT / "packages/onlyalpha-http-server/rust/startup.rs").read_text(encoding="utf-8")).split()
     )
-    main_source = (http_root / "main.py").read_text(encoding="utf-8")
 
-    assert 'router.delete("/{integration_id}")' not in integration_source
-    assert '"/{integration_id}/probe"' in integration_source
-    assert '"/{integration_id}/probe-attempts"' in integration_source
-    assert '"/{integration_id}/probe-attempts/{probe_attempt_id}"' in integration_source
-    assert "/test-connection" not in integration_source
+    assert not tuple(http_root.rglob("*.py"))
+    native = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text())
+    paths = native["paths"]
+    assert "delete" not in paths["/api/v2/integrations/{integration_id}"]
+    assert "post" in paths["/api/v2/integrations/{integration_id}/probe"]
+    assert "get" in paths["/api/v2/integrations/{integration_id}/probe-attempts"]
+    assert "get" in paths["/api/v2/integrations/{integration_id}/probe-attempts/{probe_attempt_id}"]
+    assert not any("/test-connection" in path for path in paths)
     assert "only_ensure_dev_master_key" not in main_source
-    assert "only_load_master_key" in main_source
+    assert "configuration::load_master_key_at(&roots.secrets)" in main_source
     composition_source = (POSTGRES / "integration_runtime_composition.py").read_text(encoding="utf-8")
     assert "only_ensure_dev_master_key" not in composition_source
     assert "only_load_master_key" in composition_source

@@ -1,7 +1,8 @@
+"""Historical Python registry/Worker reference; not native Product startup proof."""
+
 from __future__ import annotations
 
 import pytest
-from onlyalpha_http_server.composition import only_configure_product_registries
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation import (
@@ -14,6 +15,7 @@ from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.runtime.defaults import only_default_engine_services
+from tests.support.calculation_reference_composition import only_configure_product_registries
 
 
 def _research_projection(registry: OnlyCalculationRegistry):

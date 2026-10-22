@@ -27,6 +27,8 @@ message CalculationRestore {
 message CalculationNode { bytes request_json = 1; }
 // Passive deterministic Backtest plugin world; never a live venue dispatch.
 message BacktestExternal { bytes request_json = 1; }
+// Pure transient chart batch; no Runtime/Trading/Research publication authority.
+message ChartBatch { bytes request_json = 1; }
 message CalculationRequest {
   uint32 protocol_version = 1;
   string generation = 2;
@@ -42,6 +44,7 @@ message CalculationRequest {
     CalculationInstance close = 17;
     CalculationNode node = 18;
     BacktestExternal replay = 19;
+    ChartBatch chart = 20;
   }
 }
 message CalculationError { string code = 1; }

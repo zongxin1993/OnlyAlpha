@@ -21,7 +21,7 @@ def resolution(type_id="onlyalpha.indicator.sma", period=3):
 
 def create(backend, request=None):
     request = request or resolution()
-    d = backend.dispatch(request)
+    d = backend.dispatch(request)["descriptor"]
     bar = next(
         json.loads(line)["record"]
         for line in (Path(__file__).resolve().parents[3] / "test-data/domain/fact-records-v1.jsonl")
@@ -87,7 +87,7 @@ def update(backend, b, bar, i):
 
 def test_resolver_uses_exact_registry_and_declared_state():
     backend = NodeBackend("a" * 64, "b" * 64)
-    d = backend.dispatch(resolution())
+    d = backend.dispatch(resolution())["descriptor"]
     assert d["definition"]["schema_version"] == 3
     assert d["native_definition"] != d["definition_fingerprint"]
     assert d["state_capability"] == "CHECKPOINTABLE"
@@ -217,7 +217,7 @@ def test_exact_admitted_registry_can_resolve_existing_python_factor_without_buil
             "return_long": {"node_fingerprint": None, "output_name": "value", "source": "bar.open"},
         },
     }
-    descriptor = backend.dispatch(request)
+    descriptor = backend.dispatch(request)["descriptor"]
     assert descriptor["definition"]["kind"] == "FACTOR"
     b, bar, _ = create(backend, request)
     inputs = {"return_short": {"type": "DECIMAL", "value": "1"}, "return_long": {"type": "DECIMAL", "value": "2"}}
@@ -246,3 +246,19 @@ def test_formal_worker_never_falls_back_when_generation_context_is_unavailable(m
     monkeypatch.setattr(metadata, "entry_points", lambda: metadata.EntryPoints(()))
     with pytest.raises(RuntimeError, match="CALCULATION_GENERATION_CONTEXT_UNAVAILABLE"):
         serve("a" * 64, io.BytesIO(b""), io.BytesIO(), hosted=True)
+
+
+def test_resolution_carries_original_product_values_from_the_same_real_resolver():
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
+    backend = NodeBackend("a" * 64, "b" * 64)
+    response = backend.dispatch(resolution())
+    assert response["schema_version"] == 2
+    assert set(response) == {"schema_version", "descriptor", "product_definition", "type_declaration"}
+    native = OnlyCalculationDefinition.from_dict(response["product_definition"])
+    assert native.fingerprint == response["descriptor"]["native_definition"]
+    assert native.parameters == {"period": 3, "price_field": "CLOSE"}
+    declaration = response["type_declaration"]
+    assert declaration["descriptor"]["type_id"] == native.type_id
+    assert declaration["parameter_values"][0]["default"] == {"type": "INTEGER", "value": 20}
+    assert declaration["parameter_values"][1]["default"] == {"type": "STRING", "value": "CLOSE"}

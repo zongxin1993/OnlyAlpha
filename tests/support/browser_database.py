@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import psycopg
 
@@ -61,3 +62,20 @@ def reset_dev_browser_test_namespace(dsn: str, clickhouse: OnlyClickHouseClient)
     # Only observed CH completion AND observed PG commit settle the reservation.
     # Transport/commit failure keeps it UNKNOWN; process exit is not remote proof.
     fence.unlink()
+
+
+def _assert_slice_inventory(before: dict[str, Any], after: dict[str, Any]) -> None:
+    """Only market ingestion and Watchlist Commands belong to this UI journey."""
+    allowed = ("postgres:market_", "postgres:watchlist_", "clickhouse:market_")
+    commands = {"postgres:product_command_admission", "postgres:product_command_receipt"}
+    assert set(before["database"]) == set(after["database"])
+    for name, value in before["database"].items():
+        if not name.startswith(allowed) and name not in commands:
+            assert after["database"][name] == value, name
+    protected_before = {
+        name: value for name, value in before["files"].items() if not name.startswith(("history/", "live/"))
+    }
+    protected_after = {
+        name: value for name, value in after["files"].items() if not name.startswith(("history/", "live/"))
+    }
+    assert protected_after == protected_before

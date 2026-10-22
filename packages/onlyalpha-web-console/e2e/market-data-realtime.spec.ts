@@ -31,6 +31,9 @@ const source = {
     type_id: "binance.spot.market_data",
     source_id: sourceId,
     environment: "US",
+    new_work_status: "AVAILABLE",
+    new_work_unavailable_code: null,
+    history_read_policy: "EXACT_SEALED_PROOF",
     time_bar_capability: {
         provider_base_semantic: semantic(1),
         derived_algorithm: "TIME_BAR@1",

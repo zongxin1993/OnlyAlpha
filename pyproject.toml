@@ -1,6 +1,6 @@
 [project]
 name = "onlyalpha"
-version = "0.10.21"
+version = "0.11.0"
 description = "A modular, deterministic quantitative trading system skeleton"
 readme = "README.md"
 requires-python = ">=3.12.0, <3.13.0"
@@ -53,7 +53,6 @@ dev = [
     "onlyalpha-plugin-operators",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-targets",
-    "onlyalpha-http-server",
     "onlyalpha-gateway-protocol",
     "onlyalpha-calculation-worker",
     "onlyalpha-authoring-execution-worker",
@@ -69,10 +68,6 @@ dev = [
     "coverage>=7.15.2",
 ]
 
-[project.scripts]
-onlyalpha-backtest-worker = "onlyalpha.backtest.worker_main:main"
-onlyalpha-research-worker = "onlyalpha.research.worker_main:main"
-
 [tool.uv.workspace]
 members = [
     "plugs/onlyalpha-plugin-broker-virtual",
@@ -85,7 +80,6 @@ members = [
     "plugs/onlyalpha-plugin-indicators",
     "plugs/onlyalpha-plugin-operators",
     "plugs/onlyalpha-plugin-targets",
-    "packages/onlyalpha-http-server",
     "packages/onlyalpha-gateway-protocol",
     "packages/onlyalpha-calculation-worker",
     "packages/onlyalpha-authoring-execution-worker",
@@ -133,7 +127,6 @@ files = [
     "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
     "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators",
     "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
-    "packages/onlyalpha-http-server/src/onlyalpha_http_server",
     "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
     "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
@@ -154,7 +147,6 @@ onlyalpha-test-factor-provider = { path = "test-data/runtime_factor_provider", e
 onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
-onlyalpha-http-server = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-calculation-worker = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
@@ -182,6 +174,7 @@ testpaths = [
     "packages/onlyalpha-calculation-worker/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
     "packages/onlyalpha-runtime-generation-manager/tests",
+    "packages/onlyalpha-product-runtime/tests",
     "packages/onlyalpha-agent-orchestrator/tests",
 ]
 markers = [

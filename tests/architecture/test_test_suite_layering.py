@@ -151,3 +151,9 @@ def test_positive_marker_lanes_prefilter_before_collection_without_narrowing_gen
 
 def test_release_runs_each_canonical_lane_exactly_once() -> None:
     assert len(RELEASE_LANES) == len(set(RELEASE_LANES))
+
+
+def test_product_runtime_postgres_tests_are_discovered_in_the_owning_canonical_lane() -> None:
+    path = "packages/onlyalpha-product-runtime/tests"
+    assert path in WORKSPACE_TESTS
+    assert path in LANES[OnlyTestLane.RESEARCH_POSTGRES].paths

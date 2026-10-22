@@ -34,6 +34,10 @@ export function marketDataSource(overrides: Partial<MarketDataSource> = {}): Mar
         type_id: "test.market_data",
         source_id: "test.market_data.live",
         environment: "GLOBAL",
+        new_work_status: "AVAILABLE",
+        new_work_unavailable_code: null,
+        history_read_policy: "EXACT_SEALED_PROOF",
+        is_current_revision: true,
         time_bar_capability: {
             provider_base_semantic: marketDataBarSemantic(1),
             derived_algorithm: "TIME_BAR@1",

@@ -1,11 +1,11 @@
-"""Real installed objects retained by the Product startup composition."""
+"""Historical installed-object reference composition; no native Product admission."""
 
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 import pytest
-from onlyalpha_http_server import composition
 
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.definition import OnlyCalculationKind
@@ -13,10 +13,12 @@ from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
 from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
-from onlyalpha.quant_assets.catalog import OnlyQuantAssetCatalogGeneration
+from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
+from onlyalpha.quant_assets.catalog import OnlyQuantAssetCatalogGeneration, only_discover_quant_asset_providers
+from tests.support import calculation_reference_composition as composition
 
 
-def configure():
+def configure() -> composition.OnlyProductCalculationComposition:
     return composition.only_configure_product_registries(
         OnlyCalculationRegistry(),
         OnlyDataSourceFactoryRegistry(),
@@ -26,17 +28,19 @@ def configure():
     )
 
 
-def test_installed_discovery_is_once_and_catalog_registrations_are_actual_product_objects(monkeypatch):
-    calls = []
-    discover = composition.only_discover_quant_asset_providers
-    plugins = composition.only_discover_plugins
+def test_installed_discovery_is_once_and_catalog_registrations_are_actual_product_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[OnlyQuantAssetCatalogGeneration] = []
+    discover = only_discover_quant_asset_providers
+    plugins = only_discover_plugins
 
-    def captured_discovery():
+    def captured_discovery() -> OnlyQuantAssetCatalogGeneration:
         catalog = discover()
         calls.append(catalog)
         return catalog
 
-    def captured_plugins(*args, **kwargs):
+    def captured_plugins(*args: Any, **kwargs: Any) -> OnlyPluginDiscoveryReport:
         assert kwargs["excluded_calculation_distributions"] == frozenset(
             provider.manifest.distribution_name for provider in calls[0].providers
         )
@@ -49,7 +53,8 @@ def test_installed_discovery_is_once_and_catalog_registrations_are_actual_produc
     assert result.catalog is calls[0]
     assert result.chart_study_unavailable is None
     assert result.chart_study is not None
-    assert result.chart_study.admission.catalog is result.catalog
+    assert result.chart_study.admissions
+    assert all(admission.catalog is result.catalog for admission in result.chart_study.admissions)
     assert result.chart_study._registry is result.registry
     for provider in result.catalog.providers:
         for registration in provider.calculation_registrations:
@@ -70,8 +75,8 @@ def test_installed_discovery_is_once_and_catalog_registrations_are_actual_produc
     )
 
 
-def test_detached_description_catalog_never_becomes_installed_capability(monkeypatch):
-    actual = composition.only_discover_quant_asset_providers()
+def test_detached_description_catalog_never_becomes_installed_capability(monkeypatch: pytest.MonkeyPatch) -> None:
+    actual = only_discover_quant_asset_providers()
     detached = replace(actual)
     assert detached.generation_fingerprint == actual.generation_fingerprint
     assert detached._installed_origins == ()
@@ -82,10 +87,10 @@ def test_detached_description_catalog_never_becomes_installed_capability(monkeyp
     assert result.registry.backend_registrations()
 
 
-def test_discovery_failure_issues_no_partial_composition(monkeypatch):
-    emitted = []
+def test_discovery_failure_issues_no_partial_composition(monkeypatch: pytest.MonkeyPatch) -> None:
+    emitted: list[composition.OnlyProductCalculationComposition] = []
 
-    def failed():
+    def failed() -> OnlyQuantAssetCatalogGeneration:
         raise ValueError("injected missing installed Provider")
 
     monkeypatch.setattr(composition, "only_discover_quant_asset_providers", failed)
@@ -94,8 +99,8 @@ def test_discovery_failure_issues_no_partial_composition(monkeypatch):
     assert emitted == []
 
 
-def test_catalog_duplicate_provider_versions_and_registration_owners_are_rejected():
-    actual = composition.only_discover_quant_asset_providers()
+def test_catalog_duplicate_provider_versions_and_registration_owners_are_rejected() -> None:
+    actual = only_discover_quant_asset_providers()
     provider = actual.providers[0]
     with pytest.raises(ValueError, match="QUANT_ASSET_PROVIDER_VERSION_DUPLICATE"):
         OnlyQuantAssetCatalogGeneration((provider, provider))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -25,55 +26,57 @@ def _imports(path: Path) -> frozenset[str]:
     return frozenset(result)
 
 
-def test_canonical_run_http_uses_only_product_command_and_query_boundary() -> None:
-    source = RUN_ROUTES.read_text(encoding="utf-8")
-    imports = _imports(RUN_ROUTES)
-    assert "onlyalpha.application.product_boundary" in imports
-    assert "onlyalpha.research.command.service" not in imports
+def test_canonical_run_http_is_explicitly_deferred_without_direct_execution() -> None:
+    native = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text())
+    operations = [
+        operation
+        for path, methods in native["paths"].items()
+        if path.startswith("/api/v2/research/runs")
+        for operation in methods.values()
+    ]
+    assert operations
+    assert all(set(operation["responses"]) == {"501"} for operation in operations)
+    source = (ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text()
     assert "OnlyResearchCommandService" not in source
     assert "OnlyResearchRunQueryService" not in source
-    assert source.count("product.commands.dispatch(") == 2
-    assert source.count("product.queries.dispatch(") == 3
-    for intent in (
-        "OnlyCreateResearchRun(",
-        "OnlyCancelResearchRun(",
-        "OnlyListResearchRuns(",
-    ):
-        assert source.count(intent) == 1
-    assert source.count("OnlyGetResearchRun(") == 2
 
 
 def test_product_app_cannot_receive_legacy_direct_run_services() -> None:
-    source = APP.read_text(encoding="utf-8")
-    assert "product_boundary: OnlyResearchProductBoundary" in source
-    assert "create_run_router(product_boundary)" in source
+    assert not APP.exists()
+    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    assert "State<Arc<Host>>" in source
     assert "OnlyResearchCommandService" not in source
     assert "OnlyResearchRunQueryService" not in source
 
 
 def test_one_main_composition_uses_same_started_host_and_forbids_multi_worker() -> None:
-    source = MAIN.read_text(encoding="utf-8")
-    assert source.count("OnlyAlphaKernelHost(") == 1
-    assert source.count("only_compose_research_product_boundary(") == 1
-    assert source.index("kernel.start()") < source.index("only_compose_research_product_boundary(")
-    assert "admission=kernel" in source
-    assert source.index("only_compose_research_product_boundary(") < source.index("create_product_app(")
-    assert source.count("create_product_app(") == 1
-    assert "OnlyEngine(" not in source
-    assert "workers=" not in source
+    assert not MAIN.exists()
+    source = "".join(((ROOT / "packages/onlyalpha-http-server/rust/main.rs").read_text(encoding="utf-8")).split())
+    startup = "".join(
+        ((ROOT / "packages/onlyalpha-http-server/rust/workstation_startup.rs").read_text(encoding="utf-8")).split()
+    )
+    assert source.count("Running::open(config,&shutdown)") == 1
+    assert source.index("Running::open(config,&shutdown)") < source.index("running.serve(")
+    assert startup.count("AuthoritySession::acquire(") == 1
+    assert 'flavor="current_thread"' in source
+    assert "OnlyEngine(" not in source + startup
     assert "--workers" not in source
+    assert "uvicorn" not in source + startup
 
 
 def test_no_dispatch_failure_fallback_or_direct_mutation_call_exists() -> None:
-    source = RUN_ROUTES.read_text(encoding="utf-8")
-    assert "except OnlyUnsupportedProduct" not in source
+    source = "".join((ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text().split())
+    deferred = source.index("Some(crate::routes::Operation::Deferred)")
+    implemented = source.index("Some(crate::routes::Operation::Implemented)", deferred)
+    assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in source[deferred:implemented]
+    assert "returnErr(" in source[deferred:implemented]
     assert ".submit_research_run(" not in source
     assert ".request_research_run_cancellation(" not in source
 
 
 def test_standalone_artifact_console_is_no_longer_a_product_surface() -> None:
     assert not (API / "artifact_main.py").exists()
-    assert "create_artifact_query_app" not in APP.read_text(encoding="utf-8")
+    assert not APP.exists()
 
 
 def test_core_and_product_intents_remain_http_transport_neutral() -> None:

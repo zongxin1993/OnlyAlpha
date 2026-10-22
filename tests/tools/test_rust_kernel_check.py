@@ -60,10 +60,10 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
     from scripts.rust_kernel_check import validate_workspace
 
     (tmp_path / "Cargo.toml").write_text(
-        '[workspace]\nmembers=["packages/onlyalpha-backtest-driver","packages/onlyalpha-runtime-persistence","packages/onlyalpha-gateway-protocol","packages/onlyalpha-calculation-worker","crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data/state","crates/onlyalpha-kernel/market_data/construction","crates/onlyalpha-kernel/market_data/delivery","crates/onlyalpha-kernel/market_data/pipeline","crates/onlyalpha-kernel/calculation","crates/onlyalpha-kernel/strategy","crates/onlyalpha-kernel/order","crates/onlyalpha-kernel/position","crates/onlyalpha-kernel/account","crates/onlyalpha-kernel/strategy_ledger","crates/onlyalpha-kernel/risk","crates/onlyalpha-kernel/execution","crates/onlyalpha-kernel/broker","crates/onlyalpha-kernel/fee","crates/onlyalpha-kernel/settlement","crates/onlyalpha-kernel/margin"]\n'
+        '[workspace]\nmembers=["plugs/onlyalpha-plugin-binance","plugs/onlyalpha-plugin-tushare","packages/onlyalpha-metadata-json","packages/onlyalpha-integration-contract","packages/onlyalpha-http-server","packages/onlyalpha-product-runtime","packages/onlyalpha-backtest-driver","packages/onlyalpha-runtime-persistence","packages/onlyalpha-gateway-protocol","packages/onlyalpha-calculation-worker","crates/onlyalpha-kernel/domain","crates/onlyalpha-kernel/core","crates/onlyalpha-kernel/clock","crates/onlyalpha-kernel/event","crates/onlyalpha-kernel/market_data/state","crates/onlyalpha-kernel/market_data/construction","crates/onlyalpha-kernel/market_data/delivery","crates/onlyalpha-kernel/market_data/pipeline","crates/onlyalpha-kernel/calculation","crates/onlyalpha-kernel/strategy","crates/onlyalpha-kernel/order","crates/onlyalpha-kernel/position","crates/onlyalpha-kernel/account","crates/onlyalpha-kernel/strategy_ledger","crates/onlyalpha-kernel/risk","crates/onlyalpha-kernel/execution","crates/onlyalpha-kernel/broker","crates/onlyalpha-kernel/fee","crates/onlyalpha-kernel/settlement","crates/onlyalpha-kernel/margin"]\n'
     )
     (tmp_path / "Cargo.lock").write_text(
-        'version=4\n[[package]]\nname="onlyalpha-backtest-driver"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-runtime-persistence"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.10.7"\n'
+        'version=4\n[[package]]\nname="onlyalpha-plugin-binance"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-plugin-tushare"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-metadata-json"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-integration-contract"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-http-server"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-product-runtime"\nversion="0.10.21"\n[[package]]\nname="onlyalpha-backtest-driver"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-runtime-persistence"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-domain"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-kernel"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.10.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.10.7"\n'
     )
     for name in (
         "domain",
@@ -90,6 +90,12 @@ def test_domain_workspace_rejects_reverse_dependencies_and_external_package_alia
         "calculation_worker",
         "runtime_persistence",
         "backtest_driver",
+        "product_runtime",
+        "metadata_json",
+        "integration_contract",
+        "http_server",
+        "plugin_binance",
+        "plugin_tushare",
     ):
         path = tmp_path / module_path(name) / "Cargo.toml"
         path.parent.mkdir(parents=True)
@@ -150,6 +156,12 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         "packages/onlyalpha-calculation-worker/Cargo.toml",
         "packages/onlyalpha-runtime-persistence/Cargo.toml",
         "packages/onlyalpha-backtest-driver/Cargo.toml",
+        "packages/onlyalpha-product-runtime/Cargo.toml",
+        "packages/onlyalpha-http-server/Cargo.toml",
+        "packages/onlyalpha-metadata-json/Cargo.toml",
+        "packages/onlyalpha-integration-contract/Cargo.toml",
+        "plugs/onlyalpha-plugin-binance/Cargo.toml",
+        "plugs/onlyalpha-plugin-tushare/Cargo.toml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +185,64 @@ def test_domain_registry_admission_binds_exact_lock_graph_and_features(tmp_path:
         with pytest.raises(ValueError, match="BOUNDARY"):
             validate_workspace(tmp_path)
     event.write_text(original_event)
+    product = tmp_path / "packages/onlyalpha-product-runtime/Cargo.toml"
+    original_product = product.read_text()
+    for altered in (
+        original_product.replace('features = ["runtime"]', 'features = ["runtime", "with-uuid-1"]'),
+        original_product.replace('features = ["rt", "sync", "time", "macros"]', 'features = ["full"]'),
+        original_product.replace('features = ["rt", "sync", "time", "macros"]', 'features = ["rt-multi-thread"]'),
+        original_product.replace("tokio-postgres =", "alias ="),
+        original_product.replace(
+            'features = ["aes", "alloc", "zeroize"]', 'features = ["aes", "alloc", "zeroize", "hazmat"]'
+        ),
+        original_product.replace('features = ["aes", "alloc", "zeroize"]', 'features = ["aes", "alloc"]'),
+        original_product.replace(
+            'hkdf = { version = "=0.13.0", default-features = false }',
+            'hkdf = { version = "=0.13.0", default-features = false, features = ["kdf"] }',
+        ),
+        original_product.replace(
+            'features = ["std", "arbitrary_precision", "raw_value"]',
+            'features = ["std", "arbitrary_precision", "raw_value", "preserve_order"]',
+        ),
+        original_product.replace('features = ["std", "arbitrary_precision", "raw_value"]', 'features = ["std"]'),
+        original_product.replace('serde = { version = "=1.0.229"', 'serde = { version = "1.0"'),
+        original_product.replace('version = "=0.7.18"', 'version = "0.7"'),
+        original_product.replace(
+            'subtle = { version = "=2.6.1", default-features = false }',
+            'subtle = { version = "=2.6.1", default-features = false, features = ["std"] }',
+        ),
+        original_product + '\n[build-dependencies]\nserde_json = "1"\n',
+        original_product + "\n[target.'cfg(unix)'.dependencies]\ntokio = \"1\"\n",
+    ):
+        assert altered != original_product, "negative dependency case must mutate the actual manifest"
+        product.write_text(altered)
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            validate_workspace(tmp_path)
+    product.write_text(original_product)
+    http = tmp_path / "packages/onlyalpha-http-server/Cargo.toml"
+    original_http = http.read_text()
+    for altered in (
+        original_http.replace('features = ["std", "fs", "process"]', 'features = ["all-apis"]'),
+        original_http.replace('version = "=1.5.0"', 'version = "1"'),
+        original_http.replace('"std", "arbitrary_precision"', '"std", "arbitrary_precision", "unbounded_depth"'),
+        original_http.replace("onlyalpha-product-runtime =", "alias ="),
+        original_http + '\n[build-dependencies]\nhttp = "1"\n',
+        original_http + "\n[target.'cfg(unix)'.dependencies]\nhttp = \"1\"\n",
+    ):
+        http.write_text(altered)
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            validate_workspace(tmp_path)
+    http.write_text(original_http)
+    original_domain = (tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml").read_text()
+    for dependency in (
+        'onlyalpha-product-runtime = { path = "../../../packages/onlyalpha-product-runtime" }',
+        'tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }',
+    ):
+        path = tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml"
+        path.write_text(original_domain + "\n" + dependency + "\n")
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            validate_workspace(tmp_path)
+    (tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml").write_text(original_domain)
     domain = tmp_path / "crates/onlyalpha-kernel/domain/Cargo.toml"
     domain.write_text(
         domain.read_text().replace('"std", "arbitrary_precision"', '"std", "arbitrary_precision", "unbounded_depth"')
@@ -274,6 +344,12 @@ def test_kernel_umbrella_groups_independently_buildable_modules() -> None:
         "calculation_worker": "onlyalpha-calculation-worker",
         "runtime_persistence": "onlyalpha-runtime-persistence",
         "backtest_driver": "onlyalpha-backtest-driver",
+        "product_runtime": "onlyalpha-product-runtime",
+        "metadata_json": "onlyalpha-metadata-json",
+        "integration_contract": "onlyalpha-integration-contract",
+        "http_server": "onlyalpha-http-server",
+        "plugin_binance": "onlyalpha-plugin-binance",
+        "plugin_tushare": "onlyalpha-plugin-tushare",
     }
     assert set(members) == {str(module_path(area)) for area in expected}
     for area, name in expected.items():
@@ -350,12 +426,21 @@ def test_native_application_descriptor_uses_only_declared_cargo_version(tmp_path
         "onlyalpha-calculation-worker",
         "onlyalpha-runtime-persistence",
         "onlyalpha-backtest-driver",
+        "onlyalpha-product-runtime",
+        "onlyalpha-metadata-json",
+        "onlyalpha-integration-contract",
+        "onlyalpha-http-server",
     ):
         area = tmp_path / "packages" / component
         (area / "rust").mkdir(parents=True)
         (area / "Cargo.toml").write_text(
             '[package]\nname="' + component + '"\nbuild=false\n[lib]\npath="rust/lib.rs"\n'
         )
+        (area / "rust/lib.rs").write_text("")
+    for name in ("binance", "tushare"):
+        area = tmp_path / "plugs" / ("onlyalpha-plugin-" + name)
+        (area / "rust").mkdir(parents=True)
+        (area / "Cargo.toml").write_text('[package]\nbuild=false\n[lib]\npath="rust/lib.rs"\n')
         (area / "rust/lib.rs").write_text("")
     main = tmp_path / "packages/onlyalpha-backtest-driver/rust/main.rs"
     main.write_text('const VERSION: &str = env!("CARGO_PKG_VERSION");')
@@ -368,3 +453,382 @@ def test_native_application_descriptor_uses_only_declared_cargo_version(tmp_path
     (main.parent / "lib.rs").write_text('const VERSION: &str = env!("CARGO_PKG_VERSION");')
     with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
         validate_infrastructure_sources(tmp_path)
+
+
+def test_product_application_isolation_has_only_domain_and_its_declared_registry_closure(tmp_path: Path) -> None:
+    import tomllib
+
+    from scripts.rust_kernel_check import ROOT, isolated_product_runtime
+
+    manifest = isolated_product_runtime(ROOT, tmp_path / "product")
+    workspace = tomllib.loads(manifest.read_text())["workspace"]
+    assert set(workspace["members"]) == {
+        "crates/onlyalpha-kernel/domain",
+        "crates/onlyalpha-kernel/calculation",
+        "crates/onlyalpha-kernel/market_data/construction",
+        "crates/onlyalpha-kernel/strategy",
+        "crates/onlyalpha-kernel/event",
+        "crates/onlyalpha-kernel/market_data/state",
+        "crates/onlyalpha-kernel/market_data/delivery",
+        "crates/onlyalpha-kernel/market_data/pipeline",
+        "packages/onlyalpha-gateway-protocol",
+        "packages/onlyalpha-calculation-worker",
+        "packages/onlyalpha-product-runtime",
+        "packages/onlyalpha-metadata-json",
+        "packages/onlyalpha-integration-contract",
+    }
+    packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
+    assert {package["name"] for package in packages if "source" not in package} == {
+        "onlyalpha-domain",
+        "onlyalpha-calculation",
+        "onlyalpha-market-data-construction",
+        "onlyalpha-strategy",
+        "onlyalpha-event",
+        "onlyalpha-market-data-state",
+        "onlyalpha-market-data-delivery",
+        "onlyalpha-market-data-pipeline",
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
+        "onlyalpha-metadata-json",
+        "onlyalpha-integration-contract",
+        "onlyalpha-product-runtime",
+    }
+    assert not (manifest.parent / "src/onlyalpha").exists()
+    assert not (manifest.parent / "packages/onlyalpha-backtest-driver").exists()
+
+
+def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> None:
+    import tomllib
+
+    from scripts.rust_kernel_check import ROOT, isolated_http_server
+
+    manifest = isolated_http_server(ROOT, tmp_path / "http")
+    assert set(tomllib.loads(manifest.read_text())["workspace"]["members"]) == {
+        "crates/onlyalpha-kernel/domain",
+        "crates/onlyalpha-kernel/calculation",
+        "crates/onlyalpha-kernel/market_data/construction",
+        "crates/onlyalpha-kernel/strategy",
+        "crates/onlyalpha-kernel/event",
+        "crates/onlyalpha-kernel/market_data/state",
+        "crates/onlyalpha-kernel/market_data/delivery",
+        "crates/onlyalpha-kernel/market_data/pipeline",
+        "packages/onlyalpha-gateway-protocol",
+        "packages/onlyalpha-calculation-worker",
+        "packages/onlyalpha-metadata-json",
+        "packages/onlyalpha-integration-contract",
+        "packages/onlyalpha-product-runtime",
+        "packages/onlyalpha-http-server",
+    }
+    assert not (manifest.parent / "src/onlyalpha").exists()
+    assert not (manifest.parent / "packages/onlyalpha-http-server/src").exists()
+    assert not (manifest.parent / "packages/onlyalpha-http-server/pyproject.toml").exists()
+    assert (manifest.parent / "packages/onlyalpha-http-server/tests/support/integration_http_probe.rs").is_file()
+    assert (manifest.parent / "packages/onlyalpha-http-server/tests/support/http.rs").is_file()
+    packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
+    assert {package["name"] for package in packages if "source" not in package} == {
+        "onlyalpha-domain",
+        "onlyalpha-calculation",
+        "onlyalpha-market-data-construction",
+        "onlyalpha-strategy",
+        "onlyalpha-event",
+        "onlyalpha-market-data-state",
+        "onlyalpha-market-data-delivery",
+        "onlyalpha-market-data-pipeline",
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
+        "onlyalpha-metadata-json",
+        "onlyalpha-integration-contract",
+        "onlyalpha-product-runtime",
+        "onlyalpha-http-server",
+    }
+
+
+def test_isolated_lock_resolution_only_removes_optional_dependencies(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    import subprocess
+
+    import pytest
+
+    from scripts.rust_kernel_check import prepare_isolated_lock
+
+    manifest = tmp_path / "Cargo.toml"
+    manifest.write_text("[workspace]\n")
+    original = (
+        'version=4\n[[package]]\nname="root"\nversion="1"\ndependencies=["shared 1", "optional"]\n'
+        '[[package]]\nname="shared"\nversion="1"\nchecksum="exact"\n'
+        '[[package]]\nname="shared"\nversion="2"\nchecksum="other"\n'
+        '[[package]]\nname="optional"\nversion="1"\n'
+    )
+    reduced = (
+        'version=4\n[[package]]\nname="root"\nversion="1"\ndependencies=["shared"]\n'
+        '[[package]]\nname="shared"\nversion="1"\nchecksum="exact"\n'
+    )
+    original = original.replace('name="shared"', 'source="registry"\nname="shared"').replace(
+        'name="optional"', 'source="registry"\nname="optional"'
+    )
+    reduced = reduced.replace('name="shared"', 'source="registry"\nname="shared"')
+    lock = manifest.with_name("Cargo.lock")
+    candidates = [
+        reduced,
+        reduced.replace('checksum="exact"', 'checksum="changed"'),
+        reduced.replace('version="1"\nchecksum=', 'version="3"\nchecksum='),
+        reduced.replace('dependencies=["shared"]', 'dependencies=["shared", "new"]')
+        + '[[package]]\nname="new"\nversion="1"\n',
+        reduced.replace('name="shared"', 'source="untrusted"\nname="shared"'),
+        reduced.replace('dependencies=["shared"]', 'dependencies=["shared", "root"]'),
+    ]
+    candidates += [
+        reduced.replace("version=4", "version=3"),
+        reduced.replace('name="root"', 'name="removed-workspace-member"'),
+        reduced + '[[package]]\nname="shared"\nversion="1"\nsource="registry"\nchecksum="exact"\n',
+        reduced.replace('dependencies=["shared"]', 'dependencies=["missing"]'),
+        "malformed TOML",
+    ]
+    for candidate in candidates:
+        lock.write_text(original)
+
+        def resolve(
+            command: list[str], *, selected: str = candidate, **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            assert command == [
+                "cargo",
+                "metadata",
+                "--offline",
+                "--format-version",
+                "1",
+                "--manifest-path",
+                str(manifest),
+            ]
+            assert kwargs["env"] == {"CONTROLLED": "1"}
+            lock.write_text(selected)
+            return subprocess.CompletedProcess(command, 0)
+
+        monkeypatch.setattr("scripts.rust_kernel_check.subprocess.run", resolve)
+        if candidate == reduced:
+            prepare_isolated_lock(manifest, {"CONTROLLED": "1"})
+            assert lock.read_text() == reduced
+        else:
+            with pytest.raises(ValueError, match="RUST_ISOLATED_LOCK_CHANGED"):
+                prepare_isolated_lock(manifest, {"CONTROLLED": "1"})
+            assert lock.read_text() == original
+
+    lock.write_text(original)
+
+    def failed_resolution(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        lock.write_text("partially written lock")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr("scripts.rust_kernel_check.subprocess.run", failed_resolution)
+    with pytest.raises(ValueError, match="RUST_ISOLATED_LOCK_CHANGED"):
+        prepare_isolated_lock(manifest, {"CONTROLLED": "1"})
+    assert lock.read_bytes() == original.encode()
+
+
+def test_public_contracts_have_independent_pure_source_closures(tmp_path: Path) -> None:
+    import tomllib
+
+    from scripts.rust_kernel_check import ROOT, isolated_integration_contract, isolated_metadata_json
+
+    for materialize, expected in [
+        (isolated_metadata_json, {"onlyalpha-metadata-json"}),
+        (
+            isolated_integration_contract,
+            {
+                "onlyalpha-domain",
+                "onlyalpha-market-data-construction",
+                "onlyalpha-metadata-json",
+                "onlyalpha-integration-contract",
+            },
+        ),
+    ]:
+        manifest = materialize(ROOT, tmp_path / materialize.__name__)
+        packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
+        assert {item["name"] for item in packages if "source" not in item} == expected
+        for prohibited in ["onlyalpha-product-runtime", "onlyalpha-http-server", "onlyalpha-backtest-driver"]:
+            assert not (manifest.parent / "packages" / prohibited).exists()
+        assert not (manifest.parent / "src").exists()
+
+
+def test_public_contracts_cannot_acquire_process_or_network_inputs(tmp_path: Path) -> None:
+    import pytest
+
+    from scripts.rust_kernel_check import validate_infrastructure_sources
+
+    for component in [
+        "onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-worker",
+        "onlyalpha-runtime-persistence",
+        "onlyalpha-backtest-driver",
+        "onlyalpha-product-runtime",
+        "onlyalpha-http-server",
+        "onlyalpha-metadata-json",
+        "onlyalpha-integration-contract",
+    ]:
+        area = tmp_path / "packages" / component
+        (area / "rust").mkdir(parents=True)
+        (area / "Cargo.toml").write_text(
+            '[package]\nname="' + component + '"\nbuild=false\n[lib]\npath="rust/lib.rs"\n'
+        )
+        (area / "rust/lib.rs").write_text("")
+    for name in ("binance", "tushare"):
+        area = tmp_path / "plugs" / ("onlyalpha-plugin-" + name)
+        (area / "rust").mkdir(parents=True)
+        (area / "Cargo.toml").write_text('[package]\nbuild=false\n[lib]\npath="rust/lib.rs"\n')
+        (area / "rust/lib.rs").write_text("")
+    for component in ["onlyalpha-metadata-json", "onlyalpha-integration-contract"]:
+        path = tmp_path / "packages" / component / "rust/lib.rs"
+        for source in [
+            "use std::process::Command;",
+            "use std::net::TcpStream;",
+            "use std::{fs::File};",
+            "use std::time::SystemTime;",
+        ]:
+            path.write_text(source)
+            with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+                validate_infrastructure_sources(tmp_path)
+        path.write_text("")
+
+    for filename in ("spot_rest.rs", "spot_source.rs"):
+        transport = tmp_path / "plugs/onlyalpha-plugin-binance/rust" / filename
+        transport.write_text("use std::time::{Duration, Instant};\n")
+        validate_infrastructure_sources(tmp_path)
+        for forbidden in (
+            "use std::fs::File;",
+            "use std::process::Command;",
+            'env!("HIDDEN");',
+            'include_str!("/untrusted");',
+        ):
+            transport.write_text(forbidden)
+            with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+                validate_infrastructure_sources(tmp_path)
+        transport.write_text("")
+    for relative in (
+        "onlyalpha-plugin-binance/rust/lib.rs",
+        "onlyalpha-plugin-binance/rust/metadata.rs",
+        "onlyalpha-plugin-tushare/rust/spot_rest.rs",
+    ):
+        path = tmp_path / "plugs" / relative
+        path.write_text("use std::time::Instant;")
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate_infrastructure_sources(tmp_path)
+        path.write_text("")
+
+
+def test_public_contracts_reject_reverse_and_undeclared_manifest_edges(tmp_path: Path) -> None:
+    import shutil
+    import tomllib
+
+    import pytest
+
+    from scripts.rust_kernel_check import ROOT, validate_workspace
+
+    for filename in ("Cargo.toml", "Cargo.lock"):
+        shutil.copyfile(ROOT / filename, tmp_path / filename)
+    for relative in tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]:
+        destination = tmp_path / relative / "Cargo.toml"
+        destination.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / relative / "Cargo.toml", destination)
+    validate_workspace(tmp_path)
+    for component, dependency in [
+        ("onlyalpha-metadata-json", "onlyalpha-integration-contract"),
+        ("onlyalpha-integration-contract", "onlyalpha-product-runtime"),
+    ]:
+        manifest = tmp_path / "packages" / component / "Cargo.toml"
+        original = manifest.read_text()
+        candidates = [
+            original.replace(
+                "[dependencies]", "[dependencies]\n" + dependency + ' = { path = "../' + dependency + '" }'
+            ),
+            original + '[dev-dependencies]\nonlyalpha-product-runtime = { path = "../onlyalpha-product-runtime" }\n',
+            original.replace('features = ["std"]', 'features = ["std", "derive"]', 1),
+            original.replace("[dependencies]", "[target.'cfg(unix)'.dependencies]", 1),
+        ]
+        for candidate in candidates:
+            manifest.write_text(candidate)
+            with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+                validate_workspace(tmp_path)
+        manifest.write_text(original)
+
+
+def test_source_authoring_isolated_closures_exclude_python_and_product(tmp_path: Path) -> None:
+    import tomllib
+
+    from scripts.rust_kernel_check import ROOT, isolated_plugin_binance, isolated_plugin_tushare
+
+    for name, materialize in [("binance", isolated_plugin_binance), ("tushare", isolated_plugin_tushare)]:
+        manifest = materialize(ROOT, tmp_path / name)
+        packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
+        expected = {
+            "onlyalpha-domain",
+            "onlyalpha-market-data-construction",
+            "onlyalpha-metadata-json",
+            "onlyalpha-integration-contract",
+            "onlyalpha-plugin-" + name,
+        }
+        if name == "binance":
+            expected.add("onlyalpha-domain")
+        assert {p["name"] for p in packages if "source" not in p} == expected
+        area = manifest.parent / "plugs" / ("onlyalpha-plugin-" + name)
+        assert not (area / "src").exists()
+        assert not (area / "pyproject.toml").exists()
+        assert not (manifest.parent / "packages/onlyalpha-product-runtime").exists()
+
+
+def test_source_authoring_admits_only_exact_reviewed_dependencies(tmp_path: Path) -> None:
+    import shutil
+    import tomllib
+
+    import pytest
+
+    from scripts.rust_kernel_check import ROOT, validate_workspace
+
+    for name in ("Cargo.toml", "Cargo.lock"):
+        shutil.copyfile(ROOT / name, tmp_path / name)
+    for relative in tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]:
+        destination = tmp_path / relative / "Cargo.toml"
+        destination.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / relative / "Cargo.toml", destination)
+    validate_workspace(tmp_path)
+    for name in ("binance", "tushare"):
+        manifest = tmp_path / "plugs" / ("onlyalpha-plugin-" + name) / "Cargo.toml"
+        original = manifest.read_text()
+        for candidate in [
+            original.replace("onlyalpha-integration-contract =", "alias ="),
+            original.replace("[dependencies]", "[target.'cfg(unix)'.dependencies]"),
+            original.replace(
+                'features = ["std", "arbitrary_precision", "raw_value"]',
+                'features = ["std", "arbitrary_precision", "raw_value", "float_roundtrip"]',
+            ),
+            (
+                original.replace(
+                    "[dev-dependencies]",
+                    '[dev-dependencies]\nonlyalpha-product-runtime = { path = "../../packages/onlyalpha-product-runtime" }',
+                )
+                if "[dev-dependencies]" in original
+                else original
+                + '[dev-dependencies]\nonlyalpha-product-runtime = { path = "../../packages/onlyalpha-product-runtime" }\n'
+            ),
+        ]:
+            manifest.write_text(candidate)
+            with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+                validate_workspace(tmp_path)
+        manifest.write_text(original)
+
+
+def test_crypto_build_uses_pinned_bundled_code_instead_of_ambient_libraries(tmp_path: Path) -> None:
+    overrides = {
+        "AWS_LC_SYS_USE_SYSTEM": "1",
+        "AWS_LC_SYS_SYSTEM_DIR": "/untrusted",
+        "AWS_LC_SYS_SYSTEM_BINDINGS": "/untrusted/bindings.rs",
+        "AWS_LC_SYS_SYSTEM_SKIP_VERSION_CHECK": "1",
+        "AWS_LC_SYS_STATIC": "0",
+        "AWS_LC_SYS_USE_SYSTEM_aarch64_unknown_linux_gnu": "1",
+        "CMAKE_TOOLCHAIN_FILE": "/untrusted/toolchain.cmake",
+        "CMAKE_GENERATOR": "untrusted",
+        "TARGET_CMAKE_PREFIX_PATH": "/untrusted",
+        "CMAKE_aarch64_unknown_linux_gnu": "/untrusted/cmake",
+        "ICU4X_DATA_DIR": "/untrusted/generated-source",
+    }
+    env = compiler_environment(overrides, tmp_path)
+    assert env["AWS_LC_SYS_USE_SYSTEM"] == "0"
+    assert env["AWS_LC_SYS_STATIC"] == "1"
+    assert set(overrides) & set(env) == {"AWS_LC_SYS_USE_SYSTEM", "AWS_LC_SYS_STATIC"}

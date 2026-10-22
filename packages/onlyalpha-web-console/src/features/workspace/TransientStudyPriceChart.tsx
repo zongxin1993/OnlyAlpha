@@ -257,22 +257,14 @@ export function TransientStudyPriceChart({
                 );
                 if (history.source_selection.environment !== expectedEnvironment)
                     throw new ChartStudyWebError("INVALID");
+                // Native capabilities admit both verified provider-native and
+                // constructed history. Exact plan/evidence validation follows.
                 if (
-                    supports.some((support) => history.resolution_mode !== support.resolution_mode)
-                ) {
-                    if (
-                        history.resolution_mode === "DERIVED" &&
-                        history.coverage.status === "COMPLETE" &&
-                        history.resolution_plan_fingerprint !== null &&
-                        history.calendar_fingerprint !== null &&
-                        history.derived_projection_fingerprint !== null &&
-                        history.aggregation_semantics_version !== null
-                    ) {
-                        update("UNSUPPORTED");
-                        return;
-                    }
+                    history.coverage.status === "COMPLETE" &&
+                    history.resolution_mode !== "PROVIDER_NATIVE" &&
+                    history.resolution_mode !== "DERIVED"
+                )
                     throw new ChartStudyWebError("INVALID");
-                }
                 assertChartStudyHistory(
                     {
                         source_reference: sourceReference,

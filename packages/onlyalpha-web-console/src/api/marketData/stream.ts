@@ -1,7 +1,5 @@
 import {
     marketDataStreamEventSchema,
-    marketDataStreamAuthSchema,
-    marketDataStreamAuthenticatedSchema,
     type MarketDataStreamEvent,
     type MarketDataStreamSubscribe
 } from "./stream.generated";
@@ -16,11 +14,14 @@ export function openMarketDataStream(
     onDisconnect: (failure?: "MALFORMED_JSON" | "CONTRACT_ERROR" | "AUTHENTICATION_ERROR") => void,
     credentials?: LocalReadCredentials
 ): () => void {
+    const captured = credentials?.capture();
+    if (captured?.bearer != null) {
+        onDisconnect("AUTHENTICATION_ERROR");
+        return () => undefined;
+    }
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/v2/market-data/stream`);
-    const captured = credentials?.capture();
     let disposed = false;
-    let authenticated = captured?.bearer == null;
     const current = () =>
         !disposed && (captured == null || credentials?.isCurrent(captured.generation) === true);
     const unsubscribe = credentials?.subscribe(() => {
@@ -30,17 +31,7 @@ export function openMarketDataStream(
     let terminalFailure: "MALFORMED_JSON" | "CONTRACT_ERROR" | "AUTHENTICATION_ERROR" | undefined;
     socket.addEventListener("open", () => {
         if (!current()) return;
-        socket.send(
-            JSON.stringify(
-                captured?.bearer == null
-                    ? request
-                    : marketDataStreamAuthSchema.parse({
-                          schema_version: 1,
-                          operation: "AUTH",
-                          bearer: captured.bearer
-                      })
-            )
-        );
+        socket.send(JSON.stringify(request));
     });
     socket.addEventListener("message", (message) => {
         if (!current()) return;
@@ -50,16 +41,6 @@ export function openMarketDataStream(
         } catch {
             terminalFailure = "MALFORMED_JSON";
             socket.close(1002, "invalid JSON");
-            return;
-        }
-        if (!authenticated) {
-            if (!marketDataStreamAuthenticatedSchema.safeParse(payload).success) {
-                terminalFailure = "AUTHENTICATION_ERROR";
-                socket.close();
-                return;
-            }
-            authenticated = true;
-            socket.send(JSON.stringify(request));
             return;
         }
         const admitted = marketDataStreamEventSchema.safeParse(payload);

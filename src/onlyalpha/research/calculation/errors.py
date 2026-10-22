@@ -1,13 +1,6 @@
-"""Deterministic fail-closed Research Calculation errors."""
+"""Research Calculation error and immutable result store failure."""
 
-from __future__ import annotations
-
-
-class OnlyResearchCalculationError(RuntimeError):
-    def __init__(self, code: str, detail: str) -> None:
-        self.code = code
-        self.detail = detail
-        super().__init__(f"{code}: {detail}")
+from onlyalpha.algorithm.batch import OnlyResearchCalculationError as OnlyResearchCalculationError
 
 
 class OnlyResearchCalculationResultStoreError(OnlyResearchCalculationError):

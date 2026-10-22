@@ -31,6 +31,7 @@ from onlyalpha.calculation.registry import (
     OnlyCalculationRegistry,
     OnlyTradingCalculationBackendResolver,
 )
+from onlyalpha.canonical import only_canonical_json
 from onlyalpha.domain.market import OnlyBar, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.indicator.base import OnlyBarIndicator
@@ -50,6 +51,7 @@ from onlyalpha_calculation_worker.contracts import (
     scalar,
     sha,
 )
+from onlyalpha_calculation_worker.type_declaration import type_declaration
 
 
 @cache
@@ -219,7 +221,13 @@ class NodeBackend:
         self.calculations = calculations if calculations is not None else registry()
 
     def resolve(self, request: object) -> dict[str, Any]:
-        return _resolve(request, self.calculations)[2]
+        native, registration, descriptor = _resolve(request, self.calculations)
+        return {
+            "schema_version": 2,
+            "descriptor": descriptor,
+            "product_definition": decode(only_canonical_json(native.to_dict()).encode("utf-8")),
+            "type_declaration": type_declaration(registration.type_definition),
+        }
 
     def create(self, request: object) -> dict[str, Any]:
         r = exact(

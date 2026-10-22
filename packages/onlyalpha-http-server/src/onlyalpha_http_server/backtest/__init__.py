@@ -1,1 +1,0 @@
-"""Backtest Product HTTP adapter."""

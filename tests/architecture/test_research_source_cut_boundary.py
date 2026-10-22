@@ -97,7 +97,7 @@ def test_memory_modules_have_one_research_actor_and_no_direct_source_io() -> Non
 def test_product_memory_composition_has_fixed_owners_and_no_callback_parameter() -> None:
     import ast
 
-    source = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
+    source = ROOT / "tests/support/research_reference_composition.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     composition = next(
         node

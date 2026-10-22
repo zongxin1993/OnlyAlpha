@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -49,29 +50,12 @@ def test_internal_predicates_are_not_exposed_by_public_authoring_descriptors() -
     assert registry.descriptors() == ()
 
 
-def test_definition_http_is_projection_only_and_error_ownership_is_route_metadata() -> None:
+def test_definition_http_is_explicitly_deferred_and_cannot_execute_resolution() -> None:
     api = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
-    definition_source = "\n".join(
-        (api / "research" / name).read_text(encoding="utf-8")
-        for name in (
-            "definition_routes.py",
-            "definition_schema.py",
-            "definition_service.py",
-            "discovery.py",
-        )
-    )
-    for forbidden in (
-        "OnlyResearchCommandService",
-        "OnlyResearchScheduler",
-        "OnlyResearchWorkerService",
-        "OnlyResearchRunStore",
-        "OnlyEngine(",
-        "DefinitionStore",
-        "ResolutionStore",
-    ):
-        assert forbidden not in definition_source
-    discovery = (api / "research" / "discovery.py").read_text(encoding="utf-8")
-    assert "OnlyCalculationRegistry()" not in discovery
-    app = (api / "app.py").read_text(encoding="utf-8")
-    assert "request.url.path" not in app
-    assert "_RESEARCH_RUN_PATH" not in app
+    assert not tuple(api.rglob("*.py"))
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    operation = native["paths"]["/api/v2/research/definitions/resolve"]["post"]
+    assert set(operation["responses"]) == {"501"}
+    assert operation["responses"]["501"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/NativeErrorEnvelope"
+    }

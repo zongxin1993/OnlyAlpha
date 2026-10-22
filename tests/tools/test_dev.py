@@ -131,7 +131,99 @@ def _host(monkeypatch, tmp_path: Path, *, running: bool = False, consumer: bool 
 
     monkeypatch.setattr(dev, "source_inputs", source_inputs)
     monkeypatch.setattr(dev, "freeze_source", capture)
+    _native_artifact_precondition(monkeypatch, tmp_path, source_inputs, calls)
     return calls, reservation
+
+
+def _native_artifact_precondition(monkeypatch, root: Path, source_inputs, calls) -> None:
+    """Provide the new already-built artifact without replacing lifecycle guards.
+
+    Artifact content/source/path failures are independently exercised in
+    test_native_workstation_artifacts; actual attestation admission is NOT mocked.
+    """
+    artifact = root / "test-results/native-workstation/11111111-1111-4111-8111-111111111111"
+    artifact.mkdir(parents=True)
+    (artifact / "manifest.json").write_text("{}")
+    native_id = "d" * 64
+    started = False
+    original_output, original_inspect, original_run = dev.subprocess.check_output, dev._inspect, dev.subprocess.run
+
+    def output(command, **kwargs):
+        if started and command[:2] == ["docker", "ps"] and "label=com.docker.compose.service=dev" in command:
+            calls.append(command)
+            return native_id
+        result = original_output(command, **kwargs)
+        if command[:3] == ["docker", "network", "inspect"]:
+            records = json.loads(result)
+            role = command[-1].removeprefix("onlyalpha-dev-")
+            records[0].update(
+                Id="network-" + role,
+                IPAM={"Config": [{"Gateway": "172.20.0.1" if role == "application" else "172.18.0.1"}]},
+            )
+            return json.dumps(records)
+        return result
+
+    def inspect(name):
+        if name == native_id:
+            return [
+                {
+                    "Id": native_id,
+                    "Image": "sha256:" + "c" * 64,
+                    "Config": {
+                        "Labels": {"com.docker.compose.project": "onlyalpha-dev", "com.docker.compose.service": "dev"}
+                    },
+                    "State": {"Running": True, "Health": {"Status": "healthy"}},
+                    "Mounts": [
+                        {
+                            "Destination": "/workspace",
+                            "Type": "bind",
+                            "Source": str(root / ".test-cache/dev-product-source"),
+                            "RW": False,
+                        },
+                        {
+                            "Destination": "/workspace/" + artifact.relative_to(root).as_posix(),
+                            "Type": "bind",
+                            "Source": str(artifact),
+                            "RW": False,
+                        },
+                        {
+                            "Destination": "/var/lib/onlyalpha",
+                            "Type": "volume",
+                            "Name": "onlyalpha-dev-user-data",
+                            "RW": True,
+                        },
+                    ],
+                    "NetworkSettings": {
+                        "Ports": {"5173/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5173"}]},
+                        "Networks": {
+                            "onlyalpha-dev-application": {
+                                "NetworkID": "network-application",
+                                "IPAddress": "172.20.0.2",
+                                "Gateway": "172.20.0.1",
+                            },
+                            "onlyalpha-dev-database": {"NetworkID": "network-database", "IPAddress": "172.18.0.5"},
+                        },
+                    },
+                }
+            ]
+        records = original_inspect(name)
+        if name == "onlyalpha-dev-postgres-1":
+            records[0]["NetworkSettings"] = {
+                "Networks": {"onlyalpha-dev-database": {"NetworkID": "network-database", "IPAddress": "172.18.0.2"}}
+            }
+        return records
+
+    def run(command, **kwargs):
+        nonlocal started
+        result = original_run(command, **kwargs)
+        if "up" in command and result.returncode == 0:
+            started = True
+        return result
+
+    monkeypatch.setattr(dev, "artifact_parameters", lambda _: (artifact, {"source_inputs": source_inputs(root)}))
+    monkeypatch.setattr(dev.subprocess, "check_output", output)
+    monkeypatch.setattr(dev, "_inspect", inspect)
+    monkeypatch.setattr(dev.subprocess, "run", run)
 
 
 def test_start_uses_existing_store_one_project_and_never_builds_or_prepares_data(monkeypatch, tmp_path: Path) -> None:
@@ -143,7 +235,7 @@ def test_start_uses_existing_store_one_project_and_never_builds_or_prepares_data
     )
     assert dev.start_stop("start") == 0
     assert captures == [{"product": True}] and reservation["completed"]
-    start = calls[-1]
+    start = next(command for command in calls if "up" in command)
     assert start[:8] == [
         "docker",
         "compose",

@@ -19,9 +19,12 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
-from onlyalpha_http_server.main import _GenerationOwnedCatalogReader, _SearchContextReader
-from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
-from onlyalpha_plugin_operators.provider import quant_asset_provider as operator_provider
+from onlyalpha_plugin_indicators.provider import (
+    quant_asset_provider as indicator_provider,
+)
+from onlyalpha_plugin_operators.provider import (
+    quant_asset_provider as operator_provider,
+)
 from onlyalpha_plugin_targets.registration import registrations as target_registrations
 from onlyalpha_runtime_generation_manager import (
     OnlyLocalImmutableArtifactStore,
@@ -31,19 +34,36 @@ from onlyalpha_runtime_generation_manager import (
 from onlyalpha_runtime_generation_manager.catalog_context import (
     OnlyRuntimeGenerationExactCatalogDescriptorReader,
 )
-from onlyalpha_test_factor_provider.provider import quant_asset_provider as factor_provider
+from onlyalpha_test_factor_provider.provider import (
+    quant_asset_provider as factor_provider,
+)
 
 from onlyalpha.application.search_product import only_search_experiment_work_id
-from onlyalpha.backtest.evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
-from onlyalpha.calculation.artifact import only_calculation_distribution_artifact_manifest
+from onlyalpha.backtest.evidence import (
+    OnlyBacktestEvidenceManifest,
+    OnlyBacktestEvidenceStore,
+)
+from onlyalpha.calculation.artifact import (
+    only_calculation_distribution_artifact_manifest,
+)
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
-from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
-from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
-from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
-from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.persistence.postgres.private_asset_store import (
+    OnlyPostgresPrivateAssetStore,
+)
+from onlyalpha.persistence.postgres.product_command_authority import (
+    OnlyPostgresProductCommandAuthority,
+)
+from onlyalpha.persistence.postgres.research_execution_store import (
+    OnlyPostgresResearchExecutionStore,
+)
+from onlyalpha.persistence.postgres.research_run_store import (
+    OnlyPostgresResearchRunStore,
+)
+from onlyalpha.persistence.postgres.research_source_cut_store import (
+    OnlyPostgresResearchSourceCutAuthority,
+)
 from onlyalpha.quant_assets import (
     ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetCorruptError,
@@ -58,7 +78,10 @@ from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogManager,
     only_quant_asset_distribution_artifact_manifest,
 )
-from onlyalpha.research.agent import OnlyAgentExactAuthorityReferenceV2, OnlyAgentReferenceLocatorKind
+from onlyalpha.research.agent import (
+    OnlyAgentExactAuthorityReferenceV2,
+    OnlyAgentReferenceLocatorKind,
+)
 from onlyalpha.research.agent.decision import OnlyAgentExperimentLaunchRecordV1
 from onlyalpha.research.agent.occurrence_store import (
     OnlyJsonAgentModelOccurrenceStore,
@@ -70,18 +93,34 @@ from onlyalpha.research.agent.store import (
     OnlyJsonAgentResearchBriefStore,
     OnlyJsonAgentSessionManifestStore,
 )
-from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
-from onlyalpha.research.command.model import OnlyDerivedResearchSubmitCommandV2, only_derived_research_run_id
-from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
+from onlyalpha.research.calculation.result_store import (
+    OnlyParquetResearchCalculationResultStore,
+)
+from onlyalpha.research.command.model import (
+    OnlyDerivedResearchSubmitCommandV2,
+    only_derived_research_run_id,
+)
+from onlyalpha.research.dataset.parquet_store import (
+    OnlyParquetResearchDatasetSnapshotStore,
+)
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsMethod
 from onlyalpha.research.evaluation.execution import OnlyResearchStatisticsExecutor
 from onlyalpha.research.evaluation.factor_pair.result_store import (
     OnlyParquetResearchFactorPairStatisticsResultStore,
 )
-from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
-from onlyalpha.research.evaluation.summary.execution import OnlyResearchFactorPairEffectSummaryExecutor
-from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
-from onlyalpha.research.execution import OnlyResearchRetryDecision, OnlyResearchRunAttemptState
+from onlyalpha.research.evaluation.result_store import (
+    OnlyParquetResearchStatisticsResultStore,
+)
+from onlyalpha.research.evaluation.summary.execution import (
+    OnlyResearchFactorPairEffectSummaryExecutor,
+)
+from onlyalpha.research.evaluation.summary.result_store import (
+    OnlyJsonResearchSummaryStatisticsResultStore,
+)
+from onlyalpha.research.execution import (
+    OnlyResearchRetryDecision,
+    OnlyResearchRunAttemptState,
+)
 from onlyalpha.research.experiment import (
     OnlyJsonSearchProvenanceStore,
     OnlySearchAlgorithmBindingV1,
@@ -138,7 +177,9 @@ from onlyalpha.research.search.parameter import (
     plans_for_feedback_decision,
     verify_parameter_feedback_decision_occurrence,
 )
-from onlyalpha.research.search.parameter.context import OnlyParameterSearchContextResolver
+from onlyalpha.research.search.parameter.context import (
+    OnlyParameterSearchContextResolver,
+)
 from onlyalpha.research.search.parameter.integration import parameter_submission_key
 from onlyalpha.research.search.symbolic import (
     SYMBOLIC_EVALUATION_CONTRACT_KIND,
@@ -151,7 +192,10 @@ from onlyalpha.research.search.symbolic import (
     enumerate_symbolic_factor_proposals,
 )
 from onlyalpha.research.search.symbolic.controller import symbolic_submission_key
-from onlyalpha.runtime.generation import OnlyCoreExecutionIdentity, OnlyDistributionArtifactRole
+from onlyalpha.runtime.generation import (
+    OnlyCoreExecutionIdentity,
+    OnlyDistributionArtifactRole,
+)
 from onlyalpha.strategy.qualification import (
     OnlyQualificationCriterion,
     OnlyQualificationEvaluator,
@@ -182,6 +226,10 @@ from tests.research.specification.support import registry as specification_regis
 from tests.research.specification.support import specification
 from tests.research.sweep.support import definition
 from tests.runtime.search_ownership_support import _plain, _support_wheel
+from tests.support.research_reference_composition import (
+    _GenerationOwnedCatalogReader,
+    _SearchContextReader,
+)
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 
@@ -389,7 +437,9 @@ def _publish_parameter_experiment(root: Path, generation, values: dict[str, obje
         candidate_output_name="factor_value",
         calculation_registry=specification_registry(),
     )
-    from tests.research.search.parameter.test_adaptive_parameter_search_v1 import _policy
+    from tests.research.search.parameter.test_adaptive_parameter_search_v1 import (
+        _policy,
+    )
 
     policy = _policy()
     algorithm = only_deterministic_coarse_to_fine_implementation()
@@ -492,7 +542,9 @@ def _publish_agent_facts(root: Path, experiment_fingerprint: str) -> None:
         tool_store.commit_plan(plan)
     for result in tools.results.values():
         tool_store.commit_result(result)
-    from onlyalpha.research.agent.decision_store import OnlyJsonAgentExperimentLaunchStore
+    from onlyalpha.research.agent.decision_store import (
+        OnlyJsonAgentExperimentLaunchStore,
+    )
 
     OnlyJsonAgentExperimentLaunchStore(root).commit_launch_record(
         OnlyAgentExperimentLaunchRecordV1(

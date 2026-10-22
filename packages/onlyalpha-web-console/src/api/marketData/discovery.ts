@@ -37,7 +37,7 @@ const quoteSchema = z
               item.ts_event_ns === null
     );
 
-const searchSchema = z.strictObject({
+export const searchSchema = z.strictObject({
     schema_version: z.literal(1),
     results: z
         .array(
@@ -57,7 +57,7 @@ const searchSchema = z.strictObject({
     ),
     truncated: z.boolean()
 });
-const quotesSchema = z.strictObject({
+export const quotesSchema = z.strictObject({
     schema_version: z.literal(1),
     source_selection: marketDataSourceSelectionSchema,
     quotes: z.array(quoteSchema).max(25),

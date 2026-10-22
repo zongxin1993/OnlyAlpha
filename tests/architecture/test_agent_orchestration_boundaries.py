@@ -227,14 +227,12 @@ def test_d_node_and_semantic_bundle_are_closed_and_have_no_run_until_complete_lo
 
 def test_d_public_gateway_cannot_import_or_write_agent_authorities() -> None:
     path = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/agent_gateway.py"
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
-    imports = {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    assert "onlyalpha.research.agent.store" not in imports
-    assert "onlyalpha.research.agent.session_state" not in imports
-    assert not any(
-        token in source for token in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1")
-    )
+    assert not path.exists()
+    native = (ROOT / "packages/onlyalpha-http-server/rust/human_access.rs").read_text()
+    assert '"/api/v2/agent"' in native
+    assert "Err(Error::Forbidden)" in native
+    for forbidden in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1"):
+        assert forbidden not in native
 
 
 def test_d_production_agent_has_no_cross_node_store_db_broker_or_live_import() -> None:
@@ -245,43 +243,44 @@ def test_d_production_agent_has_no_cross_node_store_db_broker_or_live_import() -
     assert not {item for item in imports if item.startswith(forbidden)}
 
 
-def test_d_compose_agent_is_single_replica_and_has_only_agent_roots_and_network_contracts() -> None:
-    source = (ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8")
-    start = source.index("  agent:\n")
-    end = source.index("\n  test:", start)
-    service = source[start:end]
-    assert "agent-state:/var/lib/onlyalpha-agent" in service
-    assert "agent-locks:/var/run/onlyalpha-agent" in service
-    # The agent reads the bootstrap-provisioned secrets and model profile from the
-    # product user-data authority but must never gain write access to it.
-    assert "user-data:/var/lib/onlyalpha:ro" in service
-    assert "- user-data:/var/lib/onlyalpha\n" not in service
-    assert "database" not in service
-    assert "broker" not in service.casefold()
-    assert "live" not in service.casefold()
-    assert "--model-token-file" not in service
+def test_retired_compose_agent_cannot_mount_agent_roots_or_publish_internal_access() -> None:
+    compose = yaml.safe_load((ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8"))
+    assert "agent" not in compose["services"]
+    # Retained data volumes do not authorize an executable Agent deployment.
+    assert {"agent-state", "agent-locks"} <= set(compose["volumes"])
+    for name, service in compose["services"].items():
+        command = str(service.get("command", ""))
+        assert "onlyalpha-agent" not in command and "onlyalpha_agent_orchestrator" not in command, name
+        assert "--model-token-file" not in command, name
+        for volume in service.get("volumes", ()):
+            source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
+            assert source not in {"agent-state", "agent-locks"}, name
+    assert compose["networks"]["database"]["internal"] is True
+    native = (ROOT / "packages/onlyalpha-http-server/rust/human_access.rs").read_text()
+    assert '"/internal"' in native and '"/api/v2/agent"' in native
+    assert "Err(Error::Forbidden)" in native
     web_root = ROOT / "packages/onlyalpha-web-console/src"
     assert "/internal/v1/" not in "\n".join(path.read_text(encoding="utf-8") for path in web_root.rglob("*.ts"))
 
 
-def test_canonical_agent_deployment_selects_integration_revision() -> None:
-    """The canonical dev compose agent runs the INTEGRATION_REVISION authority path.
-
-    This pins the node_main configuration fencing at the deployment topology: the
-    agent command must carry the complete bootstrap configuration plus the complete
-    integration-model configuration (including the explicit dev-only insecure
-    transport exception for the plain-HTTP internal compose network) and must carry
-    no LEGACY model flag. A healthy agent container in this mode is therefore real
-    evidence of ``compose_from_integration`` -> ``admit_new`` startup against the
-    runtime authority rather than a static legacy endpoint.
-    """
-
+def test_retained_agent_configuration_requires_explicit_integration_revision_boundary() -> None:
+    """Reference CLI declarations do not imply a currently deployed Agent service."""
     compose = yaml.safe_load((ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8"))
-    command = compose["services"]["agent"]["command"]
-    assert command[command.index("--model-configuration-mode") + 1] == "INTEGRATION_REVISION"
-    assert "LEGACY" not in command
-    for legacy_flag in ("--model-api-url", "--model-token-file"):
-        assert legacy_flag not in command
+    assert "agent" not in compose["services"]
+    path = ROOT / "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator/node_main.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    arguments = {
+        node.args[0].value: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_argument"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+    }
+    mode = arguments["--model-configuration-mode"]
+    keywords = {item.arg: ast.literal_eval(item.value) for item in mode.keywords}
+    assert keywords == {"choices": ("LEGACY", "INTEGRATION_REVISION"), "required": True}
     for required_flag in (
         "--product-api-url",
         "--product-api-contract",
@@ -292,11 +291,25 @@ def test_canonical_agent_deployment_selects_integration_revision() -> None:
         "--model-profile-file",
         "--allow-insecure-runtime-authority-transport",
     ):
-        assert required_flag in command
-    authority_url = command[command.index("--integration-runtime-authority-url") + 1]
-    assert authority_url == "http://api:8000/internal/v1/agent-provider-runtime"
-    contract_path = command[command.index("--product-api-contract") + 1]
-    assert contract_path == "/workspace/contracts/product-api/v2/openapi.json"
+        assert required_flag in arguments
+    integration = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Attribute)
+        and node.test.left.attr == "model_configuration_mode"
+        and any(
+            isinstance(value, ast.Constant) and value.value == "INTEGRATION_REVISION" for value in node.test.comparators
+        )
+    )
+    body = ast.unparse(ast.Module(body=integration.body, type_ignores=[]))
+    assert "compose_from_integration(" in body
+    assert "OnlyHttpAgentProviderRuntimeAuthorityV1(" in body
+    assert "OnlyProductApiEndpointConfigV1(" in ast.unparse(tree)
+    assert "legacy_model_configuration" in body and "CONFIGURATION_MODE_CONFLICT" in body
+    assert "AGENT_CONFIGURATION_INCOMPLETE" in body
+    assert "AGENT_UNSUPPORTED_REPLICA_COUNT" in ast.unparse(tree)
 
 
 def test_legacy_agent_deployment_is_documented_explicit_compatibility_only() -> None:
@@ -775,21 +788,12 @@ def test_external_io_permit_is_minted_only_after_prepared_execution_validation()
     assert adapter_invoke_calls == {"execution.py"}
 
 
-def test_search_http_projection_is_transport_only_and_search_semantics_do_not_reverse_depend() -> None:
+def test_search_http_projection_is_retired_and_search_semantics_do_not_reverse_depend() -> None:
     search_core = ROOT / "src/onlyalpha/research/search"
     for path in search_core.rglob("*.py"):
         assert "onlyalpha_http_server" not in path.read_text(encoding="utf-8"), path
-
     search_http = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/search"
-    source = "\n".join(path.read_text(encoding="utf-8") for path in search_http.rglob("*.py"))
-    assert "OnlyResearchProductBoundary" in source
-    for forbidden in (
-        "onlyalpha.persistence",
-        "OnlyPostgres",
-        "psycopg",
-        "sqlalchemy",
-        "DIRECT_DATABASE",
-        "onlyalpha.broker",
-        "onlyalpha.runtime.live",
-    ):
-        assert forbidden not in source
+    assert not tuple(search_http.rglob("*.py"))
+    native = (ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text()
+    assert "Some(crate::routes::Operation::Deferred)" in native
+    assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in native

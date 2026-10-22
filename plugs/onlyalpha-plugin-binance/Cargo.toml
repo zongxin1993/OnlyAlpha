@@ -1,0 +1,28 @@
+[package]
+name = "onlyalpha-plugin-binance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+[lib]
+path = "rust/lib.rs"
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+onlyalpha-integration-contract = { path = "../../packages/onlyalpha-integration-contract" }
+onlyalpha-metadata-json = { path = "../../packages/onlyalpha-metadata-json" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }
+http = { version = "=1.5.0", default-features = false, features = ["std"] }
+
+# Public market REST: maintained TLS/HTTP, no redirects/proxy/retry or defaults.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "__rustls-tls"] }
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }

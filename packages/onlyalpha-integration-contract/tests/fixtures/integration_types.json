@@ -1,0 +1,503 @@
+[
+  {
+    "document": {
+      "schema_version": 1,
+      "type_id": "controlled.data_source",
+      "category": "DATA_SOURCE",
+      "display_name": "受控组件",
+      "description": "Static independent public SPI vectors.",
+      "provider_id": "controlled-provider",
+      "implementation_id": "controlled.component",
+      "implementation_version": "1.0.0",
+      "public_api_version": "1.0",
+      "capabilities": [
+        "HISTORICAL_BARS",
+        "PAGINATION:CURSOR"
+      ],
+      "configuration_contract": {
+        "schema_version": 1,
+        "fields": [
+          {
+            "field_id": "api_key",
+            "value_kind": "STRING",
+            "required": true,
+            "default": null,
+            "secret": true,
+            "advanced": false,
+            "display_name": "API key",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "choice",
+            "value_kind": "ENUM",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Choice",
+            "description": "",
+            "enum_values": [
+              "a",
+              "b"
+            ],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "count",
+            "value_kind": "INTEGER",
+            "required": true,
+            "default": 5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Count",
+            "description": "",
+            "enum_values": [],
+            "minimum": 1,
+            "maximum": 10,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "delay",
+            "value_kind": "DURATION",
+            "required": false,
+            "default": 2.0,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Delay",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": null,
+            "exclusive_minimum": true
+          },
+          {
+            "field_id": "flag",
+            "value_kind": "BOOLEAN",
+            "required": false,
+            "default": true,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Flag",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "path",
+            "value_kind": "PATH",
+            "required": false,
+            "default": "/tmp/input",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Path",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "ratio",
+            "value_kind": "NUMBER",
+            "required": false,
+            "default": 1.5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Ratio",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": 5,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "text",
+            "value_kind": "STRING",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Text",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "weights",
+            "value_kind": "STRING_INTEGER_MAP",
+            "required": false,
+            "default": null,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Weights",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          }
+        ],
+        "fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc"
+      },
+      "probe_contract": {
+        "probe_version": 1,
+        "probe_mode": "DEFAULT_INSTRUMENT",
+        "default_probe_instrument": "BTCUSDT",
+        "user_selectable_probe_instrument": true,
+        "probe_checks": [
+          "CONNECTIVITY",
+          "HISTORICAL_DATA",
+          "REFERENCE_DATA"
+        ],
+        "fingerprint": "b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964"
+      }
+    },
+    "fingerprint": "f282bf95e4ce7bbc63ae47cb69e4836729985c3d2be943ff1b65c0497d238c91",
+    "configuration_fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc",
+    "probe_fingerprint": "b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964"
+  },
+  {
+    "document": {
+      "schema_version": 1,
+      "type_id": "controlled.broker",
+      "category": "BROKER",
+      "display_name": "受控组件",
+      "description": "Static independent public SPI vectors.",
+      "provider_id": "controlled-provider",
+      "implementation_id": "controlled.component",
+      "implementation_version": "1.0.0",
+      "public_api_version": "1.0",
+      "capabilities": [
+        "HISTORICAL_BARS",
+        "PAGINATION:CURSOR"
+      ],
+      "configuration_contract": {
+        "schema_version": 1,
+        "fields": [
+          {
+            "field_id": "api_key",
+            "value_kind": "STRING",
+            "required": true,
+            "default": null,
+            "secret": true,
+            "advanced": false,
+            "display_name": "API key",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "choice",
+            "value_kind": "ENUM",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Choice",
+            "description": "",
+            "enum_values": [
+              "a",
+              "b"
+            ],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "count",
+            "value_kind": "INTEGER",
+            "required": true,
+            "default": 5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Count",
+            "description": "",
+            "enum_values": [],
+            "minimum": 1,
+            "maximum": 10,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "delay",
+            "value_kind": "DURATION",
+            "required": false,
+            "default": 2.0,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Delay",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": null,
+            "exclusive_minimum": true
+          },
+          {
+            "field_id": "flag",
+            "value_kind": "BOOLEAN",
+            "required": false,
+            "default": true,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Flag",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "path",
+            "value_kind": "PATH",
+            "required": false,
+            "default": "/tmp/input",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Path",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "ratio",
+            "value_kind": "NUMBER",
+            "required": false,
+            "default": 1.5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Ratio",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": 5,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "text",
+            "value_kind": "STRING",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Text",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "weights",
+            "value_kind": "STRING_INTEGER_MAP",
+            "required": false,
+            "default": null,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Weights",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          }
+        ],
+        "fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc"
+      },
+      "probe_contract": {
+        "probe_version": 1,
+        "probe_mode": "DEFAULT_INSTRUMENT",
+        "default_probe_instrument": "BTCUSDT",
+        "user_selectable_probe_instrument": false,
+        "probe_checks": [
+          "CONNECTIVITY",
+          "HISTORICAL_DATA",
+          "REFERENCE_DATA"
+        ],
+        "fingerprint": "f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72"
+      }
+    },
+    "fingerprint": "31b2d8396ffe4b4a25438dce34efb3dda160de05b67d11aa05bc5ac7813d4fa3",
+    "configuration_fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc",
+    "probe_fingerprint": "f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72"
+  },
+  {
+    "document": {
+      "schema_version": 1,
+      "type_id": "controlled.agent_provider",
+      "category": "AGENT_PROVIDER",
+      "display_name": "受控组件",
+      "description": "Static independent public SPI vectors.",
+      "provider_id": "controlled-provider",
+      "implementation_id": "controlled.component",
+      "implementation_version": "1.0.0",
+      "public_api_version": "1.0",
+      "capabilities": [
+        "HISTORICAL_BARS",
+        "PAGINATION:CURSOR"
+      ],
+      "configuration_contract": {
+        "schema_version": 1,
+        "fields": [
+          {
+            "field_id": "api_key",
+            "value_kind": "STRING",
+            "required": true,
+            "default": null,
+            "secret": true,
+            "advanced": false,
+            "display_name": "API key",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "choice",
+            "value_kind": "ENUM",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Choice",
+            "description": "",
+            "enum_values": [
+              "a",
+              "b"
+            ],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "count",
+            "value_kind": "INTEGER",
+            "required": true,
+            "default": 5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Count",
+            "description": "",
+            "enum_values": [],
+            "minimum": 1,
+            "maximum": 10,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "delay",
+            "value_kind": "DURATION",
+            "required": false,
+            "default": 2.0,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Delay",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": null,
+            "exclusive_minimum": true
+          },
+          {
+            "field_id": "flag",
+            "value_kind": "BOOLEAN",
+            "required": false,
+            "default": true,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Flag",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "path",
+            "value_kind": "PATH",
+            "required": false,
+            "default": "/tmp/input",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Path",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "ratio",
+            "value_kind": "NUMBER",
+            "required": false,
+            "default": 1.5,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Ratio",
+            "description": "",
+            "enum_values": [],
+            "minimum": 0,
+            "maximum": 5,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "text",
+            "value_kind": "STRING",
+            "required": true,
+            "default": "a",
+            "secret": false,
+            "advanced": false,
+            "display_name": "Text",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          },
+          {
+            "field_id": "weights",
+            "value_kind": "STRING_INTEGER_MAP",
+            "required": false,
+            "default": null,
+            "secret": false,
+            "advanced": false,
+            "display_name": "Weights",
+            "description": "",
+            "enum_values": [],
+            "minimum": null,
+            "maximum": null,
+            "exclusive_minimum": false
+          }
+        ],
+        "fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc"
+      },
+      "probe_contract": {
+        "probe_version": 1,
+        "probe_mode": "DEFAULT_INSTRUMENT",
+        "default_probe_instrument": "BTCUSDT",
+        "user_selectable_probe_instrument": false,
+        "probe_checks": [
+          "CONNECTIVITY",
+          "HISTORICAL_DATA",
+          "REFERENCE_DATA"
+        ],
+        "fingerprint": "f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72"
+      }
+    },
+    "fingerprint": "0d89b8f947000a5d5bc1becd2a76d144c28f43d0f0077f547583004dc97c972e",
+    "configuration_fingerprint": "837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc",
+    "probe_fingerprint": "f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72"
+  }
+]

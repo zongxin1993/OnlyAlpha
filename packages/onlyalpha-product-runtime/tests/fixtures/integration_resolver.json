@@ -1,0 +1,844 @@
+[
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "67f339e92b1978b47bf11302b4281fc316202f61006762dc897708ab9f8998d2",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "fe415a442666f49235a9923eafe89b002b100d7bc3a7b6e594d150f823fc3294",
+      "revision_fingerprint": "21bf8f4943fc7ea5f5a2c1fa55e372664fe99d86edbe36aba3a18bb6faa4d418",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"count\":7,\"ratio\":1.0,\"weights\":{\"$serde_json::private::Number\":1,\"x\":100000000000000000000000000000000000000000000000000}}",
+    "probe": "{}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"count\":7,\"ratio\":1,\"weights\":{\"$serde_json::private::Number\":1,\"x\":100000000000000000000000000000000000000000000000000}}",
+      "probe": "{}"
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":7,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1,\"text\":\"a\",\"weights\":{\"$serde_json::private::Number\":1,\"x\":100000000000000000000000000000000000000000000000000}}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "6e0de8a4e24b0b29325f38c519ec9313f00ca6fef3de12788bf99d144955cbc2",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "d20079a05ff7dcb69e5669dc93918e43b3a690a7faee92ada8ec3b9119c6865f",
+      "revision_fingerprint": "51268b3b61d4a19b94bcfd3a8a247a2aa4a3c8db8dd7d6382124b48f7d974cf7",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":-0.0,\"weights\":{\"$serde_json::private::RawValue\":2}}",
+    "probe": "{\"instrument\":null}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":0,\"weights\":{\"$serde_json::private::RawValue\":2}}",
+      "probe": "{}"
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":0,\"text\":\"a\",\"weights\":{\"$serde_json::private::RawValue\":2}}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "b1fdff5b6d50bf0e77e0353d61f8f0037d758265e221f4d32384995f496ddf0f",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "1077b60718325ff2b977354963a77d62bc5a33e0e182ab5afe0612e6b571a043",
+      "revision_fingerprint": "72da31d7471dcba9e9827db9bf9cd3a9ee973c7684fdd3e991fd3e02a4fb31cc",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"choice\":\"b\",\"flag\":false,\"text\":\"中\\u0000文\"}",
+    "probe": "{\"instrument\":\"ETHUSDT\"}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"choice\":\"b\",\"flag\":false,\"text\":\"中\\u0000文\"}",
+      "probe": "{\"instrument\":\"ETHUSDT\"}"
+    },
+    "publication": {
+      "public": "{\"choice\":\"b\",\"count\":5,\"delay\":2,\"flag\":false,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"中\\u0000文\"}",
+      "probe": "{\"instrument\":\"ETHUSDT\"}",
+      "configuration_fingerprint": "175ce973091030268b7718db31442a3c16493ab84c390af99323324bdab6e779",
+      "probe_fingerprint": "3d88128375f754cfc0ace8c42c8a6f272d9a9c84d882945c90f5bf8b788428c0",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "f76881073d28b5419ebd6d7ef1b1377ec05ce3bde5c3e83f5e28157a0b392569",
+      "revision_fingerprint": "9d005c92769574de937010f0e7c24347b089d00b0defb50c992bf824d3ef0da0",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"unknown\":1}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"api_key\":\"controlled-test-only\"}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":\"1.5\"}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"count\":1.0}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"weights\":{\"x\":1.0}}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"weights\":{\"\":1}}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":6}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"delay\":0}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"choice\":\"c\"}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"other\":1}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"instrument\":true}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"instrument\":\" \"}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "error": "INTEGRATION_SECRET_REQUIRED"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      },
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "error": "INTEGRATION_SECRET_BINDING_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "text",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "error": "INTEGRATION_SECRET_BINDING_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "unknown",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "error": "INTEGRATION_SECRET_BINDING_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"c04e494983513d8a288462aaef46d6469087d9af99a67973c1b21bbd9f72f605\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "error": "INTEGRATION_CONFIGURATION_INCOMPLETE"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"4d2c1107c687ec3c320926d6e9d5ceef9cc8d574828f51badf10c684555f2da2\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "67f339e92b1978b47bf11302b4281fc316202f61006762dc897708ab9f8998d2",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "runtime_fingerprint": "2dd7a5487e2b15a3ce2ad1b1a492b9b0ae5fdc03542aef93325b12ddbd8b5b84",
+      "revision_fingerprint": "95e9bb3a0177ddcd4e2fe075cdd6ce81b4a94d0fd213b489aac932e1ea184f11",
+      "bindings": []
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":null,\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": null,
+      "configuration_fingerprint": "67f339e92b1978b47bf11302b4281fc316202f61006762dc897708ab9f8998d2",
+      "probe_fingerprint": null,
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "9a09129c06f57fd9f5360b2f82985366ff025441530b7e7273410f80d1818de3",
+      "revision_fingerprint": "449ff20cf56026595721ae48ad8fe042f541d6ff8b318dc35b55ed4e2c1134de",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":null,\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"instrument\":\"BTCUSDT\"}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":false},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"instrument\":\"ETHUSDT\"}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    },
+    "publication": {
+      "error": "INTEGRATION_PROBE_CONFIGURATION_INVALID"
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"f7f06fb4660a18ea524ba404bec831a88e8a88c56c94b15e92ff8974a691fe72\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":false},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": "{\"instrument\":\"BTCUSDT\"}",
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}"
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "67f339e92b1978b47bf11302b4281fc316202f61006762dc897708ab9f8998d2",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "191636c4e748aa1e72dfff77d2d6adf88e4e588dc637d90bf0053fbd497e226d",
+      "revision_fingerprint": "3cf0fd95040a06ec5e8c85bf1d2f5f0a22b2b9596b3ee9fa1f8d812c3d61fab0",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"fe45e11d94fea1325593e66f30563ee9effc4542af2bdfcac0bc542c341c1803\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":1e+308}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":100000000000000001097906362944045541740492309677311846336810682903157585404911491537163328978494688899061249669721172515611590283743140088328307009198146046031271664502933027185697489699588559043338384466165001178426897626212945177628091195786707458122783970171784415105291802893207873272974885715430223118336}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":100000000000000001097906362944045541740492309677311846336810682903157585404911491537163328978494688899061249669721172515611590283743140088328307009198146046031271664502933027185697489699588559043338384466165001178426897626212945177628091195786707458122783970171784415105291802893207873272974885715430223118336,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "4add35524a20f0ef41e3e8e1f9041a9f5bc52b6430a8bece0a20f8fa4a611d41",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "20dfba3bdd46193c3ddb14e4c4da1286fef80f254caab32f086f8aa9dfeaaaa0",
+      "revision_fingerprint": "95b6a751377721a15458bcce58b064f587f0802eed1012fd5d4151a5e0ecdef0",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":null,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"18845a04e64dbe6a483d182d0735c139edc058e45c6079241b90edc7f73e0ae3\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"count\":1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"count\":1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "c93c50087bc59bfc4f0155f5313132dfce11500b74e07627e20edd015dcebbf7",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "bfb2de32d69ef229026bc130af6b2ffe608b31074680610114af77682bb91fa7",
+      "revision_fingerprint": "9db4fc311ce8a5808a403248d0a727737d34a782488f81c63bcc0f8dccf79a9c",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"837c6253adee33c70e382acc3eff40c1f30cadb8661b31a5cbc20410354633fc\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":1e-30}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":1e-30}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1e-30,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "8f7203170f818aab5248df823699b6b727cfa52dfa8ee9100e0cb674603f0faf",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "27dfbd91b76fd7f99939b7b53a3bda8fe644d0ccec1911e5b74d86ed14418dba",
+      "revision_fingerprint": "7078bbbb2ec53f28935e4e36195ca5d4bdbd08a6500e0649842ccac2cabb175d",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Extra key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"extra_key\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":5,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"077fbc4fd841262ca9712b1c5397353dee660dac9f20b6f685aa9ba55a767f24\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "extra_key",
+        "credential_id": "0926c6a2-0cb8-47a5-8d94-cdb89b336182",
+        "credential_generation": 1
+      },
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1.5,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "67f339e92b1978b47bf11302b4281fc316202f61006762dc897708ab9f8998d2",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "9462a64e708fe92559f308091492a29adf467866a5fc5174ff9e69e491f99a8a",
+      "runtime_fingerprint": "4678713ff48d1a4f92fbe366639fec65d27e3dc5cbb2c9faf61b5f0fde0b1466",
+      "revision_fingerprint": "f390ec09ea286bcb129a702f44692dee6cf1aad36352d7eaa4edbbe76ab1c722",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        },
+        {
+          "field_id": "extra_key",
+          "credential_id": "0926c6a2-0cb8-47a5-8d94-cdb89b336182",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"fe45e11d94fea1325593e66f30563ee9effc4542af2bdfcac0bc542c341c1803\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":9007199254740993.0}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":9007199254740992}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":9007199254740992,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "3c2a8b2f54a77a3e0b9ef9da6043d353901b8051068864b34f0a4076666eae61",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "81f9f9c39a7a841f46f8a077d62aba09ed91f66664fab64d18901d6bd5ac27ed",
+      "revision_fingerprint": "04db1f98b9af13d157660be9cd975edfd703b429d0a8bbb4fe348798287a3130",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"fe45e11d94fea1325593e66f30563ee9effc4542af2bdfcac0bc542c341c1803\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":9007199254740995.0}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":9007199254740996}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":9007199254740996,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "0b67fdafabc44c1a2af0bf3c88fa04c7eae4a37457458c4e14e4d4cce295168a",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "30e8e38ef7323a4dd2a4241ec8dea9baa5a5e7b353f4fdb78a8a66224be7fb90",
+      "revision_fingerprint": "7173dfbb323983ccabff3210229084c9468e5e5e1be48e5e8639a7122cc454f6",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"fe45e11d94fea1325593e66f30563ee9effc4542af2bdfcac0bc542c341c1803\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":0.99999999999999995}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":1}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "35eeb05794b81f2272d084a89e1689d0b1d441dd56fe34ce9d6dff9c6cc6e761",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "93405256e11ab124ab6c0c5aba69565b0983e1110245eca115a05be74bb92b63",
+      "revision_fingerprint": "a164aca669c75f8a345c9ef41ca475152fd5c0bed07bffe833cabf77f28a0e11",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  },
+  {
+    "descriptor": "{\"capabilities\":[\"HISTORICAL_BARS\",\"PAGINATION:CURSOR\"],\"category\":\"DATA_SOURCE\",\"configuration_contract\":{\"fields\":[{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"API key\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"api_key\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":true,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Choice\",\"enum_values\":[\"a\",\"b\"],\"exclusive_minimum\":false,\"field_id\":\"choice\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"ENUM\"},{\"advanced\":false,\"default\":5,\"description\":\"\",\"display_name\":\"Count\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"count\",\"maximum\":10,\"minimum\":1,\"required\":true,\"secret\":false,\"value_kind\":\"INTEGER\"},{\"advanced\":false,\"default\":2.0,\"description\":\"\",\"display_name\":\"Delay\",\"enum_values\":[],\"exclusive_minimum\":true,\"field_id\":\"delay\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"DURATION\"},{\"advanced\":false,\"default\":true,\"description\":\"\",\"display_name\":\"Flag\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"flag\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"BOOLEAN\"},{\"advanced\":false,\"default\":\"/tmp/input\",\"description\":\"\",\"display_name\":\"Path\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"path\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"PATH\"},{\"advanced\":false,\"default\":1.5,\"description\":\"\",\"display_name\":\"Ratio\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"ratio\",\"maximum\":null,\"minimum\":0,\"required\":false,\"secret\":false,\"value_kind\":\"NUMBER\"},{\"advanced\":false,\"default\":\"a\",\"description\":\"\",\"display_name\":\"Text\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"text\",\"maximum\":null,\"minimum\":null,\"required\":true,\"secret\":false,\"value_kind\":\"STRING\"},{\"advanced\":false,\"default\":null,\"description\":\"\",\"display_name\":\"Weights\",\"enum_values\":[],\"exclusive_minimum\":false,\"field_id\":\"weights\",\"maximum\":null,\"minimum\":null,\"required\":false,\"secret\":false,\"value_kind\":\"STRING_INTEGER_MAP\"}],\"fingerprint\":\"fe45e11d94fea1325593e66f30563ee9effc4542af2bdfcac0bc542c341c1803\",\"schema_version\":1},\"description\":\"Static independent public SPI vectors.\",\"display_name\":\"受控组件\",\"implementation_id\":\"controlled.component\",\"implementation_version\":\"1.0.0\",\"probe_contract\":{\"default_probe_instrument\":\"BTCUSDT\",\"fingerprint\":\"b1f977003c7ae3d7dfe8d2de02b263ac80a4a0f2cef532ea1cb093b23b463964\",\"probe_checks\":[\"CONNECTIVITY\",\"HISTORICAL_DATA\",\"REFERENCE_DATA\"],\"probe_mode\":\"DEFAULT_INSTRUMENT\",\"probe_version\":1,\"user_selectable_probe_instrument\":true},\"provider_id\":\"controlled-provider\",\"public_api_version\":\"1.0\",\"schema_version\":1,\"type_id\":\"controlled.data_source\"}",
+    "public": "{\"ratio\":1.00000000000000011102230246251565404236316680908203125}",
+    "probe": null,
+    "bindings": [
+      {
+        "field_id": "api_key",
+        "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+        "credential_generation": 1
+      }
+    ],
+    "draft": {
+      "public": "{\"ratio\":1}",
+      "probe": null
+    },
+    "publication": {
+      "public": "{\"choice\":\"a\",\"count\":5,\"delay\":2,\"flag\":true,\"path\":\"/tmp/input\",\"ratio\":1,\"text\":\"a\"}",
+      "probe": "{\"instrument\":\"BTCUSDT\"}",
+      "configuration_fingerprint": "35eeb05794b81f2272d084a89e1689d0b1d441dd56fe34ce9d6dff9c6cc6e761",
+      "probe_fingerprint": "ccfd6e724679805702a99e96a0e5825b61be2ee5142122531be585d2f823c76d",
+      "binding_fingerprint": "fed89e0f311c0dfe645679a254221900e0084c477e542c87bf994dbb0be1794f",
+      "runtime_fingerprint": "93405256e11ab124ab6c0c5aba69565b0983e1110245eca115a05be74bb92b63",
+      "revision_fingerprint": "a164aca669c75f8a345c9ef41ca475152fd5c0bed07bffe833cabf77f28a0e11",
+      "bindings": [
+        {
+          "field_id": "api_key",
+          "credential_id": "ba13b6b1-af9a-450f-833d-48f5002297dc",
+          "credential_generation": 1
+        }
+      ]
+    }
+  }
+]

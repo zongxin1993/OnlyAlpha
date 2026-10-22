@@ -1,3 +1,7 @@
+/** Immutable evidence/renderer format readers are independent of current HTTP capabilities.
+ * The active calculation catalog alone is checked against the native generated API.
+ * These retained validators do not advertise deferred endpoints or provide a fallback.
+ */
 import { z } from "zod";
 import type { components } from "./generated";
 
@@ -15,12 +19,6 @@ const strictlyIncreasing = (values: readonly bigint[]): boolean =>
     });
 const calculationDataType = z.enum(["DECIMAL", "INTEGER", "BOOLEAN", "STRING"]);
 const calculationKind = z.enum(["INDICATOR", "FACTOR", "TARGET"]);
-const universeKind = z.enum([
-    "SINGLE_INSTRUMENT",
-    "EXPLICIT_INSTRUMENT_SET",
-    "REGISTERED_POOL",
-    "REGISTERED_UNIVERSE"
-]);
 
 const referenceSchema = z.strictObject({
     calculation_fingerprint: sha256,
@@ -54,7 +52,7 @@ export const statisticsDescriptorSchema = z.strictObject({
     feature: referenceSchema,
     target: referenceSchema,
     definition: definitionSchema
-}) satisfies z.ZodType<Dto<"ResearchStatisticsDescriptorDto">>;
+});
 
 export const artifactSummarySchema = z
     .strictObject({
@@ -82,20 +80,20 @@ export const artifactSummarySchema = z
             value.instrument_ids.join("\0") !== [...value.instrument_ids].sort().join("\0")
         )
             context.addIssue({ code: "custom", message: "Instrument membership is not canonical" });
-    }) satisfies z.ZodType<Dto<"ResearchArtifactSummaryDto">>;
+    });
 
 export const statisticsCatalogSchema = z.strictObject({
     schema_version: z.literal(2),
     research_result_fingerprint: sha256,
     statistics: z.array(statisticsDescriptorSchema)
-}) satisfies z.ZodType<Dto<"ResearchStatisticsCatalogDto">>;
+});
 
 export const statisticPointSchema = z.strictObject({
     ts_event_ns: integer,
     statistic_value: decimal.nullable(),
     sample_count: nonnegative,
     status: z.string().min(1)
-}) satisfies z.ZodType<Dto<"ResearchStatisticPointDto">>;
+});
 
 export const statisticSeriesPageSchema = z
     .strictObject({
@@ -124,7 +122,7 @@ export const statisticSeriesPageSchema = z
             (expected !== undefined && value.next_after_ts_event_ns !== expected)
         )
             context.addIssue({ code: "custom", message: "Statistics cursor mismatch" });
-    }) satisfies z.ZodType<Dto<"ResearchStatisticSeriesPageDto">>;
+    });
 
 const researchCandidateSchema = z
     .strictObject({
@@ -187,7 +185,7 @@ export const researchCandidateCatalogSchema = z
         const identities = value.candidates.map((candidate) => candidate.candidate_fingerprint);
         if (new Set(identities).size !== identities.length)
             context.addIssue({ code: "custom", message: "Candidate membership is duplicated" });
-    }) satisfies z.ZodType<Dto<"ResearchCandidateCatalogDto">>;
+    });
 
 export const researchPublishedSeriesCatalogSchema = z
     .strictObject({
@@ -217,7 +215,7 @@ export const researchPublishedSeriesCatalogSchema = z
                 code: "custom",
                 message: "Published Series membership is duplicated"
             });
-    }) satisfies z.ZodType<Dto<"ResearchPublishedSeriesCatalogDto">>;
+    });
 
 const marketPointSchema = z.strictObject({
     instrument_id: z.string().min(1),
@@ -281,7 +279,7 @@ export const researchScientificSeriesPageSchema = z
             (expected !== undefined && value.next_after_ts_event_ns !== expected)
         )
             context.addIssue({ code: "custom", message: "Scientific cursor mismatch" });
-    }) satisfies z.ZodType<Dto<"ResearchScientificSeriesPageDto">>;
+    });
 
 const graphScalarSchema = z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("NULL"), value: z.null() }),
@@ -310,38 +308,50 @@ const graphReferenceSchema = z
     .refine((value) => (value.node_fingerprint === null) !== (value.source === null), {
         message: "Graph input must select exactly one node or external source"
     });
-const graphDefinitionSchema = z.strictObject({
-    schema_version: z.literal(2),
-    kind: z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]),
-    type_id: z.string().min(1),
-    semantic_version: z.string().min(1),
-    parameters: z.record(z.string(), graphScalarSchema),
-    inputs: z.array(graphPortSchema),
-    input_bindings: z.record(z.string(), graphReferenceSchema),
-    outputs: z.array(graphPortSchema).min(1),
-    warmup: z.strictObject({
-        minimum_observations: positive,
-        ready_condition: z.string().min(1),
-        pre_ready_output: z.enum(["NULL", "PARTIAL"]),
-        initialization: z.string().min(1)
-    }),
-    missing_values: z.enum(["FAIL", "SKIP", "PROPAGATE", "RESET"]),
-    timestamp: z.enum([
-        "BAR_OPEN",
-        "BAR_CLOSE",
-        "EVENT_TIME",
-        "OBSERVATION_TIME",
-        "AVAILABILITY_TIME"
-    ]),
-    numeric: z.strictObject({
-        representation: z.string().min(1),
-        precision: positive,
-        output_quantum: decimal.nullable(),
-        rounding: z.string().min(1)
-    }),
-    factor_kind: z.enum(["TIME_SERIES", "CROSS_SECTION"]).nullable(),
-    extensions: z.record(z.string(), graphScalarSchema)
-});
+const graphDefinitionSchema = z
+    .strictObject({
+        schema_version: z.literal(2),
+        kind: z.enum(["INDICATOR", "FACTOR", "TARGET", "PREDICATE"]),
+        type_id: z.string().min(1),
+        semantic_version: z.string().min(1),
+        parameters: z.record(z.string(), graphScalarSchema),
+        inputs: z.array(graphPortSchema),
+        input_bindings: z.record(z.string(), graphReferenceSchema),
+        outputs: z.array(graphPortSchema).min(1),
+        warmup: z.strictObject({
+            minimum_observations: positive,
+            ready_condition: z.string().min(1),
+            pre_ready_output: z.enum(["NULL", "PARTIAL"]),
+            initialization: z.string().min(1)
+        }),
+        missing_values: z.enum(["FAIL", "SKIP", "PROPAGATE", "RESET"]),
+        timestamp: z.enum([
+            "BAR_OPEN",
+            "BAR_CLOSE",
+            "EVENT_TIME",
+            "OBSERVATION_TIME",
+            "AVAILABILITY_TIME"
+        ]),
+        numeric: z.strictObject({
+            representation: z.string().min(1),
+            precision: positive,
+            output_quantum: decimal.nullable(),
+            rounding: z.string().min(1)
+        }),
+        factor_kind: z.enum(["TIME_SERIES", "CROSS_SECTION"]).nullable(),
+        extensions: z.record(z.string(), graphScalarSchema)
+    })
+    .superRefine((value, context) => {
+        const inputs = value.inputs.map((port) => port.name);
+        const outputs = value.outputs.map((port) => port.name);
+        if (new Set(inputs).size !== inputs.length || new Set(outputs).size !== outputs.length)
+            context.addIssue({ code: "custom", message: "Graph ports must be unique" });
+        if ((value.kind === "FACTOR") !== (value.factor_kind !== null))
+            context.addIssue({
+                code: "custom",
+                message: "Graph factor_kind does not match calculation kind"
+            });
+    });
 const calculationGraphSchema = z
     .strictObject({
         schema_version: z.literal(1),
@@ -378,7 +388,7 @@ export const researchCandidateGraphSchema = z.strictObject({
     calculation_fingerprint: sha256,
     graph_fingerprint: sha256,
     graph: calculationGraphSchema
-}) satisfies z.ZodType<Dto<"ResearchCandidateGraphDto">>;
+});
 
 export const researchErrorSchema = z.strictObject({
     schema_version: z.literal(2),
@@ -394,7 +404,7 @@ export const researchErrorSchema = z.strictObject({
         "SERIES_NOT_FOUND"
     ]),
     detail: z.string().min(1)
-}) satisfies z.ZodType<Dto<"ResearchErrorDto">>;
+});
 
 const uuid4 = z
     .string()
@@ -430,26 +440,24 @@ const runSummaryShape = {
     failure: runFailureSchema.nullable()
 } as const;
 
-export const researchRunSummarySchema = z.strictObject(runSummaryShape) satisfies z.ZodType<
-    Dto<"ResearchRunSummaryDto">
->;
+export const researchRunSummarySchema = z.strictObject(runSummaryShape);
 
 export const researchRunSchema = z.strictObject({
     ...runSummaryShape,
     specification: z.record(z.string(), z.unknown())
-}) satisfies z.ZodType<Dto<"ResearchRunDto">>;
+});
 
 export const researchRunPageSchema = z.strictObject({
     schema_version: z.literal(2),
     runs: z.array(researchRunSummarySchema),
     has_more: z.boolean(),
     next_cursor: z.string().min(1).nullable()
-}) satisfies z.ZodType<Dto<"ResearchRunPageDto">>;
+});
 
 export const researchRunSubmissionSchema = z.strictObject({
     submission_disposition: z.enum(["CREATED", "REUSED"]),
     run: researchRunSchema
-}) satisfies z.ZodType<Dto<"SubmitResearchRunResponse">>;
+});
 
 export const researchRunErrorSchema = z.strictObject({
     error: z.strictObject({
@@ -457,12 +465,12 @@ export const researchRunErrorSchema = z.strictObject({
         code: z.string().min(1),
         detail: z.string().min(1)
     })
-}) satisfies z.ZodType<Dto<"ResearchRunErrorEnvelopeDto">>;
+});
 
 export const productErrorSchema = z.strictObject({
     schema_version: z.literal(1),
     error: runFailureSchema
-}) satisfies z.ZodType<Dto<"ProductErrorEnvelopeDto">>;
+});
 
 export const strategySchema = z.strictObject({
     schema_version: z.literal(1),
@@ -471,7 +479,7 @@ export const strategySchema = z.strictObject({
     freeze_relation_fingerprints: z.array(sha256),
     current_stage: z.string().min(1),
     promotion_records: z.array(z.record(z.string(), z.unknown()))
-}) satisfies z.ZodType<Dto<"StrategyDto">>;
+});
 
 const safeNonnegativeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
@@ -490,14 +498,14 @@ export const backtestRunSchema = z.strictObject({
     evidence_fingerprint: sha256.nullable(),
     determinism_fingerprint: sha256.nullable(),
     failure: runFailureSchema.nullable()
-}) satisfies z.ZodType<Dto<"BacktestRunDto">>;
+});
 
 const backtestEvidenceArtifactSchema = z.strictObject({
     name: z.string().min(1),
     sha256,
     size: safeNonnegativeInteger,
     media_type: z.string().min(1)
-}) satisfies z.ZodType<Dto<"BacktestEvidenceArtifactDto">>;
+});
 
 const backtestEvidenceManifestSchema = z.strictObject({
     schema_version: z.literal(1),
@@ -517,12 +525,12 @@ const backtestEvidenceManifestSchema = z.strictObject({
     determinism_fingerprint: sha256,
     artifacts: z.array(backtestEvidenceArtifactSchema),
     evidence_fingerprint: sha256
-}) satisfies z.ZodType<Dto<"BacktestEvidenceManifestDto">>;
+});
 
 export const backtestEvidenceSchema = z.strictObject({
     schema_version: z.literal(1),
     manifest: backtestEvidenceManifestSchema
-}) satisfies z.ZodType<Dto<"BacktestEvidenceDto">>;
+});
 
 export const productHealthSchema = z
     .strictObject({
@@ -530,10 +538,10 @@ export const productHealthSchema = z
         checks: z.record(z.string(), z.string()),
         reason: z.string().nullable().optional()
     })
-    .transform((value): Dto<"ResearchHealthDto"> => {
+    .transform((value) => {
         const { reason, ...body } = value;
         return reason === undefined ? body : { ...body, reason };
-    }) satisfies z.ZodType<Dto<"ResearchHealthDto">> & z.ZodType<Dto<"ProductExecutionHealthDto">>;
+    });
 
 const researchScalarSchema = z.strictObject({
     type: z.enum(["NULL", "BOOLEAN", "INTEGER", "DECIMAL", "STRING"]),
@@ -577,85 +585,6 @@ export const researchCalculationCatalogSchema = z.strictObject({
     )
 }) satisfies z.ZodType<Dto<"ResearchCalculationCatalogDto">>;
 
-export const researchDatasetFieldCatalogSchema = z.strictObject({
-    schema_version: z.literal(2),
-    dataset_fields: z.array(
-        z.strictObject({
-            source: z.string().min(1),
-            field_name: z.string().min(1),
-            data_type: calculationDataType,
-            semantic_roles: z.array(z.string().min(1)),
-            dimensions: z.array(z.string().min(1)),
-            unit: z.string().nullable()
-        })
-    )
-}) satisfies z.ZodType<Dto<"ResearchDatasetFieldCatalogDto">>;
-
-export const researchUniverseCatalogSchema = z.strictObject({
-    schema_version: z.literal(2),
-    selection_kinds: z.array(universeKind),
-    registered_universes: z.array(
-        z.strictObject({
-            registered_id: z.string().min(1),
-            kind: universeKind,
-            display_metadata: z.record(z.string(), z.unknown())
-        })
-    )
-}) satisfies z.ZodType<Dto<"ResearchUniverseCatalogDto">>;
-
-export const researchStatisticsCapabilityCatalogSchema = z.strictObject({
-    schema_version: z.literal(2),
-    statistics: z.array(
-        z.strictObject({
-            statistic_type: z.string().min(1),
-            variable_kinds: z.array(z.string().min(1)),
-            variable_semantic_roles: z.array(z.string().min(1)),
-            target_semantic_roles: z.array(z.string().min(1)),
-            target_required: z.boolean(),
-            executable: z.boolean()
-        })
-    )
-}) satisfies z.ZodType<Dto<"ResearchStatisticsCapabilityCatalogDto">>;
-
-const definitionCandidateSchema = z.strictObject({
-    ordinal: nonnegative,
-    candidate_fingerprint: sha256,
-    assignment: z.record(z.string(), researchScalarSchema),
-    calculation_fingerprint: sha256,
-    graph_fingerprint: sha256
-});
-
-export const researchDefinitionResolutionSchema = z.strictObject({
-    schema_version: z.literal(2),
-    authoring_definition_fingerprint: sha256,
-    resolved_definition_fingerprint: sha256,
-    dataset_snapshot_fingerprint: sha256,
-    specification_fingerprint: sha256,
-    resolved_dataset_definition: z.record(z.string(), z.unknown()),
-    instrument_count: positive,
-    candidate_count: positive,
-    candidates: z.array(definitionCandidateSchema),
-    published_variables: z.array(
-        z.strictObject({
-            instance_key: z.string().min(1),
-            output_name: z.string().min(1),
-            data_type: z.string().min(1),
-            semantic_type: z.string().min(1)
-        })
-    ),
-    exact_specification: z.record(z.string(), z.unknown()),
-    diagnostics: z.array(z.unknown())
-}) satisfies z.ZodType<Dto<"ResearchDefinitionResolutionDto">>;
-
-export const researchDefinitionErrorSchema = z.strictObject({
-    error: z.strictObject({
-        phase: z.string().min(1),
-        code: z.string().min(1),
-        path: z.string().min(1),
-        detail: z.string().min(1)
-    })
-}) satisfies z.ZodType<Dto<"ResearchDefinitionErrorEnvelopeDto">>;
-
 export type ArtifactSummaryTransport = z.infer<typeof artifactSummarySchema>;
 export type StatisticsCatalogTransport = z.infer<typeof statisticsCatalogSchema>;
 export type StatisticSeriesPageTransport = z.infer<typeof statisticSeriesPageSchema>;
@@ -676,101 +605,5 @@ export type BacktestRunTransport = z.infer<typeof backtestRunSchema>;
 export type BacktestEvidenceTransport = z.infer<typeof backtestEvidenceSchema>;
 export type ProductHealthTransport = z.infer<typeof productHealthSchema>;
 export type ResearchCalculationCatalogTransport = z.infer<typeof researchCalculationCatalogSchema>;
-export type ResearchDatasetFieldCatalogTransport = z.infer<
-    typeof researchDatasetFieldCatalogSchema
->;
-export type ResearchUniverseCatalogTransport = z.infer<typeof researchUniverseCatalogSchema>;
-export type ResearchStatisticsCapabilityCatalogTransport = z.infer<
-    typeof researchStatisticsCapabilityCatalogSchema
->;
-export type ResearchDefinitionResolutionTransport = z.infer<
-    typeof researchDefinitionResolutionSchema
->;
-export type ResearchDefinitionTransport = Dto<"ResearchDefinitionRequestDto">;
+// Only the active calculation catalog is checked against the served native API.
 export type ResearchCalculationCatalogItemTransport = Dto<"ResearchCalculationCatalogItemDto">;
-export type ResearchCalculationInstanceTransport = Dto<"ResearchCalculationInstanceDto">;
-export type ResearchScalarTransport = Dto<"ResearchScalarDto">;
-export type ResearchExpressionTransport =
-    | Dto<"ResearchComparisonDto">
-    | Dto<"ResearchNotDto">
-    | Dto<"ResearchAndDto">
-    | Dto<"ResearchOrDto">;
-
-export const backtestCreationContextSchema = z.strictObject({
-    schema_version: z.literal(1),
-    runtime_generation_fingerprint: sha256,
-    options: z.array(
-        z.strictObject({
-            strategy_fingerprint: sha256,
-            dataset_binding_fingerprint: sha256,
-            market_product_configuration_fingerprint: sha256,
-            base_currency: z.string().min(1),
-            instruments: z.array(z.string().min(1)).min(1),
-            start: timestamp,
-            end: timestamp,
-            row_count: safeNonnegativeInteger
-        })
-    ),
-    denied: z.array(
-        z.strictObject({ strategy_fingerprint: sha256, code: z.string(), detail: z.string() })
-    )
-});
-export const backtestCreateSchema = z.strictObject({
-    schema_version: z.literal(2),
-    backtest_run_id: uuid4,
-    runtime_generation_fingerprint: sha256,
-    strategy_fingerprint: sha256,
-    dataset_binding_fingerprint: sha256,
-    market_product_configuration_fingerprint: sha256,
-    portfolio_profile: z.strictObject({
-        profile_id: z.literal("fixed-capital"),
-        version: z.literal("1")
-    }),
-    risk_profile: z.strictObject({
-        profile_id: z.literal("default-risk"),
-        version: z.literal("1")
-    }),
-    execution_profile: z.strictObject({
-        profile_id: z.literal("virtual-next-bar"),
-        version: z.literal("1")
-    }),
-    initial_account: z.strictObject({
-        base_currency: z.string().min(1),
-        capital: z.string().regex(/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/)
-    }),
-    runtime_options: z.strictObject({
-        ordered_fact_policy: z.literal("ORDERED_FACTS_V1"),
-        order_policy: z.strictObject({
-            schema_version: z.literal(1),
-            kind: z.literal("FINITE_LONG_LIMIT"),
-            quantity: z.string().min(1),
-            entry_limit: z.string().min(1),
-            exit_limit: z.string().min(1),
-            maximum_fill_quantity: z.string().min(1),
-            round_trips: z.number().int().min(1).max(8)
-        })
-    })
-});
-export const backtestCreateResponseSchema = z.strictObject({
-    schema_version: z.literal(1),
-    backtest_run_id: uuid4,
-    state: z.string(),
-    disposition: z.enum(["CREATED", "REPLAYED"])
-});
-export const backtestCancellationSchema = z.strictObject({
-    schema_version: z.literal(1),
-    run_id: uuid4,
-    state: z.string(),
-    revision: safeNonnegativeInteger
-});
-export const backtestResultSchema = z.strictObject({
-    schema_version: z.literal(1),
-    implementation: z.enum(["RUST", "PYTHON"]),
-    runtime: z.record(z.string(), z.unknown()).nullable(),
-    result: z.record(z.string(), z.unknown())
-});
-export type BacktestCreationContextTransport = z.infer<typeof backtestCreationContextSchema>;
-export type BacktestCreateTransport = z.infer<typeof backtestCreateSchema>;
-export type BacktestCreateResponseTransport = z.infer<typeof backtestCreateResponseSchema>;
-export type BacktestCancellationTransport = z.infer<typeof backtestCancellationSchema>;
-export type BacktestResultTransport = z.infer<typeof backtestResultSchema>;

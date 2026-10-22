@@ -6,6 +6,8 @@
 - Related: PROJECT_CONSTITUTION.md; ADR 0057, 0067, 0099, 0101, 0106, 0117, 0130, 0135.
 - Implementation sequence: [Rust Kernel migration work program](../rust-kernel-migration-work-program.md).
 
+> ADR 0141 extends the owner-approved target to Rust Product/backend services while retaining isolated Python Factor/Indicator execution. Its explicit scope supersedes the backend-wide-rewrite rejection below; all constitutional and retirement safeguards remain.
+
 ## Context
 
 The owner selects Rust as the long-term implementation of stable Trading Kernel semantics, after the corresponding canonical

@@ -1,0 +1,89 @@
+[
+  {
+    "kind": "clear",
+    "version": 1,
+    "field": "api_key",
+    "fingerprint": "a94345fc52afeb1ea40b7da0693e6fcf4f68a1780e60e61482b2468e56029c86"
+  },
+  {
+    "kind": "clear",
+    "version": 1,
+    "field": "extra_key",
+    "fingerprint": "d9e2f8c27abb40a4fcf8b786a94719f0435c9168ef767cc7bf82c56a99dc9853"
+  },
+  {
+    "kind": "clear",
+    "version": 1,
+    "field": "non_declared",
+    "fingerprint": "7da75963af68e413c5e2cc94d28ec78a6d11a1336671174512caca596802bb2d"
+  },
+  {
+    "kind": "clear",
+    "version": 1,
+    "field": "INVALID.FIELD",
+    "fingerprint": "7b8cd9664db3e89c75402f3eab706288e828dfd208f5b9d71202ed7463298d58"
+  },
+  {
+    "kind": "publish",
+    "version": 1,
+    "fingerprint": "2a6528a180c863c71f84397129fe8d35a41ad8f02cb451d3d59fe2bd10c8e43b"
+  },
+  {
+    "kind": "clear",
+    "version": 3,
+    "field": "api_key",
+    "fingerprint": "bbbf14447b6fac56fb3b9f059a538c41a9a10d080729ebf51e2459282cf45d5a"
+  },
+  {
+    "kind": "clear",
+    "version": 3,
+    "field": "extra_key",
+    "fingerprint": "3b3919fb96dc817b6d3ff31fc3b2d7c274436ac58bf8b606dc799563ccf38961"
+  },
+  {
+    "kind": "clear",
+    "version": 3,
+    "field": "non_declared",
+    "fingerprint": "4d4d53bca0d8361810c58af8532841a94f30e9115d6d8e9890f2614351858742"
+  },
+  {
+    "kind": "clear",
+    "version": 3,
+    "field": "INVALID.FIELD",
+    "fingerprint": "3fc04b132aacb56bc81678301ff3bea3c1a357dac23a78e9ca2bef8506dc1170"
+  },
+  {
+    "kind": "publish",
+    "version": 3,
+    "fingerprint": "4517526ad137edd22c80fcd9dde756922fd56a4ce9f3458b9996cb358476559b"
+  },
+  {
+    "kind": "clear",
+    "version": 2147483647,
+    "field": "api_key",
+    "fingerprint": "39f2dc403dbde5b8da1f8c51e0bbe96aa2285ebd79ab1a75ffe0061553bda6f6"
+  },
+  {
+    "kind": "clear",
+    "version": 2147483647,
+    "field": "extra_key",
+    "fingerprint": "593986496fcb33ce56f00d5b86a765c678c435402321794318ab866296df299c"
+  },
+  {
+    "kind": "clear",
+    "version": 2147483647,
+    "field": "non_declared",
+    "fingerprint": "931b3280d0c300abc4a11f2a262e1b40337d2a6e62163f2ae7ee4cd635ead4f1"
+  },
+  {
+    "kind": "clear",
+    "version": 2147483647,
+    "field": "INVALID.FIELD",
+    "fingerprint": "ae18f1c118ec72e9d58a9e891fcb137f5a6fb380eae0eeeea3f77c9e3aa16171"
+  },
+  {
+    "kind": "publish",
+    "version": 2147483647,
+    "fingerprint": "6f39b8568d5c6e8d1aa4e409d21acfb3faa2d6c14590e9228581b4ea5c201590"
+  }
+]

@@ -22,7 +22,8 @@ fn resolve(
     bindings: Value,
 ) -> Result<NodeDescriptor, Box<dyn Error>> {
     let request = json!({"schema_version":1,"op":"RESOLVE","reference":{"kind":kind,"type_id":id,"semantic_version":"1"},"parameters":parameters,"input_bindings":bindings});
-    let d = StrategyNodes::resolve(worker, request.clone(), DEADLINE)?;
+    let d = StrategyNodes::resolve(worker, request.clone(), DEADLINE)
+        .map_err(|error| format!("STRATEGY_PROBE_RESOLVE {id}: {error}"))?;
     requests.insert(d.definition.fingerprint(), request);
     Ok(d)
 }
@@ -118,7 +119,8 @@ fn setup(
         cluster: "strategy-probe-cluster".parse()?,
     };
     let program = Program::new(revision, scope.clone(), &generation, &source, artifact)?;
-    let nodes = StrategyNodes::new(python.to_owned(), program.clone(), requests, DEADLINE)?;
+    let nodes = StrategyNodes::new(python.to_owned(), program.clone(), requests, DEADLINE)
+        .map_err(|error| format!("STRATEGY_PROBE_CREATE: {error}"))?;
     let strategy = Executor::new(program, nodes)?;
     let calendar = Arc::new(OnlyTradingCalendar::new(OnlyTradingCalendarInput {
         calendar_id: "probe-calendar".parse()?,
@@ -248,7 +250,7 @@ pub fn run(python: &Path, artifact: &str, base: &Value) -> Result<(), Box<dyn Er
             .is_err()
     );
     assert_eq!(before, restored.capture_checkpoint()?);
-    original.strategy().port().cancellation()?.cancel();
+    original.strategy().port().cancellation()?.cancel()?;
     assert!(
         original
             .process(&input(&super::data(base, 7)?[6], 7))

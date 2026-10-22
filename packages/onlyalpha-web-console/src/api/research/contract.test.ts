@@ -1,34 +1,42 @@
-import { HttpResponse, http } from "msw";
-import { setupServer } from "msw/node";
 import {
     parseResearchResultFingerprint,
     parseResearchRunId,
-    parseResearchSubmissionKey,
     parseStatisticsFingerprint
 } from "../../domain/research/identity";
 import { parseUnixNanoseconds } from "../../domain/research/time";
-import { FetchResearchApiClient } from "./client";
 import { errorMessage, ResearchWebError } from "./errors";
-import { mapResearchRun, mapStatisticSeriesPage } from "./mapper";
+import {
+    mapArtifactSummary,
+    mapCandidateCatalog,
+    mapCandidateGraph,
+    mapPublishedSeriesCatalog,
+    mapResearchRun,
+    mapResearchRunPage,
+    mapResearchRunSubmission,
+    mapScientificSeriesPage,
+    mapStatisticSeriesPage,
+    mapStatisticsCatalog
+} from "./mapper";
 import { researchQueryKeys } from "./queryKeys";
 import {
     artifactSummarySchema,
     researchCalculationCatalogSchema,
     researchCandidateCatalogSchema,
     researchCandidateGraphSchema,
-    researchDefinitionResolutionSchema,
     researchErrorSchema,
     researchPublishedSeriesCatalogSchema,
     researchRunSchema,
+    researchRunPageSchema,
+    researchRunSubmissionSchema,
+    researchRunErrorSchema,
+    statisticsCatalogSchema,
     researchScientificSeriesPageSchema,
     statisticSeriesPageSchema
 } from "./schemas";
-import type { ResearchDefinitionTransport } from "./schemas";
 
 const result = parseResearchResultFingerprint("a".repeat(64));
 const statistics = parseStatisticsFingerprint("b".repeat(64));
 const runId = parseResearchRunId("00000000-0000-4000-8000-000000000501");
-const submissionKey = parseResearchSubmissionKey("00000000-0000-4000-8000-000000000502");
 const point = {
     ts_event_ns: "1780000000000000123",
     statistic_value: "0.123400",
@@ -93,7 +101,6 @@ const descriptor = {
         }
     }
 };
-const server = setupServer();
 const run = {
     schema_version: 2 as const,
     run_id: runId,
@@ -118,77 +125,12 @@ const runSummary = (() => {
     return summaryValue;
 })();
 
-beforeAll(() => {
-    server.listen({ onUnhandledRequest: "error" });
-});
-afterEach(() => {
-    server.resetHandlers();
-});
-afterAll(() => {
-    server.close();
-});
-
-describe("Research API admission", () => {
-    it("discovers capabilities and sends Definition transport unchanged", async () => {
-        const authored = { schema_version: 1 } as unknown as ResearchDefinitionTransport;
-        const resolution = {
-            schema_version: 2 as const,
-            authoring_definition_fingerprint: "1".repeat(64),
-            resolved_definition_fingerprint: "2".repeat(64),
-            dataset_snapshot_fingerprint: "3".repeat(64),
-            specification_fingerprint: "4".repeat(64),
-            resolved_dataset_definition: { schema_version: 1 },
-            instrument_count: 2,
-            candidate_count: 1,
-            candidates: [
-                {
-                    ordinal: 0,
-                    candidate_fingerprint: "5".repeat(64),
-                    assignment: {},
-                    calculation_fingerprint: "6".repeat(64),
-                    graph_fingerprint: "7".repeat(64)
-                }
-            ],
-            published_variables: [],
-            exact_specification: { schema_version: 1 },
-            diagnostics: []
-        };
-        server.use(
-            http.get("*/api/v2/research/catalog/calculations", () =>
-                HttpResponse.json({ schema_version: 2, calculations: [] })
-            ),
-            http.get("*/api/v2/research/catalog/universes", () =>
-                HttpResponse.json({
-                    schema_version: 2,
-                    selection_kinds: ["SINGLE_INSTRUMENT"],
-                    registered_universes: []
-                })
-            ),
-            http.get("*/api/v2/research/catalog/statistics", () =>
-                HttpResponse.json({ schema_version: 2, statistics: [] })
-            ),
-            http.get("*/api/v2/research/catalog/dataset-fields", () =>
-                HttpResponse.json({ schema_version: 2, dataset_fields: [] })
-            ),
-            http.post("*/api/v2/research/definitions/resolve", async ({ request }) => {
-                expect(await request.json()).toEqual(authored);
-                return HttpResponse.json(resolution);
-            })
-        );
-        const client = new FetchResearchApiClient();
-        expect((await client.getCalculationCatalog()).calculations).toEqual([]);
-        expect((await client.getUniverseCatalog()).registered_universes).toEqual([]);
-        expect((await client.getStatisticsCapabilityCatalog()).statistics).toEqual([]);
-        expect((await client.getDatasetFieldCatalog()).dataset_fields).toEqual([]);
-        expect((await client.resolveDefinition(authored)).exact_specification).toEqual({
-            schema_version: 1
-        });
+describe("independent immutable evidence format admission", () => {
+    it("retains the active catalog's required schema version", () => {
         expect(researchCalculationCatalogSchema.safeParse({ calculations: [] }).success).toBe(
             false
         );
-        expect(researchDefinitionResolutionSchema.parse(resolution).candidate_count).toBe(1);
     });
-
     it("maps exact time and Decimal without Number conversion", () => {
         const mapped = mapStatisticSeriesPage(statisticSeriesPageSchema.parse(page));
         expect(mapped.points[0]?.tsEventNs).toBe(1_780_000_000_000_000_123n);
@@ -252,125 +194,61 @@ describe("Research API admission", () => {
             expect(statisticSeriesPageSchema.safeParse(malformed).success).toBe(false);
     });
 
-    it("sends an exact cursor and admits a successful page", async () => {
-        server.use(
-            http.get(
-                `*/api/v2/research/artifacts/${result}/statistics/${statistics}/series`,
-                ({ request }) => {
-                    expect(new URL(request.url).searchParams.get("after_ts_event_ns")).toBe(
-                        "1780000000000000123"
-                    );
-                    return HttpResponse.json(page);
-                }
-            )
-        );
-        const response = await new FetchResearchApiClient().getStatisticSeries({
-            researchResultFingerprint: result,
-            statisticsFingerprint: statistics,
-            afterTsEventNs: parseUnixNanoseconds("1780000000000000123"),
-            fromTsEventNs: parseUnixNanoseconds("0"),
-            toTsEventNs: parseUnixNanoseconds("1780000000000000124"),
-            limit: 1
-        });
-        expect(response.nextAfterTsEventNs?.toString()).toBe("1780000000000000123");
-    });
-
-    it("submits with an idempotency key and preserves exact Run revision", async () => {
-        server.use(
-            http.post("*/api/v2/research/runs", async ({ request }) => {
-                expect(request.headers.get("Idempotency-Key")).toBe(submissionKey);
-                expect(await request.json()).toEqual({ specification: run.specification });
-                return HttpResponse.json(
-                    { submission_disposition: "CREATED", run },
-                    { status: 202 }
-                );
-            })
-        );
-        const submitted = await new FetchResearchApiClient().submitRun(
-            run.specification,
-            submissionKey
+    it("preserves exact Run revisions, page observations and cancellation facts", () => {
+        const submitted = mapResearchRunSubmission(
+            researchRunSubmissionSchema.parse({ submission_disposition: "CREATED", run })
         );
         expect(submitted.run.runId).toBe(runId);
         expect(submitted.run.revision).toBe(9_007_199_254_740_993n);
         expect(mapResearchRun(researchRunSchema.parse(run)).revision).toBe(9_007_199_254_740_993n);
-        expect(researchQueryKeys.run(runId)).toEqual(["research", "run", runId]);
-        expect(researchQueryKeys.runs()).toEqual(["research", "runs"]);
-    });
-
-    it("gets, pages and cancels Runs through strict contracts", async () => {
-        server.use(
-            http.get(`*/api/v2/research/runs/${runId}`, () => HttpResponse.json(run)),
-            http.get("*/api/v2/research/runs", ({ request }) => {
-                expect(new URL(request.url).searchParams.get("cursor")).toBe("cursor-v1");
-                return HttpResponse.json({
+        expect(mapResearchRun(researchRunSchema.parse(run)).runId).toBe(runId);
+        expect(
+            mapResearchRunPage(
+                researchRunPageSchema.parse({
                     schema_version: 2,
                     runs: [runSummary],
                     has_more: false,
                     next_cursor: null
-                });
-            }),
-            http.post(`*/api/v2/research/runs/${runId}/cancellation`, () =>
-                HttpResponse.json({
+                })
+            ).nextCursor
+        ).toBeNull();
+        expect(
+            mapResearchRun(
+                researchRunSchema.parse({
                     ...run,
                     revision: "9007199254740994",
                     state: "CANCELLED",
                     finished_at: "2026-08-18T01:02:04Z"
                 })
-            )
-        );
-        const client = new FetchResearchApiClient();
-        expect((await client.getRun(runId)).runId).toBe(runId);
-        expect((await client.listRuns(50, "cursor-v1")).nextCursor).toBeNull();
-        expect((await client.cancelRun(runId)).state).toBe("CANCELLED");
-    });
-
-    it("decodes stable Run errors and rejects noncanonical Run identity", async () => {
-        server.use(
-            http.get(`*/api/v2/research/runs/${runId}`, () =>
-                HttpResponse.json(
-                    {
-                        error: {
-                            phase: "QUERY",
-                            code: "RESEARCH_RUN_NOT_FOUND",
-                            detail: "missing"
-                        }
-                    },
-                    { status: 404 }
-                )
-            )
-        );
-        await expect(new FetchResearchApiClient().getRun(runId)).rejects.toMatchObject({
-            code: "RESEARCH_RUN_NOT_FOUND",
-            status: 404
-        });
+            ).state
+        ).toBe("CANCELLED");
+        expect(researchQueryKeys.run(runId)).toEqual(["research", "run", runId]);
+        expect(researchQueryKeys.runs()).toEqual(["research", "runs"]);
         expect(() => parseResearchRunId("BAD")).toThrow("canonical UUID4");
         expect(
             statisticSeriesPageSchema.safeParse({ ...page, next_after_ts_event_ns: null }).success
         ).toBe(false);
+        expect(
+            researchRunErrorSchema.parse({
+                error: { phase: "QUERY", code: "RESEARCH_RUN_NOT_FOUND", detail: "missing" }
+            }).error.code
+        ).toBe("RESEARCH_RUN_NOT_FOUND");
     });
-
-    it("admits and maps summary and catalog operations", async () => {
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}`, () => HttpResponse.json(summary)),
-            http.get(`*/api/v2/research/artifacts/${result}/statistics`, () =>
-                HttpResponse.json({
+    it("retains independent artifact summary and catalog numeric formats", () => {
+        expect(mapArtifactSummary(artifactSummarySchema.parse(summary)).artifactProfile).toBe(
+            "research-statistics-v1"
+        );
+        expect(
+            mapStatisticsCatalog(
+                statisticsCatalogSchema.parse({
                     schema_version: 2,
                     research_result_fingerprint: result,
                     statistics: [descriptor]
                 })
-            )
-        );
-        const client = new FetchResearchApiClient();
-        expect((await client.getArtifactSummary(result)).artifactProfile).toBe(
-            "research-statistics-v1"
-        );
-        expect(
-            (await client.getStatisticsCatalog(result)).statistics[0]?.definition.numeric
-                .outputQuantum
+            ).statistics[0]?.definition.numeric.outputQuantum
         ).toBe("0.0001");
     });
-
-    it("admits artifact-only scientific catalogs, exact series and graph", async () => {
+    it("admits artifact-only scientific catalogs, exact series and graph", () => {
         const candidate = "9".repeat(64);
         const calculation = "8".repeat(64);
         const node = "7".repeat(64);
@@ -528,62 +406,31 @@ describe("Research API admission", () => {
                 }
             ]
         };
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}/candidates`, () =>
-                HttpResponse.json(catalog)
-            ),
-            http.get(`*/api/v2/research/artifacts/${result}/variables`, () =>
-                HttpResponse.json(variables)
-            ),
-            http.get(`*/api/v2/research/artifacts/${result}/market/series`, () =>
-                HttpResponse.json(marketPage)
-            ),
-            http.get(
-                `*/api/v2/research/artifacts/${result}/variables/${calculation}/${node}/value/series`,
-                () => HttpResponse.json(variablePage)
-            ),
-            http.get(
-                `*/api/v2/research/artifacts/${result}/signals/${candidate}/ENTRY_SIGNAL/series`,
-                () => HttpResponse.json(signalPage)
-            ),
-            http.get(`*/api/v2/research/artifacts/${result}/candidates/${candidate}/graph`, () =>
-                HttpResponse.json({
-                    schema_version: 2,
-                    research_result_fingerprint: result,
-                    candidate_fingerprint: candidate,
-                    calculation_fingerprint: calculation,
-                    graph_fingerprint: "6".repeat(64),
-                    graph
-                })
-            )
-        );
-        const client = new FetchResearchApiClient();
-        expect((await client.getCandidateCatalog(result)).candidates).toHaveLength(1);
-        expect((await client.getPublishedSeriesCatalog(result)).series).toHaveLength(2);
-        expect((await client.getMarketSeries(result, "TEST")).points).toHaveLength(1);
         expect(
-            (
-                await client.getVariableSeries({
-                    researchResultFingerprint: result,
-                    instrumentId: "TEST",
-                    candidateFingerprint: candidate,
-                    calculationFingerprint: calculation,
-                    nodeFingerprint: node,
-                    outputName: "value"
-                })
-            ).points
+            mapCandidateCatalog(researchCandidateCatalogSchema.parse(catalog)).candidates
         ).toHaveLength(1);
         expect(
-            (
-                await client.getSignalSeries({
-                    researchResultFingerprint: result,
-                    instrumentId: "TEST",
-                    candidateFingerprint: candidate,
-                    role: "ENTRY_SIGNAL"
-                })
-            ).points[0]
+            mapPublishedSeriesCatalog(researchPublishedSeriesCatalogSchema.parse(variables)).series
+        ).toHaveLength(2);
+        expect(
+            mapScientificSeriesPage(researchScientificSeriesPageSchema.parse(marketPage)).points
+        ).toHaveLength(1);
+        expect(
+            mapScientificSeriesPage(researchScientificSeriesPageSchema.parse(variablePage)).points
+        ).toHaveLength(1);
+        expect(
+            mapScientificSeriesPage(researchScientificSeriesPageSchema.parse(signalPage)).points[0]
         ).toMatchObject({ value: null });
-        const admittedGraph = await client.getCandidateGraph(result, candidate);
+        const admittedGraph = mapCandidateGraph(
+            researchCandidateGraphSchema.parse({
+                schema_version: 2,
+                research_result_fingerprint: result,
+                candidate_fingerprint: candidate,
+                calculation_fingerprint: calculation,
+                graph_fingerprint: "6".repeat(64),
+                graph
+            })
+        );
         expect(admittedGraph.graph.schemaVersion).toBe(1);
         expect(admittedGraph.graph.nodes[0]).toMatchObject({
             nodeFingerprint: node,
@@ -762,92 +609,6 @@ describe("Research API admission", () => {
                 }
             }).success
         ).toBe(false);
-        await expect(
-            client.getVariableSeries({ researchResultFingerprint: result, instrumentId: "TEST" })
-        ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
-        await expect(
-            client.getSignalSeries({ researchResultFingerprint: result, instrumentId: "TEST" })
-        ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
-    });
-
-    it.each([
-        [404, "RESEARCH_ARTIFACT_NOT_FOUND"],
-        [500, "RESEARCH_ARTIFACT_CORRUPT"]
-    ])("formally decodes API error %s", async (status, code) => {
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}`, () =>
-                HttpResponse.json({ schema_version: 2, code, detail: "exact failure" }, { status })
-            )
-        );
-        await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
-            { code, status }
-        );
-    });
-
-    it("distinguishes contract and transport failures", async () => {
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}`, () =>
-                HttpResponse.json({ bad: true })
-            )
-        );
-        await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
-            { code: "CONTRACT_ERROR" }
-        );
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}`, () => HttpResponse.text("bad json"))
-        );
-        await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
-            { code: "CONTRACT_ERROR" }
-        );
-        server.use(http.get(`*/api/v2/research/artifacts/${result}`, () => HttpResponse.error()));
-        await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
-            { code: "TRANSPORT_ERROR" }
-        );
-        server.use(
-            http.get(`*/api/v2/research/artifacts/${result}`, () =>
-                HttpResponse.json({ bad: true }, { status: 404 })
-            )
-        );
-        await expect(new FetchResearchApiClient().getArtifactSummary(result)).rejects.toMatchObject(
-            { code: "CONTRACT_ERROR", status: 404 }
-        );
-    });
-
-    it("decodes strict Definition validation failures", async () => {
-        server.use(
-            http.post("*/api/v2/research/definitions/resolve", () =>
-                HttpResponse.json(
-                    {
-                        error: {
-                            phase: "ADMISSION",
-                            code: "RESEARCH_DEFINITION_INVALID",
-                            detail: "invalid exact definition",
-                            path: "calculations[0]"
-                        }
-                    },
-                    { status: 422 }
-                )
-            )
-        );
-        await expect(
-            new FetchResearchApiClient().resolveDefinition({
-                schema_version: 1
-            } as unknown as ResearchDefinitionTransport)
-        ).rejects.toMatchObject({
-            code: "RESEARCH_DEFINITION_INVALID",
-            phase: "ADMISSION",
-            path: "calculations[0]"
-        });
-    });
-
-    it("preserves AbortError instead of relabeling cancellation", async () => {
-        const aborted = vi
-            .spyOn(globalThis, "fetch")
-            .mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
-        await expect(
-            new FetchResearchApiClient().getArtifactSummary(result, new AbortController().signal)
-        ).rejects.toMatchObject({ name: "AbortError" });
-        aborted.mockRestore();
     });
 
     it("uses exact identity and range in deterministic query keys", () => {
@@ -906,5 +667,187 @@ describe("Research API admission", () => {
         expect(error.status).toBe(400);
         expect(errorMessage(error)).toBe("INVALID_QUERY: invalid");
         expect(errorMessage(new Error("other"))).toBe("Unexpected error");
+    });
+    it("retains exact graph structural rejection claims independently of retired Python HTTP", () => {
+        const port = {
+            name: "x",
+            data_type: "DECIMAL",
+            nullable: true,
+            dimensions: [],
+            semantic_type: "VALUE",
+            unit: null
+        };
+        const valid = researchCandidateGraphSchema.parse({
+            schema_version: 2,
+            research_result_fingerprint: "a".repeat(64),
+            candidate_fingerprint: "b".repeat(64),
+            calculation_fingerprint: "c".repeat(64),
+            graph_fingerprint: "d".repeat(64),
+            graph: {
+                schema_version: 1,
+                nodes: [
+                    {
+                        node_fingerprint: "e".repeat(64),
+                        alias: null,
+                        definition: {
+                            schema_version: 2,
+                            kind: "INDICATOR",
+                            type_id: "test.indicator",
+                            semantic_version: "1",
+                            parameters: {},
+                            inputs: [port],
+                            input_bindings: {
+                                x: {
+                                    node_fingerprint: null,
+                                    output_name: "close",
+                                    source: "bar.close"
+                                }
+                            },
+                            outputs: [{ ...port, name: "value" }],
+                            warmup: {
+                                minimum_observations: 1,
+                                ready_condition: "ready",
+                                pre_ready_output: "NULL",
+                                initialization: "UPSTREAM"
+                            },
+                            missing_values: "PROPAGATE",
+                            timestamp: "EVENT_TIME",
+                            numeric: {
+                                representation: "DECIMAL",
+                                precision: 12,
+                                output_quantum: null,
+                                rounding: "HALF_EVEN"
+                            },
+                            factor_kind: null,
+                            extensions: {}
+                        }
+                    }
+                ]
+            }
+        });
+        type Node = (typeof valid.graph.nodes)[number];
+        const cases: readonly [
+            string,
+            readonly string[],
+            readonly (string | number)[],
+            (node: Node) => void
+        ][] = [
+            [
+                "missing reference owner",
+                ["exactly one"],
+                ["graph", "nodes", 0, "definition", "input_bindings", "x"],
+                (node) => {
+                    node.definition.input_bindings.x = {
+                        node_fingerprint: null,
+                        output_name: "close",
+                        source: null
+                    };
+                }
+            ],
+            [
+                "ambiguous reference owner",
+                ["exactly one"],
+                ["graph", "nodes", 0, "definition", "input_bindings", "x"],
+                (node) => {
+                    node.definition.input_bindings.x = {
+                        node_fingerprint: "f".repeat(64),
+                        output_name: "value",
+                        source: "bar.close"
+                    };
+                }
+            ],
+            [
+                "duplicate input port",
+                ["ports must be unique", "input bindings mismatch"],
+                [],
+                (node) => {
+                    node.definition.inputs.push({ ...port, data_type: "DECIMAL" });
+                }
+            ],
+            [
+                "duplicate output port",
+                ["ports must be unique"],
+                ["graph", "nodes", 0, "definition"],
+                (node) => {
+                    node.definition.outputs.push({ ...port, data_type: "DECIMAL", name: "value" });
+                }
+            ],
+            [
+                "non-factor with factor_kind",
+                ["factor_kind"],
+                ["graph", "nodes", 0, "definition"],
+                (node) => {
+                    node.definition.factor_kind = "TIME_SERIES";
+                }
+            ],
+            [
+                "factor missing factor_kind",
+                ["factor_kind"],
+                ["graph", "nodes", 0, "definition"],
+                (node) => {
+                    node.definition.kind = "FACTOR";
+                }
+            ],
+            [
+                "dangling dependency",
+                ["dependency is missing"],
+                ["graph"],
+                (node) => {
+                    node.definition.input_bindings.x = {
+                        node_fingerprint: "f".repeat(64),
+                        output_name: "value",
+                        source: null
+                    };
+                }
+            ]
+        ];
+        // Collect every mutation before asserting so one defect cannot hide the rest.
+        const results = cases.map(([name, messages, path, mutate]) => {
+            const malformed = structuredClone(valid);
+            const node = malformed.graph.nodes[0];
+            if (!node) throw new Error("Graph fixture requires its exact original node");
+            mutate(node);
+            const parsed = researchCandidateGraphSchema.safeParse(malformed);
+            return {
+                name,
+                rejected: !parsed.success,
+                owningIssue:
+                    !parsed.success &&
+                    parsed.error.issues.some((issue) => {
+                        if (name === "duplicate input port") {
+                            return (
+                                (issue.message.includes("ports must be unique") &&
+                                    JSON.stringify(issue.path) ===
+                                        JSON.stringify(["graph", "nodes", 0, "definition"])) ||
+                                (issue.message.includes("input bindings mismatch") &&
+                                    JSON.stringify(issue.path) === JSON.stringify(["graph"]))
+                            );
+                        }
+                        return (
+                            messages.some((message) => issue.message.includes(message)) &&
+                            JSON.stringify(issue.path) === JSON.stringify(path)
+                        );
+                    })
+            };
+        });
+        const doubled = structuredClone(valid);
+        const node = doubled.graph.nodes[0];
+        if (!node) throw new Error("Graph fixture requires its exact original node");
+        doubled.graph.nodes.push(node);
+        const parsed = researchCandidateGraphSchema.safeParse(doubled);
+        results.push({
+            name: "duplicate node identity",
+            rejected: !parsed.success,
+            owningIssue:
+                !parsed.success &&
+                parsed.error.issues.some(
+                    (issue) =>
+                        issue.message.includes("nodes are duplicated") &&
+                        JSON.stringify(issue.path) === JSON.stringify(["graph"])
+                )
+        });
+        expect(results).toEqual(
+            results.map(({ name }) => ({ name, rejected: true, owningIssue: true }))
+        );
     });
 });

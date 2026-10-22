@@ -4,6 +4,7 @@ import { FetchMarketDiscoveryClient, type InstrumentSearch, type MarketQuotes } 
 import {
     marketDataAcquisitionSchema,
     marketDataBarsSchema,
+    marketDataBarSemanticSchema,
     marketDataErrorSchema,
     marketDataInstrumentListSchema,
     marketDataSourceListSchema,
@@ -270,7 +271,10 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
             `/api/v2/market-data/bars?${barsParams(reference, query).toString()}`,
             signal
         );
-        if (JSON.stringify(result.bar_semantic) !== JSON.stringify(query.bar_semantic))
+        if (
+            JSON.stringify(marketDataBarSemanticSchema.parse(result.bar_semantic)) !==
+            JSON.stringify(marketDataBarSemanticSchema.parse(query.bar_semantic))
+        )
             throw new MarketDataWebError(
                 "MARKET_DATA_HISTORY_RESPONSE_MISMATCH",
                 "Market Data returned a different Bar Specification"

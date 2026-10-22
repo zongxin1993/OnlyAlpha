@@ -2,11 +2,11 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const products = [
     { to: "/", label: "工作台" },
-    { to: "/research/new", label: "研究" },
-    { to: "/data/inputs", label: "数据" },
-    { to: "/strategies", label: "策略" },
-    { to: "/backtest/runs", label: "回测" },
-    { to: "/system/health", label: "系统" }
+    { to: "/research/new", label: "研究 · 未实现" },
+    { to: "/data/inputs", label: "数据 · 未实现" },
+    { to: "/strategies", label: "策略 · 未实现" },
+    { to: "/backtest/runs", label: "回测 · 未实现" },
+    { to: "/system/health", label: "系统 · 未实现" }
 ] as const;
 
 export function WorkstationShell() {
@@ -36,9 +36,6 @@ export function WorkstationShell() {
                     ))}
                 </nav>
                 <div className="topbar-actions">
-                    <NavLink to="/research/new" className="topbar-action">
-                        新建研究
-                    </NavLink>
                     <span className="topbar-mode">Control + Presentation</span>
                 </div>
             </header>

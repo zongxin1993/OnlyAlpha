@@ -13,14 +13,9 @@
     "include": [
         "vite.config.ts",
         "playwright.config.ts",
-        "playwright.real.config.ts",
         "playwright.compose.config.ts",
-        "playwright.local-read.config.ts",
-        "playwright.chart-study.config.ts",
-        "playwright.chart-study-preview.config.ts",
-        "playwright.symbol-search.config.ts",
         "e2e/**/*.ts",
-        "e2e-real/**/*.ts",
-        "e2e-compose/**/*.ts"
+        "e2e-compose/**/*.ts",
+        "scripts/validate-native-payloads.ts"
     ]
 }

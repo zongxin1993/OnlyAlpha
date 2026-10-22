@@ -1,3 +1,4 @@
+import { nativeErrorSchema } from "../errors.generated";
 import type { z } from "zod";
 import { windowRetryAfterSeconds } from "../marketData/client";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
@@ -8,7 +9,6 @@ import {
     ChartStudyCapabilitiesSchema,
     ChartStudyEvaluateSchema,
     ChartStudyEvaluateRequestSchema,
-    ChartStudyErrorEnvelopeSchema,
     type ChartStudyCapabilities,
     type ChartStudyEvaluateRequest,
     type ChartStudyEvaluate
@@ -97,7 +97,7 @@ async function read<T>(
     }
     if (!current()) throw new ChartStudyWebError("STALE");
     if (!response.ok) {
-        const error = ChartStudyErrorEnvelopeSchema.safeParse(value);
+        const error = nativeErrorSchema.safeParse(value);
         throw new ChartStudyWebError(
             error.success ? error.data.error.code : "INVALID",
             response.status,

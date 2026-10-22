@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._capability_reachability import ModuleIndex, actual_capabilities_by_actor
+from tests.architecture._capability_reachability import (
+    ModuleIndex,
+    actual_capabilities_by_actor,
+)
 from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
@@ -92,7 +95,9 @@ def test_local_source_read_ingress_has_exact_transport_ownership_without_busines
     path = "packages/onlyalpha-http-server/src/onlyalpha_http_server/" + module
     assert CONTRACT.is_sensitive_path(path)
     assert CONTRACT.classify_path(path).name == "HTTP_TRANSPORT_ADAPTER"
-    assert INDEX.capabilities_for_file(ROOT / path, CONTRACT) == set()
+    assert not (ROOT / path).exists()
+    access = "".join((ROOT / "packages/onlyalpha-http-server/rust/human_access.rs").read_text().split())
+    assert 'Authority::new("local-developer",&digest,vec![])' in access
 
 
 def test_reverse_privileged_authority_proof_matches_exact_approved_holders() -> None:
@@ -111,9 +116,10 @@ def test_reverse_privileged_authority_proof_matches_exact_approved_holders() -> 
 def test_real_worker_api_runtime_and_database_policy() -> None:
     assert {"C03", "C10"} <= ACTUAL["A05"]
     assert {"C06", "C07", "C11"}.isdisjoint(ACTUAL["A05"])
-    assert "C10" in ACTUAL["A03"]
+    assert "C10" not in ACTUAL["A03"]
     assert "C11" not in ACTUAL["A03"]
-    assert "C17" in ACTUAL["A03"]
+    assert ACTUAL["A03"] == set()
+    assert ACTUAL["A04"] == set()
     assert "C05" in ACTUAL["A07"]
     assert {"C06", "C07", "C11"}.isdisjoint(ACTUAL["A07"])
     assert "C11" in ACTUAL["A10"]

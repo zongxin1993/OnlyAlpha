@@ -55,6 +55,11 @@ pub struct BacktestExternal {
     pub request_json: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChartBatch {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CalculationRequest {
     #[prost(uint32, tag = "1")]
     pub protocol_version: u32,
@@ -64,7 +69,7 @@ pub struct CalculationRequest {
     pub sequence: u64,
     #[prost(
         oneof = "calculation_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
     )]
     pub operation: ::core::option::Option<calculation_request::Operation>,
 }
@@ -92,6 +97,8 @@ pub mod calculation_request {
         Node(super::CalculationNode),
         #[prost(message, tag = "19")]
         Replay(super::BacktestExternal),
+        #[prost(message, tag = "20")]
+        Chart(super::ChartBatch),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

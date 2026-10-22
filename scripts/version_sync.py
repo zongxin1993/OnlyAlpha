@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parents[1]
 RUST_MODULES = frozenset(
     {
         "onlyalpha-domain",
+        "onlyalpha-metadata-json",
+        "onlyalpha-integration-contract",
+        "onlyalpha-http-server",
+        "onlyalpha-product-runtime",
+        "onlyalpha-plugin-binance",
+        "onlyalpha-plugin-tushare",
         "onlyalpha-calculation",
         "onlyalpha-gateway-protocol",
         "onlyalpha-calculation-worker",

@@ -1,6 +1,6 @@
 import { WatchlistPanel } from "./WatchlistPanel";
 import { formatMarketDataDelay } from "./marketDataTiming";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SymbolSearch } from "./SymbolSearch";
 import { useWatchlists } from "./useWatchlists";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
@@ -20,7 +20,8 @@ import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
 import {
     fixedDurationMinutes,
     formatBarSemantic,
-    marketDataBarSemantic
+    marketDataBarSemantic,
+    marketDataSourceChoiceKey
 } from "../../api/marketData/model";
 
 const realBarPresets = [1, 3, 5, 15, 30, 60, 120, 240] as const;
@@ -41,7 +42,27 @@ export function WorkspacePage() {
     const [toolsCollapsed, setToolsCollapsed] = useState(false);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [panelTab, setPanelTab] = useState<"watchlist" | "inspector">("watchlist");
-    const [panelOpen, setPanelOpen] = useState(true);
+    const [panelOpen, setPanelOpen] = useState(() =>
+        typeof window.matchMedia === "function"
+            ? window.matchMedia("(min-width: 1280px)").matches
+            : true
+    );
+    useEffect(() => {
+        if (typeof window.matchMedia !== "function") return;
+        const layout = window.matchMedia("(min-width: 1280px)");
+        const onLayoutChange = (event: MediaQueryListEvent) => {
+            setPanelOpen(event.matches);
+        };
+        if (typeof layout.addEventListener === "function") {
+            layout.addEventListener("change", onLayoutChange);
+        }
+        return () => {
+            if (typeof layout.removeEventListener === "function") {
+                layout.removeEventListener("change", onLayoutChange);
+            }
+        };
+    }, []);
+    const panelToggle = useRef<HTMLButtonElement>(null);
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
@@ -316,10 +337,17 @@ export function WorkspacePage() {
                                     <option value="">未选择数据源</option>
                                     {marketData.selectableSources.map((item) => (
                                         <option
-                                            key={item.integration_id}
-                                            value={item.integration_id}
+                                            key={marketDataSourceChoiceKey(item)}
+                                            value={marketDataSourceChoiceKey(item)}
                                         >
-                                            {item.display_name} · {item.type_id}
+                                            {item.display_name} ·{" "}
+                                            {item.is_current_revision
+                                                ? "当前 Revision"
+                                                : "历史 Revision"}{" "}
+                                            · {item.integration_revision_fingerprint.slice(0, 8)} ·{" "}
+                                            {item.new_work_status === "AVAILABLE"
+                                                ? "可采集"
+                                                : "仅封存历史"}
                                         </option>
                                     ))}
                                 </select>
@@ -339,6 +367,7 @@ export function WorkspacePage() {
                         <button
                             type="button"
                             className="panel-toggle"
+                            ref={panelToggle}
                             aria-expanded={panelOpen}
                             aria-label={panelOpen ? "关闭上下文面板" : "打开上下文面板"}
                             onClick={() => {
@@ -457,7 +486,8 @@ export function WorkspacePage() {
                                     expectedEnvironment={
                                         marketData.selectableSources.find(
                                             (source) =>
-                                                source.integration_id === marketData.sourceId
+                                                marketDataSourceChoiceKey(source) ===
+                                                marketData.sourceId
                                         )?.environment ?? null
                                     }
                                     studies={instances}
@@ -513,6 +543,17 @@ export function WorkspacePage() {
                         }}
                     >
                         检查器
+                    </button>
+                    <button
+                        type="button"
+                        className="panel-toggle context-panel__close"
+                        aria-label="收起上下文面板"
+                        onClick={() => {
+                            setPanelOpen(false);
+                            panelToggle.current?.focus();
+                        }}
+                    >
+                        <WorkspaceIcon name="menu" />
                     </button>
                 </div>
                 <div className="panel-scroll">
@@ -639,10 +680,10 @@ export function WorkspacePage() {
                 <div className="panel-scroll" hidden={bottomCollapsed}>
                     <p className="panel-note">
                         {bottomTab === "runs"
-                            ? "研究运行尚未接入工作区"
+                            ? "研究运行尚未实现"
                             : bottomTab === "results"
-                              ? "研究结果尚未接入工作区"
-                              : "回测尚未接入工作区"}
+                              ? "研究结果尚未实现"
+                              : "回测尚未实现"}
                     </p>
                 </div>
             </section>

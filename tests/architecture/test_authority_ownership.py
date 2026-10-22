@@ -101,18 +101,11 @@ def _assert_no_forbidden_capability(
 
 
 def test_api_routes_do_not_own_semantic_or_infrastructure_writers() -> None:
-    route_paths = tuple(path for path in sorted(API_ROOT.rglob("*.py")) if _defines_http_route(path))
-    assert route_paths
-    for path in route_paths:
-        relative = path.relative_to(ROOT).as_posix()
-        assert CONTRACT.classify_path(relative).name == "HTTP_TRANSPORT_ADAPTER"
-        imports = onlyalpha_imports_for_path(path, ROOT)
-        assert not frozenset(
-            item
-            for item in imports
-            if any(item[1] == module or item[1].startswith(f"{module}.") for module in FORBIDDEN_ROUTE_IMPORTS)
-            or (len(item) == 3 and item[2] in FORBIDDEN_WORKER_CAPABILITIES)
-        )
+    assert not tuple(API_ROOT.rglob("*.py"))
+    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    assert "host::Host" in source and "host.dispatch(request).await" in source
+    for forbidden in ("onlyalpha_kernel", "tokio_postgres", "AuthoritySession", "OnlyEngine"):
+        assert forbidden not in source
 
 
 def test_unexpected_route_filename_is_still_detected() -> None:

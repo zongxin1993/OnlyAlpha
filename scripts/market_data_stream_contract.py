@@ -8,12 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from onlyalpha_http_server.market_data.stream_schema import (
-    MarketDataStreamAuthDto,
-    MarketDataStreamAuthenticatedDto,
-    MarketDataStreamSubscribeDto,
-    market_data_stream_event_adapter,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.native_http_contract import exported, schema_document
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/product-api/v2/market-data-stream.schema.json"
@@ -21,19 +18,43 @@ WEB = ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.generated
 
 
 def _expression(schema: dict[str, Any]) -> str:
+    if "allOf" in schema:
+        parts = [_expression(part) for part in schema["allOf"]]
+        if len(parts) == 1:
+            return parts[0]
+        result = parts[0]
+        for part in parts[1:]:
+            result = f"z.intersection({result}, {part})"
+        return result
+    kind = schema.get("type")
+    if isinstance(kind, list):
+        return _expression({"anyOf": [{**schema, "type": item} for item in kind]})
     if "$ref" in schema:
         return str(schema["$ref"]).split("/")[-1] + "Schema"
     if "anyOf" in schema:
         variants = schema["anyOf"]
-        if len(variants) == 2 and {part.get("type") for part in variants} == {"string", "null"}:
+        if len(variants) == 1:
+            return _expression(variants[0])
+        if (
+            len(variants) == 2
+            and all(isinstance(part.get("type"), str) for part in variants)
+            and {part.get("type") for part in variants} == {"string", "null"}
+        ):
             return _expression(next(part for part in variants if part.get("type") == "string")) + ".nullable()"
         return "z.union([" + ", ".join(_expression(part) for part in variants) + "])"
     if "oneOf" in schema:
+        if len(schema["oneOf"]) == 1:
+            return _expression(schema["oneOf"][0])
         return "z.union([" + ", ".join(_expression(part) for part in schema["oneOf"]) + "])"
     if "const" in schema:
         return f"z.literal({json.dumps(schema['const'])})"
     if "enum" in schema:
-        return "z.enum([" + ", ".join(json.dumps(item) for item in schema["enum"]) + "])"
+        values = schema["enum"]
+        if len(values) == 1:
+            return f"z.literal({json.dumps(values[0])})"
+        if all(isinstance(value, str) for value in values):
+            return "z.enum([" + ", ".join(json.dumps(item) for item in values) + "])"
+        return "z.union([" + ", ".join(f"z.literal({json.dumps(item)})" for item in values) + "])"
     kind = schema.get("type")
     if kind == "string":
         result = "z.string()"
@@ -44,8 +65,8 @@ def _expression(schema: dict[str, Any]) -> str:
         if "pattern" in schema:
             result += f".regex(new RegExp({json.dumps(schema['pattern'])}))"
         return result
-    if kind == "integer":
-        result = "z.number().int()"
+    if kind in {"integer", "number"}:
+        result = "z.number().int()" if kind == "integer" else "z.number()"
         if "minimum" in schema:
             result += f".min({schema['minimum']})"
         if "maximum" in schema:
@@ -88,9 +109,11 @@ def _expression(schema: dict[str, Any]) -> str:
         required = set(schema.get("required", []))
         fields = [
             f"    {json.dumps(name)}: {_expression(value)}{'' if name in required else '.optional()'}"
-            for name, value in schema["properties"].items()
+            for name, value in schema.get("properties", {}).items()
         ]
         return "z.strictObject({\n" + ",\n".join(fields) + "\n})"
+    if not (set(schema) - {"description", "title", "default", "example", "examples"}):
+        return "z.json()"
     raise ValueError(f"unsupported stream contract schema: {schema}")
 
 
@@ -118,11 +141,15 @@ def _refs(value: Any) -> list[str]:
 
 
 def render() -> tuple[str, str]:
-    subscribe = MarketDataStreamSubscribeDto.model_json_schema()
-    event = market_data_stream_event_adapter.json_schema()
-    definitions = {**subscribe.pop("$defs"), **event.pop("$defs")}
-    auth = MarketDataStreamAuthDto.model_json_schema()
-    authenticated = MarketDataStreamAuthenticatedDto.model_json_schema()
+    native = exported("websocket")
+    roots = {name: schema_document(native["contract"], target) for name, target in native["message_roots"].items()}
+    definitions = {}
+    for root in roots.values():
+        for name, schema in root.pop("$defs").items():
+            if name in definitions and definitions[name] != schema:
+                raise ValueError("Native WS definition collision")
+            definitions[name] = schema
+    subscribe, event = (roots[name] for name in ("subscribe", "event"))
     document: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "onlyalpha.product-api.v2.market-data-stream",
@@ -130,8 +157,6 @@ def render() -> tuple[str, str]:
         "oneOf": [
             {"$ref": "#/$defs/subscribe"},
             {"$ref": "#/$defs/event"},
-            {"$ref": "#/$defs/auth"},
-            {"$ref": "#/$defs/authenticated"},
         ],
     }
     document["$defs"]["subscribe"] = subscribe
@@ -141,18 +166,14 @@ def render() -> tuple[str, str]:
         "properties": {"resume_plan_fingerprint": {"type": "string"}},
     }
     document["$defs"]["event"] = event
-    document["$defs"]["auth"] = auth
-    document["$defs"]["authenticated"] = authenticated
     lines = ["// Generated by scripts/market_data_stream_contract.py; do not edit.", 'import { z } from "zod";', ""]
     for name, schema in _definitions(document):
-        if name in {"subscribe", "event", "auth", "authenticated"}:
+        if name in {"subscribe", "event"}:
             continue
         lines.append(f"const {name}Schema = {_expression(schema)};")
     lines += [
         f'export const marketDataStreamSubscribeSchema = {_expression(subscribe)}.refine(value => value.resume_after_sequence === "0" || value.resume_plan_fingerprint !== null && value.resume_plan_fingerprint !== undefined);',
         f"export const marketDataStreamEventSchema = {_expression(event)};",
-        f"export const marketDataStreamAuthSchema = {_expression(auth)};",
-        f"export const marketDataStreamAuthenticatedSchema = {_expression(authenticated)};",
         "export type MarketDataStreamSubscribe = z.infer<typeof marketDataStreamSubscribeSchema>;",
         "export type MarketDataStreamEvent = z.infer<typeof marketDataStreamEventSchema>;",
         "",

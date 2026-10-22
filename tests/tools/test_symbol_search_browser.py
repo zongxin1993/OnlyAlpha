@@ -34,7 +34,7 @@ def test_slice_inventory_allows_owning_changes_and_rejects_unrelated_truth():
 
     import pytest
 
-    from tests.runtime_support.chart_study_browser import _assert_slice_inventory
+    from tests.support.browser_database import _assert_slice_inventory
 
     before = {
         "database": {
@@ -145,7 +145,7 @@ for name in sys.modules:
     assert result.returncode == 0, result.stderr
 
 
-def test_local_read_provider_identity_stays_importable_for_module_entrypoint():
+def test_local_read_provider_pickle_identity_is_stable_without_serving_app():
     import subprocess
     import sys
 
@@ -163,25 +163,6 @@ assert type(factory).__module__ == 'tests.runtime_support.local_read_provider'
 assert type(pickle.loads(pickle.dumps(factory))) is _ReadBrowserFactory
 assert not any(name.startswith('onlyalpha_http_server') for name in sys.modules)
 
-# Reproduce the actual -m namespace, stopping at the entry call before any DB IO.
-import runpy
-class EntryReached(Exception):
-    pass
-
-def observe_entry(frame, event, _argument):
-    if event == 'call' and frame.f_code.co_name == 'main' and frame.f_globals.get('__name__') == '__main__':
-        assert frame.f_globals['_ReadBrowserFactory'] is _ReadBrowserFactory
-        raise EntryReached
-    return observe_entry
-
-sys.settrace(observe_entry)
-try:
-    runpy.run_module('tests.runtime_support.local_read_browser', run_name='__main__')
-    raise AssertionError('fixture module did not reach its main entry')
-except EntryReached:
-    pass
-finally:
-    sys.settrace(None)
 """,
         ],
         capture_output=True,

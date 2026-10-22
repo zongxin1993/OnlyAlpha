@@ -281,3 +281,47 @@ The legend uses compact, focusable display controls and a bounded scrollable ins
 screens the inactive Research dock keeps its tabs and expand/collapse controls but takes less initial
 height, preserving the primary K-line/Volume viewport. Browser acceptance checks usable native chart
 height after multiple instances, not just populated point counters or absence of horizontal overflow.
+
+## Native transient composition and retained metadata
+
+The native Product composition uses one exact installed minimal algorithm artifact,
+not a Runtime Generation or Trading worker registration. The canonical private
+`calculation.proto` ChartBatch operation carries catalog, resolution and bounded
+batch requests. All wire projections are generated from that canonical protocol.
+The retained selected factory owns its declaration, normalization, implementation
+resources, numeric policy and atomic value/readiness result. The Product owner
+checks the installed resource bytes and full capability relation before admission.
+An unavailable installation is unavailable, never an empty ready catalog.
+
+The current composition offers the fourteen indicator families with their current
+mathematical semantics. Exact older semantic versions that are absent are
+unavailable; a family name cannot select another version. Definition2 identity
+and lossless declaration remain separate from transient invocation and installation
+identity. The minimal artifact uses existing distribution names and includes only
+pure SDK values/normalizers, algorithms, exact generated protocol and the bounded
+process entrypoint. It includes no Product service, database reader, Source grant,
+Runtime scheduler or publication authority. Its Linux worker must establish
+no-new-privileges, an architecture-checked syscall allowlist and hard CPU, address
+space, process, descriptor and output-file limits before serving requests.
+
+History enters calculation through the owning native Source Application window
+read and its original authorization fence. The original retained preview from a
+ProductStream may join a separately authorized history occurrence only by the
+complete Source selection, qualified implementation, subject, context, plan and
+immediate-successor relation. Resource pointer equality only constrains local
+issuance and I/O; it is not canonical Source identity. Each original fence survives
+through outward release. Replacement/disconnection discards only preview when
+closed history remains authorized. Shared authentication or Source withdrawal
+denies the affected response. One invocation permit remains held until its owned
+process is joined; cancellation or uncertain protocol failure cannot retry another
+process implicitly.
+
+The normal Factor library reads the registered calculation catalog and private
+asset registry separately. A current private Factor entry navigates to the exact
+original revision/content pair; it does not substitute the current head at exact
+read time. The read owner checks original payload/column, revision and source
+fingerprints and retains the authenticated release fence. Private source, API,
+revision, adapter and equivalence identities remain distinct. Metadata grants no
+registration or execution authority. Research configuration, execution and
+published-result actions are explicitly unavailable until their owning capability
+is implemented; successful empty Run/Result fixtures cannot represent that state.

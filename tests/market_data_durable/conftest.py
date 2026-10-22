@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -163,5 +164,5 @@ def reference_update(sequence: int = 10) -> OnlyMarketDataInboundUpdate:
 
 
 @pytest.fixture
-def fixed_now():
+def fixed_now() -> Callable[[], datetime]:
     return lambda: BASE + timedelta(hours=1)

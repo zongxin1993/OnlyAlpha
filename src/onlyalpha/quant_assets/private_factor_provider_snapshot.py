@@ -112,8 +112,12 @@ class OnlyPrivateFactorProviderSnapshotEntryV1:
             raise ValueError("PRIVATE_FACTOR_IMPLEMENTATION_MANIFEST_MISMATCH")
         resources = {item.relative_path: item.byte_sha256 for item in manifest.resources}
         prefix = f"private_factor/{backend.lower()}"
+        # Both are exact immutable artifact closures authenticated above by this
+        # Snapshot's original implementation fingerprint. This reads metadata;
+        # current registration assembly still requires its own exact bytes.
+        original = {"private_factor/source.py", f"{prefix}-adapter.py", f"{prefix}-identity.txt"}
         if (
-            set(resources) != {"private_factor/source.py", f"{prefix}-adapter.py", f"{prefix}-identity.txt"}
+            set(resources) not in (original, original | {"private_factor/algorithm-sdk.py"})
             or resources["private_factor/source.py"] != self.source_sha256
             or resources[f"{prefix}-identity.txt"] != hashlib.sha256(adapter_identity.encode("ascii")).hexdigest()
         ):

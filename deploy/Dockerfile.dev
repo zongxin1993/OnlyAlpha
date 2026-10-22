@@ -14,7 +14,16 @@ COPY packages/onlyalpha-gateway-protocol/rust/ ./packages/onlyalpha-gateway-prot
 COPY packages/onlyalpha-calculation-worker/Cargo.toml ./packages/onlyalpha-calculation-worker/Cargo.toml
 COPY packages/onlyalpha-calculation-worker/rust/ ./packages/onlyalpha-calculation-worker/rust/
 COPY packages/onlyalpha-runtime-persistence/ ./packages/onlyalpha-runtime-persistence/
+COPY packages/onlyalpha-http-server/Cargo.toml ./packages/onlyalpha-http-server/Cargo.toml
+COPY packages/onlyalpha-http-server/rust/ ./packages/onlyalpha-http-server/rust/
+COPY packages/onlyalpha-product-runtime/ ./packages/onlyalpha-product-runtime/
+COPY packages/onlyalpha-metadata-json/ ./packages/onlyalpha-metadata-json/
+COPY packages/onlyalpha-integration-contract/ ./packages/onlyalpha-integration-contract/
 COPY packages/onlyalpha-backtest-driver/ ./packages/onlyalpha-backtest-driver/
+COPY plugs/onlyalpha-plugin-binance/Cargo.toml ./plugs/onlyalpha-plugin-binance/Cargo.toml
+COPY plugs/onlyalpha-plugin-binance/rust/ ./plugs/onlyalpha-plugin-binance/rust/
+COPY plugs/onlyalpha-plugin-tushare/Cargo.toml ./plugs/onlyalpha-plugin-tushare/Cargo.toml
+COPY plugs/onlyalpha-plugin-tushare/rust/ ./plugs/onlyalpha-plugin-tushare/rust/
 
 FROM rust-manifests AS rust-dependency-resolution
 RUN CARGO_NET_RETRY=0 cargo update --workspace
@@ -25,7 +34,7 @@ COPY --from=rust-dependency-resolution /rust-source/Cargo.lock /Cargo.lock
 FROM rust-manifests AS rust-dependencies
 RUN CARGO_NET_RETRY=0 cargo fetch --locked
 
-FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS reference-tools
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -69,7 +78,7 @@ ENV PATH="/workspace/.venv/bin:${PATH}" \
     ONLYALPHA_POSTGRES_CLIENT_BIN_DIR=/usr/lib/postgresql/18/bin \
     UV_NO_SYNC=1
 
-FROM runtime AS test
+FROM reference-tools AS test
 USER root
 COPY --from=rust-tools /usr/local/rustup /usr/local/rustup
 COPY --from=rust-tools /usr/local/cargo /usr/local/cargo
@@ -84,6 +93,17 @@ RUN apt-get update \
 USER onlyalpha
 RUN git config --global --add safe.directory /workspace
 RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
+# Prepare the exact existing contract tool while builds have network access;
+# the isolated validation service executes only cached tools, offline.
+RUN python - <<'PY_CONTRACT_TOOLS'
+import subprocess
+import tomllib
+from pathlib import Path
+
+mypy = next(package["version"] for package in tomllib.loads(Path("uv.lock").read_text())["package"] if package["name"] == "mypy")
+subprocess.run(["uvx", "--from", "schemathesis==4.26.1", "schemathesis", "--version"], check=True)
+subprocess.run(["uvx", "--from", "schemathesis==4.26.1", "--with", "mypy==" + mypy, "mypy", "--version"], check=True)
+PY_CONTRACT_TOOLS
 USER root
 RUN rm -f \
     /workspace/src/onlyalpha/_build_provenance.json \
@@ -102,12 +122,12 @@ EXPOSE 5173
 
 FROM web AS playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-COPY --from=runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=reference-tools /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && npx playwright install --with-deps chromium
 
 # Owner-authorized opt-in loopback Browser/API acceptance, same canonical test service.
-# The default Python test and all production targets remain unchanged.
+# Broad Python reference dependencies belong only to verification tools.
 FROM test AS browser-test
 USER root
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
@@ -125,3 +145,64 @@ RUN mkdir -p /workspace/packages/onlyalpha-web-console/node_modules/.vite \
     /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp
 RUN python -c "import json; from pathlib import Path; from scripts.dev_verification import environment_inputs; Path('/opt/onlyalpha-dev-environment.json').write_text(json.dumps(environment_inputs(Path('/workspace')), sort_keys=True))"
 USER onlyalpha
+
+# The maintained backend artifact; no Python service or business module is copied.
+FROM rust-dependencies AS native-service
+RUN cargo build --locked --offline --release --package onlyalpha-http-server --bin onlyalpha-http-server
+
+FROM web AS web-assets
+RUN NODE_ENV=production VITE_ONLYALPHA_LOCAL_SESSION=true npm run build
+
+# Reuse the admitted exact algorithm installation rather than a broad Core wheel.
+FROM reference-tools AS algorithm-installation
+USER root
+RUN install -d -o onlyalpha -g onlyalpha /opt/onlyalpha
+USER onlyalpha
+RUN python scripts/build_algorithm_sdk.py /opt/onlyalpha/wheels --install /opt/onlyalpha/algorithms \
+    > /opt/onlyalpha/algorithm-artifact.sha256
+
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ONLYALPHA_NATIVE_ALGORITHMS=/opt/onlyalpha/algorithms \
+    ONLYALPHA_NATIVE_ALGORITHM_ARTIFACT_FILE=/opt/onlyalpha/algorithm-artifact.sha256 \
+    ONLYALPHA_NATIVE_SCHEMA=/opt/onlyalpha/schema \
+    ONLYALPHA_NATIVE_WEB_ASSETS=/opt/onlyalpha/web \
+    ONLYALPHA_NATIVE_SOURCE_TRUST=/etc/ssl/certs/ca-certificates.crt
+RUN useradd --create-home --uid 10001 onlyalpha \
+    && install -d -o onlyalpha -g onlyalpha /var/lib/onlyalpha
+COPY --from=native-service /rust-source/target/release/onlyalpha-http-server /usr/local/bin/onlyalpha-http-server
+COPY --from=algorithm-installation /opt/onlyalpha/algorithms /opt/onlyalpha/algorithms
+COPY --from=algorithm-installation /opt/onlyalpha/algorithm-artifact.sha256 /opt/onlyalpha/algorithm-artifact.sha256
+COPY --from=algorithm-installation /opt/onlyalpha/wheels /opt/onlyalpha/wheels
+COPY --from=web-assets /workspace/packages/onlyalpha-web-console/dist /opt/onlyalpha/web
+COPY database/postgres/migrations /opt/onlyalpha/schema
+USER onlyalpha
+# Exercise the final filesystem as its actual unprivileged runtime user.
+# This build step needs no deployment, database, container, or business data.
+RUN /opt/onlyalpha/algorithms/bin/python -B -I - <<'PY_RUNTIME_SMOKE'
+import hashlib
+import importlib.util
+import json
+import subprocess
+from importlib.metadata import distribution, version
+from pathlib import Path
+
+import pyarrow
+import onlyalpha_calculation_worker.chart_worker
+
+root = Path("/opt/onlyalpha/algorithms")
+manifest_bytes = (root / "algorithm-installation.json").read_bytes()
+manifest = json.loads(manifest_bytes)
+assert hashlib.sha256(manifest_bytes).hexdigest() == Path("/opt/onlyalpha/algorithm-artifact.sha256").read_text().strip()
+assert version("onlyalpha") == manifest["distribution_version"]
+for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
+    assert importlib.util.find_spec(name) is None, name
+for name in ("onlyalpha", "onlyalpha-calculation-worker", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+    assert not distribution(name).entry_points, name
+for flag in ("--export-openapi", "--export-websocket"):
+    result = subprocess.run(["/usr/local/bin/onlyalpha-http-server", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
+    assert isinstance(json.loads(result.stdout), dict), flag
+PY_RUNTIME_SMOKE
+ENTRYPOINT ["/usr/local/bin/onlyalpha-http-server"]
+CMD ["--user-data-root", "/var/lib/onlyalpha"]

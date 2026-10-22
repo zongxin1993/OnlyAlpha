@@ -7,20 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from onlyalpha_http_server import create_research_app
-from onlyalpha_http_server.research.advisory_routes import create_advisory_router
 
 from onlyalpha.application.product_boundary import only_compose_research_product_boundary
 from onlyalpha.application.research_advisory import (
     OnlyGetResearchNearDuplicateAdvisoryV1,
     OnlyResearchAdvisoryAuthorityUnavailable,
     OnlyResearchAdvisoryInvariantViolation,
-    OnlyResearchAdvisoryProjectionCorrupt,
-    OnlyResearchAdvisoryRequestInvalid,
-    OnlyResearchAdvisoryRevisionNotFound,
-    OnlyResearchAdvisoryUnsupported,
     OnlyResearchNearDuplicateAdvisoryBundleV1,
     OnlyResearchNearDuplicateAdvisoryBundleV2,
     OnlyResearchNearDuplicateAdvisoryEntryV1,
@@ -49,7 +41,6 @@ from onlyalpha.research.memory.advisory import (
 )
 from onlyalpha.research.memory.projector import OnlyExperimentMemoryProjectionV1
 from onlyalpha.research.memory.source_manifest import MANDATORY_FAMILIES, OnlyExperimentMemorySourceCutManifestV1
-from onlyalpha.research.operations.readiness import OnlyResearchReadiness, OnlyResearchReadinessStatus
 from onlyalpha.research.run.evidence import OnlyResearchAdmissionResolutionEvidence
 from onlyalpha.research.source_cut import OnlySourceClosedCutV1
 from onlyalpha.research.specification.resolver import OnlyResearchSpecificationResolver
@@ -389,29 +380,7 @@ def test_service_keeps_all_subjects_and_loads_one_snapshot_per_request() -> None
         unavailable_service.get(OnlyGetResearchNearDuplicateAdvisoryV1(spec, "work"))
 
 
-def test_http_route_dispatches_only_the_product_query_contract() -> None:
-    bundle = _bundle()
-
-    class Queries:
-        def dispatch(self, query: object) -> object:
-            assert isinstance(query, OnlyGetResearchNearDuplicateAdvisoryV1)
-            return bundle
-
-    app = FastAPI()
-    app.include_router(create_advisory_router(SimpleNamespace(queries=Queries())))
-    response = TestClient(app).post(
-        "/api/v2/research/advisory/near-duplicates",
-        json={"specification": specification().to_dict(), "runtime_work_id": "work"},
-    )
-    assert response.status_code == 200
-    assert response.json()["schema_version"] == 2
-    assert response.json()["bundle_fingerprint"] == bundle.bundle_fingerprint
-    assert "product_command_id" not in response.json()
-    response_schema = app.openapi()["components"]["schemas"]["ResearchNearDuplicateAdvisoryResponseDto"]
-    assert response_schema["properties"]["schema_version"]["const"] == 2
-
-
-def test_real_specification_to_d1_to_http_vertical_is_read_only() -> None:
+def test_reference_specification_to_d1_product_query_is_read_only() -> None:
     spec = scientific_specification()
     specification_resolver = OnlyResearchSpecificationResolver(registry())
     resolution = specification_resolver.resolve(spec)
@@ -508,14 +477,7 @@ def test_real_specification_to_d1_to_http_vertical_is_read_only() -> None:
         queries=Queries(),  # type: ignore[arg-type]
         near_duplicate_queries=service,
     )
-    app = FastAPI()
-    app.include_router(create_advisory_router(boundary))
-    response = TestClient(app).post(
-        "/api/v2/research/advisory/near-duplicates",
-        json={"specification": spec.to_dict(), "runtime_work_id": "work"},
-    )
-    assert response.status_code == 200
-    payload = response.json()
+    payload = boundary.queries.dispatch(OnlyGetResearchNearDuplicateAdvisoryV1(spec, "work")).to_dict()
     assert payload["schema_version"] == 2
     assert payload["entries"][0]["result"]["status"] == "ADVISORY_OK"
     assert payload["entries"][0]["result"]["matches"]
@@ -527,63 +489,3 @@ def test_real_specification_to_d1_to_http_vertical_is_read_only() -> None:
     )
     assert "product_command_id" not in payload
     kernel.stop()
-
-
-@pytest.mark.parametrize(
-    ("error", "status"),
-    (
-        (OnlyResearchAdvisoryRequestInvalid("bad request"), 400),
-        (OnlyResearchAdvisoryUnsupported("unsupported"), 400),
-        (OnlyResearchAdvisoryRevisionNotFound("missing"), 404),
-        (OnlyResearchAdvisoryAuthorityUnavailable("down"), 503),
-        (OnlyResearchAdvisoryProjectionCorrupt("corrupt"), 500),
-        (OnlyResearchAdvisoryInvariantViolation("invariant"), 500),
-    ),
-)
-def test_advisory_http_error_mapping_preserves_failure_truth(error: Exception, status: int) -> None:
-    class Queries:
-        def dispatch(self, _query: object) -> object:
-            raise error
-
-    class ReadyProbe:
-        def inspect(self) -> OnlyResearchReadiness:
-            return OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ())
-
-    app = create_research_app(
-        reader=SimpleNamespace(),  # type: ignore[arg-type]
-        product_boundary=SimpleNamespace(queries=Queries()),  # type: ignore[arg-type]
-        calculation_registry=SimpleNamespace(),  # type: ignore[arg-type]
-        definition_resolver=SimpleNamespace(universe_resolver=None),  # type: ignore[arg-type]
-        readiness_probe=ReadyProbe(),  # type: ignore[arg-type]
-        near_duplicate_advisory=object(),
-    )
-    response = TestClient(app, raise_server_exceptions=False).post(
-        "/api/v2/research/advisory/near-duplicates",
-        json={"specification": specification().to_dict(), "runtime_work_id": "work"},
-    )
-    assert response.status_code == status
-    assert response.json()["code"] == error.code  # type: ignore[attr-defined]
-
-
-def test_advisory_unexpected_value_error_is_not_a_client_error() -> None:
-    class Queries:
-        def dispatch(self, _query: object) -> object:
-            raise ValueError("unexpected internal defect")
-
-    class ReadyProbe:
-        def inspect(self) -> OnlyResearchReadiness:
-            return OnlyResearchReadiness(OnlyResearchReadinessStatus.READY, ())
-
-    app = create_research_app(
-        reader=SimpleNamespace(),  # type: ignore[arg-type]
-        product_boundary=SimpleNamespace(queries=Queries()),  # type: ignore[arg-type]
-        calculation_registry=SimpleNamespace(),  # type: ignore[arg-type]
-        definition_resolver=SimpleNamespace(universe_resolver=None),  # type: ignore[arg-type]
-        readiness_probe=ReadyProbe(),  # type: ignore[arg-type]
-        near_duplicate_advisory=object(),
-    )
-    response = TestClient(app, raise_server_exceptions=False).post(
-        "/api/v2/research/advisory/near-duplicates",
-        json={"specification": specification().to_dict(), "runtime_work_id": "work"},
-    )
-    assert response.status_code == 500

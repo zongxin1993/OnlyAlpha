@@ -250,17 +250,8 @@ agent-provider-fixture ────────────────┘      
 
 ## Default development chart
 
-`market-data-bootstrap` runs `scripts/provision_dev_market_data.py` after the API is
-healthy and before the Web starts. It automatically creates and publishes **Binance
-Spot Market Data** with the installed plugin's public market-data defaults (GLOBAL /
-PUBLIC_MARKET_DATA), using only `/api/v2/integrations` commands and durable idempotency
-receipts. No manual source creation, API key or broker configuration is required.
-
-An existing Binance Spot public source in `GLOBAL` is reused; multiple sources remain an explicit
-Web selection. Restarting never re-enables a disabled/archived seed, overwrites an
-operator-edited draft, or replaces a published revision. Interrupted creation resumes
-with the same deployment seed and command identities. API failures stop provisioning
-rather than guessing that no source exists.
+Source setup requires explicit user intent. Development startup preserves existing
+Source configuration and lifecycle; it does not automatically create or publish a Source.
 
 The workspace resolves the server-reported source and exact `BTCUSDT.BINANCE` member,
 then loads **15m / LAST / RAW / SESSION_START** history, automatically acquiring missing

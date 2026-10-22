@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 from pathlib import Path
 
 import pytest
@@ -63,26 +64,21 @@ def test_standalone_artifact_composition_is_absent() -> None:
 
 
 def test_command_api_does_not_return_artifact_or_result_content() -> None:
-    source = "\n".join(
-        Path(f"packages/onlyalpha-http-server/src/onlyalpha_http_server/research/{name}").read_text()
-        for name in ("run_schema.py", "run_routes.py")
-    )
-    for forbidden in ("statistics_rows", "series", "parquet", "artifact_manifest", "result_content"):
-        assert forbidden not in source.lower()
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    operation = native["paths"]["/api/v2/research/runs"]["post"]
+    assert set(operation["responses"]) == {"501"}
+    assert operation["responses"]["501"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/NativeErrorEnvelope"
+    }
 
 
 def test_production_research_command_composition_requires_read_to_act_authorities() -> None:
-    source = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").read_text(encoding="utf-8")
-    composition = source[source.index("command = OnlyResearchCommandService(") : source.index("research_queries =")]
-    for required in (
-        "novelty_decisions=",
-        "memory_builder=",
-        "memory_revisions=",
-        "command_admissions=",
-        "runtime_generation_resolver=",
-    ):
-        assert required in composition
-    assert "allow_legacy_ungated=True" not in composition
+    assert not Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").exists()
+    source = "".join((Path("packages/onlyalpha-http-server/rust/host.rs").read_text(encoding="utf-8")).split())
+    assert "Some(crate::routes::Operation::Deferred)" in source
+    assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in source
+    assert "OnlyResearchCommandService(" not in source
+    assert "allow_legacy_ungated=True" not in source
 
 
 def test_product_and_search_research_creation_share_the_command_service_gate() -> None:
@@ -95,14 +91,12 @@ def test_product_and_search_research_creation_share_the_command_service_gate() -
     for source in (product, symbolic, parameter):
         assert "create_queued_with_receipt(" not in source
         assert "create_queued_with_novelty_admission(" not in source
-    http = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_routes.py").read_text(
-        encoding="utf-8"
-    )
     authoring = "\n".join(
         path.read_text(encoding="utf-8")
         for path in Path("packages/onlyalpha-authoring-execution-worker/src").rglob("*.py")
     )
-    assert "OnlyCreateResearchRun(" in http
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    assert set(native["paths"]["/api/v2/research/runs"]["post"]["responses"]) == {"501"}
     assert "create_queued(" not in authoring
     assert "create_queued_with_receipt(" not in authoring
     assert ".submit(" not in authoring

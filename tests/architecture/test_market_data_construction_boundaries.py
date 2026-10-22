@@ -4,8 +4,6 @@ import json
 import re
 from pathlib import Path
 
-from onlyalpha_http_server.market_data.schema import MarketDataBarSemanticDto
-
 from onlyalpha.domain.enums import OnlyAdjustmentType, OnlyPriceType
 from onlyalpha.domain.market import OnlyBarFormationKind, OnlyBarSemantic
 
@@ -53,26 +51,39 @@ def test_backtest_loads_graph_provider_inputs_and_manager_uses_registry() -> Non
 
 def test_transport_market_data_vocabularies_match_domain() -> None:
     long_bar = OnlyBarSemantic.fixed_duration(720)
-    assert MarketDataBarSemanticDto.from_model(long_bar).to_model() == long_bar
-    schema = MarketDataBarSemanticDto.model_json_schema()
-    price = schema["$defs"]["OnlyPriceType"]["enum"]
+    assert OnlyBarSemantic.from_dict(long_bar.to_dict()) == long_bar
+    native = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text())
+    schemas = native["components"]["schemas"]
+    schema = schemas["MarketDataBarSemanticDto"]
+    price = schemas["OnlyPriceType"]["enum"]
     assert set(price) == {item.value for item in OnlyPriceType}
-    assert MarketDataBarSemanticDto.model_fields["price_type"].annotation is OnlyPriceType
+    assert schema["properties"]["price_type"] == {"$ref": "#/components/schemas/OnlyPriceType"}
 
     web = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/model.ts").read_text(encoding="utf-8")
     http = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/http.generated.ts").read_text(encoding="utf-8")
     stream = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.generated.ts").read_text(
         encoding="utf-8"
     )
+
+    def vocabulary(text: str, field: str) -> set[str]:
+        bindings = re.findall(rf"\b{field}:\s*(z\.(?:enum|literal)\([^)]*\)|[A-Za-z_]\w*)", text)
+        assert bindings, field
+        values: set[str] = set()
+        for binding in bindings:
+            if not binding.startswith("z."):
+                declaration = re.search(rf"\bconst\s+{re.escape(binding)}\s*=\s*(z\.(?:enum|literal)\([^)]*\))", text)
+                assert declaration is not None, (field, binding)
+                binding = declaration.group(1)
+            expression = re.fullmatch(r"z\.(?:enum|literal)\((.*)\)", binding)
+            assert expression is not None, (field, binding)
+            payload = json.loads(expression.group(1))
+            values.update(payload if isinstance(payload, list) else [payload])
+        return values
+
     for text in (web, http, stream):
-        price_match = re.search(r"(?:price_type|OnlyPriceTypeSchema)\s*(?::|=)\s*z\.enum\((\[[^\]]+\])\)", text)
-        adjustment_match = re.search(r"adjustment_policy:\s*z\.enum\((\[[^\]]+\])\)", text)
-        assert price_match is not None and adjustment_match is not None
-        assert set(json.loads(price_match.group(1))) == {item.value for item in OnlyPriceType}
-        assert set(json.loads(adjustment_match.group(1))) == {item.value for item in OnlyAdjustmentType}
-        assert set(re.findall(r'kind:\s*z\.literal\("([A-Z_]+)"\)', text)) == {
-            item.value for item in OnlyBarFormationKind
-        }
+        assert vocabulary(text, "price_type") == {item.value for item in OnlyPriceType}
+        assert vocabulary(text, "adjustment_policy") == {item.value for item in OnlyAdjustmentType}
+        assert vocabulary(text, "kind") == {item.value for item in OnlyBarFormationKind}
 
     wire = json.loads((ROOT / "contracts/product-api/v2/market-data-stream.schema.json").read_text())
     assert "INDEX" not in json.dumps(wire)

@@ -86,12 +86,16 @@ export const marketDataSourceSelectionSchema = z.strictObject({
 });
 
 export const marketDataSourceSchema = z.strictObject({
+    is_current_revision: z.boolean(),
     integration_id: z.string().min(1),
     integration_revision_fingerprint: sha256,
     display_name: z.string().min(1),
     type_id: z.string().min(1),
     source_id: z.string().min(1),
     environment: z.string().min(1),
+    new_work_status: z.enum(["AVAILABLE", "UNAVAILABLE"]),
+    new_work_unavailable_code: z.string().nullable(),
+    history_read_policy: z.literal("EXACT_SEALED_PROOF"),
     time_bar_capability: z.strictObject({
         provider_base_semantic: marketDataBarSemanticSchema,
         derived_algorithm: z.literal("TIME_BAR@1").nullable(),
@@ -167,13 +171,7 @@ export const marketDataAcquisitionSchema = z.strictObject({
     failure_detail: z.string().nullable()
 });
 
-export const marketDataErrorSchema = z.strictObject({
-    error: z.strictObject({
-        phase: z.enum(["QUERY", "COMMAND"]),
-        code: z.string().min(1),
-        detail: z.string()
-    })
-});
+export { nativeErrorSchema as marketDataErrorSchema } from "../errors.generated";
 
 export type MarketDataSourceSelection = z.infer<typeof marketDataSourceSelectionSchema>;
 export type MarketDataSourceReference = z.infer<typeof marketDataSourceReferenceSchema>;
@@ -183,3 +181,12 @@ export type MarketDataCoverage = z.infer<typeof marketDataCoverageSchema>;
 export type MarketDataCoverageGap = z.infer<typeof marketDataCoverageGapSchema>;
 export type MarketDataBar = z.infer<typeof marketDataBarSchema>;
 export type MarketDataAcquisition = z.infer<typeof marketDataAcquisitionSchema>;
+
+/** Disposable select-control value; the original server reference remains Authority. */
+export function marketDataSourceChoiceKey(source: MarketDataSource): string {
+    return JSON.stringify([
+        source.integration_id,
+        source.integration_revision_fingerprint,
+        source.type_id
+    ]);
+}

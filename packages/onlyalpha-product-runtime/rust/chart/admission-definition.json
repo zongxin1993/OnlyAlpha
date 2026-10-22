@@ -1,0 +1,63 @@
+{
+  "extensions": {},
+  "factor_kind": null,
+  "input_bindings": {
+    "value": {
+      "node_fingerprint": null,
+      "output_name": "value",
+      "source": "bar.close"
+    }
+  },
+  "inputs": [
+    {
+      "data_type": "DECIMAL",
+      "dimensions": [
+        "TIME"
+      ],
+      "name": "value",
+      "nullable": false,
+      "semantic_type": "NUMERIC_SERIES",
+      "unit": null
+    }
+  ],
+  "kind": "INDICATOR",
+  "missing_values": "FAIL",
+  "numeric": {
+    "output_quantum": "0.000000000001",
+    "precision": 28,
+    "representation": "DECIMAL",
+    "rounding": "CONTEXT"
+  },
+  "outputs": [
+    {
+      "data_type": "DECIMAL",
+      "dimensions": [
+        "TIME"
+      ],
+      "name": "value",
+      "nullable": true,
+      "semantic_type": "NUMERIC_SERIES",
+      "unit": null
+    }
+  ],
+  "parameters": {
+    "period": {
+      "type": "INTEGER",
+      "value": 20
+    },
+    "price_field": {
+      "type": "STRING",
+      "value": "CLOSE"
+    }
+  },
+  "schema_version": 2,
+  "semantic_version": "1",
+  "timestamp": "EVENT_TIME",
+  "type_id": "onlyalpha.indicator.sma",
+  "warmup": {
+    "initialization": "PARTIAL_WINDOW",
+    "minimum_observations": 20,
+    "pre_ready_output": "PARTIAL",
+    "ready_condition": "samples >= minimum_observations"
+  }
+}

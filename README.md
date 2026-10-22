@@ -189,13 +189,15 @@ uv run --no-sync python --version
 真实本机 Web/API（复用现有 dev 数据，不初始化或自动采集）：
 
 ```bash
-python3 -m scripts.dev start
+uv run --no-sync python -m scripts.dev start
 # 打开 http://127.0.0.1:5173，无需手填凭据
-python3 -m scripts.dev stop
+uv run --no-sync python -m scripts.dev stop
 ```
 
-这一个应用服务复用已安装的 uv dev 镜像。SMA 权限由服务端本机会话验证；历史不足会明确显示，
-不会用测试 fixture 补齐。数据初始化和完整集成拓扑不随普通启动执行。
+启动工具通过唯一 dev 验证环境构建 Rust 服务、Web 资源和隔离算法环境，然后运行 Rust HTTP/WebSocket 后端。
+Python 仅用于构建工具和隔离的因子/指标算法执行。当前阶段提供工作台 K 线、指标和因子元数据看板；
+研究、独立数据页、策略、回测和系统页明确标记为未实现。历史不足会明确显示，不会用测试 fixture 补齐。
+普通启动保留已有数据，不初始化数据库或自动采集。
 
 正式验收复用 `onlyalpha-dev` 下现有验证服务，与日常 uv 调试区分，不要求额外只读凭据配置：
 

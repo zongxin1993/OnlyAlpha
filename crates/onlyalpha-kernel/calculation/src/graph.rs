@@ -20,11 +20,7 @@ impl Graph {
             return Err(err("GRAPH_BUDGET"));
         }
         let mut aliases = BTreeSet::new();
-        let mut lookup = BTreeMap::new();
-        for (i, (d, alias)) in nodes.iter().enumerate() {
-            if lookup.insert(d.fingerprint(), i).is_some() {
-                return Err(err("DUPLICATE_NODE"));
-            }
+        for (_, alias) in &nodes {
             if let Some(alias) = alias {
                 name(&json!(alias))?;
                 if !aliases.insert(alias) {
@@ -32,76 +28,18 @@ impl Graph {
                 }
             }
         }
-        let targets = nodes
+        let ids: Vec<_> = nodes.iter().map(|(d, _)| d.fingerprint()).collect();
+        let records: Vec<_> = nodes
             .iter()
-            .filter(|(d, _)| d.reference().kind() == "TARGET")
-            .count();
-        if targets > 0 && targets != nodes.len() {
-            return Err(err("TARGET_FEATURE_GRAPH_MIX"));
-        }
-        let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (id, index) in &lookup {
-            let d = nodes[*index].0.record();
-            let mut references: Vec<_> = map(&d["input_bindings"])?.iter().collect();
-            references.sort_by_key(|(_, r)| {
-                (
-                    r["node_fingerprint"].as_str().unwrap_or(""),
-                    r["output_name"].as_str().unwrap_or(""),
-                    r["source"].as_str().unwrap_or(""),
-                )
-            });
-            let mut dependencies = vec![];
-            for (input_name, r) in references {
-                if let Some(dependency) = r["node_fingerprint"].as_str() {
-                    if targets > 0 {
-                        return Err(err("TARGET_NODE_DEPENDENCY_FORBIDDEN"));
-                    }
-                    let producer = &nodes[*lookup
-                        .get(dependency)
-                        .ok_or_else(|| err("MISSING_DEPENDENCY"))?]
-                    .0;
-                    let output = array(&producer.record()["outputs"])?
-                        .iter()
-                        .find(|p| p["name"] == r["output_name"])
-                        .ok_or_else(|| err("MISSING_OUTPUT"))?;
-                    let input = array(&d["inputs"])?
-                        .iter()
-                        .find(|p| p["name"].as_str() == Some(input_name))
-                        .expect("validated binding");
-                    if !compatible(output, input) {
-                        return Err(err("INCOMPATIBLE_PORT"));
-                    }
-                    dependencies.push(dependency.to_owned());
-                }
-            }
-            edges.insert(id.clone(), dependencies);
-        }
-        let mut markers = BTreeMap::new();
-        let mut ordered = vec![];
-        for root in lookup.keys() {
-            let mut stack = vec![(root.clone(), false)];
-            while let Some((id, expanded)) = stack.pop() {
-                if expanded {
-                    markers.insert(id.clone(), 2);
-                    ordered.push(*lookup.get(&id).expect("validated dependency"));
-                    continue;
-                }
-                match markers.get(&id) {
-                    Some(1) => return Err(err("GRAPH_CYCLE")),
-                    Some(2) => continue,
-                    _ => {}
-                }
-                markers.insert(id.clone(), 1);
-                stack.push((id.clone(), true));
-                for dependency in edges[&id].iter().rev() {
-                    stack.push((dependency.clone(), false));
-                }
-            }
-        }
+            .zip(&ids)
+            .map(|((d, _), id)| (id.as_str(), d.record()))
+            .collect();
+        let ordered = order(&records)?;
         Ok(Self {
             nodes: ordered.into_iter().map(|i| nodes[i].clone()).collect(),
         })
     }
+
     pub fn ordered_nodes(&self) -> Vec<&Definition> {
         self.nodes.iter().map(|(d, _)| d).collect()
     }
@@ -130,4 +68,97 @@ impl Graph {
         }
         Self::new(nodes)
     }
+}
+
+// Both wire readers validate every record before this shared structural pass.
+// Original semantic IDs are supplied by their owning Definition, never remapped.
+pub(crate) fn order(nodes: &[(&str, &Value)]) -> Result<Vec<usize>> {
+    let mut lookup = BTreeMap::new();
+    for (i, (id, _)) in nodes.iter().enumerate() {
+        if lookup.insert((*id).to_owned(), i).is_some() {
+            return Err(err("DUPLICATE_NODE"));
+        }
+    }
+    let targets = nodes.iter().filter(|(_, d)| d["kind"] == "TARGET").count();
+    if targets > 0 && targets != nodes.len() {
+        return Err(err("TARGET_FEATURE_GRAPH_MIX"));
+    }
+    // Index each validated port once; wide public graphs must not make every
+    // edge rescan all producer outputs and consumer inputs.
+    let ports = |field: &str| {
+        nodes
+            .iter()
+            .map(|(_, d)| {
+                d[field]
+                    .as_array()
+                    .expect("validated ports")
+                    .iter()
+                    .map(|p| (p["name"].as_str().expect("validated port name"), p))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let outputs = ports("outputs");
+    let inputs = ports("inputs");
+    let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (id, index) in &lookup {
+        let d = nodes[*index].1;
+        let mut references: Vec<_> = d["input_bindings"]
+            .as_object()
+            .expect("validated bindings")
+            .iter()
+            .collect();
+        references.sort_by_key(|(_, r)| {
+            (
+                r["node_fingerprint"].as_str().unwrap_or(""),
+                r["output_name"].as_str().unwrap_or(""),
+                r["source"].as_str().unwrap_or(""),
+            )
+        });
+        let mut dependencies = vec![];
+        for (input_name, r) in references {
+            if let Some(dependency) = r["node_fingerprint"].as_str() {
+                if targets > 0 {
+                    return Err(err("TARGET_NODE_DEPENDENCY_FORBIDDEN"));
+                }
+                let producer = *lookup
+                    .get(dependency)
+                    .ok_or_else(|| err("MISSING_DEPENDENCY"))?;
+                let output = outputs[producer]
+                    .get(r["output_name"].as_str().expect("validated output name"))
+                    .ok_or_else(|| err("MISSING_OUTPUT"))?;
+                let input = inputs[*index]
+                    .get(input_name.as_str())
+                    .expect("validated binding");
+                if !compatible(output, input) {
+                    return Err(err("INCOMPATIBLE_PORT"));
+                }
+                dependencies.push(dependency.to_owned());
+            }
+        }
+        edges.insert(id.clone(), dependencies);
+    }
+    let mut markers = BTreeMap::new();
+    let mut ordered = vec![];
+    for root in lookup.keys() {
+        let mut stack = vec![(root.clone(), false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                markers.insert(id.clone(), 2);
+                ordered.push(*lookup.get(&id).expect("validated dependency"));
+                continue;
+            }
+            match markers.get(&id) {
+                Some(1) => return Err(err("GRAPH_CYCLE")),
+                Some(2) => continue,
+                _ => {}
+            }
+            markers.insert(id.clone(), 1);
+            stack.push((id.clone(), true));
+            for dependency in edges[&id].iter().rev() {
+                stack.push((dependency.clone(), false));
+            }
+        }
+    }
+    Ok(ordered)
 }

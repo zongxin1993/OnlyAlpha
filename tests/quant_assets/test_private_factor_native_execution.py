@@ -683,3 +683,75 @@ def test_historical_native_builder_has_no_current_private_asset_resolution_path(
     assert "OnlyPostgresPrivateAssetStore" not in source
     assert "load_factor_revision" not in source
     assert "latest_revision" not in source
+
+
+def test_exact_three_resource_metadata_never_substitutes_the_current_four_resource_execution(monkeypatch) -> None:
+    from onlyalpha.calculation.implementation import OnlyCalculationImplementationResource
+
+    closure = OnlyPrivateFactorExecutableClosureV1.create(
+        _revision(),
+        ({"close": Decimal("1")},),
+        {"offset": Decimal("0")},
+        host=OnlyPrivateFactorIsolatedProgramHost(3),
+    )
+    current = tuple(item.implementation_manifest for item in closure.registrations)
+    assert all(manifest is not None and len(manifest.resources) == 4 for manifest in current)
+    original = tuple(
+        replace(
+            manifest,
+            resources=tuple(
+                replace(resource, byte_sha256="a8b4ad4ecd644bf0981c1e996771ad8a3de9bae20f25ad8f92c566b2bd5d6d06")
+                if resource.relative_path.endswith("-adapter.py")
+                else resource
+                for resource in manifest.resources
+                if resource.relative_path != "private_factor/algorithm-sdk.py"
+            ),
+        )
+        for manifest in current
+        if manifest is not None
+    )
+    # The adapter hash is the real retained HEAD's complete pre-extraction module;
+    # verifying this metadata does not import or execute that historical module.
+    entry = replace(
+        closure.provider_snapshot.entries[0],
+        research_implementation_fingerprint=original[0].implementation_fingerprint,
+        trading_implementation_fingerprint=original[1].implementation_fingerprint,
+    )
+    for manifest in original:
+        entry.require_implementation_manifest(manifest)
+    snapshot = OnlyPrivateFactorProviderSnapshotV1((entry,))
+    assert OnlyPrivateFactorProviderSnapshotV1.from_dict(snapshot.to_dict()) == snapshot
+    for manifest in original:
+        extra = replace(
+            manifest,
+            resources=(*manifest.resources, OnlyCalculationImplementationResource("private_factor/extra.py", "a" * 64)),
+        )
+        changed = replace(
+            entry,
+            **{
+                "research_implementation_fingerprint"
+                if manifest.backend_kind is OnlyCalculationBackendKind.RESEARCH
+                else "trading_implementation_fingerprint": extra.implementation_fingerprint
+            },
+        )
+        with pytest.raises(ValueError, match="PRIVATE_FACTOR_IMPLEMENTATION_MANIFEST_MISMATCH"):
+            changed.require_implementation_manifest(extra)
+    calls = []
+
+    def unexpected_execution(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("metadata/assembly must not execute historical or current source")
+
+    monkeypatch.setattr(OnlyPrivateFactorIsolatedProgramHost, "execute", unexpected_execution)
+    with pytest.raises(ValueError, match="PRIVATE_FACTOR_IMPLEMENTATION_MANIFEST_MISMATCH"):
+        OnlyQuantAssetProvider(
+            OnlyQuantAssetProviderManifest(
+                "private.native.factor",
+                "1",
+                OnlyQuantAssetKind.FACTOR,
+                OnlyPrivateFactorSnapshotProviderSource(snapshot.snapshot_fingerprint),
+            ),
+            calculation_registrations=closure.registrations,
+            private_factor_snapshot=snapshot,
+        )
+    assert calls == []

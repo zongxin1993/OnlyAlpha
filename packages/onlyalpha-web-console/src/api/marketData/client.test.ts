@@ -250,7 +250,10 @@ it("reads exact acquisition status by reference", async () => {
 it("maps Product and transport failures to explicit Market Data errors", async () => {
     stubFetch(
         json(
-            { error: { phase: "QUERY", code: "MARKET_DATA_CATALOG_UNAVAILABLE", detail: "down" } },
+            {
+                schema_version: 1,
+                error: { phase: "QUERY", code: "MARKET_DATA_CATALOG_UNAVAILABLE", detail: "down" }
+            },
             503
         )
     );
@@ -313,6 +316,7 @@ it.each([
     stubFetch(
         new Response(
             JSON.stringify({
+                schema_version: 1,
                 error: {
                     phase: "QUERY",
                     code: "MARKET_DATA_WINDOW_NOT_CLOSED",
@@ -345,10 +349,13 @@ it.each([
     "never turns unrelated error %s %s %s into window readiness",
     async (status, code, phase) => {
         stubFetch(
-            new Response(JSON.stringify({ error: { phase, code, detail: "Refused" } }), {
-                status,
-                headers: { "Retry-After": "4" }
-            })
+            new Response(
+                JSON.stringify({ schema_version: 1, error: { phase, code, detail: "Refused" } }),
+                {
+                    status,
+                    headers: { "Retry-After": "4" }
+                }
+            )
         );
         await expect(
             new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
@@ -404,4 +411,26 @@ it("exact instrument lookups reject duplicated rows hiding a missing requested i
             "ETHUSDT.TEST"
         ])
     ).rejects.toMatchObject({ code: "CONTRACT_ERROR" });
+});
+
+it.each([
+    { error: { phase: "QUERY", code: "MARKET_DATA_WINDOW_NOT_CLOSED", detail: "Refused" } },
+    {
+        schema_version: 2,
+        error: { phase: "QUERY", code: "MARKET_DATA_WINDOW_NOT_CLOSED", detail: "Refused" }
+    },
+    {
+        schema_version: 1,
+        error: { phase: "QUERY", code: "MARKET_DATA_WINDOW_NOT_CLOSED", detail: "Refused" },
+        extra: true
+    }
+])("rejects an unversioned, wrong-version or extra-field error envelope: %j", async (body) => {
+    stubFetch(json(body, 503));
+    await expect(
+        new FetchMarketDataApiClient().queryBars(FIXTURE_REFERENCE, query)
+    ).rejects.toMatchObject({
+        code: "CONTRACT_ERROR",
+        status: 503,
+        retryAfterSeconds: null
+    });
 });

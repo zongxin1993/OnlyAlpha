@@ -325,14 +325,6 @@ def test_research_query_architecture_gate_is_component_scoped() -> None:
     assert plan.impact.static_plan is not None and plan.impact.static_plan.import_linter_required
 
 
-def test_api_package_metadata_requires_version_sync_and_api_build() -> None:
-    plan = _plan("packages/onlyalpha-http-server/pyproject.toml")
-
-    assert plan.impact.static_plan is not None
-    assert plan.impact.static_plan.version_sync_required
-    assert plan.impact.static_plan.build_targets == ("onlyalpha", "onlyalpha-http-server")
-
-
 def test_package_metadata_requests_version_sync_and_targeted_build() -> None:
     plan = _plan("pyproject.toml")
 
@@ -567,3 +559,137 @@ def test_gateway_wire_and_manifest_changes_select_rust_projection_consumers(path
     plan = _plan(path)
     assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
     assert OnlyTestLane.CALCULATION in plan.impact.lanes
+
+
+def test_product_rust_scope_selects_native_checks_and_only_persistence_changes_select_postgres() -> None:
+    for path in (
+        "packages/onlyalpha-product-runtime/rust/postgres.rs",
+        "packages/onlyalpha-product-runtime/tests/test_command_postgres.py",
+        "packages/onlyalpha-product-runtime/Cargo.toml",
+    ):
+        plan = _plan(path)
+        assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+        assert OnlyTestLane.RESEARCH_POSTGRES in plan.impact.lanes
+    session = _plan("packages/onlyalpha-product-runtime/rust/source_access.rs")
+    assert OnlyReleaseCheck.RUST_KERNEL in session.impact.checks
+    assert OnlyTestLane.RESEARCH_POSTGRES not in session.impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-http-server/tests/configuration.rs",
+        "packages/onlyalpha-http-server/tests/deployment.rs",
+        "packages/onlyalpha-http-server/tests/ingress.rs",
+        "packages/onlyalpha-http-server/tests/schema.rs",
+        "packages/onlyalpha-http-server/tests/integration_types.rs",
+        "packages/onlyalpha-http-server/tests/human_access.rs",
+        "packages/onlyalpha-http-server/tests/developer_ingress.rs",
+    ],
+)
+def test_native_http_scope_selects_rust_checks_without_unrelated_postgres_lane(path: str) -> None:
+    plan = _plan(path)
+    assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+    assert OnlyTestLane.RESEARCH_POSTGRES not in plan.impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-product-runtime/rust/integration_catalog.rs",
+        "packages/onlyalpha-product-runtime/rust/integration_resolver.rs",
+        "packages/onlyalpha-integration-contract/rust/authoring.rs",
+        "packages/onlyalpha-product-runtime/tests/test_integration_authoring_postgres.py",
+        "packages/onlyalpha-product-runtime/tests/support/integration.py",
+        "tests/support/postgres_link.py",
+        "packages/onlyalpha-product-runtime/tests/support/postgres_probe.rs",
+        "tests/support/integration_configuration.py",
+    ],
+)
+def test_authoring_changes_select_postgres_owning_consumer_proof(path: str) -> None:
+    plan = _plan(path)
+    assert OnlyTestLane.RESEARCH_POSTGRES in plan.impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-product-runtime/rust/deployment.rs",
+        "packages/onlyalpha-product-runtime/tests/test_deployment_postgres.py",
+    ],
+)
+def test_native_deployment_binding_selects_owning_postgres_lane(path: str) -> None:
+    assert OnlyTestLane.RESEARCH_POSTGRES in _plan(path).impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-product-runtime/rust/schema.rs",
+        "packages/onlyalpha-product-runtime/tests/test_schema_postgres.py",
+    ],
+)
+def test_native_schema_reader_selects_owning_postgres_lane(path: str) -> None:
+    assert OnlyTestLane.RESEARCH_POSTGRES in _plan(path).impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-http-server/rust/integrations.rs",
+        "packages/onlyalpha-http-server/rust/node.rs",
+        "packages/onlyalpha-http-server/tests/node.rs",
+        "packages/onlyalpha-http-server/tests/conftest.py",
+        "packages/onlyalpha-http-server/tests/test_native_node_authority.py",
+        "packages/onlyalpha-http-server/rust/integration_types.rs",
+        "packages/onlyalpha-http-server/rust/ingress.rs",
+        "packages/onlyalpha-http-server/tests/test_native_integration_queries.py",
+        "packages/onlyalpha-http-server/tests/support/integration_http_probe.rs",
+        "packages/onlyalpha-http-server/Cargo.toml",
+    ],
+)
+def test_native_integration_http_selects_owning_postgres_and_rust(path: str) -> None:
+    plan = _plan(path)
+    assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+    assert OnlyTestLane.RESEARCH_POSTGRES in plan.impact.lanes
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-http-server/tests/web_assets.rs",
+        "packages/onlyalpha-http-server/tests/test_native_web_assets.py",
+        "packages/onlyalpha-http-server/tests/support/http.rs",
+    ],
+)
+def test_native_web_asset_delivery_selects_rust_verification(path: str) -> None:
+    assert OnlyReleaseCheck.RUST_KERNEL in _plan(path).impact.checks
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/onlyalpha-http-server/rust/startup.rs",
+        "packages/onlyalpha-http-server/tests/test_native_frozen_strategy.py",
+        "packages/onlyalpha-http-server/tests/test_native_strategy_projection.py",
+        "packages/onlyalpha-product-runtime/rust/strategy_projection.rs",
+        "packages/onlyalpha-product-runtime/rust/qualification_policy.rs",
+        "packages/onlyalpha-http-server/tests/test_native_qualification_policy.py",
+        "tests/support/frozen_strategy.py",
+        "packages/onlyalpha-product-runtime/rust/frozen_strategy.rs",
+        "packages/onlyalpha-product-runtime/rust/authority_session.rs",
+        "packages/onlyalpha-product-runtime/rust/protected_files.rs",
+        "packages/onlyalpha-http-server/rust/configuration.rs",
+        "packages/onlyalpha-http-server/tests/startup.rs",
+        "packages/onlyalpha-http-server/tests/test_native_startup_storage.py",
+    ],
+)
+def test_native_startup_storage_selects_owning_rust_and_postgres(path: str) -> None:
+    plan = _plan(path)
+    assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+    assert OnlyTestLane.RESEARCH_POSTGRES in plan.impact.lanes
+
+
+def test_product_calculation_oracle_selects_native_identity_checks() -> None:
+    plan = _plan("test-data/calculation/product-readers-v1.jsonl")
+    assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks

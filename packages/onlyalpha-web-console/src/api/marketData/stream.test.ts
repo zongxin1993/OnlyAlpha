@@ -52,19 +52,54 @@ it.each([1012, 1008])(
     }
 );
 
-it("sends AUTH before Subscribe and fences all old socket messages on token A→B→A", () => {
+it("denies bearer WS without opening a socket or promoting Source credentials", () => {
+    const socket = vi.fn();
+    vi.stubGlobal("WebSocket", socket);
+    try {
+        const credentials = new LocalReadCredentials();
+        credentials.replace("ee".repeat(32));
+        const disconnect = vi.fn();
+        const request = marketDataStreamSubscribeSchema.parse({
+            schema_version: 2,
+            operation: "SUBSCRIBE_BAR",
+            source_reference: {
+                integration_id: "i",
+                integration_revision_fingerprint: "a".repeat(64),
+                expected_type_id: "test.source"
+            },
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(15),
+            resume_after_sequence: "0"
+        });
+        openMarketDataStream(request, vi.fn(), disconnect, credentials)();
+        expect(socket).not.toHaveBeenCalled();
+        expect(disconnect).toHaveBeenCalledExactlyOnceWith("AUTHENTICATION_ERROR");
+        expect(
+            marketDataStreamEventSchema.safeParse({ schema_version: 1, event: "AUTHENTICATED" })
+                .success
+        ).toBe(false);
+        expect(
+            marketDataStreamSubscribeSchema.safeParse({
+                schema_version: 1,
+                operation: "AUTH",
+                bearer: "ee".repeat(32)
+            }).success
+        ).toBe(false);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+it("fences cookie-session socket messages after credential generation A→B→A", () => {
     class Socket extends EventTarget {
         static current: Socket;
         frames: string[] = [];
-        constructor(
-            readonly url: string,
-            readonly protocols?: string[]
-        ) {
+        constructor() {
             super();
             Socket.current = this;
         }
-        send(value: string) {
-            this.frames.push(value);
+        send(frame: string) {
+            this.frames.push(frame);
         }
         close() {
             this.dispatchEvent(new CloseEvent("close", { code: 1000 }));
@@ -74,42 +109,41 @@ it("sends AUTH before Subscribe and fences all old socket messages on token A→
         }
     }
     vi.stubGlobal("WebSocket", Socket);
-    const credentials = new LocalReadCredentials();
-    const token = "ee".repeat(32);
-    credentials.replace(token);
-    const event = vi.fn();
-    const disconnect = vi.fn();
-    const request = marketDataStreamSubscribeSchema.parse({
-        schema_version: 2,
-        operation: "SUBSCRIBE_BAR",
-        source_reference: {
-            integration_id: "i",
-            integration_revision_fingerprint: "a".repeat(64),
-            expected_type_id: "test.source"
-        },
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(15),
-        resume_after_sequence: "0"
-    });
-    const dispose = openMarketDataStream(request, event, disconnect, credentials);
-    const socket = Socket.current;
-    socket.dispatchEvent(new Event("open"));
-    expect(socket.url).not.toContain(token);
-    expect(socket.protocols).toBeUndefined();
-    const operations = () =>
-        socket.frames.map((frame) => (JSON.parse(frame) as { operation: string }).operation);
-    expect(operations()).toEqual(["AUTH"]);
-    socket.emit({ schema_version: 1, event: "AUTHENTICATED" });
-    expect(operations()).toEqual(["AUTH", "SUBSCRIBE_BAR"]);
-    socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
-    expect(event).toHaveBeenCalledTimes(1);
-    credentials.replace("ff".repeat(32));
-    credentials.replace(token);
-    socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
-    expect(event).toHaveBeenCalledTimes(1);
-    expect(disconnect).not.toHaveBeenCalled();
-    dispose();
-    vi.unstubAllGlobals();
+    try {
+        const credentials = new LocalReadCredentials(true);
+        const event = vi.fn();
+        const disconnect = vi.fn();
+        const request = marketDataStreamSubscribeSchema.parse({
+            schema_version: 2,
+            operation: "SUBSCRIBE_BAR",
+            source_reference: {
+                integration_id: "i",
+                integration_revision_fingerprint: "a".repeat(64),
+                expected_type_id: "test.source"
+            },
+            instrument_id: "BTCUSDT.TEST",
+            bar_semantic: marketDataBarSemantic(15),
+            resume_after_sequence: "0"
+        });
+        const dispose = openMarketDataStream(request, event, disconnect, credentials);
+        const socket = Socket.current;
+        socket.dispatchEvent(new Event("open"));
+        expect(
+            socket.frames.map(
+                (frame) => marketDataStreamSubscribeSchema.parse(JSON.parse(frame)).operation
+            )
+        ).toEqual(["SUBSCRIBE_BAR"]);
+        socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
+        expect(event).toHaveBeenCalledTimes(1);
+        credentials.replace("ff".repeat(32));
+        credentials.replace(null);
+        socket.emit({ schema_version: 2, event: "STATE", state: "READY" });
+        expect(event).toHaveBeenCalledTimes(1);
+        expect(disconnect).not.toHaveBeenCalled();
+        dispose();
+    } finally {
+        vi.unstubAllGlobals();
+    }
 });
 
 it("admits the exact-source cursor contract and rejects browser OHLCV truth", () => {

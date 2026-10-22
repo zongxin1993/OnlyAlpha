@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.architecture._architecture_imports import CanonicalImport, onlyalpha_imports, onlyalpha_imports_for_path
+from tests.architecture._architecture_imports import (
+    CanonicalImport,
+    onlyalpha_imports,
+    onlyalpha_imports_for_path,
+)
 from tests.architecture._product_authority_contract import load_authority_contract
 
 pytestmark = pytest.mark.architecture
@@ -81,6 +85,9 @@ def test_any_transport_filename_is_rejected_when_it_imports_privileged_authority
 
 
 def test_http_composition_root_does_not_construct_engine() -> None:
-    source = (API_ROOT / "main.py").read_text(encoding="utf-8")
-    assert "OnlyEngine(" not in source
-    assert "OnlyStrategyPromotionService(" not in source
+    assert not (API_ROOT / "main.py").exists()
+    for path in (ROOT / "packages/onlyalpha-http-server/rust").glob("*.rs"):
+        source = path.read_text(encoding="utf-8")
+        assert "OnlyEngine(" not in source
+        assert "OnlyStrategyPromotionService(" not in source
+        assert "onlyalpha_http_server.main" not in source

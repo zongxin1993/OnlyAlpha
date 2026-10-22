@@ -45,10 +45,13 @@ def test_qualification_reads_authoritative_manifests_without_runtime_or_raw_data
 
 
 def test_production_composition_injects_common_typed_statistics_reader_without_new_authority() -> None:
-    composition = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
-    source = composition.read_text(encoding="utf-8")
-    assert "OnlyResearchStatisticsResultReader(" in source
-    assert "research_statistics=statistics_results" in source
+    assert not (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").exists()
+    source = "".join(
+        ((ROOT / "packages/onlyalpha-http-server/rust/host_observations.rs").read_text(encoding="utf-8")).split()
+    )
+    assert "OnlyResearchStatisticsResultReader" not in source
+    assert "OnlyQualificationEvaluator" not in source
+    assert "onlyalpha_http_server.main" not in source
 
 
 def test_decision_publication_is_evaluator_sealed_and_public_store_is_read_only() -> None:

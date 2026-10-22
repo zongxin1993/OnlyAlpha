@@ -570,6 +570,17 @@ def test_frozen_git_carries_exact_local_release_base_without_following_later_cha
     assert "refs/remotes/origin/master" in hashes
 
 
+
+def test_frozen_git_carries_exact_historical_authorization_bytes(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    hashes = dev_verification.capture_git(root, tmp_path, {})
+    relative = "contracts/product-api/v2/openapi.json"
+    for revision in dev_verification.HISTORICAL_CONTRACT_TEST_REVISIONS:
+        expected = subprocess.check_output(["git", "-C", str(root), "show", f"{revision}:{relative}"])
+        observed = subprocess.check_output(["git", "-C", str(tmp_path), "show", f"{revision}:{relative}"])
+        assert observed == expected
+    assert hashes == dev_verification.git_input_hashes(tmp_path)
+
 def test_research_source_cut_carries_current_provenance_and_cleans_it_on_next_run(tmp_path: Path, monkeypatch) -> None:
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
     project = tmp_path / "pyproject.toml"
@@ -895,3 +906,14 @@ def test_infrastructure_cargo_manifest_is_an_environment_input(tmp_path: Path) -
     admitted = dev_verification.environment_inputs(tmp_path)
     manifest.write_text(manifest.read_text() + "# dependency change\n")
     assert dev_verification.environment_inputs(tmp_path) != admitted
+
+
+def test_native_plugin_manifests_are_environment_inputs(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    manifest = tmp_path / "plugs/onlyalpha-plugin-binance/Cargo.toml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text('[package]\nname="onlyalpha-plugin-binance"\n')
+    before = dev_verification.environment_inputs(tmp_path)
+    assert str(manifest.relative_to(tmp_path)) in before
+    manifest.write_text(manifest.read_text() + "build=false\n")
+    assert dev_verification.environment_inputs(tmp_path) != before

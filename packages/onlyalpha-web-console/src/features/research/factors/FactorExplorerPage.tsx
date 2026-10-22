@@ -1,218 +1,264 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { useResearchApi } from "../../../app/providers";
-import { parseResearchResultFingerprint } from "../../../domain/research/identity";
-import { ExactResourceForm } from "../../../shared/components/ExactResourceForm";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useLocalReadCredentials } from "../../../app/providers";
+import { readChartStudyCapabilities, sameChartBinding } from "../../../api/chartStudies/client";
+import {
+    FetchPrivateAssetsApiClient,
+    type PrivateAssetLocator
+} from "../../../api/privateAssets/client";
 import { QueryError } from "../../../shared/components/QueryState";
-import { WorkspaceIcon } from "../../../shared/components/WorkspaceIcon";
-import { admitResourceIdentity } from "../../../shared/resourceIdentity";
-import { runsOptions } from "../runs/queries";
-import { calculationCatalogOptions } from "../studio/queries";
-import { catalogKey } from "../studio/researchDraft";
-import { FactorResultView } from "./FactorResultView";
-import { factorCatalogItems } from "./factorModel";
 import "./factors.css";
 
 export function FactorExplorerPage() {
-    const client = useResearchApi();
-    const catalog = useQuery(calculationCatalogOptions(client));
-    const runs = useInfiniteQuery(runsOptions(client));
-    const [params, setParams] = useSearchParams();
+    const credentials = useLocalReadCredentials();
+    const client = useMemo(() => new FetchPrivateAssetsApiClient(credentials), [credentials]);
+    const capabilities = useQuery({
+        queryKey: ["calculation-library", "chart-support"],
+        queryFn: ({ signal }) => readChartStudyCapabilities(credentials, signal)
+    });
+    // These two reads share the installed algorithm child. Observe both
+    // independently, sequentially; a capability error does not hide inventory.
+    const catalog = useQuery({
+        queryKey: ["calculation-library", "registered"],
+        queryFn: ({ signal }) => client.catalog(signal),
+        enabled: !capabilities.isPending
+    });
+    const assets = useQuery({
+        queryKey: ["calculation-library", "private-assets"],
+        queryFn: ({ signal }) => client.current(signal)
+    });
     const [search, setSearch] = useState("");
-    const selectedFactor = params.get("factor") ?? "";
-    const rawResult = params.get("result");
-    const result = admitResourceIdentity(rawResult ?? undefined, parseResearchResultFingerprint);
-    const factors = factorCatalogItems(catalog.data?.calculations ?? [], search);
-    const completed =
-        runs.data?.pages
-            .flatMap((page) => page.runs)
-            .filter((run) => run.state === "COMPLETED" && run.resultRef !== null) ?? [];
-    const newResearch = new URLSearchParams();
-    if (selectedFactor !== "") newResearch.set("factor", selectedFactor);
-    function openResult(value: string) {
-        const fingerprint = parseResearchResultFingerprint(value);
-        setParams((previous) => {
-            const next = new URLSearchParams();
-            next.set("result", fingerprint);
-            const factor = previous.get("factor");
-            if (factor !== null) next.set("factor", factor);
-            return next;
-        });
-    }
+    const [selected, setSelected] = useState<PrivateAssetLocator | null>(null);
+    const exact = useQuery({
+        queryKey: ["calculation-library", "private-factor", selected],
+        queryFn: ({ signal }) => {
+            if (selected === null) throw new Error("PRIVATE_FACTOR_SELECTION_REQUIRED");
+            return client.factor(selected, signal);
+        },
+        enabled: selected !== null
+    });
+    const needle = search.trim().toLocaleLowerCase();
+    const calculations =
+        catalog.data?.calculations.filter((item) =>
+            `${item.type_reference.type_id} ${item.kind} ${item.type_reference.semantic_version}`
+                .toLocaleLowerCase()
+                .includes(needle)
+        ) ?? [];
+    const factors =
+        assets.data?.entries.filter(
+            (item) =>
+                item.locator.private_asset_kind === "FACTOR" &&
+                `${item.locator.private_asset_id} ${item.description} ${item.category ?? ""} ${item.tags.join(" ")}`
+                    .toLocaleLowerCase()
+                    .includes(needle)
+        ) ?? [];
     return (
-        <main className="factor-explorer">
+        <section className="factor-explorer" aria-label="Factor / Indicator Library">
             <header className="factor-page-header">
                 <div>
-                    <h1>Factor Explorer</h1>
-                    <p>
-                        Find a registered Factor. Compare exact stock evidence and inspect published
-                        IC / Rank IC.
-                    </p>
+                    <h1>Factor / Indicator Library</h1>
+                    <p>Installed calculations and exact published private Factor metadata.</p>
                 </div>
-                <Link className="primary-link" to={`/research/new?${newResearch.toString()}`}>
-                    Configure Research <WorkspaceIcon name="arrow" />
-                </Link>
+                <button
+                    type="button"
+                    disabled
+                    title="Research execution is not implemented in this version"
+                >
+                    Configure Research · unavailable
+                </button>
             </header>
-            <div className="factor-workspace-layout">
-                <aside className="factor-catalog" aria-label="Registered Factor catalog">
-                    <header>
-                        <WorkspaceIcon name="library" />
-                        <h2>Factor Library</h2>
-                    </header>
-                    <label htmlFor="factor-search">Search registered Factors</label>
-                    <input
-                        type="search"
-                        id="factor-search"
-                        placeholder="Type, version or output…"
-                        value={search}
-                        onChange={(event) => {
-                            setSearch(event.target.value);
+            <label htmlFor="factor-search">Search calculations and private Factors</label>
+            <input
+                id="factor-search"
+                type="search"
+                value={search}
+                onChange={(event) => {
+                    setSearch(event.target.value);
+                }}
+                placeholder="Type, version, description or tag…"
+            />
+            <section aria-labelledby="registered-calculations">
+                <h2 id="registered-calculations">Registered calculations</h2>
+                <p>
+                    Registration describes installed code. Chart support is a separate capability.
+                </p>
+                {catalog.isError ? (
+                    <QueryError
+                        title="Registered calculations are unavailable."
+                        error={catalog.error}
+                        retry={() => {
+                            void catalog.refetch();
                         }}
                     />
-                    <p className="factor-caption">Current API catalog · Alpha only</p>
-                    {catalog.isError ? (
-                        <QueryError error={catalog.error} retry={() => void catalog.refetch()} />
-                    ) : catalog.isPending ? (
-                        <p role="status">Loading registered Factors…</p>
-                    ) : factors.length === 0 ? (
-                        <p className="factor-empty-message">
-                            No registered Factors match this search. Indicators are not reclassified
-                            as Factors.
-                        </p>
-                    ) : (
-                        <div className="factor-catalog-items">
-                            {factors.map((factor) => (
-                                <button
-                                    type="button"
-                                    key={catalogKey(factor)}
-                                    aria-pressed={selectedFactor === catalogKey(factor)}
-                                    onClick={() => {
-                                        setParams((previous) => {
-                                            const next = new URLSearchParams(previous);
-                                            next.set("factor", catalogKey(factor));
-                                            next.delete("series");
-                                            next.delete("statistic");
-                                            return next;
-                                        });
-                                    }}
+                ) : catalog.isPending ? (
+                    <p role="status">Loading registered calculations…</p>
+                ) : calculations.length === 0 ? (
+                    <p>No registered calculations match this search.</p>
+                ) : (
+                    <ul className="factor-catalog-items">
+                        {calculations.map((item) => {
+                            const supported = capabilities.data?.find(
+                                (capability) =>
+                                    capability.type_id === item.type_reference.type_id &&
+                                    capability.semantic_version ===
+                                        item.type_reference.semantic_version &&
+                                    capability.kind === item.kind &&
+                                    sameChartBinding(item.inputs, capability.descriptor.inputs) &&
+                                    sameChartBinding(item.outputs, capability.descriptor.outputs) &&
+                                    sameChartBinding(
+                                        item.parameters.map((p) => ({
+                                            name: p.name,
+                                            parameter_type: p.type,
+                                            required: p.required,
+                                            default: p.default.value,
+                                            minimum: p.minimum?.value ?? null,
+                                            maximum: p.maximum?.value ?? null,
+                                            enum_values: p.enum_values.map((value) => value.value),
+                                            uppercase: p.uppercase
+                                        })),
+                                        capability.descriptor.parameters
+                                    )
+                            );
+                            return (
+                                <li
+                                    key={`${item.type_reference.kind}:${item.type_reference.type_id}@${item.type_reference.semantic_version}`}
                                 >
-                                    <span className="analysis-badge">
-                                        FACTOR · {factor.type_reference.semantic_version}
-                                    </span>
-                                    <strong>{factor.type_reference.type_id}</strong>
-                                    <span>
-                                        {factor.outputs.map((output) => output.name).join(" · ")}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                    {selectedFactor === "" ? null : (
-                        <button
-                            type="button"
-                            className="quiet-button"
-                            onClick={() => {
-                                setParams((previous) => {
-                                    const next = new URLSearchParams(previous);
-                                    next.delete("factor");
-                                    next.delete("series");
-                                    next.delete("statistic");
-                                    return next;
-                                });
-                            }}
-                        >
-                            Clear catalog selection
-                        </button>
-                    )}
-                    <p className="factor-caption">
-                        Historical Graph evidence keeps its own exact type/version, even when the
-                        current catalog changes.
-                    </p>
-                </aside>
-                <section
-                    className="factor-evidence-workspace"
-                    aria-label="Factor evidence workspace"
-                >
-                    <div className="factor-evidence-toolbar">
-                        <label>
-                            Completed Research Run
-                            <select
-                                aria-label="Completed Factor Research Run"
-                                value={
-                                    completed.find((run) => run.resultRef === rawResult)?.runId ??
-                                    ""
+                                    <strong>
+                                        {item.type_reference.type_id} @
+                                        {item.type_reference.semantic_version}
+                                    </strong>
+                                    <span> · {item.kind}</span>
+                                    <p>
+                                        {capabilities.isPending
+                                            ? "Checking chart support…"
+                                            : supported === undefined
+                                              ? "Chart support unavailable"
+                                              : "Chart display supported · DISPLAY_ONLY"}
+                                    </p>
+                                    <details>
+                                        <summary>Parameters and outputs</summary>
+                                        <p>
+                                            {item.parameters
+                                                .map((field) => `${field.name} (${field.type})`)
+                                                .join(", ") || "No parameters"}
+                                        </p>
+                                        <p>
+                                            Outputs:{" "}
+                                            {item.outputs.map((output) => output.name).join(", ")}
+                                        </p>
+                                    </details>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+                {capabilities.isError ? (
+                    <QueryError
+                        title="Chart support could not be verified."
+                        error={capabilities.error}
+                        retry={() => void capabilities.refetch()}
+                    />
+                ) : null}
+            </section>
+            <section aria-labelledby="private-factor-library">
+                <h2 id="private-factor-library">Published private Factors</h2>
+                <p>
+                    Authoring revisions are distinct from registered calculations. Drafts and source
+                    editing are unavailable here.
+                </p>
+                {assets.isError ? (
+                    <QueryError
+                        title="Private Factor inventory is unavailable."
+                        error={assets.error}
+                        retry={() => {
+                            void assets.refetch();
+                        }}
+                    />
+                ) : assets.isPending ? (
+                    <p role="status">Loading private Factor metadata…</p>
+                ) : factors.length === 0 ? (
+                    <p>No published private Factor metadata matches this search.</p>
+                ) : (
+                    <div className="factor-catalog-items">
+                        {factors.map((item) => (
+                            <button
+                                type="button"
+                                key={`${item.locator.private_asset_id}:${item.locator.revision_fingerprint}`}
+                                aria-pressed={
+                                    selected?.revision_fingerprint ===
+                                        item.locator.revision_fingerprint &&
+                                    selected.private_asset_id === item.locator.private_asset_id
                                 }
-                                onChange={(event) => {
-                                    const reference = completed.find(
-                                        (run) => run.runId === event.target.value
-                                    )?.resultRef;
-                                    if (reference !== null && reference !== undefined)
-                                        openResult(reference);
+                                onClick={() => {
+                                    setSelected(item.locator);
                                 }}
                             >
-                                <option value="">Select an exact completed Run</option>
-                                {completed.map((run) => (
-                                    <option value={run.runId} key={run.runId}>
-                                        {run.runId} · {run.finishedAt ?? "COMPLETED"}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <Link className="secondary-link" to="/research/runs">
-                            <WorkspaceIcon name="clock" />
-                            Run history
-                        </Link>
+                                <strong>
+                                    {item.locator.private_asset_id} @{item.semantic_version}
+                                </strong>
+                                <span>{item.description}</span>
+                                <span>Authoring metadata · chart execution unavailable</span>
+                            </button>
+                        ))}
                     </div>
-                    {runs.isError ? (
-                        <QueryError
-                            title="Run references are unavailable; an exact Result may still be opened."
-                            error={runs.error}
-                            retry={() => void runs.refetch()}
-                        />
-                    ) : null}
-                    <details className="factor-result-input">
-                        <summary>Open an exact Research Result fingerprint</summary>
-                        <ExactResourceForm
-                            key={rawResult ?? "empty"}
-                            id="factor-result"
-                            label="Research Result fingerprint"
-                            action="Open Factor evidence"
-                            initialValue={rawResult ?? ""}
-                            placeholder="64 lower-case hexadecimal characters"
-                            onOpen={openResult}
-                        />
-                    </details>
-                    {result.error === null ? null : (
-                        <p className="error" role="alert">
-                            INVALID_QUERY: {result.error}
-                        </p>
-                    )}
-                    {result.value === null ? (
-                        <div className="factor-start">
-                            <WorkspaceIcon name="results" />
-                            <h2>From Factor hypothesis to evidence</h2>
-                            <p>
-                                Select a Factor, then open an existing Result or configure a new
-                                Research with your stock or basket.
-                            </p>
-                            <div className="factor-start-options">
-                                <span>01 · Exact Factor version</span>
-                                <span>02 · Stocks and UTC interval</span>
-                                <span>03 · Price + Factor panes</span>
-                                <span>04 · Published IC / Rank IC</span>
-                            </div>
-                            <p className="product-boundary-note">
-                                Single-stock charts show co-movement, not a temporal correlation
-                                coefficient. IC / Rank IC are cross-sectional statistics over the
-                                original Research population.
-                            </p>
-                        </div>
-                    ) : (
-                        <FactorResultView key={result.value} result={result.value} />
-                    )}
-                </section>
-            </div>
-        </main>
+                )}
+                {selected === null ? (
+                    <p>Select a private Factor to inspect its exact revision.</p>
+                ) : exact.isError ? (
+                    <QueryError
+                        title="The selected exact Factor revision is unavailable."
+                        error={exact.error}
+                        retry={() => void exact.refetch()}
+                    />
+                ) : exact.isPending ? (
+                    <p role="status">Loading exact Factor revision…</p>
+                ) : (
+                    <article aria-label="Exact Factor metadata">
+                        <h3>
+                            {exact.data.factor_id} @{exact.data.semantic_version}
+                        </h3>
+                        <p>{exact.data.description}</p>
+                        <p>{exact.data.economic_rationale}</p>
+                        <dl>
+                            <dt>Revision</dt>
+                            <dd>{exact.data.revision_fingerprint}</dd>
+                            <dt>Source content</dt>
+                            <dd>{exact.data.source_sha256}</dd>
+                            <dt>Factor API</dt>
+                            <dd>
+                                {exact.data.factor_api_version} ·{" "}
+                                {exact.data.factor_api_contract_fingerprint}
+                            </dd>
+                            <dt>Inputs</dt>
+                            <dd>
+                                <pre>{JSON.stringify(exact.data.input_contract, null, 2)}</pre>
+                            </dd>
+                            <dt>Parameters</dt>
+                            <dd>
+                                <pre>{JSON.stringify(exact.data.parameter_contract, null, 2)}</pre>
+                            </dd>
+                            <dt>Outputs</dt>
+                            <dd>
+                                <pre>{JSON.stringify(exact.data.output_contract, null, 2)}</pre>
+                            </dd>
+                        </dl>
+                    </article>
+                )}
+            </section>
+            <section aria-label="Research availability">
+                <h2>Research · unavailable</h2>
+                <p role="status">
+                    Research runs, published results, IC / Rank IC and source execution are not
+                    implemented in this version. Metadata and transient chart display are not
+                    Research evidence.
+                </p>
+                <button type="button" disabled>
+                    Run Research
+                </button>
+                <button type="button" disabled>
+                    Open published results
+                </button>
+            </section>
+        </section>
     );
 }

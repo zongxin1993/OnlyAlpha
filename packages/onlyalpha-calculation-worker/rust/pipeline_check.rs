@@ -207,7 +207,7 @@ pub fn run(python: &Path, worker_artifact: &str, base: &Value) -> Result<(), Box
     // Cancellation cannot preserve a stale READY projection or invoke any consumer.
     let n = calls.lock().unwrap().len();
     let cancellation = original.calculations().cancellation()?;
-    cancellation.cancel();
+    cancellation.cancel()?;
     assert!(original.process(&input(base, 7)).is_err());
     assert!(original.is_failed());
     assert_eq!(calls.lock().unwrap().len(), n);

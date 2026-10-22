@@ -1,0 +1,117 @@
+{
+  "descriptor": {
+    "execution_shape": "TIME_SERIES",
+    "factor_kind": null,
+    "inputs": [
+      {
+        "data_type": "DECIMAL",
+        "dimensions": [
+          "TIME"
+        ],
+        "name": "value",
+        "nullable": false,
+        "semantic_type": "NUMERIC_SERIES",
+        "unit": null
+      }
+    ],
+    "kind": "INDICATOR",
+    "missing_values": "FAIL",
+    "numeric": {
+      "output_quantum": "0.000000000001",
+      "precision": 28,
+      "representation": "DECIMAL",
+      "rounding": "CONTEXT"
+    },
+    "outputs": [
+      {
+        "data_type": "DECIMAL",
+        "dimensions": [
+          "TIME"
+        ],
+        "name": "value",
+        "nullable": true,
+        "semantic_type": "NUMERIC_SERIES",
+        "unit": null
+      }
+    ],
+    "parameters": [
+      {
+        "default": 20,
+        "enum_values": [],
+        "maximum": null,
+        "minimum": 1,
+        "name": "period",
+        "parameter_type": "INTEGER",
+        "required": false,
+        "uppercase": false
+      },
+      {
+        "default": "CLOSE",
+        "enum_values": [
+          "CLOSE",
+          "VOLUME"
+        ],
+        "maximum": null,
+        "minimum": null,
+        "name": "price_field",
+        "parameter_type": "STRING",
+        "required": false,
+        "uppercase": true
+      }
+    ],
+    "semantic_bounds": {
+      "value": null
+    },
+    "semantic_version": "1",
+    "timestamp": "EVENT_TIME",
+    "type_id": "onlyalpha.indicator.sma"
+  },
+  "numeric_execution_binding": {
+    "core_policy": {
+      "capitals": 1,
+      "clamp": 0,
+      "domain": "onlyalpha.decimal.execution-policy",
+      "emax": 999999,
+      "emin": -999999,
+      "entry_flags": "CLEAR",
+      "policy_id": "onlyalpha.decimal.execution",
+      "semantic_version": "1",
+      "trapped_signals": [
+        "DivisionByZero",
+        "InvalidOperation",
+        "Overflow"
+      ]
+    },
+    "core_policy_fingerprint": "3d3121619656961d4c985e82cc5a88139b4139065af415caac346a041df29f32",
+    "declared_rounding": "CONTEXT",
+    "domain": "onlyalpha.chart-study.decimal-binding",
+    "effective_rounding": "ROUND_HALF_EVEN",
+    "output_quantum": "0.000000000001",
+    "precision": 28,
+    "representation": "DECIMAL",
+    "resolution_policy": "CONTEXT_HALF_EVEN_V1",
+    "schema_version": 1
+  },
+  "presentation": {
+    "category": "\u8d8b\u52bf",
+    "default_parameters": {
+      "period": 20,
+      "price_field": "CLOSE"
+    },
+    "default_variant": true,
+    "display_name": "SMA",
+    "fill": null,
+    "placement": "PRICE_OVERLAY",
+    "preview_supported": true,
+    "series": [
+      {
+        "color": "#2962ff",
+        "default_visible": true,
+        "kind": "LINE",
+        "label": "SMA",
+        "output_name": "value",
+        "unit": "PRICE"
+      }
+    ]
+  }
+}

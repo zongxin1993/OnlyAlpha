@@ -14,12 +14,13 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
-from onlyalpha_http_server.main import _compose_experiment_memory_projection_builder, _GenerationOwnedCatalogReader
 from onlyalpha_runtime_generation_manager import (
     OnlyLocalImmutableArtifactStore,
     OnlyRuntimeGenerationBuilder,
 )
-from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
+from onlyalpha_runtime_generation_manager.catalog_context import (
+    OnlyRuntimeGenerationExactCatalogDescriptorReader,
+)
 
 from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandAdmissionV1,
@@ -31,25 +32,52 @@ from onlyalpha.application.product_command_receipt import (
 )
 from onlyalpha.output.user_data import OnlyUserDataLayout
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
-from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
-from onlyalpha.persistence.postgres.research_execution_store import OnlyPostgresResearchExecutionStore
+from onlyalpha.persistence.postgres.private_asset_store import (
+    OnlyPostgresPrivateAssetStore,
+)
+from onlyalpha.persistence.postgres.product_command_authority import (
+    OnlyPostgresProductCommandAuthority,
+)
+from onlyalpha.persistence.postgres.research_execution_store import (
+    OnlyPostgresResearchExecutionStore,
+)
 from onlyalpha.persistence.postgres.research_run_store import _COLUMNS
-from onlyalpha.persistence.postgres.research_source_cut_store import OnlyPostgresResearchSourceCutAuthority
+from onlyalpha.persistence.postgres.research_source_cut_store import (
+    OnlyPostgresResearchSourceCutAuthority,
+)
 from onlyalpha.quant_assets.private import OnlyPrivateAssetRevisionBindingResolver
-from onlyalpha.research.calculation.result_store import OnlyParquetResearchCalculationResultStore
-from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
-from onlyalpha.research.evaluation.factor_pair.result_store import OnlyParquetResearchFactorPairStatisticsResultStore
-from onlyalpha.research.evaluation.result_store import OnlyParquetResearchStatisticsResultStore
-from onlyalpha.research.evaluation.summary.result_store import OnlyJsonResearchSummaryStatisticsResultStore
-from onlyalpha.research.execution import OnlyResearchRunAttemptId, OnlyResearchWorkerInstanceId
+from onlyalpha.research.calculation.result_store import (
+    OnlyParquetResearchCalculationResultStore,
+)
+from onlyalpha.research.dataset.parquet_store import (
+    OnlyParquetResearchDatasetSnapshotStore,
+)
+from onlyalpha.research.evaluation.factor_pair.result_store import (
+    OnlyParquetResearchFactorPairStatisticsResultStore,
+)
+from onlyalpha.research.evaluation.result_store import (
+    OnlyParquetResearchStatisticsResultStore,
+)
+from onlyalpha.research.evaluation.summary.result_store import (
+    OnlyJsonResearchSummaryStatisticsResultStore,
+)
+from onlyalpha.research.execution import (
+    OnlyResearchRunAttemptId,
+    OnlyResearchWorkerInstanceId,
+)
 from onlyalpha.research.experiment.store import OnlyJsonSearchProvenanceStore
 from onlyalpha.research.result.result_store import OnlyJsonResearchResultStore
 from onlyalpha.research.source_cut import OnlySourceCutError
 from onlyalpha.strategy.qualification_store import OnlyQualificationDecisionStore
 from tests.research.postgres.migration_support import copy_migrations_through
-from tests.research.postgres.test_memory_production_topology_certification import _build_exact_runtime_generation
+from tests.research.postgres.test_memory_production_topology_certification import (
+    _build_exact_runtime_generation,
+)
 from tests.research.postgres.test_postgres_authority import NOW, _queued
+from tests.support.research_reference_composition import (
+    _compose_experiment_memory_projection_builder,
+    _GenerationOwnedCatalogReader,
+)
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]

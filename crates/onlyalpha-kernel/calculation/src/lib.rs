@@ -1,6 +1,7 @@
 //! Calculation definitions and pure scoped execution ownership.
 //! No algorithm, transport, readiness inference or official Runtime admission.
-//! Definition component schema3 is not admitted to Python Definition2 or official Runtime.
+//! Internal Definition3 is separate from the current Product2 wire reader.
+//! Neither a source read nor the component registry grants official Runtime admission.
 mod definition;
 mod execution;
 mod graph;
@@ -27,3 +28,5 @@ pub use readiness::{ReadinessBarrier, ReadinessPlan, ReadinessRequirement, Readi
 pub use state::{
     CalculationSnapshot, CalculationState, InputPosition, StateOutcome, normalize_result_outputs,
 };
+
+pub mod product;

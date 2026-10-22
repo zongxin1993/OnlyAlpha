@@ -1,16 +1,10 @@
 [project]
 name = "onlyalpha-runtime-generation-manager"
-version = "0.10.21"
+version = "0.11.0"
 description = "Immutable artifact verification and durable runtime-generation activation for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.10.21", "onlyalpha-calculation-worker==0.10.21"]
-
-[project.entry-points."onlyalpha.runtime_generation_work_authority"]
-manager = "onlyalpha_runtime_generation_manager.entrypoint:runtime_generation_work_authority"
-
-[project.entry-points."onlyalpha.calculation_generation_context"]
-manager = "onlyalpha_runtime_generation_manager.entrypoint:calculation_generation_context"
+dependencies = ["onlyalpha==0.11.0", "onlyalpha-calculation-worker==0.11.0"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]

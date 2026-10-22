@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -136,58 +137,20 @@ def test_web_has_no_core_or_local_fallback_capability() -> None:
 
 
 def test_http_route_modules_own_no_raw_mutation_capability() -> None:
-    routes = _route_modules()
-    assert routes
-    forbidden_prefixes = (
-        "onlyalpha.engine",
-        "onlyalpha.runtime",
-        "onlyalpha.kernel",
-        "onlyalpha.persistence",
-        "onlyalpha_gateway_protocol",
-    )
-    forbidden_symbols = (
-        "OnlyAlphaKernelHost",
+    assert not _route_modules()
+    assert not tuple(API_SOURCE.rglob("*.py"))
+    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    assert "host::Host" in source and "host.dispatch(request).await" in source
+    for forbidden in (
+        "onlyalpha_kernel",
+        "tokio_postgres",
+        "AuthoritySession",
         "OnlyEngine",
-        "OnlyPostgres",
         "OnlyResearchCommandService",
-        "OnlyStrategyFreezeService",
-        "OnlyStrategyPromotionService",
-    )
-    for path in routes:
-        imports = _imports(path)
-        assert not any(name.startswith(forbidden_prefixes) for name in imports), path
-        assert not any(
-            name.startswith("onlyalpha.application")
-            and name
-            not in {
-                "onlyalpha.application.catalog_context",
-                # ADR 0138: thin authenticated transport for a non-publishing
-                # Query. The dedicated boundary test forbids store/Command imports.
-                "onlyalpha.application.chart_study_product_query",
-                "onlyalpha.application.source_read_access",
-                "onlyalpha.application.integration_application",
-                "onlyalpha.application.integration_configuration",
-                "onlyalpha.application.integration_probe",
-                "onlyalpha.application.integration_type_catalog",
-                "onlyalpha.application.market_data_product",
-                # Bounded operational Query; the dedicated test below forbids
-                # store dependencies and calls to the owning mutation surface.
-                "onlyalpha.application.market_data_discovery",
-                "onlyalpha.application.private_asset_product",
-                "onlyalpha.application.product_boundary",
-                "onlyalpha.application.product_command_receipt",
-                "onlyalpha.application.qualification_product",
-                "onlyalpha.application.research_advisory",
-                "onlyalpha.application.strategy_product",
-                "onlyalpha.application.watchlists",
-            }
-            for name in imports
-        ), path
-        source = path.read_text(encoding="utf-8")
-        assert not any(symbol in source for symbol in forbidden_symbols), path
-    run_source = (API_SOURCE / "research/run_routes.py").read_text(encoding="utf-8")
-    assert run_source.count("product.commands.dispatch(") == 2
-    assert run_source.count("product.queries.dispatch(") == 3
+    ):
+        assert forbidden not in source
+    native = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text())
+    assert set(native["paths"]["/api/v2/research/runs"]["post"]["responses"]) == {"501"}
 
 
 def test_market_discovery_queries_have_no_mutation_or_store_dependency() -> None:
@@ -232,19 +195,17 @@ def test_product_authority_migration_debt_is_zero() -> None:
 
 def test_standalone_artifact_compatibility_product_surface_is_absent() -> None:
     entry_points = _console_entry_points()
-    assert not any(name == "onlyalpha-artifact-api" for _, name, _ in entry_points)
-    assert not (API_SOURCE / "artifact_main.py").exists()
-    app_source = (API_SOURCE / "app.py").read_text(encoding="utf-8")
-    package_source = (API_SOURCE / "__init__.py").read_text(encoding="utf-8")
-    assert "create_artifact_query_app" not in app_source
-    assert "create_artifact_query_app" not in package_source
-    assert "create_artifact_router(artifact_service)" in app_source
+    assert not any(name in {"onlyalpha-artifact-api", "onlyalpha-api"} for _, name, _ in entry_points)
+    assert not tuple(API_SOURCE.rglob("*.py"))
 
 
 def test_composition_root_retains_real_kernel_wiring_without_route_ownership() -> None:
-    main = (API_SOURCE / "main.py").read_text(encoding="utf-8")
-    assert main.count("OnlyAlphaKernelHost(") == 1
-    assert "OnlyPostgresResearchRunStore(" in main
-    assert "only_compose_research_product_boundary(" in main
-    assert main.count("create_product_app(") == 1
-    assert "OnlyEngine(" not in main
+    assert not (API_SOURCE / "main.py").exists()
+    native = ROOT / "packages/onlyalpha-http-server/rust"
+    main = "".join(((native / "main.rs").read_text(encoding="utf-8")).split())
+    startup = "".join(((native / "workstation_startup.rs").read_text(encoding="utf-8")).split())
+    assert main.count("Running::open(config,&shutdown)") == 1
+    assert startup.count("AuthoritySession::acquire(") == 1
+    assert "inputs.verify(" in startup
+    assert "#[utoipa::path" not in main + startup
+    assert "OnlyEngine(" not in main + startup

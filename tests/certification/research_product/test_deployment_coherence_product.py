@@ -1,25 +1,22 @@
 from __future__ import annotations
 
-import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
 import psycopg
 import pytest
 
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.output import OnlyUserDataLayout
-from onlyalpha.persistence.postgres import MASTER_KEY_FILE
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.research_run_store import OnlyPostgresResearchRunStore
+from onlyalpha.persistence.postgres.research_run_store import (
+    OnlyPostgresResearchRunStore,
+)
 from onlyalpha.research.operations.deployment import (
     SEMANTIC_STORE_IDENTITY_FILE,
     OnlyResearchSemanticStoreIdentity,
@@ -31,17 +28,13 @@ from onlyalpha.research.run import (
 )
 from onlyalpha.research.specification import OnlyResearchSpecificationResolver
 from scripts.database import _initialize_deployment
-from tests.certification.research_product.support import provision_product_api_master_key
+from tests.certification.research_product.support import (
+    provision_product_api_master_key,
+)
 from tests.research.specification.support import registry, specification
 from tests.support.research_run_seeder import OnlyPostgresResearchRunSeeder
 
 pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.requires_network, pytest.mark.postgres]
-
-
-def _port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
 
 
 def _environment(postgres_dsn: str) -> dict[str, str]:
@@ -74,36 +67,6 @@ def _stop(process: subprocess.Popen[str]) -> None:
             process.wait(timeout=5)
 
 
-def _wait_health(
-    port: int,
-    expected_reason: str | None,
-    *,
-    timeout: float = 20,
-    process: subprocess.Popen[str] | None = None,
-) -> dict[str, object]:
-    deadline = time.monotonic() + timeout
-    last_payload: dict[str, object] | None = None
-    while time.monotonic() < deadline:
-        try:
-            with urlopen(f"http://127.0.0.1:{port}/health/ready", timeout=1) as response:  # noqa: S310
-                payload = json.load(response)
-                last_payload = payload
-                if expected_reason is None and response.status == 200:
-                    return payload
-        except HTTPError as error:
-            payload = json.loads(error.read())
-            last_payload = payload
-            if error.code == 503 and payload.get("reason") == expected_reason:
-                return payload
-        except (URLError, TimeoutError):
-            pass
-        if process is not None and process.poll() is not None:
-            output = process.stdout.read() if process.stdout is not None else ""
-            raise AssertionError(f"API exited before readiness: {output}")
-        time.sleep(0.05)
-    raise AssertionError(f"API readiness did not reach expected reason {expected_reason}; last={last_payload!r}")
-
-
 def _queued() -> OnlyResearchRun:
     spec = specification()
     resolution = OnlyResearchSpecificationResolver(registry()).resolve(spec)
@@ -114,84 +77,6 @@ def _queued() -> OnlyResearchRun:
         admission_resolution_fingerprint=only_research_admission_resolution_fingerprint(resolution),
         queued_at=datetime(2026, 8, 22, tzinfo=UTC),
     )
-
-
-def test_wrong_namespace_api_is_not_ready_and_cannot_serve_product_routes(
-    postgres_dsn: str,
-    tmp_path: Path,
-    backtest_product_config: Path,
-) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    _initialize_deployment(postgres_dsn, tmp_path / "correct")
-    wrong = tmp_path / "wrong"
-    OnlyResearchSemanticStoreIdentity(OnlyUserDataLayout(wrong).research_root).initialize()
-    _semantic_directories(wrong)
-    provision_product_api_master_key(wrong)
-    port = _port()
-    api = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "onlyalpha_http_server.main",
-            "--user-data-root",
-            str(wrong),
-            "--port",
-            str(port),
-            "--backtest-product-config",
-            str(backtest_product_config),
-            "--runtime-generation-authority-root",
-            str(tmp_path / "runtime-generation-authority"),
-        ],
-        env=_environment(postgres_dsn),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    try:
-        readiness = _wait_health(port, "SEMANTIC_STORE_IDENTITY_MISMATCH", process=api)
-        assert readiness["checks"]["deployment_binding"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"  # type: ignore[index]
-        with pytest.raises(HTTPError) as blocked:
-            urlopen(f"http://127.0.0.1:{port}/api/v2/research/catalog/calculations", timeout=2)  # noqa: S310
-        assert blocked.value.code == 503
-        assert json.loads(blocked.value.read())["reason"] == "SEMANTIC_STORE_IDENTITY_MISMATCH"
-    finally:
-        _stop(api)
-
-
-def test_product_api_refuses_missing_master_key_without_creating_one(
-    postgres_dsn: str,
-    tmp_path: Path,
-    backtest_product_config: Path,
-) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    _initialize_deployment(postgres_dsn, tmp_path)
-    master_key_path = OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE
-    assert not master_key_path.exists()
-
-    api = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "onlyalpha_http_server.main",
-            "--user-data-root",
-            str(tmp_path),
-            "--port",
-            str(_port()),
-            "--backtest-product-config",
-            str(backtest_product_config),
-            "--runtime-generation-authority-root",
-            str(tmp_path / "runtime-generation-authority"),
-        ],
-        env=_environment(postgres_dsn),
-        text=True,
-        capture_output=True,
-        timeout=20,
-        check=False,
-    )
-
-    assert api.returncode != 0
-    assert "CREDENTIAL_MASTER_KEY_MISSING" in api.stdout + api.stderr
-    assert not master_key_path.exists()
 
 
 @pytest.mark.parametrize("local_state", ("MISMATCH", "MISSING", "CORRUPT"))

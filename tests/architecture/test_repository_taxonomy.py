@@ -34,8 +34,8 @@ def test_distribution_metadata_matches_repository_identity() -> None:
         for project in parent.glob("*/pyproject.toml"):
             metadata = tomllib.loads(project.read_text(encoding="utf-8"))
             assert metadata["project"]["name"] == project.parent.name
-    web = tomllib.loads((ROOT / "packages/onlyalpha-http-server/pyproject.toml").read_text(encoding="utf-8"))
-    assert web["project"]["name"] == "onlyalpha-http-server"
+    native = tomllib.loads((ROOT / "packages/onlyalpha-http-server/Cargo.toml").read_text(encoding="utf-8"))
+    assert native["package"]["name"] == "onlyalpha-http-server"
 
 
 def test_core_does_not_import_concrete_plugin_namespaces() -> None:

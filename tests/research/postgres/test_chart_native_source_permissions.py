@@ -149,12 +149,12 @@ def test_reader_schema_reference_is_explicit_and_checksum_verified(postgres_dsn,
     from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarketDataCatalog
     from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
     from onlyalpha.research.run.errors import OnlyPostgresSchemaIncompatibleError
-    from tests.research.postgres.migration_support import copy_migrations_through
+    from tests.research.postgres.migration_support import copy_migrations_through, current_migrations
 
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     root = tmp_path / "reference"
     root.mkdir()
-    copy_migrations_through(root, "0052_watchlist_member_sources")
+    copy_migrations_through(root, current_migrations()[-1])
     with psycopg.connect(postgres_dsn) as connection:
         before = connection.execute("SELECT * FROM public.onlyalpha_schema_migration ORDER BY migration_id").fetchall()
     originals = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob("*.sql")}

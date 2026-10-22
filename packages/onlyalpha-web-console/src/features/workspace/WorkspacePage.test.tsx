@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationApiClient } from "../../api/integrations/client";
 import { AppProviders } from "../../app/providers";
@@ -9,7 +9,6 @@ import {
     operationalStatus
 } from "../../test/integrationClient";
 import { marketDataClient } from "../../test/marketDataClient";
-import { researchClient } from "../../test/researchClient";
 import { WorkspacePage } from "./WorkspacePage";
 
 vi.mock("../../charts/lightweight/PriceChart", () => ({
@@ -19,7 +18,6 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
 function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     return render(
         <AppProviders
-            client={researchClient()}
             integrationClient={client}
             marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
         >
@@ -75,9 +73,9 @@ it("exposes honest unconnected watchlist, inspector, runs, results and backtest 
     await user.click(screen.getByRole("button", { name: "展开下方面板" }));
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });
     await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
-    expect(within(bottomPanel).getByText("研究结果尚未接入工作区")).toBeInTheDocument();
+    expect(within(bottomPanel).getByText("研究结果尚未实现")).toBeInTheDocument();
     await user.click(within(bottomPanel).getByRole("button", { name: "回测" }));
-    expect(within(bottomPanel).getByText("回测尚未接入工作区")).toBeInTheDocument();
+    expect(within(bottomPanel).getByText("回测尚未实现")).toBeInTheDocument();
     expect(
         screen.queryByText(/600519|rev-2c7d18|snap-1f0a|res-4d81|bt-2f5e18|fill-88c1/)
     ).not.toBeInTheDocument();
@@ -159,7 +157,7 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     container.id = "root";
     document.body.append(container);
     render(
-        <AppProviders client={researchClient()} integrationClient={configuredClient()}>
+        <AppProviders integrationClient={configuredClient()}>
             <WorkspacePage />
         </AppProviders>,
         { container }
@@ -175,4 +173,68 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     });
     expect(trigger).toHaveFocus();
     container.remove();
+});
+
+it("starts the narrow workspace unobstructed and restores focus after closing its panel", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+    try {
+        const user = userEvent.setup();
+        const { container } = renderWorkspace();
+        const workspace = container.querySelector(".chart-workspace");
+        const toggle = screen.getByRole("button", { name: "打开上下文面板" });
+        expect(workspace).toHaveAttribute("data-panel-open", "false");
+        expect(toggle).toHaveAttribute("aria-expanded", "false");
+        expect(screen.getByRole("button", { name: "因子" })).toBeEnabled();
+        await user.click(toggle);
+        expect(workspace).toHaveAttribute("data-panel-open", "true");
+        await user.click(
+            within(screen.getByRole("complementary", { name: "上下文面板" })).getByRole("button", {
+                name: "收起上下文面板"
+            })
+        );
+        expect(workspace).toHaveAttribute("data-panel-open", "false");
+        expect(toggle).toHaveFocus();
+        expect(screen.getByTestId("price-chart")).toBeInTheDocument();
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+it("keeps the context panel open on a wide workstation", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    try {
+        const { container } = renderWorkspace();
+        expect(container.querySelector(".chart-workspace")).toHaveAttribute(
+            "data-panel-open",
+            "true"
+        );
+    } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+it("keeps panel visibility and quote admission aligned when the workstation layout changes", () => {
+    const layout = new EventTarget();
+    Object.assign(layout, { matches: false });
+    const remove = vi.spyOn(layout, "removeEventListener");
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(layout));
+    try {
+        const { container, unmount } = renderWorkspace();
+        const workspace = container.querySelector(".chart-workspace");
+        const chart = screen.getByTestId("price-chart");
+        expect(workspace).toHaveAttribute("data-panel-open", "false");
+        act(() => {
+            layout.dispatchEvent(Object.assign(new Event("change"), { matches: true }));
+        });
+        expect(workspace).toHaveAttribute("data-panel-open", "true");
+        act(() => {
+            layout.dispatchEvent(Object.assign(new Event("change"), { matches: false }));
+        });
+        expect(workspace).toHaveAttribute("data-panel-open", "false");
+        expect(screen.getByTestId("price-chart")).toBe(chart);
+        unmount();
+        expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
+    } finally {
+        vi.unstubAllGlobals();
+    }
 });

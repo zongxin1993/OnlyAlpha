@@ -59,8 +59,14 @@ def test_semantic_definition_layer_has_no_runtime_or_trading_authority_imports()
 
 def test_calculation_semantic_identity_is_separate_from_explicit_implementation_identity() -> None:
     calculation = Path("src/onlyalpha/calculation")
+    algorithm = Path("src/onlyalpha/algorithm")
+    sources = [
+        *calculation.glob("*.py"),
+        algorithm / "batch.py",
+        algorithm / "private_factor.py",
+    ]
     fingerprint_calls: list[Path] = []
-    for path in calculation.glob("*.py"):
+    for path in sources:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if (
@@ -71,15 +77,14 @@ def test_calculation_semantic_identity_is_separate_from_explicit_implementation_
                 fingerprint_calls.append(path)
     assert set(fingerprint_calls) == {
         calculation / "definition.py",
+        algorithm / "private_factor.py",
         calculation / "decimal_execution.py",
         calculation / "equivalence.py",
         calculation / "graph.py",
         calculation / "implementation.py",
     }
     semantic_source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in calculation.glob("*.py")
-        if path.name not in {"implementation.py", "equivalence.py"}
+        path.read_text(encoding="utf-8") for path in sources if path.name not in {"implementation.py", "equivalence.py"}
     )
     for forbidden in ("class_path", "factor_path", "runtime_id", "cluster_id", "created_at", "uuid4"):
         assert forbidden not in semantic_source

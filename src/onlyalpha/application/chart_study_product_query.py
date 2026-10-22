@@ -86,7 +86,11 @@ class OnlyChartStudyRequestV2:
             or type(self.include_unclosed_preview) is not bool
             or self.include_unclosed_preview
             and (
-                type(self.preview_stream_id) is not str or re.fullmatch(r"[0-9a-f]{32}", self.preview_stream_id) is None
+                type(self.preview_stream_id) is not str
+                or re.fullmatch(
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", self.preview_stream_id
+                )
+                is None
             )
             or not self.include_unclosed_preview
             and self.preview_stream_id is not None

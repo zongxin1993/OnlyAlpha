@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -14,7 +13,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
 from types import SimpleNamespace
-from urllib.request import urlopen
 
 import psycopg
 import pytest
@@ -1286,62 +1284,6 @@ def test_worker_process_signal_marks_draining_and_uses_application_exit_contract
     assert '"event":"research.worker.draining"' in output
     assert '"event":"research.worker.stopped"' in output
     assert "postgresql://" not in output and "onlyalpha_test" not in output
-
-
-def test_api_process_restart_reads_same_postgres_run_authority(postgres_dsn: str, tmp_path: Path) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    _initialize_deployment(postgres_dsn, tmp_path)
-    only_ensure_dev_master_key(OnlyUserDataLayout(tmp_path).root / MASTER_KEY_FILE)
-    run = OnlyPostgresResearchRunSeeder(postgres_dsn).seed_queued(_queued("00000000-0000-4000-8000-000000000017"))
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-    environment = os.environ.copy()
-    environment["ONLYALPHA_POSTGRES_DSN"] = postgres_dsn
-
-    def start() -> subprocess.Popen[str]:
-        process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "onlyalpha_http_server.main",
-                "--user-data-root",
-                str(tmp_path),
-                "--port",
-                str(port),
-                "--backtest-product-config",
-                str(Path("test-data/legacy_macd/cluster.json").resolve()),
-                "--runtime-generation-authority-root",
-                str(tmp_path / "runtime-generation-authority"),
-            ],
-            cwd=Path(__file__).parents[3],
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            try:
-                with urlopen(f"http://127.0.0.1:{port}/health/live", timeout=0.2) as response:  # noqa: S310
-                    if response.status == 200:
-                        return process
-            except OSError:
-                if process.poll() is not None:
-                    break
-                time.sleep(0.05)
-        output, _ = process.communicate(timeout=2)
-        raise AssertionError(f"API did not become live: {output}")
-
-    for _ in range(2):
-        process = start()
-        with urlopen(f"http://127.0.0.1:{port}/api/v2/research/runs/{run.run_id}") as response:  # noqa: S310
-            body = json.loads(response.read())
-        assert body["run_id"] == run.run_id.value and body["state"] == "QUEUED"
-        process.send_signal(signal.SIGTERM)
-        output, _ = process.communicate(timeout=10)
-        assert process.returncode in {0, -signal.SIGTERM}
-        assert "postgresql://" not in output and "onlyalpha_test" not in output
 
 
 def test_worker_process_killed_after_claim_expires_to_fresh_attempt_and_is_fenced(postgres_dsn: str) -> None:

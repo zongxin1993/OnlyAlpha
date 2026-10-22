@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 from onlyalpha.runtime.live.factory import OnlyLiveRuntimeFactory
@@ -68,32 +69,27 @@ def test_producer_authorities_and_core_do_not_reverse_depend_on_query_or_api() -
         assert not any(name.startswith("onlyalpha_http_server") for name in _imports(path)), path
 
 
-def test_http_routes_and_schema_only_consume_query_public_contract() -> None:
+def test_retired_research_transport_cannot_read_artifacts_or_own_wire_schema() -> None:
     adapter_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research")
-    forbidden = (
-        "onlyalpha.research.artifact",
-        "onlyalpha.research.dataset",
-        "onlyalpha.research.calculation",
-        "onlyalpha.research.evaluation",
-        "onlyalpha.research.result",
-        "pyarrow",
-        "pathlib",
-    )
-    for name in ("routes.py", "schema.py", "errors.py"):
-        path = adapter_root / name
-        imports = _imports(path)
-        assert not any(name.startswith(forbidden) for name in imports), (path, imports)
-    routes = (adapter_root / "routes.py").read_text(encoding="utf-8")
-    assert not any(token in routes for token in ("open(", "read_text", "read_bytes", "parquet", "manifest"))
+    assert not tuple(adapter_root.rglob("*.py"))
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    operations = [
+        operation
+        for path, methods in native["paths"].items()
+        if path.startswith("/api/v2/research/artifacts/")
+        for operation in methods.values()
+    ]
+    assert len(operations) == 9
+    assert all(set(operation["responses"]) == {"501"} for operation in operations)
 
 
-def test_only_server_composition_root_constructs_bounded_artifact_profile_reader() -> None:
+def test_retired_research_server_constructs_no_artifact_profile_reader() -> None:
     api_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
-    consumers = []
-    for path in api_root.rglob("*.py"):
-        if "OnlyResearchArtifactProfileReader" in path.read_text(encoding="utf-8"):
-            consumers.append(path.relative_to(api_root).as_posix())
-    assert consumers == ["main.py"]
+    assert not tuple(api_root.rglob("*.py"))
+    assert not any(
+        "OnlyResearchArtifactProfileReader" in path.read_text()
+        for path in Path("packages/onlyalpha-http-server/rust").glob("*.rs")
+    )
 
 
 def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() -> None:
@@ -117,12 +113,12 @@ def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() ->
     assert "load_verified" in source
 
 
-def test_product_api_has_bounded_get_only_routes_and_live_remains_unsupported() -> None:
-    routes = (Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py")).read_text(
-        encoding="utf-8"
-    )
-    assert routes.count("@router.get(") == 9
-    assert not any(token in routes for token in ("@router.post", "@router.put", "@router.patch", "@router.delete"))
+def test_product_api_research_reads_and_live_remain_explicitly_unsupported() -> None:
+    native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
+    for path, methods in native["paths"].items():
+        if path.startswith("/api/v2/research/artifacts/"):
+            assert set(methods) == {"get"}
+            assert set(methods["get"]["responses"]) == {"501"}
     live = OnlyLiveRuntimeFactory().create(None)
     assert OnlyResearchRuntimeFactory().runtime_type == "RESEARCH"
     assert not live.supported and live.failure_code == "UNSUPPORTED_RUNTIME_TYPE"
