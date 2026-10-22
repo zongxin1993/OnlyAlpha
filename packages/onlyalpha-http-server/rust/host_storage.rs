@@ -98,9 +98,6 @@ impl Host {
             }
             if let Some(realtime) = optional(&source, "realtime")? {
                 for stream in children(&realtime)? {
-                    if onlyalpha_product_runtime::command::CommandId::new(&stream).is_err() {
-                        return Err(Failure::unavailable("MARKET_DATA_WAL_ROOT_INVALID"));
-                    }
                     let stream = protected_files::open_directory_at(&realtime, OsStr::new(&stream))
                         .map_err(code)?;
                     if let Some(wal) = optional(&stream, "wal")? {

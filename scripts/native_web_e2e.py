@@ -68,6 +68,16 @@ def main() -> int:
     (data / "research/.onlyalpha-semantic-store.json").write_text(
         json.dumps({"schema_version": 1, "store_id": namespace})
     )
+    # WAL locations are deployment paths, not Command or stream identities.
+    # Actual startup must visit every retained location without renaming it.
+    wal_parent = data / "market-data/retained-test-source/realtime"
+    wal_locations = (
+        "00000000000040008000000000000001",
+        "00000000-0000-4000-8000-000000000001",
+        "capture-location",
+    )
+    for location in wal_locations:
+        (wal_parent / location / "wal").mkdir(parents=True, mode=0o700)
     resources = output / "artifacts"
     artifact = build(resources)["algorithm_artifact"]
     (output / "algorithm-artifact.sha256").write_text(artifact + "\n")
@@ -206,6 +216,16 @@ def main() -> int:
                     indent=2,
                 )
             )
+            assert sorted(path.name for path in wal_parent.iterdir()) == sorted(wal_locations)
+            for location in wal_locations:
+                wal_directory = wal_parent / location / "wal"
+                # Only the real owning Wal::from_directory creates this lock.
+                # This proves traversal rather than a skip of unknown labels.
+                writer_lock = wal_directory / ".writer.lock"
+                assert writer_lock.is_file() and not writer_lock.is_symlink()
+                assert writer_lock.read_bytes() == b""
+                assert {path.name for path in wal_directory.iterdir()} == {".writer.lock"}
+            (output / "wal-recovery-locations.json").write_text(json.dumps(wal_locations) + "\n")
             result = 0
             results = {}
             if not args.contract_fuzz or args.tests:
