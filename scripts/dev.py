@@ -291,6 +291,14 @@ def start_stop(mode: str, artifact: Path | None = None) -> int:
         inputs = freeze_source(ROOT, reservation["operation_id"], product=True)
         if manifest["source_inputs"] != inputs:
             raise ValueError("DEV_NATIVE_ARTIFACT_INPUT_CHANGED")
+        # Docker cannot create a nested bind destination beneath the read-only
+        # source mount. Prepare only its empty, exact artifact mountpoint first.
+        mountpoint = ROOT / ".test-cache/dev-product-source"
+        for part in artifact.relative_to(ROOT).parts:
+            mountpoint /= part
+            if mountpoint.is_symlink() or (mountpoint.exists() and not mountpoint.is_dir()):
+                raise ValueError("DEV_NATIVE_ARTIFACT_MOUNTPOINT_INVALID")
+            mountpoint.mkdir(exist_ok=True)
         canonical_path = "deploy/docker-compose.dev.yml"
         canonical_bytes = (ROOT / ".test-cache/dev-product-source" / canonical_path).read_bytes()
         if hashlib.sha256(canonical_bytes).hexdigest() != inputs[canonical_path]:

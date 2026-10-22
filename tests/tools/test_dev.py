@@ -512,3 +512,49 @@ def test_linux_path_alias_cannot_shadow_retained_history(
     with pytest.raises(ValueError, match="DEV_APPLICATION_BUSINESS_STORE_REFUSED"):
         dev.start_stop("start")
     assert not any("up" in command or "stop" in command for command in calls)
+
+
+def test_native_start_creates_empty_nested_artifact_mountpoint_before_readonly_source_is_mounted(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _host(monkeypatch, tmp_path)
+    mountpoint = (
+        tmp_path / ".test-cache/dev-product-source/test-results/native-workstation/11111111-1111-4111-8111-111111111111"
+    )
+    original_run = dev.subprocess.run
+
+    def launch(command, **kwargs):
+        if "up" in command:
+            assert mountpoint.is_dir()
+            assert not any(mountpoint.iterdir())
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(dev.subprocess, "run", launch)
+    assert dev.start_stop("start") == 0
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "test-results",
+        "test-results/native-workstation",
+        "test-results/native-workstation/11111111-1111-4111-8111-111111111111",
+    ),
+)
+@pytest.mark.parametrize("kind", ("symlink", "file"))
+def test_native_start_refuses_substituted_artifact_mountpoint_before_launch(
+    monkeypatch, tmp_path: Path, relative: str, kind: str
+) -> None:
+    calls, _ = _host(monkeypatch, tmp_path)
+    outside = tmp_path / "unrelated"
+    outside.mkdir()
+    mountpoint = tmp_path / ".test-cache/dev-product-source" / relative
+    mountpoint.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "symlink":
+        mountpoint.symlink_to(outside, target_is_directory=True)
+    else:
+        mountpoint.write_text("unrelated file")
+    with pytest.raises(ValueError, match="DEV_NATIVE_ARTIFACT_MOUNTPOINT_INVALID"):
+        dev.start_stop("start")
+    assert not any("up" in command for command in calls)
+    assert not any(outside.iterdir())
