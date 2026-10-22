@@ -117,7 +117,11 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
         timeout=15,
     )
     base = base_result.stdout.strip() if base_result.returncode == 0 else ""
-    historical = HISTORICAL_CONTRACT_TEST_REVISIONS if (root / "contracts/product-api/v2/authorized-a0-corrections.json").is_file() else ()
+    historical = (
+        HISTORICAL_CONTRACT_TEST_REVISIONS
+        if (root / "contracts/product-api/v2/authorized-a0-corrections.json").is_file()
+        else ()
+    )
     # Missing exact objects are a hard refusal, never a latest/current fallback.
     for required in historical:
         subprocess.run([*git, "cat-file", "-e", required + "^{commit}"], capture_output=True, check=True, timeout=15)
@@ -241,8 +245,10 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False, resea
     output = root / ".test-cache/dev-tool-output"
     output.mkdir(parents=True, exist_ok=True)
     for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
-        (cut / WEB / name).touch(exist_ok=True)
-        (output / name).touch(exist_ok=True)
+        for directory in (cut / WEB, output):
+            mountpoint = directory / name
+            if not mountpoint.exists():
+                mountpoint.touch(exist_ok=False)
     if source_inputs(cut) != inputs or source_inputs(root) != inputs:
         raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
     git_inputs = {} if product else capture_git(root, cut, previous)

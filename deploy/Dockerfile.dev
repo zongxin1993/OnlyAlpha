@@ -118,6 +118,7 @@ COPY packages/onlyalpha-web-console/package.json packages/onlyalpha-web-console/
 RUN npm ci
 COPY packages/onlyalpha-web-console/ ./
 COPY test-data/web/catalog-navigation/ /workspace/test-data/web/catalog-navigation/
+COPY test-data/web/chart-studies/ /workspace/test-data/web/chart-studies/
 EXPOSE 5173
 
 FROM web AS playwright

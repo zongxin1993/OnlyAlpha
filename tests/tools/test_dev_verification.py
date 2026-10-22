@@ -129,6 +129,26 @@ def test_product_and_verification_source_views_never_refresh_each_other(tmp_path
     assert (tmp_path / ".test-cache/dev-source-cut/pyproject.toml").read_text() == "later verification source"
 
 
+@pytest.mark.parametrize("product", [False, True])
+def test_freezing_source_preserves_existing_typescript_incremental_state(tmp_path: Path, product: bool) -> None:
+    _environment(tmp_path)
+    dev_verification.freeze_source(tmp_path, "before-build", product=product)
+    cut = tmp_path / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
+    output = tmp_path / ".test-cache/dev-tool-output"
+    original = {}
+    for directory in (cut / dev_verification.WEB, output):
+        for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
+            path = directory / name
+            assert path.is_file()
+            path.write_text("controlled incremental build state")
+            os.utime(path, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+            original[path] = (path.read_bytes(), path.stat().st_mtime_ns)
+
+    dev_verification.freeze_source(tmp_path, "after-build", product=product)
+
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in original} == original
+
+
 def _host(monkeypatch, tmp_path: Path, arguments: list[str], *, present: bool = True):
     calls = []
     _environment(tmp_path)
@@ -570,7 +590,6 @@ def test_frozen_git_carries_exact_local_release_base_without_following_later_cha
     assert "refs/remotes/origin/master" in hashes
 
 
-
 def test_frozen_git_carries_exact_historical_authorization_bytes(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[2]
     hashes = dev_verification.capture_git(root, tmp_path, {})
@@ -580,6 +599,7 @@ def test_frozen_git_carries_exact_historical_authorization_bytes(tmp_path: Path)
         observed = subprocess.check_output(["git", "-C", str(tmp_path), "show", f"{revision}:{relative}"])
         assert observed == expected
     assert hashes == dev_verification.git_input_hashes(tmp_path)
+
 
 def test_research_source_cut_carries_current_provenance_and_cleans_it_on_next_run(tmp_path: Path, monkeypatch) -> None:
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
