@@ -597,3 +597,24 @@ it("switches lifecycle without turning UNKNOWN into an abnormal state", async ()
     });
     expect(screen.queryByText("失败")).not.toBeInTheDocument();
 });
+
+it("shows the metadata read error and lets the user reload without resubmitting a command", async () => {
+    const getDraft = vi
+        .fn<IntegrationApiClient["getDraft"]>()
+        .mockRejectedValueOnce(
+            new IntegrationWebError("INTEGRATION_STORE_UNAVAILABLE", "Read unavailable", 503)
+        )
+        .mockResolvedValue(draft);
+    const publish = vi.fn();
+    const resetDraftContract = vi.fn();
+    renderDataSources(
+        `/data/sources/${ID}`,
+        integrationClient({ getDraft, publish, resetDraftContract })
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("INTEGRATION_STORE_UNAVAILABLE");
+    await userEvent.setup().click(screen.getByRole("button", { name: "重新读取数据源" }));
+    expect(await screen.findByLabelText("Timeout seconds")).toBeInTheDocument();
+    expect(getDraft).toHaveBeenCalledTimes(2);
+    expect(publish).not.toHaveBeenCalled();
+    expect(resetDraftContract).not.toHaveBeenCalled();
+});

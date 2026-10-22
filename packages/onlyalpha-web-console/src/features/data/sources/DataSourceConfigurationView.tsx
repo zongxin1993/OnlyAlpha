@@ -99,9 +99,25 @@ export function DataSourceConfigurationView({
     }
     if (integration.isError || draft.isError) {
         return (
-            <p className="error" role="alert">
-                无法读取该数据源。
-            </p>
+            <div>
+                <p className="error" role="alert">
+                    无法读取该数据源。{describeError(integration.error ?? draft.error)}
+                </p>
+                <button
+                    type="button"
+                    disabled={integration.isFetching || draft.isFetching}
+                    onClick={() => {
+                        void Promise.all([integration.refetch(), draft.refetch()]);
+                    }}
+                >
+                    重新读取数据源
+                </button>
+                {onBack ? (
+                    <button type="button" className="button-subtle" onClick={onBack}>
+                        ← 返回列表
+                    </button>
+                ) : null}
+            </div>
         );
     }
     const model = integration.data;

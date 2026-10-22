@@ -51,6 +51,7 @@ use tokio::{
     time::{Instant, sleep_until, timeout_at},
 };
 const READS: usize = 4;
+const WORKSTATION_WAITERS: usize = 16;
 const RESPONSE_LIMIT: usize = 8 * 1024 * 1024;
 const HEADER_LIMIT: usize = 64 * 1024;
 const HEADER_COUNT: usize = 64;
@@ -237,6 +238,7 @@ struct State {
     gate: Mutex<Gate>,
     signal: watch::Sender<()>,
     slots: Arc<Semaphore>,
+    waiters: Arc<Semaphore>,
     next: AtomicU64,
     work: AtomicUsize,
 }
@@ -366,6 +368,7 @@ impl LocalIngress {
                 }),
                 signal,
                 slots: Arc::new(Semaphore::new(READS)),
+                waiters: Arc::new(Semaphore::new(WORKSTATION_WAITERS)),
                 next: AtomicU64::new(0),
                 work: AtomicUsize::new(0),
             }),
@@ -698,6 +701,26 @@ impl LocalIngress {
         )
         .await
     }
+    async fn workstation_permit(&self, deadline: Instant) -> Result<OwnedSemaphorePermit, ()> {
+        if Instant::now() >= deadline {
+            return Err(());
+        }
+        // A normal workstation opens several independent metadata queries at
+        // once. Bound their queue separately from the four actual workers and
+        // retain the original ingress deadline through queueing and execution.
+        let queued = Arc::clone(&self.state.waiters)
+            .try_acquire_owned()
+            .map_err(|_| ())?;
+        let permit = timeout_at(deadline, Arc::clone(&self.state.slots).acquire_owned())
+            .await
+            .map_err(|_| ())?
+            .map_err(|_| ())?;
+        drop(queued);
+        if Instant::now() >= deadline {
+            return Err(());
+        }
+        Ok(permit)
+    }
     async fn dispatch(
         &self,
         id: u64,
@@ -732,20 +755,37 @@ impl LocalIngress {
             };
             entry.session = Some(session.clone());
         }
-        let permit = match Arc::clone(&self.state.slots).try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(_) => {
-                return if chart {
-                    deny(
-                        "CHART_STUDY_CAPACITY_UNAVAILABLE",
+        let deadline = if chart || self.state.workstation {
+            entered_at + CHART_BUDGET
+        } else {
+            Instant::now() + SEND_BUDGET
+        };
+        let permit = if self.state.workstation {
+            match self.workstation_permit(deadline).await {
+                Ok(permit) => permit,
+                Err(()) => {
+                    return deny(
+                        "LOCAL_READ_RESPONSE_UNAVAILABLE",
                         StatusCode::SERVICE_UNAVAILABLE,
-                    )
-                } else {
-                    deny(
-                        "LOCAL_READ_CAPACITY_EXCEEDED",
-                        StatusCode::TOO_MANY_REQUESTS,
-                    )
-                };
+                    );
+                }
+            }
+        } else {
+            match Arc::clone(&self.state.slots).try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return if chart {
+                        deny(
+                            "CHART_STUDY_CAPACITY_UNAVAILABLE",
+                            StatusCode::SERVICE_UNAVAILABLE,
+                        )
+                    } else {
+                        deny(
+                            "LOCAL_READ_CAPACITY_EXCEEDED",
+                            StatusCode::TOO_MANY_REQUESTS,
+                        )
+                    };
+                }
             }
         };
         let Ok(uri) = normalized_uri(request.uri(), &path) else {
@@ -761,11 +801,6 @@ impl LocalIngress {
             }
             Proof::Bootstrap => {}
         }
-        let deadline = if chart || self.state.workstation {
-            entered_at + CHART_BUDGET
-        } else {
-            Instant::now() + SEND_BUDGET
-        };
         let permit = Arc::new(permit);
         {
             let Ok(mut gate) = self.state.gate.lock() else {
@@ -2325,6 +2360,94 @@ mod tests {
     }
     fn developer(app: Router) -> LocalIngress {
         LocalIngress::new_developer(HumanAccess::new(TOKEN).unwrap(), app)
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn workstation_fifth_request_waits_without_increasing_execution_capacity() {
+        let ingress = developer(Router::new());
+        let held = Arc::clone(&ingress.state.slots)
+            .acquire_many_owned(READS as u32)
+            .await
+            .unwrap();
+        let mut waiting = Box::pin(ingress.workstation_permit(Instant::now() + CHART_BUDGET));
+        assert!(
+            waiting
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        assert_eq!(ingress.state.slots.available_permits(), 0);
+        drop(held);
+        let admitted = waiting.await.unwrap();
+        assert_eq!(ingress.state.slots.available_permits(), READS - 1);
+        drop(admitted);
+        assert_eq!(ingress.state.slots.available_permits(), READS);
+        assert_eq!(
+            ingress.state.waiters.available_permits(),
+            WORKSTATION_WAITERS
+        );
+    }
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn workstation_queue_preserves_deadline_and_cancellation_ownership() {
+        let ingress = developer(Router::new());
+        let held = Arc::clone(&ingress.state.slots)
+            .acquire_many_owned(READS as u32)
+            .await
+            .unwrap();
+        let deadline = Instant::now() + CHART_BUDGET;
+        let mut waiting = Box::pin(ingress.workstation_permit(deadline));
+        assert!(
+            waiting
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        tokio::time::advance(CHART_BUDGET).await;
+        assert!(waiting.await.is_err());
+        assert!(ingress.workstation_permit(deadline).await.is_err());
+        assert_eq!(ingress.state.slots.available_permits(), 0);
+        let mut cancelled = Box::pin(ingress.workstation_permit(Instant::now() + CHART_BUDGET));
+        assert!(
+            cancelled
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        drop(cancelled);
+        assert_eq!(ingress.state.slots.available_permits(), 0);
+        assert_eq!(
+            ingress.state.waiters.available_permits(),
+            WORKSTATION_WAITERS
+        );
+        drop(held);
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn workstation_queue_is_bounded_without_releasing_active_work() {
+        let ingress = developer(Router::new());
+        let held = Arc::clone(&ingress.state.slots)
+            .acquire_many_owned(READS as u32)
+            .await
+            .unwrap();
+        let deadline = Instant::now() + CHART_BUDGET;
+        let mut queued = Vec::new();
+        for _ in 0..WORKSTATION_WAITERS {
+            let mut request = Box::pin(ingress.workstation_permit(deadline));
+            assert!(
+                request
+                    .as_mut()
+                    .poll(&mut Context::from_waker(std::task::Waker::noop()))
+                    .is_pending()
+            );
+            queued.push(request);
+        }
+        assert!(ingress.workstation_permit(deadline).await.is_err());
+        assert_eq!(ingress.state.slots.available_permits(), 0);
+        assert_eq!(ingress.state.waiters.available_permits(), 0);
+        drop(queued);
+        assert_eq!(
+            ingress.state.waiters.available_permits(),
+            WORKSTATION_WAITERS
+        );
+        drop(held);
     }
     fn developer_raw(bootstrap: bool) -> String {
         if bootstrap {
