@@ -474,11 +474,7 @@ impl Host {
                     .map(|s| s.split(',').map(String::from).collect())
                     .unwrap_or_default(),
                 instrument_ids: vec![],
-                limit: p
-                    .get("limit")
-                    .map(|s| s.parse().map_err(|_| invalid()))
-                    .transpose()?
-                    .unwrap_or(25),
+                limit: instrument_limit(&p)?,
             };
             let (value, fence) = self
                 .app
@@ -664,11 +660,7 @@ impl Host {
                         .get("instrument_ids")
                         .map(|s| s.split(',').map(String::from).collect())
                         .unwrap_or_default(),
-                    limit: p
-                        .get("limit")
-                        .map(|s| s.parse().map_err(|_| invalid()))
-                        .transpose()?
-                        .unwrap_or(100),
+                    limit: instrument_limit(&p)?,
                 };
                 if path.ends_with("search") {
                     let (value, fence) = self
@@ -756,6 +748,25 @@ pub(crate) fn reference(p: &BTreeMap<String, String>) -> Result<Reference, Failu
         required(p, "integration_revision_fingerprint")?,
         p.get("expected_type_id").map(String::as_str),
     )?)
+}
+fn instrument_limit(p: &BTreeMap<String, String>) -> Result<usize, Failure> {
+    p.get("limit")
+        .map(|value| value.parse().map_err(|_| invalid()))
+        .transpose()
+        .map(|limit| limit.unwrap_or(25))
+}
+#[cfg(test)]
+mod instrument_query_tests {
+    use super::*;
+    #[test]
+    fn omitted_instrument_limit_is_admitted_by_the_current_application_contract() {
+        assert_eq!(instrument_limit(&BTreeMap::new()).unwrap(), 25);
+        assert_eq!(
+            instrument_limit(&BTreeMap::from([("limit".into(), "3".into())])).unwrap(),
+            3
+        );
+        assert!(instrument_limit(&BTreeMap::from([("limit".into(), "invalid".into())])).is_err());
+    }
 }
 pub(crate) fn semantic(
     p: &BTreeMap<String, String>,

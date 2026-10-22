@@ -612,12 +612,12 @@ fn decode_gzip(bytes: &[u8], limit: usize) -> Result<Vec<u8>> {
     }
     Ok(out)
 }
-fn symbol(value: &str) -> bool {
+pub(crate) fn symbol(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value
-            .bytes()
-            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+            .chars()
+            .all(|c| c.is_alphanumeric() && !c.is_lowercase())
 }
 
 #[cfg(test)]
@@ -711,6 +711,21 @@ mod tests {
                 .unwrap();
         client.base = reqwest::Url::parse(&base).unwrap();
         (client, rx, task)
+    }
+    #[test]
+    fn unicode_spot_symbols_keep_the_exact_provider_identity() {
+        assert!(symbol("币安人生USDT"));
+        for invalid in [
+            "",
+            "btcusdt",
+            "BTC USDT",
+            "BTC/USDT",
+            "BTCUSDT&symbol=ETHUSDT",
+            "BTCUSDT#x",
+            "BTC\u{200b}USDT",
+        ] {
+            assert!(!symbol(invalid), "{invalid}");
+        }
     }
     fn ok(body: &str) -> String {
         format!(

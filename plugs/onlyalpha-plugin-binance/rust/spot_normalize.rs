@@ -69,10 +69,7 @@ fn filter<'a>(filters: &'a [Value], kind: &str) -> Result<&'a Value> {
 }
 pub fn instrument(raw: &Value) -> Result<OnlyInstrument> {
     let symbol = text(&raw["symbol"])?;
-    if !symbol
-        .bytes()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-    {
+    if !crate::spot_rest::symbol(symbol) {
         return Err(Error::Shape);
     }
     let filters = raw["filters"].as_array().ok_or(Error::Shape)?;
@@ -171,10 +168,7 @@ pub struct Quote {
 }
 pub fn quote(raw: &Value) -> Result<Quote> {
     let symbol = text(&raw["symbol"])?;
-    if !symbol
-        .bytes()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-    {
+    if !crate::spot_rest::symbol(symbol) {
         return Err(Error::Shape);
     }
     let _ = positive(&raw["lastPrice"])?;
@@ -202,6 +196,32 @@ mod tests {
             {"filterType":"PRICE_FILTER","tickSize":"0.01000000"},
             {"filterType":"LOT_SIZE","stepSize":"0.00001000","minQty":"0.00001000"}
         ]})
+    }
+    #[test]
+    fn unicode_spot_instruments_and_quotes_preserve_provider_spelling() {
+        let mut raw = symbol();
+        raw["symbol"] = json!("币安人生USDT");
+        raw["baseAsset"] = json!("币安人生");
+        let instrument = instrument(&raw).unwrap();
+        assert_eq!(
+            instrument.specification().instrument_id().to_string(),
+            "币安人生USDT.BINANCE"
+        );
+        assert_eq!(
+            instrument
+                .specification()
+                .base_currency()
+                .as_ref()
+                .unwrap()
+                .code(),
+            "币安人生"
+        );
+        assert_eq!(
+            OnlyInstrument::from_record(&instrument.to_record()).unwrap(),
+            instrument
+        );
+        let value = quote(&json!({"symbol":"币安人生USDT","lastPrice":"1.00","priceChangePercent":"0","closeTime":1})).unwrap();
+        assert_eq!(value.instrument_id, "币安人生USDT.BINANCE");
     }
     fn row() -> Value {
         json!([

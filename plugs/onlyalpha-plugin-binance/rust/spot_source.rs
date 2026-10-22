@@ -148,7 +148,7 @@ impl Spot {
             environment: environment.into(),
             source_id: rest.source_id().into(),
         };
-        let calendar=spot_calendar()?;
+        let calendar = spot_calendar()?;
         let calendar_fp = hash(calendar.to_record().to_string().as_bytes());
         let capabilities = spot_rest::NATIVE_MINUTES
             .into_iter()
@@ -213,8 +213,10 @@ impl Spot {
             .max_message_size(Some(self.ws_limit))
             .max_frame_size(Some(self.ws_limit))
             .accept_unmasked_frames(false);
+        let url = reqwest::Url::parse(&format!("{}/ws/{stream}", self.ws_base))
+            .map_err(|_| SourceError::Invalid)?;
         let future = tokio_tungstenite::connect_async_tls_with_config(
-            format!("{}/ws/{stream}", self.ws_base),
+            url.as_str(),
             Some(config),
             true,
             Some(Connector::Rustls(Arc::clone(&self.tls))),
@@ -1109,6 +1111,65 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
         });
         (url, task)
     }
+    #[test]
+    fn unicode_spot_catalog_does_not_hide_or_reject_other_instruments() {
+        runtime().block_on(async {
+            let mut unicode = json!({"symbol":"币安人生USDT","baseAsset":"币安人生","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.00001","minQty":"0.00001"}]});
+            let mut ascii = unicode.clone();
+            ascii["symbol"] = json!("BTCUSDT");
+            ascii["baseAsset"] = json!("BTC");
+            let (url, server) = http(vec![json!({"symbols":[ascii, unicode.take()]}).to_string()]);
+            let s = source(&url);
+            let rows = s.instruments(&[], Budget::from_millis(5000).unwrap()).await.unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].specification().raw_symbol().value(), "BTCUSDT");
+            assert_eq!(rows[1].specification().raw_symbol().value(), "币安人生USDT");
+            let requests = server.join().unwrap();
+            assert!(requests[0].contains("showPermissionSets=false"));
+            assert!(requests[0].contains("permissions=SPOT"));
+        });
+    }
+    #[test]
+    fn unicode_spot_websocket_handshake_uses_an_encoded_exact_stream_path() {
+        runtime().block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut s = source("http://127.0.0.1:1");
+            s.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+            let server = async {
+                let (socket, _) = listener
+                    .accept()
+                    .await
+                    .map_err(|_| SourceError::Unavailable)?;
+                let mut path = String::new();
+                // Tungstenite requires its full HTTP error response for this callback;
+                // the fixture only observes the path and always accepts the handshake.
+                #[allow(clippy::result_large_err)]
+                let _socket = tokio_tungstenite::accept_hdr_async(
+                    socket,
+                    |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                     response| {
+                        path = request.uri().path().to_owned();
+                        Ok(response)
+                    },
+                )
+                .await
+                .map_err(|_| SourceError::Unavailable)?;
+                Ok::<_, SourceError>(path)
+            };
+            let (_, path) = tokio::try_join!(
+                s.connect(
+                    "币安人生usdt@kline_1m",
+                    Instant::now() + Duration::from_secs(5)
+                ),
+                server
+            )
+            .unwrap();
+            assert_eq!(
+                path,
+                "/ws/%E5%B8%81%E5%AE%89%E4%BA%BA%E7%94%9Fusdt@kline_1m"
+            );
+        });
+    }
     #[derive(Default)]
     struct Captures {
         observations: Vec<Observation>,
@@ -1589,4 +1650,6 @@ pub mod test_support {
 }
 
 /// Pure explicit calendar candidate. Historical readers must match its original pin.
-pub fn spot_calendar()->Result<OnlyTradingCalendar,SourceError>{OnlyTradingCalendar::from_record(&json!({"schema_version":1,"calendar_id":{"schema_version":1,"value":"BINANCE-SPOT-24X7"},"venue_id":{"schema_version":1,"value":"BINANCE"},"timezone":{"schema_version":1,"name":"UTC"},"sessions":[{"schema_version":1,"name":"continuous","opens_at":"00:00:00","closes_at":"00:00:00","session_type":"CONTINUOUS","belongs_to_trading_day_offset":0,"allows_orders":true,"allows_market_data":true}],"holidays":[],"weekend_days":[],"session_profile_id":null,"special_schedules":[],"calendar_version":1,"effective_from":null,"effective_to":null})).map_err(|_|SourceError::Invalid)}
+pub fn spot_calendar() -> Result<OnlyTradingCalendar, SourceError> {
+    OnlyTradingCalendar::from_record(&json!({"schema_version":1,"calendar_id":{"schema_version":1,"value":"BINANCE-SPOT-24X7"},"venue_id":{"schema_version":1,"value":"BINANCE"},"timezone":{"schema_version":1,"name":"UTC"},"sessions":[{"schema_version":1,"name":"continuous","opens_at":"00:00:00","closes_at":"00:00:00","session_type":"CONTINUOUS","belongs_to_trading_day_offset":0,"allows_orders":true,"allows_market_data":true}],"holidays":[],"weekend_days":[],"session_profile_id":null,"special_schedules":[],"calendar_version":1,"effective_from":null,"effective_to":null})).map_err(|_|SourceError::Invalid)
+}
