@@ -597,26 +597,29 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
   清理重复申请授权。执行前仍须盘点精确 container/image/network/volume 身份及引用关系，确认当前工作可停止、持有
   对应生命周期锁并保留已有日志；不得删除未知归属或其他项目的容器。这不是每个任务、commit 或验证轮次自动重建
   的许可，正常开发仍优先复用唯一 dev 环境。
-- 普通启动、停机重启、工程升级、重建镜像和替换容器均保留历史数据；容器清理许可不包含数据卷删除或重新初始化。
-  开发阶段允许独立、显式选择“清空 dev 数据并重新初始化”，但执行前必须明确本次精确资源与数据范围，协调数据库、
-  文件型数据、密钥和 namespace，保留日志并解决未决工作；不得只删除 user-data 后自动重绑已有数据库。
-  普通开发仍禁止 `down -v`、全局 `system/image/volume/builder prune` 或强制删除未知归属资源；默认保留数据卷、
-  固定 dev 镜像集合和其他项目。Docker Desktop 全局停启及其对其他服务的影响必须单独明确授权。
+- 开发阶段，本地历史数据卷及源码运行的本地 `user_data` 均为可丢弃开发数据，不属于兼容性、迁移或升级保留目标。
+  Owner 已授权在实现、升级或持久格式演进需要时直接删除并重建已确认归属的本地 dev 数据，无需重复询问；
+  不得为这些旧数据新增 compatibility shim、历史格式 loader、离线历史重建工具或历史保留验收，也不要求先备份旧开发数据。
+  执行前仍须盘点精确资源与引用关系，持有生命周期锁、协调当前工作并保留日志；数据库、文件数据、密钥和 namespace
+  必须成套清理并重新初始化，禁止只删 user-data 后重绑未清理的数据库。普通启动不隐式清库，不因每轮验证自动重建。
+  清理仅限明确归属本项目的开发资源；仍禁止 `down -v`、全局 `system/image/volume/builder prune` 或删除未知归属资源。
+  保留固定 dev 镜像集合与其他项目。Docker Desktop 全局停启及其对其他服务的影响必须单独明确授权。
 - 不满足上述约束的旧 runner/命令不能作为本地开发入口。特别是会创建临时 project 并 `down -v` 的
   `deploy/run-tests.sh`、`deploy/run-web-e2e.sh` 调用模式只能用于其受控 CI 场景，不能因脚本已存在就继续在本地执行。
   未完成安全的共享 dev 入口时应报告入口缺口，不得偷偷退回平行部署或把文档约束宣称为已实现的机械保护。
 
 单一 dev 约束不授权降低 authentication、Source grant、authority、determinism、immutable history、hermetic tests、
-recovery 或 accepted deployment/semantic-store boundary。不能安全复用时停止并提交最小边界方案，不以方便为由清库或取消安全约束。
+recovery 或 accepted deployment/semantic-store boundary。需要重置可丢弃本地开发数据时按上述授权执行，不能通过清库取消安全约束。
 
 ### 6.2 运行数据位置、历史保留与升级验证
 
 - 源码运行通过正式配置指定本机 `user_data` 目录；Docker 运行使用独立于容器生命周期的数据卷。路径与挂载是部署配置，
   不是 canonical identity，也不得创建第二份事实 Authority。复用现有 `--user-data-root` 和 `OnlyUserDataLayout`。
 - 运行数据、密钥与凭据不得进入源码、Git、镜像或冻结的源码验证副本；验证数据与业务数据继续隔离。
-- 开发阶段也必须证明工程升级及停机重启后，已有历史可通过当前正式 owning reader 正常读取和使用；涉及持久格式时，
-  验证明确的 migration、exact identity、引用完整性、密钥可用性及恢复语义。不得用清库、重建空数据或旧版本 fallback
-  替代历史验证。不保留旧版本兼容处理不等于允许丢弃历史数据。
+- 开发阶段不考虑本地旧数据卷的内容或格式兼容，不要求跨开发版本保留历史或验证旧数据升级读取；需要时直接按 §6.1
+  删除并重建本地 dev 数据，优先实现当前正确的 canonical contract。fresh 初始化可作为开发版本切换路径，必须如实标明
+  数据已重置，不能称为历史迁移成功。当前版本新产生的数据仍须满足 exact identity、引用完整性、持久化和正常停机重启、
+  crash recovery/reconciliation 的产品语义与必要测试；可丢弃旧开发数据不授权绕过当前运行的 Authority 或 UNKNOWN。
 - 正式部署默认保护历史数据。删除/重置必须有精确范围、明确人工授权、受保护的配对备份、已验证的恢复路径和保留策略；
   开发期的清空许可不能扩展到正式部署。缺失或不匹配的历史、密钥、namespace 必须 fail closed，不能静默采用新存储。
 - 测试必须区分 fresh reader/process restart、真实服务停机重启、格式迁移和真实部署升级；前者不能冒充后者的证据。
@@ -644,8 +647,8 @@ Breaking change 可以存在，但必须是 Constitution 允许范围内的明�
 开发阶段不保留旧版本兼容处理：直接演进当前 canonical contract，并原子更新仓内 consumers、测试与文档；不得仅为
 兼容已淘汰开发版本而新增或保留 compatibility shim、version-family duplication、legacy loader、旧 schema/DTO fallback
 或平行旧版本分支。Breaking-change detection、分类及仓内 consumer 原子迁移仍然必须执行。
-当前规范要求的 exact identity、immutable history、migration、replay、recovery 与完整性不是旧版本兼容处理，不得删除或
-放宽。若已有 Contract 明确标记 compatibility-frozen / externally supported，不得静默解除承诺；须先取得 Owner 对该
+开发期本地旧数据卷按 §6.1 / §6.2 作为可丢弃数据处理，不要求为其实现 migration 或跨版本历史读取。
+当前规范对正式产品事实要求的 exact identity、immutable history、replay、recovery 与完整性仍必须保留；正式部署需要的 migration 不得删除或放宽。若已有 Contract 明确标记 compatibility-frozen / externally supported，不得静默解除承诺；须先取得 Owner 对该
 Contract 的明确变更决策。仅记录本规则不授权范围外全仓删除或 cleanup。
 
 数据库 migration 必须明确 precondition、deterministic transformation、failure semantics、transaction/atomicity、compatibility window、restart/retry semantics 和 data integrity。能安全回滚时提供 rollback；不能安全回滚时使用 fail-closed + backup/snapshot/forward-fix。

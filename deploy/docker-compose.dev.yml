@@ -165,6 +165,8 @@ services:
 
   dev:
     profiles: [dev]
+    # Source close may consume its own 10s before retained facts/owners drain.
+    stop_grace_period: 60s
     image: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
     init: true
     command: ["python", "-m", "scripts.dev", "inside"]

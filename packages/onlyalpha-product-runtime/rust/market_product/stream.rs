@@ -9,7 +9,7 @@ use crate::{
 use onlyalpha_domain::{
     base::OnlyDomainModel, instrument::OnlyInstrument, market::OnlyBarSemantic, time::OnlyTimestamp,
 };
-use onlyalpha_integration_contract::source::{HistoryRequest, Recorder, StreamEvent};
+use onlyalpha_integration_contract::source::{HistoryRequest, Recorder, Stream, StreamEvent};
 use onlyalpha_market_data_construction::*;
 use serde_json::json;
 use std::{
@@ -44,17 +44,12 @@ pub(super) struct PreviewFence {
 }
 impl PreviewFence {
     pub(super) fn check(&self) -> Result<()> {
-        if self.state.cancel.load(Ordering::Acquire)
-            || self.state.closed.load(Ordering::Acquire)
-            || self
-                .state
-                .loss
-                .lock()
-                .map_err(|_| Error::Unavailable)?
-                .is_some()
-            || self.state.preview_generation.load(Ordering::Acquire) != self.generation
-        {
-            return Err(Error::Source(SourceError::Stopped));
+        StreamFence {
+            state: Arc::clone(&self.state),
+        }
+        .check()?;
+        if self.state.preview_generation.load(Ordering::Acquire) != self.generation {
+            return Err(Error::PreviewSuperseded);
         }
         Ok(())
     }
@@ -71,6 +66,16 @@ impl State {
         self.next_preview_generation()?;
         *preview = None;
         Ok(())
+    }
+    fn retain_loss(&self, error: Error) -> Result<()> {
+        let cleared = self.clear_preview();
+        let stored = self
+            .loss
+            .lock()
+            .map(|mut loss| *loss = Some(error))
+            .map_err(|_| Error::Unavailable);
+        self.wake.notify_waiters();
+        cleared.and(stored)
     }
     fn preview(&self, value: Value) -> Result<()> {
         let mut preview = self.preview.lock().map_err(|_| Error::Unavailable)?;
@@ -366,26 +371,7 @@ impl Application {
                 }
                 Ok(())
             }.await;
-            // Invalidate preview/output immediately on local loss, before shutdown I/O.
-            if let Err(error) = outcome {
-                worker_state.clear_preview()?;
-                *worker_state.loss.lock().map_err(|_| Error::Unavailable)? = Some(error);
-                worker_state.wake.notify_waiters();
-            }
-            // Stop provider activity and finish the actual original recorder before join
-            // resolves. Cancellation or write failure never mints a closed history proof.
-            let closed = upstream.close().await;
-            let recorded = recorder.finish();
-            let outcome = outcome
-                .and(closed.map_err(Error::from))
-                .and(recorded.map_err(Error::from));
-            if let Err(error) = outcome {
-                worker_state.clear_preview()?;
-                *worker_state.loss.lock().map_err(|_| Error::Unavailable)? = Some(error);
-            }
-            worker_state.closed.store(true, Ordering::Release);
-            worker_state.wake.notify_waiters();
-            outcome
+            close_worker(&worker_state, outcome, upstream.as_mut(), &mut recorder).await
         });
         Ok(ProductStream {
             stream_id: retained_stream_id,
@@ -535,21 +521,14 @@ impl ProductStream {
             let loss = *self.state.loss.lock().map_err(|_| Error::Unavailable)?;
             if let Some(error) = loss {
                 while self.receiver.try_recv().is_ok() {}
-                if !self.failed_delivered {
-                    self.failed_delivered = true;
-                    return self.issue(
-                        json!({"schema_version":2,"event":"STATE","state":"FAILED"}),
-                        None,
-                    );
-                }
-                if self.error_delivered {
-                    return Ok(None);
-                }
-                self.error_delivered = true;
-                return self.issue(
-                    json!({"schema_version":2,"event":"ERROR","code":error.code()}),
-                    None,
-                );
+                return match terminal_event(
+                    error,
+                    &mut self.failed_delivered,
+                    &mut self.error_delivered,
+                ) {
+                    Some(event) => self.issue(event, None),
+                    None => Ok(None),
+                };
             }
 
             if let Ok(event) = self.receiver.try_recv() {
@@ -605,6 +584,49 @@ impl ProductStream {
         finish_close(preview, &mut self.worker).await
     }
 }
+// Never return a state-cleanup failure before attempting both original resource
+// cleanups. An expected withdrawal cannot hide any failed cleanup operation.
+async fn close_worker(
+    state: &State,
+    outcome: Result<()>,
+    upstream: &mut dyn Stream,
+    recorder: &mut dyn Recorder,
+) -> Result<()> {
+    if let Err(error) = outcome {
+        eprintln!("MARKET_DATA_STREAM_FAILED {error}");
+    }
+    let invalidated = match outcome {
+        Err(error) => state.retain_loss(error),
+        Ok(()) => Ok(()),
+    };
+    let closed = upstream.close().await;
+    let recorded = recorder.finish();
+    let cleanup = closed
+        .map_err(Error::from)
+        .and(recorded.map_err(Error::from))
+        .and(invalidated);
+    let failure = cleanup.and(outcome);
+    let retained = match failure {
+        Err(error) => state.retain_loss(error),
+        Ok(()) => Ok(()),
+    };
+    state.closed.store(true, Ordering::Release);
+    state.wake.notify_waiters();
+    retained.and(cleanup)
+}
+// A terminal provider failure remains visible on the original stream. It does
+// not restart consumption and is independent of successful resource cleanup.
+fn terminal_event(error: Error, failed: &mut bool, delivered: &mut bool) -> Option<Value> {
+    if !*failed {
+        *failed = true;
+        Some(json!({"schema_version":2,"event":"STATE","state":"FAILED"}))
+    } else if !*delivered {
+        *delivered = true;
+        Some(json!({"schema_version":2,"event":"ERROR","code":error.code()}))
+    } else {
+        None
+    }
+}
 // Retain the real handle in ProductStream across await: cancellation still
 // aborts it through Drop. Preview cleanup failure never skips the actual join.
 async fn finish_close(
@@ -625,6 +647,205 @@ async fn finish_close(
 mod close_join_tests {
     use super::*;
     use std::{future::Future, task::Poll};
+    #[tokio::test(flavor = "current_thread")]
+    async fn superseded_preview_is_distinct_from_a_stopped_original_stream() {
+        let state = Arc::new(State {
+            cancel: AtomicBool::new(false),
+            preview_generation: AtomicU64::new(0),
+            wake: tokio::sync::Notify::new(),
+            preview: Mutex::new(None),
+            loss: Mutex::new(None),
+            closed: AtomicBool::new(false),
+        });
+        state.preview(json!({"preview": "A"})).unwrap();
+        let original = PreviewFence {
+            state: Arc::clone(&state),
+            generation: state.preview_generation.load(Ordering::Acquire),
+        };
+        let (issued, admitted) = tokio::sync::oneshot::channel();
+        let (release, proceed) = tokio::sync::oneshot::channel();
+        let pending = tokio::spawn(async move {
+            original.check().unwrap();
+            issued.send(()).unwrap();
+            proceed.await.unwrap();
+            original.check()
+        });
+        admitted.await.unwrap();
+        state.preview(json!({"preview": "B"})).unwrap();
+        release.send(()).unwrap();
+        assert_eq!(
+            pending.await.unwrap().unwrap_err().code(),
+            "MARKET_DATA_PREVIEW_SUPERSEDED"
+        );
+        let current = PreviewFence {
+            state: Arc::clone(&state),
+            generation: state.preview_generation.load(Ordering::Acquire),
+        };
+        current.check().unwrap();
+        assert_eq!(
+            state.preview.lock().unwrap().as_ref().unwrap().0,
+            json!({"preview": "B"})
+        );
+        // A real stream failure must dominate an obsolete preview generation.
+        let obsolete = PreviewFence {
+            state: Arc::clone(&state),
+            generation: 0,
+        };
+        state.cancel.store(true, Ordering::Release);
+        assert_eq!(obsolete.check(), Err(Error::Source(SourceError::Stopped)));
+        state.cancel.store(false, Ordering::Release);
+        state.closed.store(true, Ordering::Release);
+        assert_eq!(obsolete.check(), Err(Error::Source(SourceError::Stopped)));
+        state.closed.store(false, Ordering::Release);
+        *state.loss.lock().unwrap() = Some(Error::Source(SourceError::Evidence));
+        assert_eq!(obsolete.check(), Err(Error::Source(SourceError::Stopped)));
+    }
+    #[test]
+    fn terminal_timeout_is_reported_then_the_original_stream_ends() {
+        let mut failed = false;
+        let mut delivered = false;
+        let error = Error::Source(SourceError::Timeout);
+        assert_eq!(
+            terminal_event(error, &mut failed, &mut delivered),
+            Some(json!({"schema_version":2,"event":"STATE","state":"FAILED"}))
+        );
+        assert_eq!(
+            terminal_event(error, &mut failed, &mut delivered),
+            Some(json!({"schema_version":2,"event":"ERROR","code":"MARKET_DATA_SOURCE_TIMEOUT"}))
+        );
+        assert_eq!(terminal_event(error, &mut failed, &mut delivered), None);
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn panicked_worker_cannot_certify_successful_cleanup() {
+        let mut worker = Some(tokio::spawn(async { panic!("worker join fault") }));
+        assert_eq!(
+            finish_close(Ok(()), &mut worker).await,
+            Err(Error::Unavailable)
+        );
+        assert!(worker.is_none());
+    }
+    struct ClosingSource {
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        proceed: Option<tokio::sync::oneshot::Receiver<()>>,
+        closed: Arc<AtomicBool>,
+        result: std::result::Result<(), SourceError>,
+    }
+    impl Stream for ClosingSource {
+        fn next<'a>(
+            &'a mut self,
+            _: &'a mut dyn Recorder,
+        ) -> onlyalpha_integration_contract::source::FutureResult<'a, StreamEvent> {
+            Box::pin(async { panic!("cleanup must not resume provider reads") })
+        }
+        fn close<'a>(&'a mut self) -> onlyalpha_integration_contract::source::FutureResult<'a, ()> {
+            Box::pin(async move {
+                self.entered.take().unwrap().send(()).unwrap();
+                self.proceed.take().unwrap().await.unwrap();
+                self.closed.store(true, Ordering::Release);
+                self.result
+            })
+        }
+    }
+    struct ClosingRecorder {
+        finished: Arc<AtomicBool>,
+        result: std::result::Result<(), SourceError>,
+    }
+    impl Recorder for ClosingRecorder {
+        fn record(
+            &mut self,
+            _: onlyalpha_integration_contract::source::Observation,
+        ) -> std::result::Result<(), SourceError> {
+            panic!("cleanup must not manufacture an observation")
+        }
+        fn finish(&mut self) -> std::result::Result<(), SourceError> {
+            self.finished.store(true, Ordering::Release);
+            self.result
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn every_state_and_resource_cleanup_outcome_attempts_both_resources_and_joins() {
+        for outcome in [
+            Ok(()),
+            Err(Error::Forbidden),
+            Err(Error::Source(SourceError::Timeout)),
+        ] {
+            for state_failure in [false, true] {
+                for close_failure in [
+                    None,
+                    Some(SourceError::Unavailable),
+                    Some(SourceError::Timeout),
+                ] {
+                    for recorder_failure in [false, true] {
+                        let state = Arc::new(State {
+                            cancel: AtomicBool::new(true),
+                            preview_generation: AtomicU64::new(if state_failure {
+                                u64::MAX
+                            } else {
+                                0
+                            }),
+                            wake: tokio::sync::Notify::new(),
+                            preview: Mutex::new(None),
+                            loss: Mutex::new(None),
+                            closed: AtomicBool::new(false),
+                        });
+                        let (entered, wait) = tokio::sync::oneshot::channel();
+                        let (release, proceed) = tokio::sync::oneshot::channel();
+                        let closed = Arc::new(AtomicBool::new(false));
+                        let finished = Arc::new(AtomicBool::new(false));
+                        let mut upstream = ClosingSource {
+                            entered: Some(entered),
+                            proceed: Some(proceed),
+                            closed: Arc::clone(&closed),
+                            result: close_failure.map_or(Ok(()), Err),
+                        };
+                        let mut recorder = ClosingRecorder {
+                            finished: Arc::clone(&finished),
+                            result: if recorder_failure {
+                                Err(SourceError::Evidence)
+                            } else {
+                                Ok(())
+                            },
+                        };
+                        let worker_state = Arc::clone(&state);
+                        let worker = tokio::spawn(async move {
+                            close_worker(&worker_state, outcome, &mut upstream, &mut recorder).await
+                        });
+                        wait.await.unwrap();
+                        assert!(!closed.load(Ordering::Acquire));
+                        assert!(!finished.load(Ordering::Acquire));
+                        assert!(!worker.is_finished());
+                        release.send(()).unwrap();
+                        let result = worker.await.unwrap();
+                        assert!(closed.load(Ordering::Acquire));
+                        assert!(finished.load(Ordering::Acquire));
+                        assert!(state.closed.load(Ordering::Acquire));
+                        if state_failure
+                            && (outcome.is_err() || close_failure.is_some() || recorder_failure)
+                        {
+                            assert_eq!(result, Err(Error::Unavailable));
+                        } else if let Some(error) = close_failure {
+                            assert_eq!(result, Err(Error::Source(error)));
+                        } else if recorder_failure {
+                            assert_eq!(result, Err(Error::Source(SourceError::Evidence)));
+                        } else {
+                            // Provider failure is retained for the original stream,
+                            // but successful close/finish is a successful lifecycle.
+                            assert_eq!(result, Ok(()));
+                        }
+                        let loss = *state.loss.lock().unwrap();
+                        if !state_failure && close_failure.is_none() && !recorder_failure {
+                            assert_eq!(loss, outcome.err());
+                        }
+                        if let Some(error) = close_failure {
+                            assert_eq!(loss, Some(Error::Source(error)));
+                        } else if recorder_failure {
+                            assert_eq!(loss, Some(Error::Source(SourceError::Evidence)));
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn preview_generation_failure_still_waits_for_actual_worker() {
         let state = State {

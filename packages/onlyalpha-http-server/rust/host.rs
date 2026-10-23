@@ -786,7 +786,7 @@ pub(crate) fn now_ns() -> Result<i64, Failure> {
 }
 // Durable wall observations sample the Domain's explicit microsecond precision.
 // Market nanosecond facts continue through now_ns without quantization.
-fn observation_time(
+pub(crate) fn observation_time(
     at: std::time::SystemTime,
 ) -> Result<onlyalpha_domain::time::OnlyUtcDateTime, Failure> {
     let micros = at

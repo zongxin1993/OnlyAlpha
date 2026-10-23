@@ -60,6 +60,9 @@ impl Host {
         let retained = Arc::clone(&proof);
         let mut tasks = self.stream_tasks.lock().await;
         while let Some(result) = tasks.try_join_next() {
+            if let Ok(Err(error)) = &result {
+                eprintln!("NATIVE_STREAM_FAILED {error}");
+            }
             if !matches!(result, Ok(Ok(()))) {
                 *self
                     .stream_failure
@@ -140,7 +143,7 @@ impl Host {
             .map_err(|_| Failure::unavailable("STREAM_OWNER_UNAVAILABLE"));
         let outcome = match registered {
             Ok(()) => {
-                self.stream_events(socket, physical, &mut stream, generation)
+                self.stream_events(socket, physical, &mut stream, generation, &session)
                     .await
             }
             Err(error) => Err(error),
@@ -168,7 +171,10 @@ impl Host {
         closed_result(&session, closed)?;
         drained?;
         removed?;
-        outcome
+        if let Err(error) = outcome {
+            eprintln!("NATIVE_STREAM_OPERATION_FAILED {error}");
+        }
+        Ok(())
     }
     async fn stream_events(
         &self,
@@ -176,6 +182,7 @@ impl Host {
         physical: &PhysicalConnection,
         stream: &mut ProductStream,
         mut base: Arc<Release>,
+        session: &Session,
     ) -> Result<(), Failure> {
         loop {
             tokio::select! {biased;
@@ -186,8 +193,11 @@ impl Host {
              },
              event=stream.next()=>{
               let event=match event{Ok(Some(event))=>event,Ok(None)=>return Ok(()),Err(_)=>return Ok(())};
-              let result={let mut writer=self.writer.lock().await;let client=writer.as_mut().ok_or_else(||Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?.client_mut().await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;let mut store=Storage::new(Catalog::new(client,ROWS,WORK)?,&self.clickhouse,100000)?;stream.release(event,&mut store,&now()?.to_string()).await?};
-              let(value,fence)=result.into_parts()?;let text=serde_json::to_string(&value).map_err(|_|invalid())?;
+              let result={let mut writer=self.writer.lock().await;let client=writer.as_mut().ok_or_else(||Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?.client_mut().await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;let mut store=Storage::new(Catalog::new(client,ROWS,WORK)?,&self.clickhouse,100000)?;stream.release(event,&mut store,&now()?.to_string()).await.and_then(|value|value.into_parts())};
+              // Only coalesced, obsolete previews may be skipped. The original
+              // stream and Source failures still terminate and retain cleanup.
+              if matches!(result,Err(onlyalpha_product_runtime::market_product::Error::PreviewSuperseded)){continue;}
+              let Some((value,fence))=source_completion(session,result)? else {return Ok(());};let text=serde_json::to_string(&value).map_err(|_|invalid())?;
               let _:StreamEvent=serde_json::from_str(&text).map_err(|_|Failure::unavailable("MARKET_DATA_STREAM_CONTRACT_INVALID"))?;
               let proof=Arc::new(Release::Source(fence));if value["event"]=="SUBSCRIBED"{base=Arc::clone(&proof);}
               if physical.frame(proof).is_err(){return Ok(());}
@@ -199,21 +209,30 @@ impl Host {
     }
 }
 
-// Keep terminal Source outcome classification distinct from resource drain.
+// Expected withdrawal is terminal only for this exact original Source session.
+// Resource close/drain results are checked independently before this outcome.
+fn source_completion<T>(
+    session: &Session,
+    result: std::result::Result<T, onlyalpha_product_runtime::market_product::Error>,
+) -> Result<Option<T>, Failure> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(onlyalpha_product_runtime::market_product::Error::Forbidden)
+            if matches!(
+                session.check_active(),
+                Err(onlyalpha_product_runtime::source_access::Error::Unauthorized)
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
 fn closed_result(
     session: &Session,
     closed: std::result::Result<(), onlyalpha_product_runtime::market_product::Error>,
 ) -> Result<(), Failure> {
-    if matches!(
-        closed,
-        Err(onlyalpha_product_runtime::market_product::Error::Forbidden)
-    ) && matches!(
-        session.check_active(),
-        Err(onlyalpha_product_runtime::source_access::Error::Unauthorized)
-    ) {
-        return Ok(());
-    }
-    closed.map_err(Into::into)
+    source_completion(session, closed).map(|_| ())
 }
 #[cfg(test)]
 mod close_tests {
@@ -230,6 +249,26 @@ mod close_tests {
                 .unwrap();
         let session = authority.authenticate(&format!("Bearer {token}")).unwrap();
         (authority, session)
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn withdrawal_between_release_admission_and_completion_is_normal() {
+        let (authority, session) = source();
+        let (started, admitted) = tokio::sync::oneshot::channel();
+        let (release, proceed) = tokio::sync::oneshot::channel();
+        let original = session.clone();
+        let worker = tokio::spawn(async move {
+            original.check_active().unwrap();
+            started.send(()).unwrap();
+            proceed.await.unwrap();
+            let result = original
+                .check_active()
+                .map_err(onlyalpha_product_runtime::market_product::Error::from);
+            source_completion(&original, result)
+        });
+        admitted.await.unwrap();
+        authority.withdraw();
+        release.send(()).unwrap();
+        assert!(matches!(worker.await.unwrap(), Ok(None)));
     }
     #[test]
     fn withdrawn_source_completion_is_not_a_failed_drain() {

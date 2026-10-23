@@ -54,8 +54,18 @@ pub struct Configuration {
 struct WallClock;
 impl Clock for WallClock {
     fn now_ns(&self) -> Result<i64, SourceError> {
-        host::now_ns().map_err(|_| SourceError::Unavailable)
+        wall_clock_ns(std::time::SystemTime::now())
     }
+}
+// Source receive/seal observations use the Domain's microsecond wall-clock
+// precision. Provider event timestamps and canonical market facts are untouched.
+fn wall_clock_ns(at: std::time::SystemTime) -> Result<i64, SourceError> {
+    let observed = host::observation_time(at).map_err(|_| SourceError::Unavailable)?;
+    onlyalpha_domain::time::OnlyTimestamp::from_datetime(observed)
+        .unix_nanos()
+        .to_string()
+        .parse()
+        .map_err(|_| SourceError::Unavailable)
 }
 struct PendingRead {
     client: Option<Client>,
@@ -124,7 +134,10 @@ impl Database {
         id: &str,
         namespace: &onlyalpha_product_runtime::deployment::SemanticStoreId,
     ) -> Result<onlyalpha_product_runtime::market_data::ExecutionLease, Failure> {
-        let mut connection = connect(self, true).await?;
+        // The execution lease registers its exact acquisition lock key before
+        // taking the advisory lock. It owns that catalog write, unlike the
+        // separately retained read-only Product query connection.
+        let mut connection = connect(self, false).await?;
         if onlyalpha_product_runtime::deployment::verify_binding(
             connection
                 .client
@@ -544,6 +557,9 @@ impl Running {
             }
         }
         while let Some(result) = self.host.stream_tasks.lock().await.join_next().await {
+            if let Ok(Err(error)) = &result {
+                eprintln!("NATIVE_STREAM_FAILED {error}");
+            }
             if !matches!(result, Ok(Ok(()))) {
                 remember(
                     &mut failure,
@@ -620,6 +636,18 @@ fn read_bounded(
 #[cfg(test)]
 mod driver_tests {
     use super::*;
+    #[test]
+    fn source_wall_clock_is_exact_for_persisted_receive_and_seal_observations() {
+        let at = std::time::UNIX_EPOCH + Duration::from_nanos(123_456_789);
+        let sampled = wall_clock_ns(at).unwrap();
+        assert_eq!(sampled, 123_456_000);
+        assert!(
+            onlyalpha_domain::time::OnlyTimestamp::from_unix_nanos(sampled.into())
+                .to_datetime_exact()
+                .is_ok()
+        );
+        assert!(wall_clock_ns(std::time::UNIX_EPOCH - Duration::from_nanos(1)).is_err());
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_driver_drain_retains_the_original_join_handle() {
         use std::{future::Future, task::Poll};

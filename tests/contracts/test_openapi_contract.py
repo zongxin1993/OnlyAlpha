@@ -260,7 +260,7 @@ def test_generated_client_staleness_fails_closed(tmp_path: Path, monkeypatch: py
 
     monkeypatch.setattr(governance, "OPENAPI_TYPESCRIPT", executable)
     monkeypatch.setattr(governance, "GENERATED_CLIENT", committed)
-    monkeypatch.setattr(governance.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     with pytest.raises(ValueError, match="stale"):
         governance.check_generated_client()
 
@@ -308,7 +308,7 @@ def test_additional_properties_compatibility_is_direction_aware(
 
 
 def test_missing_additional_properties_normalizes_to_allow_any() -> None:
-    unconstrained = {"type": "object"}
+    unconstrained: dict[str, object] = {"type": "object"}
     explicit_allow = {"type": "object", "additionalProperties": True}
     forbid = {"type": "object", "additionalProperties": False}
     assert _comparison_with_schema(unconstrained, explicit_allow, direction="request").change.value == "COMPATIBLE"
@@ -375,9 +375,9 @@ def test_response_named_property_is_checked_against_old_additional_properties_sc
 
 
 def test_existing_response_property_value_set_remains_directional() -> None:
-    old_schema = {"type": "object", "properties": {"status": {"enum": ["A", "B"]}}}
-    narrowed_schema = {"type": "object", "properties": {"status": {"enum": ["A"]}}}
-    broadened_schema = {"type": "object", "properties": {"status": {"enum": ["A", "B", "C"]}}}
+    old_schema: dict[str, object] = {"type": "object", "properties": {"status": {"enum": ["A", "B"]}}}
+    narrowed_schema: dict[str, object] = {"type": "object", "properties": {"status": {"enum": ["A"]}}}
+    broadened_schema: dict[str, object] = {"type": "object", "properties": {"status": {"enum": ["A", "B", "C"]}}}
 
     assert _comparison_with_schema(old_schema, narrowed_schema, direction="response").change.value == "COMPATIBLE"
     assert _comparison_with_schema(old_schema, broadened_schema, direction="response").change.value == "BREAKING"
@@ -487,24 +487,25 @@ def test_current_v2_schema_vocabulary_is_fully_governed() -> None:
     document = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text(encoding="utf-8"))
     vocabulary = governance.schema_vocabulary(document)
     assert vocabulary == {
-        '$ref',
-        'additionalProperties',
-        'default',
-        'enum',
-        'format',
-        'items',
-        'maxItems',
-        'maxLength',
-        'maximum',
-        'minItems',
-        'minLength',
-        'minimum',
-        'oneOf',
-        'pattern',
-        'properties',
-        'propertyNames',
-        'required',
-        'type',
+        "$ref",
+        "additionalProperties",
+        "default",
+        "enum",
+        "format",
+        "items",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "oneOf",
+        "pattern",
+        "properties",
+        "propertyNames",
+        "uniqueItems",
+        "required",
+        "type",
     }
     governance.validate_schema_vocabulary(document)
 

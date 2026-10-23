@@ -6191,7 +6191,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                  "$ref": "#/components/schemas/IntegrationCommandResponseDto"
                 }
               }
             }
@@ -7924,7 +7924,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                  "$ref": "#/components/schemas/MarketDataAcquisitionDto"
                 }
               }
             }

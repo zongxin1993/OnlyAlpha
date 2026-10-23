@@ -32,6 +32,7 @@ pub enum Error {
     Conflict,
     Busy,
     Backpressure,
+    PreviewSuperseded,
     Source(SourceError),
     Store(market_data::Error),
 }
@@ -47,6 +48,7 @@ impl Error {
             Self::Conflict => "MARKET_DATA_PROVENANCE_CONFLICT",
             Self::Busy => "MARKET_DATA_EXECUTION_ACTIVE",
             Self::Backpressure => "MARKET_DATA_STREAM_BACKPRESSURE",
+            Self::PreviewSuperseded => "MARKET_DATA_PREVIEW_SUPERSEDED",
             Self::Source(e) => e.code(),
             Self::Store(e) => e.code(),
         }

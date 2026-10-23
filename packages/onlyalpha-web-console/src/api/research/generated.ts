@@ -3249,7 +3249,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                    "application/json": components["schemas"]["IntegrationCommandResponseDto"];
                 };
             };
             400: {
@@ -4568,7 +4568,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                    "application/json": components["schemas"]["MarketDataAcquisitionDto"];
                 };
             };
             400: {

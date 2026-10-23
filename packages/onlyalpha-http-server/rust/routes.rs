@@ -344,13 +344,13 @@ async fn list_integrations_api_v2_integrations_get(
     verify::<IntegrationListDto>(response).await
 }
 
-#[utoipa::path(post, path = "/api/v2/integrations", operation_id = "create_integration_api_v2_integrations_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("Idempotency-Key" = String, Header)), request_body = IntegrationCreateRequestDto, responses((status = 200, body = NativeErrorEnvelope),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/integrations", operation_id = "create_integration_api_v2_integrations_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("Idempotency-Key" = String, Header)), request_body = IntegrationCreateRequestDto, responses((status = 200, body = IntegrationCommandResponseDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn create_integration_api_v2_integrations_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
     let response = host.dispatch(request).await;
-    verify::<NativeErrorEnvelope>(response).await
+    verify::<IntegrationCommandResponseDto>(response).await
 }
 
 #[utoipa::path(get, path = "/api/v2/integrations/{integration_id}", operation_id = "get_integration_api_v2_integrations__integration_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("integration_id" = String, Path)), responses((status = 200, body = IntegrationDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
@@ -479,13 +479,13 @@ async fn get_integration_revision_api_v2_integrations_integration_id_revisions_r
     verify::<IntegrationRevisionDto>(response).await
 }
 
-#[utoipa::path(post, path = "/api/v2/market-data/acquisitions", operation_id = "create_acquisition_api_v2_market_data_acquisitions_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), request_body = MarketDataAcquisitionRequestDto, responses((status = 200, body = NativeErrorEnvelope),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/market-data/acquisitions", operation_id = "create_acquisition_api_v2_market_data_acquisitions_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), request_body = MarketDataAcquisitionRequestDto, responses((status = 200, body = MarketDataAcquisitionDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn create_acquisition_api_v2_market_data_acquisitions_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
     let response = host.dispatch(request).await;
-    verify::<NativeErrorEnvelope>(response).await
+    verify::<MarketDataAcquisitionDto>(response).await
 }
 
 #[utoipa::path(get, path = "/api/v2/market-data/acquisitions/{acquisition_id}", operation_id = "get_acquisition_api_v2_market_data_acquisitions__acquisition_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("acquisition_id" = String, Path),("integration_id" = String, Query),("integration_revision_fingerprint" = String, Query),("expected_type_id" = Option<String>, Query)), responses((status = 200, body = MarketDataAcquisitionDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
@@ -1007,6 +1007,25 @@ async fn market_data_stream_upgrade(
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+    #[test]
+    fn implemented_creation_routes_declare_their_success_bodies() {
+        let (_, document) = declaration();
+        let value = serde_json::to_value(document).expect("OpenAPI document");
+        for (path, expected) in [
+            ("/api/v2/integrations", "IntegrationCommandResponseDto"),
+            (
+                "/api/v2/market-data/acquisitions",
+                "MarketDataAcquisitionDto",
+            ),
+        ] {
+            assert_eq!(
+                value["paths"][path]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
+                    ["$ref"],
+                format!("#/components/schemas/{expected}"),
+                "successful creation must not be validated as an error: {path}",
+            );
+        }
+    }
     #[test]
     fn actual_declarations_drive_deferred_and_denied_admission() {
         assert_eq!(

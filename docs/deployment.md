@@ -210,21 +210,26 @@ the owner authorizes complete stop/removal/recreation of containers proved to be
 to `onlyalpha-dev`, when needed; repeated permission for those containers is not required.
 Use the lifecycle lock, settle current work and preserve logs. Prefer routine reuse;
 this permission does not mean rebuilding the environment for every task or test run.
-Preserve data volumes, the fixed dev image set and unrelated projects. Container cleanup
-does not authorize volume deletion, business-data reset, historical-store adoption or
-initialization. Those data actions still require separate explicit authorization.
-Do not use a global prune command. `AGENTS.md` §6.1 owns this policy.
+Local development data volumes and source-run `user_data` are disposable. Owner authorization
+allows deleting and rebuilding confirmed project-owned dev data when implementation, upgrades
+or storage-format changes need it, without repeated confirmation or an old-data backup requirement.
+Do not build compatibility shims, historical loaders, offline reconstruction tools or upgrade-retention
+acceptance for those old local contents. Identify and reset the database/file/key/namespace set
+coherently; never clear only user-data and rebind an uncleared database. Ordinary startup does not
+implicitly reset data, and each verification run does not automatically recreate the environment.
+Keep the fixed dev image set and unrelated projects; never use `down -v` or a global prune.
+`AGENTS.md` §6.1 owns this policy.
+The native dev service has a 60-second outer stop grace: Source close alone may use its
+10-second default before recorder, exact storage drain and retained owners finish. This
+operational grace changes no inner deadline and certifies no cleanup; an exceeded grace,
+nonzero exit or incomplete drain remains a failed shutdown.
 
-Ordinary startup, shutdown/restart, engineering upgrades, image rebuilds and container
-replacement preserve history. An explicitly selected **clear dev data and initialize
-again** lifecycle is separate: first identify the exact dev database/file/key/namespace
-set, settle outstanding work and retain logs. Never clear only user-data and rebind an
-existing database; do not use a reset to demonstrate an upgrade or restart works.
-This policy is not an instruction to reset the current deployment or clear UNKNOWN.
-Production deletion needs explicit human authorization, protected coherent backups,
-a verified restore path and a retention policy; dev permission does not apply there.
-Validate retained history with current owning readers after migration/restart, and
-keep process-restart evidence distinct from real service/deployment lifecycle evidence.
+Fresh initialization is an allowed development-version cutover. Report the reset honestly rather
+than claiming a historical migration. Current-version facts still require durable identity, integrity,
+normal restart and crash recovery/reconciliation tests. A reset cannot erase a current UNKNOWN
+outcome or bypass Authority. Production deletion still needs explicit human authorization,
+protected coherent backups, a verified restore path and a retention policy; local dev permission
+does not apply there. Keep process-restart evidence distinct from real service/deployment evidence.
 
 Active development maintains the current canonical contract, not old-version compatibility
 shims or parallel historical schema/DTO behavior. Atomically update current consumers;
