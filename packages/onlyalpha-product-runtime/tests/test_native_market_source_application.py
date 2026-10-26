@@ -162,7 +162,7 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     _, factor_head = assets.publish_factor_revision(factor_id)
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     evidence = ROOT / "test-results/rust-product-backend" / ("chart-consumer-" + operation)
-    evidence.mkdir()
+    evidence.mkdir(parents=True)
     (evidence / "factor-precondition.json").write_text(json.dumps(factor_revision.to_dict()))
     database = "onlyalpha_test_native_market_source"
     only_assert_clickhouse_test_database(database)
@@ -200,7 +200,10 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
     try:
-        with tempfile.TemporaryDirectory(prefix="native-market-consumer-", dir=ROOT / "test-results") as temporary:
+        with (
+            tempfile.TemporaryDirectory(prefix="native-market-consumer-", dir=ROOT / "test-results") as temporary,
+            tempfile.TemporaryDirectory(prefix="onlyalpha-native-market-wal-", dir="/tmp") as wal_temporary,
+        ):
             root = Path(temporary) / "closure"
             manifest = _isolated_modules(ROOT, root, modules)
             consumer = root / "native-consumer"
@@ -309,8 +312,8 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
             )
             environment["ONLYALPHA_NATIVE_CHART_INSTALLATION"] = str(installation)
             environment["ONLYALPHA_NATIVE_CHART_ARTIFACT"] = artifact
-            (Path(temporary) / "wal").mkdir(mode=0o700)
-            environment["ONLYALPHA_NATIVE_MARKET_WAL"] = str(Path(temporary) / "wal")
+            (Path(wal_temporary) / "wal").mkdir(mode=0o700)
+            environment["ONLYALPHA_NATIVE_MARKET_WAL"] = str(Path(wal_temporary) / "wal")
             frames = evidence / "source-emitted-payloads.jsonl"
             frames.write_text("")
             environment["ONLYALPHA_NATIVE_MARKET_OUTPUT"] = str(frames)

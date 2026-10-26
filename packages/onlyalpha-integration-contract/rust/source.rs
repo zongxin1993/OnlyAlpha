@@ -137,6 +137,11 @@ pub trait Stream: Send {
     fn next<'a>(&'a mut self, recorder: &'a mut dyn Recorder) -> FutureResult<'a, StreamEvent>;
     fn close<'a>(&'a mut self) -> FutureResult<'a, ()>;
 }
+/// Volatile display stream; cannot issue a durable Recorder receipt.
+pub trait TemporaryStream: Send {
+    fn next<'a>(&'a mut self) -> FutureResult<'a, StreamEvent>;
+    fn close<'a>(&'a mut self) -> FutureResult<'a, ()>;
+}
 pub trait Resource: Send + Sync {
     fn identity(&self) -> &MarketIdentity;
     fn calendar(&self) -> &OnlyTradingCalendar;
@@ -158,6 +163,25 @@ pub trait Resource: Send + Sync {
         deadline: Budget,
         recorder: &'a mut dyn Recorder,
     ) -> FutureResult<'a, Vec<OnlyBar>>;
+    /// Volatile display only. No Recorder, durable receipt or publication.
+    /// Formal collection MUST continue to use `history` with its real WAL owner.
+    fn temporary_history<'a>(
+        &'a self,
+        _request: &'a HistoryRequest,
+        _deadline: Budget,
+    ) -> FutureResult<'a, Vec<OnlyBar>> {
+        Box::pin(async { Err(SourceError::Unsupported) })
+    }
+    /// The checkpoint is an owning, closed native input from the temporary read,
+    /// never caller prices or a sealed-history witness. Provider owns its cursor.
+    fn temporary_stream<'a>(
+        &'a self,
+        _request: HistoryRequest,
+        _checkpoint: OnlyBar,
+        _deadline: Budget,
+    ) -> FutureResult<'a, Box<dyn TemporaryStream>> {
+        Box::pin(async { Err(SourceError::Unsupported) })
+    }
     fn stream<'a>(
         &'a self,
         request: HistoryRequest,

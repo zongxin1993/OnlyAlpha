@@ -1,3 +1,8 @@
+import {
+    temporaryWindowVector,
+    temporaryEvaluationVector,
+    temporaryBatchVector
+} from "../../test/temporaryChartVectors";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { AppProviders, useLocalReadCredentials } from "../../app/providers";
@@ -20,6 +25,7 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
 }));
 afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
 });
 
 it.each(["configuration", "context", "credentials", "instances"])(
@@ -48,11 +54,26 @@ it.each(["configuration", "context", "credentials", "instances"])(
             promise: Promise<Response>;
             resolve: (value: Response) => void;
         }[] = [];
-        const response = () =>
-            new Response(JSON.stringify(evaluation), { headers: { "cache-control": "no-store" } });
+        const response = (count = 1) =>
+            new Response(
+                JSON.stringify(
+                    temporaryBatchVector(
+                        Array.from({ length: count }, () => temporaryEvaluationVector(evaluation))
+                    )
+                ),
+                {
+                    headers: { "cache-control": "no-store" }
+                }
+            );
         vi.stubGlobal(
             "fetch",
             vi.fn((url: string, init: RequestInit) => {
+                if (url.includes("/api/v2/chart/market-data/bars?"))
+                    return Promise.resolve(
+                        new Response(JSON.stringify(temporaryWindowVector(history)), {
+                            headers: { "cache-control": "no-store" }
+                        })
+                    );
                 if (url.endsWith("capabilities"))
                     return Promise.resolve(
                         new Response(
@@ -98,7 +119,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
             useLayoutEffect(() => {
                 if (!initialized) {
                     initialized = true;
-                    active.replace("ee".repeat(32));
+                    active.replace(null);
                 }
             }, [active]);
             const context = {
@@ -134,6 +155,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
             };
             return (
                 <TransientStudyPriceChart
+                    pageId="00000000-0000-4000-8000-000000000001"
                     context={context}
                     dataGeneration="verified"
                     expectedSourceId={history.source_selection.source_id}
@@ -177,7 +199,7 @@ it.each(["configuration", "context", "credentials", "instances"])(
             });
             expect(screen.getByTestId("admitted-overlay-count")).toHaveTextContent("0");
             act(() => {
-                active.replace("ee".repeat(32));
+                active.replace(null);
             });
         }
         expect(pending).toHaveLength(1);
@@ -189,21 +211,10 @@ it.each(["configuration", "context", "credentials", "instances"])(
         await waitFor(() => {
             expect(pending).toHaveLength(2);
         });
-        if (kind === "instances") {
-            const next = pending[1];
-            if (next === undefined) throw new Error("Expected duplicate owner response");
-            await act(async () => {
-                next.resolve(response());
-                await next.promise;
-            });
-            await waitFor(() => {
-                expect(pending).toHaveLength(3);
-            });
-        }
         const latest = pending.at(-1);
         if (latest === undefined) throw new Error("Expected restored occurrence");
         await act(async () => {
-            latest.resolve(response());
+            latest.resolve(response(kind === "instances" ? 2 : 1));
             await latest.promise;
         });
         await waitFor(() => {
@@ -227,3 +238,5 @@ it.each(["configuration", "context", "credentials", "instances"])(
         expect(acquisition).not.toHaveBeenCalled();
     }
 );
+
+beforeEach(() => vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true"));

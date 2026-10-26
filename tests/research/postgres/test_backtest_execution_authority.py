@@ -354,7 +354,7 @@ def test_native_specification_migration_preserves_prior_runs_and_retries_atomica
         ).fetchone() == ("CHECK ((specification_schema_version = 1))",)
         connection.execute("DROP TRIGGER reject_native_migration ON onlyalpha_schema_migration")
         connection.execute("DROP FUNCTION reject_native_migration()")
-    assert current.migrate() == ("0053_backtest_native_specification",)
+    assert current.migrate() == ("0053_backtest_native_specification", "0054_default_workspace_configuration")
     assert current.migrate() == ()
     assert OnlyPostgresBacktestStore(postgres_dsn).load(old.run_id) == old
     with psycopg.connect(postgres_dsn) as connection:

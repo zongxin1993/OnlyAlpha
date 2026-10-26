@@ -86,13 +86,13 @@ text_enum!(CommandKind, InvalidCommandKind, {
     UpdateIntegrationDraft => "UPDATE_INTEGRATION_DRAFT", SetIntegrationSecret => "SET_INTEGRATION_SECRET",
     ClearIntegrationSecret => "CLEAR_INTEGRATION_SECRET", ResetIntegrationDraftContract => "RESET_INTEGRATION_DRAFT_CONTRACT",
     PublishIntegrationRevision => "PUBLISH_INTEGRATION_REVISION", SetIntegrationLifecycle => "SET_INTEGRATION_LIFECYCLE",
-    CreateChartCalculation => "CREATE_CHART_CALCULATION", SaveWatchlists => "SAVE_WATCHLISTS",
+    CreateChartCalculation => "CREATE_CHART_CALCULATION", SaveWatchlists => "SAVE_WATCHLISTS", SaveWorkspace => "SAVE_WORKSPACE",
 });
 text_enum!(OutcomeKind, InvalidOutcomeKind, {
     ResearchRun => "RESEARCH_RUN", Strategy => "STRATEGY", StrategyPromotion => "STRATEGY_PROMOTION",
     BacktestRun => "BACKTEST_RUN", QualificationDecision => "QUALIFICATION_DECISION", SearchExperiment => "SEARCH_EXPERIMENT",
     Integration => "INTEGRATION", IntegrationRevision => "INTEGRATION_REVISION",
-    ChartCalculationOperation => "CHART_CALCULATION_OPERATION", WatchlistRevision => "WATCHLIST_REVISION",
+    ChartCalculationOperation => "CHART_CALCULATION_OPERATION", WatchlistRevision => "WATCHLIST_REVISION", WorkspaceRevision => "WORKSPACE_REVISION",
 });
 impl OutcomeKind {
     fn uses_uuid(self) -> bool {

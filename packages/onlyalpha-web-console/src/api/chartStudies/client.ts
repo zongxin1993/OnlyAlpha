@@ -2,10 +2,17 @@ import { nativeErrorSchema } from "../errors.generated";
 import type { z } from "zod";
 import { windowRetryAfterSeconds } from "../marketData/client";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
+import type { TemporaryMarketDataWindow } from "../marketData/temporary.generated";
 import type { MarketDataBars, MarketDataBarSemantic } from "../marketData/model";
 import type { StudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
 import { onlyAssertMarketDataBarsAuthority } from "../../features/workspace/marketDataBarsAuthority";
 import {
+    TemporaryChartStudyEvaluateRequestSchema,
+    TemporaryChartStudyEvaluateSchema,
+    TemporaryChartStudyBatchRequestSchema,
+    TemporaryChartStudyBatchSchema,
+    type TemporaryChartStudyEvaluateRequest,
+    type TemporaryChartStudyEvaluate,
     ChartStudyCapabilitiesSchema,
     ChartStudyEvaluateSchema,
     ChartStudyEvaluateRequestSchema,
@@ -253,6 +260,57 @@ export function assertChartStudyHistory(
     }
 }
 
+async function assertStudyCalculation(
+    request: ChartStudyEvaluateRequest["calculation"],
+    capability: ChartStudyCapability,
+    calc: ChartStudyEvaluate["calculation"]
+): Promise<void> {
+    if (
+        new Set(calc.output_members.map((member) => member.name)).size !==
+            calc.output_members.length ||
+        calc.type_id !== request.type_id ||
+        calc.semantic_version !== request.semantic_version ||
+        !sameChartBinding(
+            calc.output_members.map((member) => member.name).sort(),
+            [...request.output_members].sort()
+        ) ||
+        calc.output_members.some(
+            (member) =>
+                !capability.presentation.series.some(
+                    (series) => series.output_name === member.name && series.unit === member.unit
+                )
+        ) ||
+        calc.capability_projection_fingerprint !== capability.capability_projection_fingerprint ||
+        calc.descriptor_fingerprint !== capability.descriptor_fingerprint ||
+        calc.implementation_fingerprint !== capability.implementation_fingerprint ||
+        calc.provider_id !== capability.provider_id ||
+        calc.provider_version !== capability.provider_version ||
+        calc.provider_content_fingerprint !== capability.provider_content_fingerprint ||
+        calc.catalog_generation_fingerprint !== capability.catalog_generation_fingerprint ||
+        calc.invocation_implementation_fingerprint !==
+            capability.invocation_implementation_fingerprint ||
+        !sameChartBinding(calc.numeric, capability.descriptor.numeric) ||
+        !sameChartBinding(calc.numeric_execution_binding, capability.numeric_execution_binding) ||
+        !sameChartBinding(calc.normalized_typed_parameters, request.typed_parameters) ||
+        (await fingerprint(calc.normalized_definition)) !== calc.definition_fingerprint ||
+        calc.normalized_definition.type_id !== request.type_id ||
+        calc.normalized_definition.semantic_version !== request.semantic_version ||
+        !sameChartBinding(
+            calc.normalized_definition.parameters,
+            Object.fromEntries(
+                Object.entries(request.typed_parameters).map(([name, scalar]) => [
+                    name,
+                    scalar.value
+                ])
+            )
+        ) ||
+        !sameChartBinding(calc.normalized_definition.numeric, capability.descriptor.numeric) ||
+        !sameChartBinding(calc.normalized_definition.inputs, capability.descriptor.inputs) ||
+        !sameChartBinding(calc.normalized_definition.outputs, capability.descriptor.outputs)
+    )
+        throw new ChartStudyWebError("INVALID");
+}
+
 export async function readChartStudyEvaluation(
     credentials: LocalReadCredentials,
     request: ChartStudyEvaluateRequest,
@@ -272,8 +330,8 @@ export async function readChartStudyEvaluation(
         history
     );
     const result = await read(credentials, "evaluate", ChartStudyEvaluateSchema, signal, request);
-    const input = result.input,
-        calc = result.calculation;
+    const input = result.input;
+    await assertStudyCalculation(request.calculation, capability, result.calculation);
     const count = request.window.target_bar_count;
     const duration = studyDurationNs(request.bar_semantic);
     const start = BigInt(request.window.before_ns) - BigInt(count) * duration;
@@ -296,48 +354,7 @@ export async function readChartStudyEvaluation(
         input.calendar_fingerprint !== history.calendar_fingerprint ||
         input.aggregation_semantics_version !== history.aggregation_semantics_version ||
         input.derived_projection_fingerprint !== history.derived_projection_fingerprint ||
-        new Set(calc.output_members.map((member) => member.name)).size !==
-            calc.output_members.length ||
         new Set(result.series.map((series) => series.output_name)).size !== result.series.length ||
-        calc.type_id !== request.calculation.type_id ||
-        calc.semantic_version !== request.calculation.semantic_version ||
-        !sameChartBinding(
-            calc.output_members.map((member) => member.name).sort(),
-            [...request.calculation.output_members].sort()
-        ) ||
-        calc.output_members.some(
-            (member) =>
-                !capability.presentation.series.some(
-                    (series) => series.output_name === member.name && series.unit === member.unit
-                )
-        ) ||
-        calc.capability_projection_fingerprint !== capability.capability_projection_fingerprint ||
-        calc.descriptor_fingerprint !== capability.descriptor_fingerprint ||
-        calc.implementation_fingerprint !== capability.implementation_fingerprint ||
-        calc.provider_id !== capability.provider_id ||
-        calc.provider_version !== capability.provider_version ||
-        calc.provider_content_fingerprint !== capability.provider_content_fingerprint ||
-        calc.catalog_generation_fingerprint !== capability.catalog_generation_fingerprint ||
-        calc.invocation_implementation_fingerprint !==
-            capability.invocation_implementation_fingerprint ||
-        !sameChartBinding(calc.numeric, capability.descriptor.numeric) ||
-        !sameChartBinding(calc.numeric_execution_binding, capability.numeric_execution_binding) ||
-        !sameChartBinding(calc.normalized_typed_parameters, request.calculation.typed_parameters) ||
-        (await fingerprint(calc.normalized_definition)) !== calc.definition_fingerprint ||
-        calc.normalized_definition.type_id !== request.calculation.type_id ||
-        calc.normalized_definition.semantic_version !== request.calculation.semantic_version ||
-        !sameChartBinding(
-            calc.normalized_definition.parameters,
-            Object.fromEntries(
-                Object.entries(request.calculation.typed_parameters).map(([name, scalar]) => [
-                    name,
-                    scalar.value
-                ])
-            )
-        ) ||
-        !sameChartBinding(calc.normalized_definition.numeric, capability.descriptor.numeric) ||
-        !sameChartBinding(calc.normalized_definition.inputs, capability.descriptor.inputs) ||
-        !sameChartBinding(calc.normalized_definition.outputs, capability.descriptor.outputs) ||
         result.coverage.expected_bar_count !== count ||
         result.coverage.actual_bar_count < 0 ||
         result.coverage.actual_bar_count > count ||
@@ -516,5 +533,348 @@ export async function readChartStudyEvidence(
         });
         admittedEvidence.set(evidence, active);
         return evidence;
+    });
+}
+
+function requireTemporaryCredentials(credentials: LocalReadCredentials): void {
+    if (!credentials.localSession || credentials.capture().bearer !== null)
+        throw new ChartStudyWebError("UNAUTHORIZED", 401);
+}
+function assertTemporaryRequest(
+    request: TemporaryChartStudyEvaluateRequest,
+    window: TemporaryMarketDataWindow
+): void {
+    const source = window.source_selection;
+    if (
+        !TemporaryChartStudyEvaluateRequestSchema.safeParse(request).success ||
+        request.source_reference.integration_id !== source.integration_id ||
+        request.source_reference.integration_revision_fingerprint !==
+            source.integration_revision_fingerprint ||
+        request.source_reference.expected_type_id !== source.type_id ||
+        request.instrument_id !== window.instrument_id ||
+        !sameChartBinding(request.bar_semantic, window.bar_semantic) ||
+        request.expected_window_fingerprint !== window.window_fingerprint ||
+        window.anchor_kind !== "BEFORE_TIME" ||
+        window.requested_before_ns !== request.window.before_ns ||
+        window.resolved_end_ns !== request.window.before_ns ||
+        window.requested_bar_count !== request.window.target_bar_count ||
+        new Set(request.calculation.output_members).size !==
+            request.calculation.output_members.length ||
+        window.bars.some((bar) => !bar.closed)
+    )
+        throw new ChartStudyWebError("INVALID");
+}
+async function temporaryQuery(
+    credentials: LocalReadCredentials,
+    request: unknown,
+    path:
+        | "/api/v2/chart/temporary-studies/evaluate"
+        | "/api/v2/chart/temporary-studies/evaluate-batch",
+    signal?: AbortSignal
+): Promise<{ payload: unknown; current: () => boolean }> {
+    const captured = credentials.capture();
+    const current = () => !signal?.aborted && credentials.isCurrent(captured.generation);
+    const response = await fetch(path, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        ...(signal === undefined ? {} : { signal })
+    });
+    if (!current()) throw new ChartStudyWebError("STALE");
+    let payload: unknown;
+    try {
+        payload = await response.json();
+    } catch {
+        throw new ChartStudyWebError("INVALID", response.status);
+    }
+    if (!current()) throw new ChartStudyWebError("STALE");
+    if (!response.ok) {
+        const error = nativeErrorSchema.safeParse(payload);
+        throw new ChartStudyWebError(
+            error.success ? error.data.error.code : "INVALID",
+            response.status,
+            error.success
+                ? windowRetryAfterSeconds(response, error.data.error.code, error.data.error.phase)
+                : null
+        );
+    }
+    if (response.headers.get("cache-control") !== "no-store")
+        throw new ChartStudyWebError("INVALID");
+    return { payload, current };
+}
+async function admitTemporaryEvaluation(
+    result: TemporaryChartStudyEvaluate,
+    request: TemporaryChartStudyEvaluateRequest,
+    capability: ChartStudyCapability,
+    window: TemporaryMarketDataWindow,
+    current: () => boolean
+): Promise<TemporaryChartStudyEvaluate> {
+    const source = window.source_selection;
+    const input = result.input,
+        count = request.window.target_bar_count;
+    await assertStudyCalculation(request.calculation, capability, result.calculation);
+    if (!current()) throw new ChartStudyWebError("STALE");
+    if (
+        !sameChartBinding(result.source_selection, source) ||
+        result.instrument_id !== window.instrument_id ||
+        !sameChartBinding(result.bar_semantic, window.bar_semantic) ||
+        input.window_fingerprint !== window.window_fingerprint ||
+        input.before_ns !== request.window.before_ns ||
+        input.target_bar_count !== count ||
+        input.resolved_start_ns !== window.resolved_start_ns ||
+        input.resolved_end_ns !== window.resolved_end_ns ||
+        input.calendar_fingerprint !== window.calendar_fingerprint ||
+        input.resolution_plan_fingerprint !== window.resolution_plan_fingerprint ||
+        input.resolution_mode !== window.resolution_mode ||
+        !sameChartBinding(result.coverage, window.coverage) ||
+        new Set(result.series.map((series) => series.output_name)).size !== result.series.length
+    )
+        throw new ChartStudyWebError("INVALID");
+    if (result.query_status === "INPUT_INCOMPLETE") {
+        if (
+            window.coverage.status !== "PARTIAL" ||
+            result.series.length !== 0 ||
+            window.bars.length >= count
+        )
+            throw new ChartStudyWebError("INVALID");
+        return result;
+    }
+    if (
+        window.coverage.status !== "COMPLETE" ||
+        window.bars.length !== count ||
+        window.coverage.actual_bar_count !== count ||
+        !sameChartBinding(
+            result.series.map((series) => series.output_name).sort(),
+            [...request.calculation.output_members].sort()
+        )
+    )
+        throw new ChartStudyWebError("INVALID");
+    for (const series of result.series) {
+        const port = capability.descriptor.outputs.find(
+            (output) => output.name === series.output_name
+        );
+        if (port === undefined || series.points.length !== count)
+            throw new ChartStudyWebError("INVALID");
+        for (const [index, point] of series.points.entries()) {
+            // Calendar/session construction belongs to Rust. Match the actual
+            // closed input timeline; a 7m session tail need not be seven minutes.
+            if (
+                point.time_ns !== window.bars[index]?.bar_start_ns ||
+                !isChartStudyReadiness(point, port.nullable)
+            )
+                throw new ChartStudyWebError("INVALID");
+            if (point.value !== null) {
+                const plotted = Number(point.value);
+                if (
+                    !Number.isFinite(plotted) ||
+                    Math.abs(plotted) > Number.MAX_SAFE_INTEGER ||
+                    (plotted === 0 && /[1-9]/.test(point.value))
+                )
+                    throw new ChartStudyWebError("INVALID");
+            }
+        }
+    }
+    return result;
+}
+
+export async function readTemporaryChartStudyEvaluation(
+    credentials: LocalReadCredentials,
+    request: TemporaryChartStudyEvaluateRequest,
+    capability: ChartStudyCapability,
+    window: TemporaryMarketDataWindow,
+    signal?: AbortSignal
+): Promise<TemporaryChartStudyEvaluate> {
+    requireTemporaryCredentials(credentials);
+    assertTemporaryRequest(request, window);
+    const { payload, current } = await temporaryQuery(
+        credentials,
+        request,
+        "/api/v2/chart/temporary-studies/evaluate",
+        signal
+    );
+    const admitted = TemporaryChartStudyEvaluateSchema.safeParse(payload);
+    if (!admitted.success) throw new ChartStudyWebError("INVALID");
+    return admitTemporaryEvaluation(admitted.data, request, capability, window, current);
+}
+
+type TemporaryStudyBinding = Pick<
+    StudySeriesEvidence,
+    "instanceId" | "chartContextKey" | "incarnationKey" | "configurationKey"
+>;
+function assertTemporaryBinding(
+    request: TemporaryChartStudyEvaluateRequest,
+    binding: TemporaryStudyBinding
+): void {
+    if (
+        !sameChartBinding(JSON.parse(binding.configurationKey) as unknown, {
+            parameters: request.calculation.typed_parameters,
+            outputNames: request.calculation.output_members
+        })
+    )
+        throw new ChartStudyWebError("INVALID");
+}
+function temporaryAdmission(
+    credentials: LocalReadCredentials,
+    generation: number,
+    signal: AbortSignal,
+    admissionCurrent: () => boolean
+): () => boolean {
+    return () => !signal.aborted && credentials.isCurrent(generation) && admissionCurrent();
+}
+function temporaryEvidence(
+    result: TemporaryChartStudyEvaluate,
+    request: TemporaryChartStudyEvaluateRequest,
+    capability: ChartStudyCapability,
+    binding: TemporaryStudyBinding,
+    active: () => boolean
+): readonly StudySeriesEvidence[] | null {
+    if (result.query_status === "INPUT_INCOMPLETE") return null;
+    return result.series.map((series) => {
+        const output = result.calculation.output_members.find(
+            (member) => member.name === series.output_name
+        );
+        if (output === undefined) throw new ChartStudyWebError("INVALID");
+        const evidence: StudySeriesEvidence = Object.freeze({
+            ...binding,
+            source: Object.freeze({
+                kind: "CHART_STUDY_TEMPORARY" as const,
+                windowFingerprint: request.expected_window_fingerprint,
+                capabilityProjectionFingerprint: capability.capability_projection_fingerprint
+            }),
+            outputName: series.output_name,
+            outputUnit: output.unit,
+            points: Object.freeze(
+                series.points.map((point) =>
+                    Object.freeze({
+                        timeNs: point.time_ns,
+                        value: point.value,
+                        readiness: point.readiness,
+                        reason: point.reason
+                    })
+                )
+            )
+        });
+        admittedEvidence.set(evidence, active);
+        return evidence;
+    });
+}
+
+export async function readTemporaryChartStudyEvidence(
+    credentials: LocalReadCredentials,
+    request: TemporaryChartStudyEvaluateRequest,
+    capability: ChartStudyCapability,
+    window: TemporaryMarketDataWindow,
+    binding: TemporaryStudyBinding,
+    current: () => boolean,
+    signal: AbortSignal,
+    admissionCurrent: () => boolean = current
+): Promise<readonly StudySeriesEvidence[] | null> {
+    assertTemporaryBinding(request, binding);
+    const generation = credentials.getGeneration();
+    const result = await readTemporaryChartStudyEvaluation(
+        credentials,
+        request,
+        capability,
+        window,
+        signal
+    );
+    const active = temporaryAdmission(credentials, generation, signal, admissionCurrent);
+    if (!current() || !active()) throw new ChartStudyWebError("STALE");
+    return temporaryEvidence(result, request, capability, binding, active);
+}
+
+export interface TemporaryChartStudyBatchIntent {
+    readonly request: TemporaryChartStudyEvaluateRequest;
+    readonly capability: ChartStudyCapability;
+    readonly binding: TemporaryStudyBinding;
+    readonly admissionCurrent: () => boolean;
+}
+export type TemporaryChartStudyBatchEvidence =
+    | { readonly status: "EVALUATED"; readonly evidence: readonly StudySeriesEvidence[] | null }
+    | { readonly status: "REJECTED"; readonly error: ChartStudyWebError };
+export async function readTemporaryChartStudyBatchEvidence(
+    credentials: LocalReadCredentials,
+    items: readonly TemporaryChartStudyBatchIntent[],
+    window: TemporaryMarketDataWindow,
+    current: () => boolean,
+    signal: AbortSignal
+): Promise<readonly TemporaryChartStudyBatchEvidence[]> {
+    requireTemporaryCredentials(credentials);
+    const first = items[0];
+    if (first === undefined || items.length > 4) throw new ChartStudyWebError("INVALID");
+    const common = (request: TemporaryChartStudyEvaluateRequest) => {
+        return Object.fromEntries(
+            Object.entries(request).filter(([name]) => name !== "calculation")
+        );
+    };
+    const shared = common(first.request);
+    for (const item of items) {
+        assertTemporaryRequest(item.request, window);
+        assertTemporaryBinding(item.request, item.binding);
+        if (!sameChartBinding(common(item.request), shared))
+            throw new ChartStudyWebError("INVALID");
+    }
+    const request = TemporaryChartStudyBatchRequestSchema.safeParse({
+        ...shared,
+        calculations: items.map((item) => item.request.calculation)
+    });
+    if (!request.success) throw new ChartStudyWebError("INVALID");
+    const generation = credentials.getGeneration();
+    const transport = await temporaryQuery(
+        credentials,
+        request.data,
+        "/api/v2/chart/temporary-studies/evaluate-batch",
+        signal
+    );
+    if (!current()) throw new ChartStudyWebError("STALE");
+    const parsed = TemporaryChartStudyBatchSchema.safeParse(transport.payload);
+    if (
+        !parsed.success ||
+        parsed.data.window_fingerprint !== window.window_fingerprint ||
+        parsed.data.results.length !== items.length
+    )
+        throw new ChartStudyWebError("INVALID");
+    // Validate every relation before registering even the first new evidence.
+    const validated: (TemporaryChartStudyEvaluate | ChartStudyWebError)[] = [];
+    for (const [index, row] of parsed.data.results.entries()) {
+        const intent = items[index];
+        if (intent === undefined || row.request_index !== index)
+            throw new ChartStudyWebError("INVALID");
+        if (row.status === "REJECTED") validated.push(new ChartStudyWebError(row.error, 400));
+        else
+            validated.push(
+                await admitTemporaryEvaluation(
+                    row.evaluation,
+                    intent.request,
+                    intent.capability,
+                    window,
+                    transport.current
+                )
+            );
+    }
+    if (!current() || !transport.current() || !credentials.isCurrent(generation))
+        throw new ChartStudyWebError("STALE");
+    const guards = items.map((item) =>
+        temporaryAdmission(credentials, generation, signal, item.admissionCurrent)
+    );
+    if (guards.some((active) => !active())) throw new ChartStudyWebError("STALE");
+    return validated.map((result, index): TemporaryChartStudyBatchEvidence => {
+        const intent = items[index];
+        if (intent === undefined) throw new ChartStudyWebError("INVALID");
+        if (result instanceof ChartStudyWebError) return { status: "REJECTED", error: result };
+        const active = guards[index];
+        if (active === undefined) throw new ChartStudyWebError("INVALID");
+        return {
+            status: "EVALUATED",
+            evidence: temporaryEvidence(
+                result,
+                intent.request,
+                intent.capability,
+                intent.binding,
+                active
+            )
+        };
     });
 }

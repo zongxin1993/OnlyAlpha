@@ -1325,7 +1325,7 @@
         "additionalProperties": false,
         "properties": {
           "max_concurrent_invocations": {
-            "$ref": "#/components/schemas/Version1"
+            "$ref": "#/components/schemas/Version2"
           },
           "max_input_rows": {
             "$ref": "#/components/schemas/Version2000"
@@ -3375,6 +3375,9 @@
         ],
         "type": "object"
       },
+      "JsonNull": {
+        "type": "null"
+      },
       "JsonNumber": {
         "type": "number"
       },
@@ -5117,6 +5120,32 @@
         ],
         "type": "object"
       },
+      "SaveWorkspaceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/WorkspaceConfigurationDto"
+          },
+          "expected_version": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "expected_version",
+          "configuration"
+        ],
+        "type": "object"
+      },
       "SourceHistoryPolicy": {
         "enum": [
           "EXACT_SEALED_PROOF"
@@ -5129,6 +5158,484 @@
           "UNAVAILABLE"
         ],
         "type": "string"
+      },
+      "TemporaryChartStudyBatchDto": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoAuthority"
+          },
+          "publication_status": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoPublicationStatus"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/TemporaryChartStudyBatchItemDto"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoSourceKind"
+          },
+          "window_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_kind",
+          "authority",
+          "publication_status",
+          "window_fingerprint",
+          "results"
+        ],
+        "type": "object"
+      },
+      "TemporaryChartStudyBatchError": {
+        "enum": [
+          "CHART_STUDY_REQUEST_INVALID"
+        ],
+        "type": "string"
+      },
+      "TemporaryChartStudyBatchItemDto": {
+        "oneOf": [
+          {
+            "properties": {
+              "evaluation": {
+                "$ref": "#/components/schemas/TemporaryChartStudyEvaluateDto"
+              },
+              "request_index": {
+                "format": "int32",
+                "maximum": 3,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "EVALUATED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "request_index",
+              "evaluation",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/TemporaryChartStudyBatchError"
+              },
+              "request_index": {
+                "format": "int32",
+                "maximum": 3,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "REJECTED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "request_index",
+              "error",
+              "status"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "TemporaryChartStudyBatchRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          },
+          "calculations": {
+            "items": {
+              "$ref": "#/components/schemas/ChartStudyCalculationRequestDto"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expected_window_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "instrument_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "page_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/TemporaryMarketDataSourceKind"
+          },
+          "source_reference": {
+            "$ref": "#/components/schemas/ChartStudySourceReferenceDto"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ChartStudyWindowDto"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_kind",
+          "page_id",
+          "source_reference",
+          "instrument_id",
+          "bar_semantic",
+          "window",
+          "expected_window_fingerprint",
+          "calculations"
+        ],
+        "type": "object"
+      },
+      "TemporaryChartStudyEvaluateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoAuthority"
+          },
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          },
+          "calculation": {
+            "$ref": "#/components/schemas/ChartStudyCalculationDto"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/TemporaryMarketDataCoverageDto"
+          },
+          "input": {
+            "$ref": "#/components/schemas/TemporaryChartStudyInputDto"
+          },
+          "instrument_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/JsonNull"
+          },
+          "publication_status": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoPublicationStatus"
+          },
+          "query_status": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoQueryStatus"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ChartStudySeriesDto"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/ChartStudyEvaluateDtoSourceKind"
+          },
+          "source_selection": {
+            "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_kind",
+          "authority",
+          "publication_status",
+          "source_selection",
+          "instrument_id",
+          "bar_semantic",
+          "input",
+          "coverage",
+          "query_status",
+          "calculation",
+          "series",
+          "preview"
+        ],
+        "type": "object"
+      },
+      "TemporaryChartStudyEvaluateRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          },
+          "calculation": {
+            "$ref": "#/components/schemas/ChartStudyCalculationRequestDto"
+          },
+          "expected_window_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "instrument_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "page_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/TemporaryMarketDataSourceKind"
+          },
+          "source_reference": {
+            "$ref": "#/components/schemas/ChartStudySourceReferenceDto"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ChartStudyWindowDto"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_kind",
+          "page_id",
+          "source_reference",
+          "instrument_id",
+          "bar_semantic",
+          "window",
+          "expected_window_fingerprint",
+          "calculation"
+        ],
+        "type": "object"
+      },
+      "TemporaryChartStudyInputDto": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_kind": {
+            "$ref": "#/components/schemas/ChartStudyInputDtoAnchorKind"
+          },
+          "before_ns": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "type": "string"
+          },
+          "calendar_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "initialization": {
+            "$ref": "#/components/schemas/ChartStudyInputDtoInitialization"
+          },
+          "resolution_mode": {
+            "$ref": "#/components/schemas/MarketDataBarWindowDtoResolutionModeValue"
+          },
+          "resolution_plan_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "resolved_end_ns": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "type": "string"
+          },
+          "resolved_start_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/TemporaryMarketDataSourceKind"
+          },
+          "target_bar_count": {
+            "format": "int32",
+            "maximum": 2000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "window_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind",
+          "anchor_kind",
+          "initialization",
+          "before_ns",
+          "target_bar_count",
+          "resolved_start_ns",
+          "resolved_end_ns",
+          "window_fingerprint",
+          "calendar_fingerprint",
+          "resolution_plan_fingerprint",
+          "resolution_mode"
+        ],
+        "type": "object"
+      },
+      "TemporaryMarketDataAuthority": {
+        "enum": [
+          "DISPLAY_ONLY"
+        ],
+        "type": "string"
+      },
+      "TemporaryMarketDataCoverageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_bar_count": {
+            "format": "int32",
+            "maximum": 2000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_bar_count": {
+            "format": "int32",
+            "maximum": 2000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataCoverageGapDto"
+            },
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TemporaryMarketDataCoverageStatus"
+          }
+        },
+        "required": [
+          "status",
+          "expected_bar_count",
+          "actual_bar_count",
+          "gaps"
+        ],
+        "type": "object"
+      },
+      "TemporaryMarketDataCoverageStatus": {
+        "enum": [
+          "PARTIAL",
+          "COMPLETE"
+        ],
+        "type": "string"
+      },
+      "TemporaryMarketDataPublication": {
+        "enum": [
+          "NOT_A_RESEARCH_RESULT"
+        ],
+        "type": "string"
+      },
+      "TemporaryMarketDataSourceKind": {
+        "enum": [
+          "TEMPORARY_MARKET_DATA"
+        ],
+        "type": "string"
+      },
+      "TemporaryMarketDataWindowDto": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_kind": {
+            "$ref": "#/components/schemas/MarketDataBarWindowDtoAnchorKind"
+          },
+          "authority": {
+            "$ref": "#/components/schemas/TemporaryMarketDataAuthority"
+          },
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataBarDto"
+            },
+            "type": "array"
+          },
+          "calendar_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/TemporaryMarketDataCoverageDto"
+          },
+          "instrument_id": {
+            "type": "string"
+          },
+          "publication_status": {
+            "$ref": "#/components/schemas/TemporaryMarketDataPublication"
+          },
+          "requested_bar_count": {
+            "format": "int32",
+            "maximum": 2000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "requested_before_ns": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution_mode": {
+            "$ref": "#/components/schemas/MarketDataBarWindowDtoResolutionModeValue"
+          },
+          "resolution_plan_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "resolved_end_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "resolved_start_ns": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/TemporaryMarketDataSourceKind"
+          },
+          "source_selection": {
+            "$ref": "#/components/schemas/MarketDataSourceSelectionDto"
+          },
+          "window_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "source_kind",
+          "authority",
+          "publication_status",
+          "source_selection",
+          "instrument_id",
+          "bar_semantic",
+          "anchor_kind",
+          "requested_before_ns",
+          "requested_bar_count",
+          "resolved_start_ns",
+          "resolved_end_ns",
+          "coverage",
+          "bars",
+          "window_fingerprint",
+          "calendar_fingerprint",
+          "resolution_plan_fingerprint",
+          "resolution_mode"
+        ],
+        "type": "object"
       },
       "Version0": {
         "enum": [
@@ -5295,6 +5802,166 @@
           "expected_type_id",
           "integration_id",
           "integration_revision_fingerprint"
+        ],
+        "type": "object"
+      },
+      "WorkspaceBookDto": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceConfigurationDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version2"
+          },
+          "version": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "version",
+          "configuration"
+        ],
+        "type": "object"
+      },
+      "WorkspaceConfigurationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "bar_semantic": {
+            "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+          },
+          "instrument_id": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/WatchlistSourceDto"
+          },
+          "studies": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceStudyDto"
+            },
+            "maxItems": 32,
+            "type": "array"
+          }
+        },
+        "required": [
+          "source",
+          "instrument_id",
+          "bar_semantic",
+          "studies"
+        ],
+        "type": "object"
+      },
+      "WorkspacePresentationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "line_width": {
+            "format": "double",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "number"
+          },
+          "opacity": {
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "placement": {
+            "type": "string"
+          },
+          "series_styles": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WorkspaceSeriesStyleDto"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "visible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "placement",
+          "color",
+          "line_width",
+          "opacity",
+          "visible",
+          "series_styles"
+        ],
+        "type": "object"
+      },
+      "WorkspaceSeriesStyleDto": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "type": "string"
+          },
+          "visible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "color",
+          "visible"
+        ],
+        "type": "object"
+      },
+      "WorkspaceStudyDto": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "output_names": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ResearchScalarDto"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/WorkspacePresentationDto"
+          },
+          "semantic_version": {
+            "type": "string"
+          },
+          "type_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "type_id",
+          "semantic_version",
+          "parameters",
+          "output_names",
+          "presentation"
         ],
         "type": "object"
       }
@@ -5637,6 +6304,213 @@
         ]
       }
     },
+    "/api/v2/chart/market-data/bars": {
+      "get": {
+        "operationId": "temporary_bars_api_v2_chart_market_data_bars_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "integration_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "integration_revision_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "anchor_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bar_semantic",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_bar_count",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_ns",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_type_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryMarketDataWindowDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/chart/market-data/stream": {
+      "get": {
+        "operationId": "temporary_market_data_stream_upgrade",
+        "responses": {
+          "101": {
+            "description": "Volatile chart WebSocket; explicit temporary input contract"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
     "/api/v2/chart/studies/capabilities": {
       "get": {
         "operationId": "capabilities_api_v2_chart_studies_capabilities_get",
@@ -5811,6 +6685,200 @@
             }
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/chart/temporary-studies/evaluate": {
+      "post": {
+        "operationId": "temporary_chart_studies_evaluate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemporaryChartStudyEvaluateRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryChartStudyEvaluateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/chart/temporary-studies/evaluate-batch": {
+      "post": {
+        "operationId": "temporary_chart_studies_evaluate_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemporaryChartStudyBatchRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryChartStudyBatchDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -11402,6 +12470,312 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WatchlistBookDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/workspace": {
+      "get": {
+        "operationId": "read_api_v2_workspace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceBookDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      },
+      "put": {
+        "operationId": "save_api_v2_workspace_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveWorkspaceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceBookDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/workspace/commands/{command_id}": {
+      "get": {
+        "operationId": "command_api_v2_workspace_commands__command_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceBookDto"
                 }
               }
             }

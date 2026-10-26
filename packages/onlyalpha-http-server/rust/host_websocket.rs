@@ -27,7 +27,7 @@ use tokio_tungstenite::{
         protocol::{Role, WebSocketConfig},
     },
 };
-type Socket = WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>;
+pub(crate) type Socket = WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>;
 impl Host {
     pub(crate) async fn websocket(
         self: &Arc<Self>,
@@ -53,6 +53,7 @@ impl Host {
         *head.headers_mut() = request.headers().clone();
         let response = tokio_tungstenite::tungstenite::handshake::server::create_response(&head)
             .map_err(|_| invalid())?;
+        let temporary = request.uri().path() == "/api/v2/chart/market-data/stream";
         let upgrade = hyper::upgrade::on(&mut request);
         let proof = Arc::new(Release::Generation(session.clone()));
         let host = Arc::clone(self);
@@ -76,7 +77,8 @@ impl Host {
    let upgraded=tokio::select!{result=upgrade=>match result{Ok(upgraded)=>upgraded,Err(_)=>return Ok(())},_=connection.closed()=>return Ok(())};
    let mut socket=WebSocketStream::from_raw_socket(TokioIo::new(upgraded),Role::Server,Some(WebSocketConfig::default().read_buffer_size(16384).write_buffer_size(0).max_write_buffer_size(262144).max_message_size(Some(65536)).max_frame_size(Some(65536)))).await;
    if connection.upgraded(Arc::clone(&retained)).is_err(){return Ok(());}
-   host.stream(&mut socket,&connection,session,retained).await
+   if temporary {host.temporary_stream(&mut socket,&connection,session,retained).await}
+   else {host.stream(&mut socket,&connection,session,retained).await}
   });
         let (parts, _) = response.into_parts();
         let mut response = Response::from_parts(parts, Body::empty());

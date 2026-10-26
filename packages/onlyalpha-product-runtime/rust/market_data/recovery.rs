@@ -383,6 +383,14 @@ impl<'a> Storage<'a> {
             return Err(Error::Unavailable);
         }
         let facts = deduplicate_facts(&all)?;
+        // Full selected Revision/physical verification and global conflict checks
+        // above precede indexing. deduplicate_facts orders by timestamp, so each
+        // closed-bar interval can inspect only its (start, end] slice. This index
+        // is local to this read and never substitutes for a fresh owning proof.
+        let times = facts
+            .iter()
+            .map(|fact| integer(&fact["ts_event_ns"]))
+            .collect::<Result<Vec<_>>>()?;
         let mut issues = BTreeSet::new();
         let mut gaps = vec![];
         let mut status = CoverageStatus::Complete;
@@ -402,7 +410,7 @@ impl<'a> Storage<'a> {
             // Full physical reads and global deduplication above already check every
             // candidate fact. Preserve fallible containment before cloning only this
             // interval's inputs into the original coverage verifier.
-            let inputs = facts
+            let inputs = facts[bar_fact_bounds(&times, *s, *e)]
                 .iter()
                 .filter(|f| ids.contains(f["segment_id"].as_str().unwrap_or_default()))
                 .filter_map(|f| match scope.contains(f) {
@@ -433,10 +441,13 @@ impl<'a> Storage<'a> {
         let facts = if status == CoverageStatus::Complete {
             facts
                 .into_iter()
-                .filter(|f| {
-                    f["ts_event_ns"]
-                        .as_i64()
-                        .is_some_and(|n| intervals.iter().any(|(s, e)| *s < n && n <= *e))
+                .zip(times)
+                .filter_map(|(fact, time)| {
+                    let index = intervals.partition_point(|(_, end)| *end < time);
+                    intervals
+                        .get(index)
+                        .is_some_and(|(start, _)| *start < time)
+                        .then_some(fact)
                 })
                 .collect()
         } else {
@@ -631,6 +642,10 @@ impl<'a> Storage<'a> {
             .await
     }
 }
+/// Timestamp order is established by deduplicate_facts before this lookup.
+fn bar_fact_bounds(times: &[i64], start: i64, end: i64) -> std::ops::Range<usize> {
+    times.partition_point(|time| *time <= start)..times.partition_point(|time| *time <= end)
+}
 fn normalizers(facts: &[Value]) -> Result<Value> {
     let pairs = facts
         .iter()
@@ -651,4 +666,32 @@ fn charge_rows(used: &mut usize, rows: &physical::Rows, limit: usize) -> Result<
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod range_index_tests {
+    use super::bar_fact_bounds;
+
+    #[test]
+    fn closed_bar_range_excludes_start_includes_end_and_keeps_equal_time_occurrences() {
+        let times = [-1, 0, 1, 1, 2, 3, 5];
+        assert_eq!(bar_fact_bounds(&times, 0, 1), 2..4);
+        assert_eq!(bar_fact_bounds(&times, 1, 3), 4..6);
+        assert_eq!(bar_fact_bounds(&times, 3, 4), 6..6);
+        assert_eq!(bar_fact_bounds(&times, i64::MIN, i64::MAX), 0..7);
+        assert_eq!(bar_fact_bounds(&[], 0, 1), 0..0);
+    }
+
+    #[test]
+    fn disjoint_windows_select_exactly_the_independent_bar_containment_reference() {
+        let times: Vec<_> = (0..14_000).map(|n| n * 60).collect();
+        for (start, end) in [(0, 420), (840, 1260), (60, 120), (840_000, 840_420)] {
+            let expected: Vec<_> = times
+                .iter()
+                .copied()
+                .filter(|t| start < *t && *t <= end)
+                .collect();
+            assert_eq!(&times[bar_fact_bounds(&times, start, end)], expected);
+        }
+    }
 }

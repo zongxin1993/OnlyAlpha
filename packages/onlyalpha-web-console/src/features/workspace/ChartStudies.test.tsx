@@ -11,7 +11,7 @@ import { LocalReadCredentials } from "../../api/marketData/localReadCredentials"
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { ChartStudies } from "./ChartStudies";
 import type { ChartStudyContext } from "./chartStudy";
-import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
+import { onlyMarketDataChartContextKey } from "./marketDataChartContext";
 
 const modalMethods = {
     showModal: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal"),

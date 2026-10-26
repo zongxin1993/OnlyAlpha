@@ -27,6 +27,7 @@ pub struct SendFence {
     calendar: Arc<onlyalpha_domain::calendar::OnlyTradingCalendar>,
     stream: Option<super::stream::StreamFence>,
     preview: Option<super::stream::PreviewFence>,
+    temporary: Option<super::temporary_state::TemporaryFence>,
 }
 impl SendFence {
     pub fn check(&self) -> Result<()> {
@@ -37,6 +38,9 @@ impl SendFence {
         }
         if let Some(preview) = &self.preview {
             preview.check()?;
+        }
+        if let Some(temporary) = &self.temporary {
+            temporary.check()?;
         }
         Ok(())
     }
@@ -128,6 +132,7 @@ impl<T> Authorized<T> {
                 calendar: Arc::clone(&c.calendar),
                 stream: None,
                 preview: None,
+                temporary: None,
             },
         })
     }
@@ -150,11 +155,19 @@ impl<T> Authorized<T> {
                 calendar: Arc::new(resolved.resource.calendar().clone()),
                 stream: None,
                 preview: None,
+                temporary: None,
             },
         })
     }
     pub(super) fn with_stream(mut self, stream: super::stream::StreamFence) -> Self {
         self.fence.stream = Some(stream);
+        self
+    }
+    pub(super) fn with_temporary(
+        mut self,
+        temporary: super::temporary_state::TemporaryFence,
+    ) -> Self {
+        self.fence.temporary = Some(temporary);
         self
     }
     pub(super) fn with_preview(mut self, preview: super::stream::PreviewFence) -> Self {
@@ -204,10 +217,20 @@ struct Cache {
     at: Instant,
     rows: Vec<OnlyInstrument>,
 }
+impl Cache {
+    fn current_at(&self, now: Instant) -> bool {
+        now.checked_duration_since(self.at)
+            .is_some_and(|age| age < Duration::from_secs(60))
+    }
+}
+#[cfg(test)]
+#[path = "temporary_reference_tests.rs"]
+mod temporary_reference_tests;
 pub struct Application {
     pub(super) stream_slots: Arc<tokio::sync::Semaphore>,
-    slots: tokio::sync::Semaphore,
+    pub(super) slots: tokio::sync::Semaphore,
     cache: Mutex<BTreeMap<String, Cache>>,
+    pub(super) temporary: Arc<Mutex<super::temporary::TemporaryBook>>,
 }
 impl Default for Application {
     fn default() -> Self {
@@ -215,6 +238,7 @@ impl Default for Application {
             stream_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             slots: tokio::sync::Semaphore::new(4),
             cache: Mutex::new(BTreeMap::new()),
+            temporary: Arc::new(Mutex::new(super::temporary::TemporaryBook::default())),
         }
     }
 }
@@ -325,6 +349,27 @@ impl Application {
         query: &InstrumentQuery,
         deadline: Instant,
     ) -> Result<Authorized<Value>> {
+        session.require_selection(&r.selection, Permission::ClosedHistory)?;
+        validate_instrument_query(query)?;
+        if let [instrument] = query.instrument_ids.as_slice()
+            && query.query.trim().is_empty()
+            && query.asset_class.is_none()
+            && query.instrument_types.is_empty()
+        {
+            let row = self
+                .read_reference(r, session, instrument, deadline)
+                .await?;
+            let rows = row
+                .iter()
+                .map(|i| instrument_row(i, &r.identity().market))
+                .collect::<Vec<_>>();
+            return Authorized::new(
+                json!({"schema_version":1,"source_selection":selection(r),"instruments":rows}),
+                session,
+                r,
+                Permission::ClosedHistory,
+            );
+        }
         let value = self
             .discover(r, session, query, deadline)
             .await?
@@ -358,7 +403,7 @@ impl Application {
             let cache = self.cache.lock().map_err(|_| Error::Unavailable)?;
             cache
                 .get(&key)
-                .filter(|c| c.at.elapsed() < Duration::from_secs(60))
+                .filter(|c| c.current_at(Instant::now()))
                 .map(|c| c.rows.clone())
         };
         let rows = if let Some(rows) = cached {
@@ -601,6 +646,37 @@ impl Application {
         }
         Authorized::new(value, session, r, Permission::ClosedHistory)
     }
+    /// Reuse only a current exact catalogue descriptor, never an access proof.
+    pub(super) async fn temporary_reference(
+        &self,
+        r: &Resolved,
+        session: &Session,
+        instrument: &str,
+        deadline: Instant,
+    ) -> Result<Authorized<OnlyInstrument>> {
+        session.require_selection(&r.selection, Permission::ClosedHistory)?;
+        let id: OnlyInstrumentId = instrument.parse().map_err(|_| Error::Invalid)?;
+        if id.venue().value() != r.identity().venue {
+            return Err(Error::Selection);
+        }
+        let cached = self
+            .cache
+            .lock()
+            .map_err(|_| Error::Unavailable)?
+            .get(&format!("{}:{}", r.binding.fingerprint(), r.artifact))
+            .filter(|c| c.current_at(Instant::now()))
+            .and_then(|c| {
+                c.rows
+                    .iter()
+                    .find(|i| i.specification().instrument_id() == &id)
+            })
+            .cloned();
+        if let Some(instrument) = cached {
+            Authorized::new(instrument, session, r, Permission::ClosedHistory)
+        } else {
+            self.reference(r, session, instrument, deadline).await
+        }
+    }
     pub async fn reference(
         &self,
         r: &Resolved,
@@ -608,6 +684,19 @@ impl Application {
         instrument: &str,
         deadline: Instant,
     ) -> Result<Authorized<OnlyInstrument>> {
+        let instrument = self
+            .read_reference(r, session, instrument, deadline)
+            .await?
+            .ok_or(Error::Corrupt)?;
+        Authorized::new(instrument, session, r, Permission::ClosedHistory)
+    }
+    async fn read_reference(
+        &self,
+        r: &Resolved,
+        session: &Session,
+        instrument: &str,
+        deadline: Instant,
+    ) -> Result<Option<OnlyInstrument>> {
         session.require_selection(&r.selection, Permission::ClosedHistory)?;
         let id: OnlyInstrumentId = instrument.parse().map_err(|_| Error::Invalid)?;
         if id.venue().value() != r.identity().venue {
@@ -625,15 +714,14 @@ impl Application {
                 .await
                 .map_err(|_| Error::Source(SourceError::Timeout))??;
         session.require_selection(&r.selection, Permission::ClosedHistory)?;
-        if rows.len() != 1 || rows[0].specification().instrument_id() != &id {
+        if rows.len() > 1
+            || rows
+                .first()
+                .is_some_and(|i| i.specification().instrument_id() != &id)
+        {
             return Err(Error::Corrupt);
         }
-        Authorized::new(
-            rows.into_iter().next().ok_or(Error::Corrupt)?,
-            session,
-            r,
-            Permission::ClosedHistory,
-        )
+        Ok(rows.into_iter().next())
     }
     pub(super) fn history_request(
         r: &Resolved,

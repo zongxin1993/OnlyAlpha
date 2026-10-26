@@ -5,18 +5,15 @@ import {
     MarketDataChartProjectionError,
     type MarketDataChartBarProjection
 } from "../../charts/lightweight/marketDataChartProjection";
-import {
-    MarketDataWebError,
-    type MarketDataApiClient,
-    type MarketDataBarsQuery
-} from "../../api/marketData/client";
+import { MarketDataWebError, type MarketDataApiClient } from "../../api/marketData/client";
 import { nextMarketDataTiming, type MarketDataTiming } from "./marketDataTiming";
-import type { MarketDataStreamEvent } from "../../api/marketData/stream";
-import { openMarketDataStream } from "../../api/marketData/stream";
+import type { TemporaryMarketDataStreamEvent } from "../../api/marketData/stream.generated";
+import { openTemporaryMarketDataStream } from "../../api/marketData/temporaryStream";
+import { readTemporaryMarketData } from "../../api/marketData/temporary";
+import type { TemporaryMarketDataWindow } from "../../api/marketData/temporary.generated";
+import { loadTemporaryMarketDataWindow } from "./temporaryMarketDataLoader";
 import type {
     MarketDataBarSemantic,
-    MarketDataBars,
-    MarketDataCoverage,
     MarketDataInstrument,
     MarketDataSource,
     MarketDataSourceReference
@@ -32,16 +29,10 @@ import {
     OnlyMarketDataBarLedger,
     type MarketDataBarLedgerSnapshot
 } from "./marketDataBarLedger";
-import {
-    OnlyMarketDataHistoryLoader,
-    onlyMarketDataChartContextKey
-} from "./marketDataHistoryLoader";
-import {
-    MarketDataBarsAuthorityMismatchError,
-    onlyAssertMarketDataBarsAuthority
-} from "./marketDataBarsAuthority";
+import { onlyMarketDataChartContextKey } from "./marketDataChartContext";
+import { MarketDataBarsAuthorityMismatchError } from "./marketDataBarsAuthority";
 
-export const DEFAULT_TARGET_BAR_COUNT = 1_440;
+export const DEFAULT_TARGET_BAR_COUNT = 2000;
 /** Presentation preference only; mutable source/Revision identities come from the server. */
 const DEFAULT_SOURCE_TYPE = "binance.spot.market_data";
 const DEFAULT_SOURCE_ENVIRONMENT = "GLOBAL";
@@ -49,14 +40,7 @@ const DEFAULT_INSTRUMENT_ID = "BTCUSDT.BINANCE";
 export const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000] as const;
 
 export type MarketDataChartStatus =
-    | "no-source"
-    | "idle"
-    | "searching"
-    | "loading"
-    | "acquiring"
-    | "ready"
-    | "incomplete"
-    | "failed";
+    "no-source" | "idle" | "searching" | "loading" | "ready" | "incomplete" | "failed";
 
 export type MarketDataRealtimeStatus =
     "disabled" | "connecting" | "recovering" | "ready" | "degraded" | "failed";
@@ -64,6 +48,13 @@ export type MarketDataRealtimeStatus =
 export interface MarketDataChartState {
     readonly selectableSources: readonly MarketDataSource[];
     /** Non-null exactly when a real Market Data source context is selected. */
+    readonly pageId: string;
+    readonly catalogStatus: "loading" | "ready" | "failed";
+    readonly restoreSelection: (
+        source: MarketDataSourceReference,
+        instrumentId: string,
+        semantic: MarketDataBarSemantic
+    ) => Promise<boolean>;
     readonly reference: MarketDataSourceReference | null;
     /** Canonical Market Source identity reported by the Product API, never client-declared. */
     readonly resolvedSourceId: string | null;
@@ -74,14 +65,15 @@ export interface MarketDataChartState {
     readonly barCapability: MarketDataSource["time_bar_capability"] | null;
     readonly status: MarketDataChartStatus;
     readonly message: string | null;
-    readonly coverage: MarketDataCoverage | null;
+    readonly pageReloadRequired: boolean;
+    readonly coverage: TemporaryMarketDataWindow["coverage"] | null;
     readonly chartContextKey: string | null;
     readonly bars: readonly MarketDataChartBarProjection[];
     readonly loadedClosedBarCount: number;
-    readonly historyProjectionFingerprint: string | null;
+    readonly windowFingerprint: string | null;
     readonly realtimeStatus: MarketDataRealtimeStatus;
     readonly liveBar: MarketDataChartBarProjection | null;
-    readonly olderHistoryStatus: "idle" | "loading" | "acquiring" | "failed" | "exhausted";
+    readonly olderHistoryStatus: "idle" | "loading" | "failed" | "empty";
     readonly olderHistoryMessage: string | null;
     readonly streamId: string | null;
     readonly timing: MarketDataTiming | null;
@@ -93,11 +85,10 @@ export interface MarketDataChartState {
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
     readonly selectWatchlistInstrument: (
         source: MarketDataSourceReference,
-        instrumentId: string,
-        prepare?: boolean
+        instrumentId: string
     ) => Promise<void>;
     readonly selectBarDuration: (durationMinutes: number) => Promise<void>;
-    readonly loadOlderHistory: () => Promise<void>;
+    readonly loadOlderHistory: (manual?: boolean) => Promise<void>;
 }
 
 /** The chart context is presentation state; every fact below comes from the Product API. */
@@ -109,12 +100,17 @@ export function onlyMarketDataSourceReference(source: MarketDataSource): MarketD
     };
 }
 
-export function useMarketDataChart(): MarketDataChartState {
+export function useMarketDataChart({
+    startup = "default"
+}: { startup?: "pending" | "default" | "restore" } = {}): MarketDataChartState {
     const client = useMarketDataApi();
+    const [pageId] = useState(() => crypto.randomUUID());
     const credentials = useLocalReadCredentials();
+    const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "failed">("loading");
     const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
     const [sourceRefresh, setSourceRefresh] = useState(0);
     const refreshSources = useCallback(() => {
+        setCatalogStatus("loading");
         setSourceRefresh((current) => current + 1);
     }, []);
     const [sourceId, setSourceId] = useState("");
@@ -126,15 +122,14 @@ export function useMarketDataChart(): MarketDataChartState {
     const [barSemantic, setBarSemantic] = useState(marketDataBarSemantic(15));
     const [status, setStatus] = useState<MarketDataChartStatus>("loading");
     const [message, setMessage] = useState<string | null>(null);
-    const [coverage, setCoverage] = useState<MarketDataCoverage | null>(null);
+    const [pageReloadRequired, setPageReloadRequired] = useState(false);
+    const [coverage, setCoverage] = useState<TemporaryMarketDataWindow["coverage"] | null>(null);
     const [ledgerSnapshot, setLedgerSnapshot] = useState<MarketDataBarLedgerSnapshot | null>(null);
-    const [historyProjectionFingerprint, setHistoryProjectionFingerprint] = useState<string | null>(
-        null
-    );
+    const [windowFingerprint, setWindowFingerprint] = useState<string | null>(null);
     const [resolvedSourceId, setResolvedSourceId] = useState<string | null>(null);
     const [realtimeStatus, setRealtimeStatus] = useState<MarketDataRealtimeStatus>("disabled");
     const [olderHistoryStatus, setOlderHistoryStatus] = useState<
-        "idle" | "loading" | "acquiring" | "failed" | "exhausted"
+        "idle" | "loading" | "failed" | "empty"
     >("idle");
     const [olderHistoryMessage, setOlderHistoryMessage] = useState<string | null>(null);
     const [timing, setTiming] = useState<MarketDataTiming | null>(null);
@@ -142,18 +137,25 @@ export function useMarketDataChart(): MarketDataChartState {
     const [streamError, setStreamError] = useState<string | null>(null);
     const [lastClosedCursor, setLastClosedCursor] = useState<string | null>(null);
     const ledger = useRef<OnlyMarketDataBarLedger | null>(null);
-    const olderHistoryLoader = useRef<OnlyMarketDataHistoryLoader | null>(null);
+    const historyAbort = useRef<AbortController | null>(null);
+    const olderAbort = useRef<AbortController | null>(null);
+    const olderNoProgress = useRef<string | null>(null);
+    const lastClosedEnd = useRef<string | null>(null);
     const streamGeneration = useRef(0);
     const historyGeneration = useRef(0);
     const searchGeneration = useRef(0);
-    const resume = useRef<{ cursor: string; fingerprint: string } | null>(null);
+    const resume = useRef<{
+        before: string;
+        fingerprint: string;
+        plan: string;
+        count: number;
+    } | null>(null);
     const previousRevision = useRef<string | null>(null);
+    const automaticFullRefreshUsed = useRef(false);
 
     const chartContextKey = ledgerSnapshot?.contextKey ?? null;
-    const bars = useMemo(
-        () => (ledgerSnapshot?.closedBars ?? []).map(projectMarketDataBar),
-        [ledgerSnapshot]
-    );
+    const closedBars = ledgerSnapshot?.closedBars;
+    const bars = useMemo(() => (closedBars ?? []).map(projectMarketDataBar), [closedBars]);
     const liveBar = useMemo(
         () =>
             ledgerSnapshot?.preview === null || ledgerSnapshot === null
@@ -181,31 +183,57 @@ export function useMarketDataChart(): MarketDataChartState {
     );
     const barCapability = selectedSource?.time_bar_capability ?? null;
 
-    const apply = useCallback((error: unknown) => {
-        const webError =
-            error instanceof MarketDataWebError ||
-            error instanceof MarketDataBarsAuthorityMismatchError ||
-            error instanceof MarketDataChartProjectionError
-                ? error
-                : null;
-        ledger.current = null;
-        olderHistoryLoader.current = null;
-        setLedgerSnapshot(null);
-        setHistoryProjectionFingerprint(null);
-        setStatus("failed");
-        setMessage(
-            webError === null
-                ? "行情请求失败"
-                : `行情请求失败：${webError.code} ${webError.message}`.trim()
-        );
-    }, []);
+    const apply = useCallback(
+        (error: unknown) => {
+            const webError =
+                error instanceof MarketDataWebError ||
+                error instanceof MarketDataBarsAuthorityMismatchError ||
+                error instanceof MarketDataChartProjectionError
+                    ? error
+                    : null;
+            // Fence pending history and socket callbacks synchronously, before
+            // React retires the corresponding effects.
+            historyGeneration.current += 1;
+            streamGeneration.current += 1;
+            historyAbort.current?.abort();
+            resume.current = null;
+            lastClosedEnd.current = null;
+            setLastClosedCursor(null);
+            setStreamId(null);
+            setTiming(null);
+            setResolvedSourceId(null);
+            setCoverage(null);
+            setRealtimeStatus("failed");
+            ledger.current = null;
+            olderAbort.current?.abort();
+            olderNoProgress.current = null;
+            setLedgerSnapshot(null);
+            setWindowFingerprint(null);
+            setStatus("failed");
+            if (
+                credentials.localSession &&
+                credentials.capture().bearer === null &&
+                webError instanceof MarketDataWebError &&
+                webError.code === "LOCAL_READ_UNAUTHORIZED" &&
+                webError.status === 401
+            )
+                setPageReloadRequired(true);
+            setMessage(
+                webError === null
+                    ? "行情请求失败"
+                    : `行情请求失败：${webError.code} ${webError.message}`.trim()
+            );
+        },
+        [credentials]
+    );
 
     const failLedger = useCallback((error: MarketDataBarLedgerConflictError) => {
         historyGeneration.current += 1;
         streamGeneration.current += 1;
-        olderHistoryLoader.current = null;
+        olderAbort.current?.abort();
+        olderNoProgress.current = null;
         // A retained equal fingerprint is not proof after contradictory facts.
-        setHistoryProjectionFingerprint(null);
+        setWindowFingerprint(null);
         setLedgerSnapshot((current) =>
             current === null ? null : { ...current, preview: null, version: current.version + 1 }
         );
@@ -216,278 +244,135 @@ export function useMarketDataChart(): MarketDataChartState {
         setOlderHistoryMessage(error.code);
     }, []);
 
-    const automaticPreparation = useRef(true);
-
-    const publishCompleteHistory = useCallback(
-        (
-            active: MarketDataSourceReference,
-            expectedSourceId: string,
-            generation: number,
-            activeLedger: OnlyMarketDataBarLedger,
-            loaded: MarketDataBars
-        ) => {
-            if (generation !== historyGeneration.current || ledger.current !== activeLedger) return;
-            try {
-                admitMarketDataChartBars(loaded.bars);
-                const merged = activeLedger.mergeHistory(loaded.bars);
-                setLedgerSnapshot(merged.snapshot);
-            } catch (error) {
-                if (error instanceof MarketDataBarLedgerConflictError) failLedger(error);
-                else throw error;
-                return;
-            }
-            setCoverage(loaded.coverage);
-            setResolvedSourceId(loaded.source_selection.source_id);
-            setHistoryProjectionFingerprint(loaded.history_projection_fingerprint);
-            resume.current =
-                loaded.resume_after_sequence !== null && loaded.resume_plan_fingerprint !== null
-                    ? {
-                          cursor: loaded.resume_after_sequence,
-                          fingerprint: loaded.resume_plan_fingerprint
-                      }
-                    : null;
-            olderHistoryLoader.current = new OnlyMarketDataHistoryLoader({
-                readOnly: credentials.capture().bearer !== null || !automaticPreparation.current,
-                client,
-                reference: active,
-                expectedSourceId,
-                contextKey: activeLedger.contextKey,
-                isCurrent: () =>
-                    generation === historyGeneration.current && ledger.current === activeLedger,
-                merge: (pageBars) => {
-                    const current = activeLedger.snapshot();
-                    admitMarketDataChartBars([
-                        ...current.closedBars,
-                        ...(current.preview === null ? [] : [current.preview]),
-                        ...pageBars
-                    ]);
-                    const page = activeLedger.mergeHistory(pageBars);
-                    setLedgerSnapshot(page.snapshot);
-                    return page;
-                },
-                onAcquiring: () => {
-                    setOlderHistoryStatus("acquiring");
-                }
-            });
-            setOlderHistoryStatus("idle");
-            setOlderHistoryMessage(null);
-            setStatus("ready");
-            setMessage(null);
-        },
-        [client, credentials, failLedger]
-    );
-
-    const acquire = useCallback(
-        async (
-            active: MarketDataSourceReference,
-            expectedSourceId: string,
-            query: MarketDataBarsQuery,
-            ranges: readonly { start_ns: string; end_ns: string }[],
-            generation: number,
-            activeLedger: OnlyMarketDataBarLedger
-        ) => {
-            setStatus("acquiring");
-            setMessage("正在同步历史行情…");
-            try {
-                for (const range of ranges) {
-                    let acquisition = await client.createAcquisition(active, {
-                        instrument_id: query.instrument_id,
-                        start_ns: range.start_ns,
-                        end_ns: range.end_ns,
-                        bar_semantic: query.bar_semantic
-                    });
-                    while (
-                        generation === historyGeneration.current &&
-                        acquisition.status !== "COMPLETE"
-                    ) {
-                        if (acquisition.status === "FAILED") break;
-                        if (generation !== historyGeneration.current) return;
-                        if (acquisition.status === "PENDING") {
-                            acquisition = await client.createAcquisition(active, {
-                                instrument_id: query.instrument_id,
-                                start_ns: range.start_ns,
-                                end_ns: range.end_ns,
-                                bar_semantic: query.bar_semantic
-                            });
-                        } else {
-                            await new Promise((resolve) => window.setTimeout(resolve, 250));
-                            if (generation !== historyGeneration.current) return;
-                            acquisition = await client.getAcquisition(
-                                active,
-                                acquisition.acquisition_id
-                            );
-                        }
-                    }
-                    if (generation !== historyGeneration.current) return;
-                    if (acquisition.status !== "COMPLETE") {
-                        setCoverage(acquisition.coverage);
-                        setStatus("failed");
-                        setMessage(
-                            `历史行情同步失败：${acquisition.failure_detail ?? acquisition.status}`
-                        );
-                        return;
-                    }
-                }
-                const reloaded = await client.queryBars(active, query);
-                if (generation !== historyGeneration.current) return;
-                onlyAssertMarketDataBarsAuthority(
-                    {
-                        reference: active,
-                        expectedSourceId,
-                        instrumentId: query.instrument_id,
-                        barSemantic: query.bar_semantic,
-                        anchorKind: query.anchor_kind,
-                        targetBarCount: query.target_bar_count,
-                        ...(query.before_ns === undefined ? {} : { beforeNs: query.before_ns })
-                    },
-                    reloaded
-                );
-                setCoverage(reloaded.coverage);
-                if (reloaded.coverage.status === "COMPLETE") {
-                    publishCompleteHistory(
-                        active,
-                        expectedSourceId,
-                        generation,
-                        activeLedger,
-                        reloaded
-                    );
-                } else {
-                    setStatus("incomplete");
-                    setMessage(
-                        `历史行情仍不完整：${reloaded.coverage.issues.join(", ") || reloaded.coverage.status}`
-                    );
-                }
-            } catch (error) {
-                if (generation === historyGeneration.current) apply(error);
-            }
-        },
-        [apply, client, publishCompleteHistory]
-    );
-
     const load = useCallback(
         async (
             active: MarketDataSourceReference,
             expectedSourceId: string,
             target: MarketDataInstrument,
             specification: MarketDataBarSemantic,
-            generation: number
+            generation: number,
+            recovery = false
         ) => {
-            const historyOnly = target.market_data_capabilities.includes("HISTORICAL_ONLY");
-            if (historyOnly) automaticPreparation.current = false;
-            let query: MarketDataBarsQuery = {
-                instrument_id: target.instrument_id,
-                anchor_kind: "LATEST_CLOSED" as const,
-                // The ordinary workspace prepares the full admitted Study input
-                // before indicators are added; adding a Study never acquires data.
-                target_bar_count: credentials.localSession ? 2000 : DEFAULT_TARGET_BAR_COUNT,
-                bar_semantic: specification
-            };
-            const contextKey = onlyMarketDataChartContextKey(
-                active,
-                target.instrument_id,
-                specification
+            if (!recovery) automaticFullRefreshUsed.current = false;
+            historyAbort.current?.abort();
+            olderAbort.current?.abort();
+            const controller = new AbortController();
+            historyAbort.current = controller;
+            const current = () =>
+                !controller.signal.aborted && generation === historyGeneration.current;
+            const source = sources.find(
+                (item) =>
+                    item.integration_id === active.integration_id &&
+                    item.integration_revision_fingerprint ===
+                        active.integration_revision_fingerprint &&
+                    item.type_id === active.expected_type_id &&
+                    item.source_id === expectedSourceId
             );
-            const activeLedger = new OnlyMarketDataBarLedger(contextKey);
+            const activeLedger = new OnlyMarketDataBarLedger(
+                onlyMarketDataChartContextKey(active, target.instrument_id, specification)
+            );
             ledger.current = activeLedger;
-            olderHistoryLoader.current = null;
             setLedgerSnapshot(activeLedger.snapshot());
+            resume.current = null;
+            lastClosedEnd.current = null;
+            olderNoProgress.current = null;
+            setWindowFingerprint(null);
+            setCoverage(null);
+            setResolvedSourceId(null);
             setOlderHistoryStatus("idle");
             setOlderHistoryMessage(null);
-            resume.current = null;
-            setCoverage(null);
-            setHistoryProjectionFingerprint(null);
-            setResolvedSourceId(null);
-            setStatus("loading");
-            setTiming(null);
             setRealtimeStatus("disabled");
+            setTiming(null);
+            setStatus("loading");
             setMessage(null);
+            const progress: { lastWindow: TemporaryMarketDataWindow | null } = { lastWindow: null };
             try {
-                if (historyOnly) {
-                    const retained = await client.queryLatestBar(
-                        active,
-                        target.instrument_id,
-                        specification
+                if (
+                    source === undefined ||
+                    target.market_data_capabilities.includes("HISTORICAL_ONLY")
+                )
+                    throw new MarketDataWebError(
+                        "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
+                        "当前精确来源不能提供临时行情，不会读取入库历史或自动换源"
                     );
-                    if (generation !== historyGeneration.current) return;
-                    if (retained === null)
-                        throw new MarketDataWebError(
-                            "MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE",
-                            "原数据源没有可证明的封存行情"
-                        );
-                    onlyAssertMarketDataBarsAuthority(
-                        {
-                            reference: active,
-                            expectedSourceId,
-                            instrumentId: target.instrument_id,
-                            barSemantic: specification,
-                            anchorKind: "BEFORE_TIME",
-                            beforeNs: retained.resolved_end_ns,
-                            targetBarCount: 1
-                        },
-                        retained
-                    );
-                    query = {
-                        ...query,
-                        anchor_kind: "BEFORE_TIME",
-                        before_ns: retained.resolved_end_ns
-                    };
-                }
-                const loaded = await client.queryBars(active, query);
-                if (generation !== historyGeneration.current) return;
-                onlyAssertMarketDataBarsAuthority(
-                    {
-                        reference: active,
-                        expectedSourceId,
-                        instrumentId: query.instrument_id,
-                        barSemantic: query.bar_semantic,
-                        anchorKind: query.anchor_kind,
-                        targetBarCount: query.target_bar_count,
-                        ...(query.before_ns === undefined ? {} : { beforeNs: query.before_ns })
-                    },
-                    loaded
-                );
-                setCoverage(loaded.coverage);
-                if (loaded.coverage.status === "COMPLETE") {
-                    publishCompleteHistory(
-                        active,
-                        expectedSourceId,
-                        generation,
-                        activeLedger,
-                        loaded
-                    );
-                    if (historyOnly)
-                        setMessage(
-                            "历史只读 · 原数据源当前不能执行新采集或实时行情；显示已验证的原封存事实"
-                        );
-                    return;
-                }
-                setHistoryProjectionFingerprint(null);
-                if (credentials.capture().bearer !== null || !automaticPreparation.current) {
-                    setStatus("failed");
-                    setMessage(
-                        credentials.capture().bearer !== null
-                            ? "只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集"
-                            : "行情覆盖不足；请明确选择准备行情，本次选择不会自动采集"
-                    );
-                    return;
-                }
-                await acquire(
+                const loaded = await loadTemporaryMarketDataWindow(
+                    credentials,
                     active,
-                    expectedSourceId,
                     {
-                        ...query,
-                        anchor_kind: "BEFORE_TIME",
-                        before_ns: loaded.resolved_end_ns
+                        instrument_id: target.instrument_id,
+                        bar_semantic: specification,
+                        anchor_kind: "LATEST_CLOSED",
+                        target_bar_count: DEFAULT_TARGET_BAR_COUNT
                     },
-                    loaded.coverage.planned_acquisition_ranges,
-                    generation,
-                    activeLedger
+                    pageId,
+                    {
+                        sourceId: expectedSourceId,
+                        environment: source.environment,
+                        signal: controller.signal,
+                        onWindow: (window) => {
+                            if (!current() || ledger.current !== activeLedger) return;
+                            admitMarketDataChartBars(window.bars);
+                            const merged = activeLedger.mergeHistory(
+                                window.bars,
+                                window.resolved_end_ns
+                            );
+                            setLedgerSnapshot(merged.snapshot);
+                            setCoverage(window.coverage);
+                            setResolvedSourceId(window.source_selection.source_id);
+                            setWindowFingerprint(window.window_fingerprint);
+                            progress.lastWindow = window;
+                        }
+                    }
+                );
+                if (!current()) return;
+                lastClosedEnd.current = loaded.bars.at(-1)?.bar_end_ns ?? null;
+                resume.current =
+                    lastClosedEnd.current === null
+                        ? null
+                        : {
+                              before: loaded.resolved_end_ns,
+                              fingerprint: loaded.window_fingerprint,
+                              plan: loaded.resolution_plan_fingerprint,
+                              count: loaded.requested_bar_count
+                          };
+                setStatus(loaded.coverage.status === "COMPLETE" ? "ready" : "incomplete");
+                setMessage(
+                    loaded.coverage.status === "COMPLETE"
+                        ? null
+                        : `临时行情窗口不完整：${String(loaded.coverage.actual_bar_count)}/${String(loaded.coverage.expected_bar_count)} 根闭合 K 线；可明确重试，不会自动入库。`
                 );
             } catch (error) {
-                if (generation === historyGeneration.current) apply(error);
+                if (!current()) return;
+                if (
+                    error instanceof MarketDataWebError &&
+                    progress.lastWindow !== null &&
+                    activeLedger.snapshot().closedBars.length > 0 &&
+                    [
+                        "TRANSPORT_ERROR",
+                        "CHART_STUDY_QUERY_UNAVAILABLE",
+                        "MARKET_DATA_SOURCE_TIMEOUT",
+                        "MARKET_DATA_SOURCE_UNAVAILABLE"
+                    ].includes(error.code)
+                ) {
+                    // A network failure cannot erase already verified rows. This
+                    // remains failed/stale, with no stream or completion claim.
+                    setStatus("failed");
+                    setRealtimeStatus("disabled");
+                    setMessage(
+                        `临时行情加载未完成：${error.code}；保留 ${String(progress.lastWindow.coverage.actual_bar_count)} 根已验证闭合 K 线，可明确重新读取。`
+                    );
+                } else if (error instanceof MarketDataBarLedgerConflictError) failLedger(error);
+                else apply(error);
             }
         },
-        [acquire, apply, client, credentials, publishCompleteHistory]
+        [apply, credentials, failLedger, pageId, sources]
+    );
+    useEffect(
+        () => () => {
+            historyAbort.current?.abort();
+            olderAbort.current?.abort();
+        },
+        []
     );
 
     useEffect(() => {
@@ -502,10 +387,11 @@ export function useMarketDataChart(): MarketDataChartState {
                 void load(reference, selectedSource.source_id, instrument, barSemantic, generation);
             else if (watchlistSourceRef.current !== null) {
                 ledger.current = null;
-                olderHistoryLoader.current = null;
+                olderAbort.current?.abort();
+                olderNoProgress.current = null;
                 setLedgerSnapshot(null);
                 setCoverage(null);
-                setHistoryProjectionFingerprint(null);
+                setWindowFingerprint(null);
                 setResolvedSourceId(null);
                 setOlderHistoryStatus("idle");
                 setOlderHistoryMessage(null);
@@ -520,259 +406,313 @@ export function useMarketDataChart(): MarketDataChartState {
 
     useEffect(() => {
         if (
-            status !== "ready" ||
+            (status !== "ready" && status !== "incomplete") ||
             reference === null ||
             instrument === null ||
-            instrument.market_data_capabilities.includes("HISTORICAL_ONLY") ||
             resolvedSourceId === null ||
-            ledger.current?.snapshot().closedBars.length === 0 ||
-            resume.current === null
-        ) {
+            selectedSource === null ||
+            resume.current === null ||
+            lastClosedEnd.current === null
+        )
             return;
-        }
         const generation = ++streamGeneration.current;
-        let close: () => void = () => undefined;
-        let reconnect: number | undefined;
-        let stopped = false;
-        let terminal = false;
-        let reconnectAttempt = 0;
-        let connectionAttempt = 0;
-        const connect = () => {
-            if (stopped || resume.current === null) return;
-            const attempt = ++connectionAttempt;
-            let connectionReady = false;
-            let subscription: Extract<MarketDataStreamEvent, { event: "SUBSCRIBED" }> | null = null;
-            setRealtimeStatus("connecting");
-            close = openMarketDataStream(
-                {
-                    schema_version: 2,
-                    operation: "SUBSCRIBE_BAR",
-                    source_reference: {
-                        ...reference,
-                        expected_type_id: reference.expected_type_id ?? ""
-                    },
-                    instrument_id: instrument.instrument_id,
-                    bar_semantic: barSemantic,
-                    resume_after_sequence: resume.current.cursor,
-                    resume_plan_fingerprint: resume.current.fingerprint
-                },
-                (event) => {
-                    if (
-                        generation !== streamGeneration.current ||
-                        attempt !== connectionAttempt ||
-                        stopped ||
-                        terminal
-                    )
-                        return;
-                    // React may apply functional state updates after later stream events.
-                    const timingConnectionReady = connectionReady;
-                    const timingSubscription = subscription;
-                    if (
-                        (event.event === "SUBSCRIBED" ||
-                            event.event === "BAR_PREVIEW" ||
-                            event.event === "BAR_CLOSED") &&
-                        (event.source_id !== resolvedSourceId ||
-                            event.instrument_id !== instrument.instrument_id ||
-                            (event.event !== "SUBSCRIBED" &&
-                                JSON.stringify(
-                                    marketDataBarSemanticSchema.parse(event.bar_semantic)
-                                ) !==
-                                    JSON.stringify(marketDataBarSemanticSchema.parse(barSemantic))))
-                    ) {
-                        terminal = true;
-                        setStreamError("MARKET_DATA_BAR_SEMANTIC_MISMATCH");
-                        setRealtimeStatus("failed");
-                        close();
-                        return;
-                    }
-                    if (event.event === "BAR_PREVIEW" || event.event === "BAR_CLOSED") {
-                        try {
-                            const current = ledger.current?.snapshot();
-                            admitMarketDataChartBars([
-                                ...(current?.closedBars ?? []),
-                                ...(current?.preview == null ? [] : [current.preview]),
-                                event.bar
-                            ]);
-                        } catch (error) {
-                            if (!(error instanceof MarketDataChartProjectionError)) throw error;
-                            terminal = true;
-                            setStreamError(error.code);
-                            setRealtimeStatus("failed");
-                            close();
-                            return;
-                        }
-                    }
-                    if (event.event === "SUBSCRIBED") {
-                        if (event.resolution_plan_fingerprint !== resume.current?.fingerprint) {
-                            terminal = true;
-                            resume.current = null;
-                            setLastClosedCursor(null);
-                            setStreamId(null);
-                            setLedgerSnapshot((current) =>
-                                current === null ? null : { ...current, preview: null }
-                            );
-                            setStreamError("MARKET_DATA_RESUME_PLAN_MISMATCH");
-                            setRealtimeStatus("failed");
-                            close();
-                            return;
-                        }
-                        subscription = event;
-                        setTiming(null);
-                        setStreamId(event.stream_id);
-                    } else if (event.event === "STATE") {
-                        connectionReady = event.state === "READY";
-                        if (!connectionReady)
-                            setTiming((current) =>
-                                current === null ? null : { ...current, currentConnection: false }
-                            );
-                        setRealtimeStatus(
-                            event.state === "CONNECTING"
-                                ? "connecting"
-                                : event.state === "RECOVERING"
-                                  ? "recovering"
-                                  : event.state === "READY"
-                                    ? "ready"
-                                    : event.state === "DEGRADED" || event.state === "CLOSED"
-                                      ? "degraded"
-                                      : "failed"
-                        );
-                    } else if (event.event === "BASE_CURSOR") {
-                        const cursor = resume.current?.cursor ?? null;
-                        if (cursor === null || BigInt(event.sequence) > BigInt(cursor)) {
-                            setLastClosedCursor(event.sequence);
-                            if (resume.current !== null)
-                                resume.current = { ...resume.current, cursor: event.sequence };
-                        }
-                    } else if (event.event === "BAR_PREVIEW") {
-                        try {
-                            const changed = ledger.current?.applyPreview(event.bar);
-                            if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
-                            // Identical current price may carry a new occurrence; rejected
-                            // older/closed-overlap previews never update telemetry.
-                            if (changed?.snapshot.preview?.bar_start_ns === event.bar.bar_start_ns)
-                                setTiming((current) =>
-                                    nextMarketDataTiming(
-                                        current,
-                                        event,
-                                        timingSubscription,
-                                        timingConnectionReady
-                                    )
-                                );
-                        } catch (error) {
-                            if (error instanceof MarketDataBarLedgerConflictError) {
-                                terminal = true;
-                                failLedger(error);
-                                close();
-                            } else throw error;
-                        }
-                    } else if (event.event === "BAR_CLOSED") {
-                        try {
-                            const previousStart =
-                                ledger.current?.snapshot().latestClosedStartNs ?? null;
-                            const changed = ledger.current?.applyClosed(event.bar);
-                            if (changed?.changed === true) setLedgerSnapshot(changed.snapshot);
-                            if (
-                                changed?.appendedCount === 1 &&
-                                (previousStart === null ||
-                                    BigInt(event.bar.bar_start_ns) > BigInt(previousStart)) &&
-                                (resume.current === null ||
-                                    BigInt(event.sequence) > BigInt(resume.current.cursor))
-                            )
-                                setTiming((current) =>
-                                    nextMarketDataTiming(
-                                        current,
-                                        event,
-                                        timingSubscription,
-                                        timingConnectionReady
-                                    )
-                                );
-                        } catch (error) {
-                            if (error instanceof MarketDataBarLedgerConflictError) {
-                                terminal = true;
-                                failLedger(error);
-                                close();
-                                return;
-                            }
-                            throw error;
-                        }
-                        const cursor = resume.current?.cursor ?? null;
-                        if (cursor === null || BigInt(event.sequence) > BigInt(cursor)) {
-                            setLastClosedCursor(event.sequence);
-                            if (resume.current !== null)
-                                resume.current = { ...resume.current, cursor: event.sequence };
-                        }
-                    } else {
-                        terminal = true;
-                        setStreamError(
-                            `${event.code}${event.detail == null ? "" : `: ${event.detail}`}`
-                        );
-                        if (
-                            event.code === "HISTORY_REFRESH_REQUIRED" ||
-                            event.code === "MARKET_DATA_RESUME_PLAN_MISMATCH"
-                        ) {
-                            resume.current = null;
-                            setLastClosedCursor(null);
-                            setStreamId(null);
-                            void load(
-                                reference,
-                                resolvedSourceId,
-                                instrument,
-                                barSemantic,
-                                ++historyGeneration.current
-                            );
-                        } else setRealtimeStatus("failed");
-                    }
-                },
-                (failure) => {
-                    if (
-                        generation !== streamGeneration.current ||
-                        attempt !== connectionAttempt ||
-                        stopped ||
-                        terminal
-                    )
-                        return;
-                    connectionAttempt += 1;
-                    connectionReady = false;
-                    setTiming((current) =>
-                        current === null ? null : { ...current, currentConnection: false }
-                    );
-                    if (failure !== undefined) {
-                        terminal = true;
-                        setStreamError(failure);
-                        setRealtimeStatus("failed");
-                        return;
-                    }
-                    setRealtimeStatus("degraded");
-                    reconnect = window.setTimeout(
-                        connect,
-                        STREAM_RECONNECT_DELAYS_MS[
-                            Math.min(reconnectAttempt++, STREAM_RECONNECT_DELAYS_MS.length - 1)
-                        ]
-                    );
-                },
-                credentials
+        const controller = new AbortController();
+        let stopped = false,
+            terminal = false,
+            attempt = 0,
+            retries = 0;
+        let close: (() => void) | undefined;
+        let timer: number | undefined;
+        const current = (incarnation: number) =>
+            !stopped &&
+            !terminal &&
+            generation === streamGeneration.current &&
+            incarnation === attempt;
+        const schedule = () => {
+            if (stopped || terminal) return;
+            setTiming((value) => (value === null ? null : { ...value, currentConnection: false }));
+            if (retries >= STREAM_RECONNECT_DELAYS_MS.length) {
+                terminal = true;
+                setRealtimeStatus("failed");
+                setStreamError("MARKET_DATA_RECONNECT_EXHAUSTED");
+                setMessage("临时行情重连未成功；保留旧行情，请明确重新读取。");
+                return;
+            }
+            setRealtimeStatus("degraded");
+            timer = window.setTimeout(
+                () => void connect(true),
+                STREAM_RECONNECT_DELAYS_MS[
+                    Math.min(retries++, STREAM_RECONNECT_DELAYS_MS.length - 1)
+                ]
             );
         };
+        const connect = async (refresh: boolean) => {
+            const incarnation = ++attempt;
+            let ready = false;
+            let subscription: Extract<
+                TemporaryMarketDataStreamEvent,
+                { event: "SUBSCRIBED" }
+            > | null = null;
+            try {
+                if (refresh && lastClosedEnd.current !== null) {
+                    // Re-pin the last actually received closed target. The Source
+                    // still owns its native checkpoint and continuity proof.
+                    const pinned = await readTemporaryMarketData(
+                        credentials,
+                        reference,
+                        {
+                            instrument_id: instrument.instrument_id,
+                            bar_semantic: barSemantic,
+                            anchor_kind: "BEFORE_TIME",
+                            before_ns: lastClosedEnd.current,
+                            target_bar_count: DEFAULT_TARGET_BAR_COUNT
+                        },
+                        pageId,
+                        controller.signal
+                    );
+                    if (!current(incarnation)) return;
+                    if (
+                        pinned.source_selection.source_id !== resolvedSourceId ||
+                        pinned.source_selection.environment !== selectedSource.environment
+                    )
+                        throw new MarketDataWebError(
+                            "MARKET_DATA_TEMPORARY_RESPONSE_MISMATCH",
+                            "来源不匹配"
+                        );
+                    resume.current = {
+                        before: pinned.resolved_end_ns,
+                        fingerprint: pinned.window_fingerprint,
+                        plan: pinned.resolution_plan_fingerprint,
+                        count: pinned.requested_bar_count
+                    };
+                }
+                if (!current(incarnation) || resume.current === null) return;
+                const bootstrap = resume.current;
+                setRealtimeStatus(refresh ? "recovering" : "connecting");
+                close = openTemporaryMarketDataStream(
+                    {
+                        schema_version: 2,
+                        operation: "SUBSCRIBE_TEMPORARY_BARS",
+                        page_id: pageId,
+                        source_reference: {
+                            ...reference,
+                            expected_type_id: reference.expected_type_id ?? ""
+                        },
+                        instrument_id: instrument.instrument_id,
+                        bar_semantic: barSemantic,
+                        before_ns: bootstrap.before,
+                        target_bar_count: bootstrap.count,
+                        expected_window_fingerprint: bootstrap.fingerprint
+                    },
+                    (event) => {
+                        if (!current(incarnation)) return;
+                        if (
+                            (event.event === "SUBSCRIBED" ||
+                                event.event === "BAR_CLOSED" ||
+                                event.event === "BAR_PREVIEW") &&
+                            (event.source_id !== resolvedSourceId ||
+                                event.instrument_id !== instrument.instrument_id ||
+                                (event.event !== "SUBSCRIBED" &&
+                                    JSON.stringify(
+                                        marketDataBarSemanticSchema.parse(event.bar_semantic)
+                                    ) !==
+                                        JSON.stringify(
+                                            marketDataBarSemanticSchema.parse(barSemantic)
+                                        )))
+                        ) {
+                            terminal = true;
+                            close?.();
+                            apply(
+                                new MarketDataWebError(
+                                    "MARKET_DATA_TEMPORARY_RESPONSE_MISMATCH",
+                                    "行情上下文不匹配"
+                                )
+                            );
+                            return;
+                        }
+                        if (event.event === "SUBSCRIBED") {
+                            if (event.resolution_plan_fingerprint !== bootstrap.plan) {
+                                terminal = true;
+                                close?.();
+                                setStreamError("MARKET_DATA_RESUME_PLAN_MISMATCH");
+                                setRealtimeStatus("failed");
+                                apply(
+                                    new MarketDataWebError(
+                                        "MARKET_DATA_RESUME_PLAN_MISMATCH",
+                                        "临时行情计划不匹配"
+                                    )
+                                );
+                                return;
+                            }
+                            subscription = event;
+                            setStreamId(event.stream_id);
+                            setTiming(null);
+                        } else if (event.event === "STATE") {
+                            ready = event.state === "READY";
+                            if (ready) {
+                                retries = 0;
+                                automaticFullRefreshUsed.current = false;
+                            }
+                            setRealtimeStatus(
+                                event.state === "READY"
+                                    ? "ready"
+                                    : event.state === "RECOVERING"
+                                      ? "recovering"
+                                      : event.state === "CONNECTING"
+                                        ? "connecting"
+                                        : "degraded"
+                            );
+                        } else if (event.event === "BAR_CLOSED" || event.event === "BAR_PREVIEW") {
+                            try {
+                                const active = ledger.current;
+                                if (active === null) return;
+                                const snapshot = active.snapshot();
+                                admitMarketDataChartBars([
+                                    ...snapshot.closedBars,
+                                    ...(snapshot.preview === null ? [] : [snapshot.preview]),
+                                    event.bar
+                                ]);
+                                const merged =
+                                    event.event === "BAR_CLOSED"
+                                        ? active.applyClosed(event.bar)
+                                        : active.applyPreview(event.bar);
+                                if (merged.changed) setLedgerSnapshot(merged.snapshot);
+                                if (event.event === "BAR_CLOSED") {
+                                    if (
+                                        lastClosedEnd.current === null ||
+                                        BigInt(event.bar.bar_end_ns) > BigInt(lastClosedEnd.current)
+                                    )
+                                        lastClosedEnd.current = event.bar.bar_end_ns;
+                                    setLastClosedCursor(event.sequence);
+                                }
+                                if (merged.changed)
+                                    setTiming((value) =>
+                                        nextMarketDataTiming(value, event, subscription, ready)
+                                    );
+                            } catch (error) {
+                                terminal = true;
+                                close?.();
+                                if (error instanceof MarketDataBarLedgerConflictError)
+                                    failLedger(error);
+                                else apply(error);
+                            }
+                        } else {
+                            if (event.code === "MARKET_DATA_SOURCE_UNAVAILABLE") {
+                                // Retire this socket before closing it: its late
+                                // disconnect must not schedule a second retry.
+                                attempt += 1;
+                                ready = false;
+                                close?.();
+                                setStreamError(event.code);
+                                schedule();
+                                return;
+                            }
+                            terminal = true;
+                            close?.();
+                            setStreamError(event.code);
+                            if (
+                                event.code === "HISTORY_REFRESH_REQUIRED" ||
+                                event.code === "MARKET_DATA_CONTINUITY_UNPROVEN"
+                            ) {
+                                setWindowFingerprint(null);
+                                if (automaticFullRefreshUsed.current) {
+                                    setRealtimeStatus("failed");
+                                    setStreamError("MARKET_DATA_REFRESH_EXHAUSTED");
+                                    setMessage(
+                                        "临时行情完整刷新后仍无法证明连续；保留旧行情，请明确重新读取。"
+                                    );
+                                } else {
+                                    automaticFullRefreshUsed.current = true;
+                                    void load(
+                                        reference,
+                                        resolvedSourceId,
+                                        instrument,
+                                        barSemantic,
+                                        ++historyGeneration.current,
+                                        true
+                                    );
+                                }
+                            } else if (event.code === "MARKET_DATA_ACCESS_DENIED")
+                                apply(new MarketDataWebError(event.code, "行情授权已撤销", 403));
+                            else {
+                                setRealtimeStatus("failed");
+                                if (
+                                    [
+                                        "MARKET_DATA_IDENTITY_CONFLICT",
+                                        "MARKET_DATA_PROVENANCE_CONFLICT",
+                                        "MARKET_DATA_SOURCE_CATALOG_CORRUPT"
+                                    ].includes(event.code)
+                                )
+                                    apply(
+                                        new MarketDataWebError(event.code, "临时行情完整性验证失败")
+                                    );
+                            }
+                        }
+                    },
+                    (failure) => {
+                        if (!current(incarnation)) return;
+                        attempt += 1;
+                        ready = false;
+                        if (failure !== undefined) {
+                            terminal = true;
+                            setStreamError(failure);
+                            setRealtimeStatus("failed");
+                            if (failure === "AUTHENTICATION_ERROR")
+                                apply(
+                                    new MarketDataWebError(
+                                        "MARKET_DATA_ACCESS_DENIED",
+                                        "行情授权已撤销",
+                                        403
+                                    )
+                                );
+                            else apply(new MarketDataWebError(failure, "临时行情协议验证失败"));
+                            return;
+                        }
+                        schedule();
+                    },
+                    credentials
+                );
+            } catch (error) {
+                if (!current(incarnation)) return;
+                if (
+                    error instanceof MarketDataWebError &&
+                    (error.status === 401 || error.status === 403)
+                ) {
+                    terminal = true;
+                    apply(error);
+                    return;
+                }
+                setStreamError(
+                    error instanceof MarketDataWebError ? error.code : "TRANSPORT_ERROR"
+                );
+                schedule();
+            }
+        };
         queueMicrotask(() => {
-            if (stopped) return;
-            setStreamId(null);
-            setStreamError(null);
-            connect();
+            if (!stopped) {
+                setStreamId(null);
+                setStreamError(null);
+                void connect(false);
+            }
         });
         return () => {
             stopped = true;
+            controller.abort();
             streamGeneration.current += 1;
-            if (reconnect !== undefined) window.clearTimeout(reconnect);
-            close();
+            if (timer !== undefined) window.clearTimeout(timer);
+            close?.();
         };
     }, [
+        apply,
         barSemantic,
         credentials,
         failLedger,
         instrument,
         load,
+        pageId,
         reference,
         resolvedSourceId,
+        selectedSource,
         status
     ]);
 
@@ -786,7 +726,6 @@ export function useMarketDataChart(): MarketDataChartState {
         if (!preservePeriod) {
             watchlistSourceRef.current = null;
             setWatchlistSource(null);
-            automaticPreparation.current = true;
         }
         selectedSourceId.current = integrationId;
         searchGeneration.current += 1;
@@ -798,11 +737,12 @@ export function useMarketDataChart(): MarketDataChartState {
         setInstrument(null);
         setCoverage(null);
         ledger.current = null;
-        olderHistoryLoader.current = null;
+        olderAbort.current?.abort();
+        olderNoProgress.current = null;
         setLedgerSnapshot(null);
         setOlderHistoryStatus("idle");
         setOlderHistoryMessage(null);
-        setHistoryProjectionFingerprint(null);
+        setWindowFingerprint(null);
         setResolvedSourceId(null);
         setLastClosedCursor(null);
         resume.current = null;
@@ -816,6 +756,7 @@ export function useMarketDataChart(): MarketDataChartState {
     }, []);
 
     useEffect(() => {
+        if (startup === "pending") return;
         const controller = new AbortController();
         client
             .listSources(controller.signal)
@@ -839,6 +780,7 @@ export function useMarketDataChart(): MarketDataChartState {
                             : item;
                     })
                 );
+                setCatalogStatus("ready");
                 // Preserve a user's exact still-available choice, not a new default
                 // or an old response's choice after management changed the catalog.
                 if (
@@ -849,10 +791,17 @@ export function useMarketDataChart(): MarketDataChartState {
                 )
                     return;
                 if (selectedSourceId.current !== "") {
-                    selectSource("");
-                    setMessage("原数据源 Revision 已不可用，请明确重新选择来源。");
+                    historyAbort.current?.abort();
+                    streamGeneration.current += 1;
+                    ledger.current = null;
+                    setLedgerSnapshot(null);
+                    setWindowFingerprint(null);
+                    setStatus("failed");
+                    setRealtimeStatus("disabled");
+                    setMessage("原数据源 Revision 已不可用，请明确重新选择来源，不会自动换源。");
                     return;
                 }
+                if (startup !== "default") return;
                 const matches = found.filter(
                     (item) =>
                         item.is_current_revision &&
@@ -872,8 +821,9 @@ export function useMarketDataChart(): MarketDataChartState {
             })
             .catch((error: unknown) => {
                 if (controller.signal.aborted) return;
+                setCatalogStatus("failed");
                 setSources([]);
-                if (watchlistSourceRef.current === null) selectSource("");
+                // Keep the exact unavailable choice across a catalog transport failure.
                 apply(error);
                 if (error instanceof MarketDataWebError && error.code === "TRANSPORT_ERROR")
                     setMessage("行情服务不可用：TRANSPORT_ERROR");
@@ -881,12 +831,13 @@ export function useMarketDataChart(): MarketDataChartState {
         return () => {
             controller.abort();
         };
-    }, [apply, client, selectSource, sourceRefresh]);
+    }, [apply, client, selectSource, sourceRefresh, startup]);
 
     useEffect(() => {
         // Manual selections remain valid; the Binance default resolves an actual instrument,
         // never a locally authored DTO or a first-row substitute.
         if (
+            startup !== "default" ||
             instrument !== null ||
             selectedSource?.type_id !== DEFAULT_SOURCE_TYPE ||
             selectedSource.environment !== DEFAULT_SOURCE_ENVIRONMENT
@@ -945,7 +896,7 @@ export function useMarketDataChart(): MarketDataChartState {
         return () => {
             controller.abort();
         };
-    }, [apply, client, instrument, load, selectedSource]);
+    }, [apply, client, instrument, load, selectedSource, startup]);
 
     const searchInstruments = useCallback(
         async (query: string) => {
@@ -986,7 +937,6 @@ export function useMarketDataChart(): MarketDataChartState {
             if (target.instrument_id !== instrument?.instrument_id) {
                 watchlistSourceRef.current = null;
                 setWatchlistSource(null);
-                automaticPreparation.current = true;
             }
             streamGeneration.current += 1;
             const generation = ++historyGeneration.current;
@@ -1006,8 +956,12 @@ export function useMarketDataChart(): MarketDataChartState {
         [barSemantic, instrument, load, realtimeStatus, reference, selectedSource, status]
     );
 
-    const selectWatchlistInstrument = useCallback(
-        async (active: MarketDataSourceReference, instrumentId: string, prepare = true) => {
+    const selectExactContext = useCallback(
+        async (
+            active: MarketDataSourceReference,
+            instrumentId: string,
+            semantic: MarketDataBarSemantic
+        ) => {
             // Every user selection supersedes pending lookups, including a healthy A→A no-op.
             const search = ++searchGeneration.current;
             const history = historyGeneration.current;
@@ -1019,8 +973,8 @@ export function useMarketDataChart(): MarketDataChartState {
                     item.type_id === active.expected_type_id
             );
             if (source === undefined) {
-                setMessage("自选绑定的数据源不可用；请明确重新绑定，不会自动换源");
-                return;
+                setMessage("绑定的数据源不可用；请明确重新绑定，不会自动换源");
+                return false;
             }
             if (
                 reference?.integration_id === active.integration_id &&
@@ -1028,29 +982,29 @@ export function useMarketDataChart(): MarketDataChartState {
                     active.integration_revision_fingerprint &&
                 reference.expected_type_id === active.expected_type_id &&
                 instrument?.instrument_id === instrumentId &&
+                JSON.stringify(barSemantic) === JSON.stringify(semantic) &&
                 status === "ready" &&
                 realtimeStatus !== "failed"
             )
-                return;
+                return true;
             const minutes =
-                barSemantic.formation.kind === "FIXED_DURATION"
-                    ? barSemantic.formation.window_minutes
+                semantic.formation.kind === "FIXED_DURATION"
+                    ? semantic.formation.window_minutes
                     : 0;
             if (
                 minutes < source.time_bar_capability.minimum_window_minutes ||
                 minutes > source.time_bar_capability.maximum_window_minutes
             ) {
                 setMessage("该数据源不支持当前图表周期；请先明确修改周期");
-                return;
+                return false;
             }
             try {
                 const found = await client.listInstruments(active, "", undefined, [instrumentId]);
                 if (search !== searchGeneration.current || history !== historyGeneration.current)
-                    return;
+                    return false;
                 const target = found.find((item) => item.instrument_id === instrumentId);
                 if (found.length !== 1 || target === undefined)
                     throw new MarketDataWebError("CONTRACT_ERROR", "未取得 exact 自选标的");
-                automaticPreparation.current = prepare;
                 selectSource(marketDataSourceChoiceKey(source), true);
                 watchlistSourceRef.current = active;
                 setWatchlistSource(active);
@@ -1061,10 +1015,13 @@ export function useMarketDataChart(): MarketDataChartState {
                 setStreamId(null);
                 setStreamError(null);
                 setRealtimeStatus("disabled");
+                setBarSemantic(semantic);
                 setInstrument(target);
-                await load(active, source.source_id, target, barSemantic, generation);
+                await load(active, source.source_id, target, semantic, generation);
+                return true;
             } catch (error) {
                 if (search === searchGeneration.current) apply(error);
+                return false;
             }
         },
         [
@@ -1079,6 +1036,13 @@ export function useMarketDataChart(): MarketDataChartState {
             sources,
             status
         ]
+    );
+
+    const selectWatchlistInstrument = useCallback(
+        async (source: MarketDataSourceReference, instrumentId: string) => {
+            await selectExactContext(source, instrumentId, barSemantic);
+        },
+        [barSemantic, selectExactContext]
     );
 
     const selectBarDuration = useCallback(
@@ -1106,7 +1070,8 @@ export function useMarketDataChart(): MarketDataChartState {
             setRealtimeStatus("disabled");
             setTiming(null);
             ledger.current = null;
-            olderHistoryLoader.current = null;
+            olderAbort.current?.abort();
+            olderNoProgress.current = null;
             setLedgerSnapshot(null);
             setOlderHistoryStatus("idle");
             setOlderHistoryMessage(null);
@@ -1132,36 +1097,96 @@ export function useMarketDataChart(): MarketDataChartState {
         ]
     );
 
-    const loadOlderHistory = useCallback(async () => {
-        const activeLedger = ledger.current;
-        const loader = olderHistoryLoader.current;
-        const beforeNs = activeLedger?.snapshot().earliestStartNs ?? null;
-        if (activeLedger === null || loader === null || instrument === null || beforeNs === null)
-            return;
-        setOlderHistoryStatus("loading");
-        setOlderHistoryMessage(null);
-        try {
-            const result = await loader.loadOlder({
-                instrumentId: instrument.instrument_id,
-                barSemantic,
-                beforeNs
-            });
-            if (ledger.current !== activeLedger || result.status === "stale") return;
-            setOlderHistoryStatus(result.status === "exhausted" ? "exhausted" : "idle");
-        } catch (error) {
-            if (ledger.current !== activeLedger) return;
-            if (error instanceof MarketDataBarLedgerConflictError) {
-                failLedger(error);
+    const loadOlderHistory = useCallback(
+        async (manual = false) => {
+            const active = ledger.current,
+                before = active?.snapshot().earliestStartNs ?? null;
+            if (
+                active === null ||
+                before === null ||
+                reference === null ||
+                selectedSource === null ||
+                instrument === null ||
+                (olderAbort.current !== null && !olderAbort.current.signal.aborted) ||
+                (!manual && olderNoProgress.current === before)
+            )
                 return;
+            const controller = new AbortController();
+            olderAbort.current = controller;
+            const current = () => !controller.signal.aborted && ledger.current === active;
+            setOlderHistoryStatus("loading");
+            setOlderHistoryMessage(null);
+            try {
+                let added = 0;
+                const result = await loadTemporaryMarketDataWindow(
+                    credentials,
+                    reference,
+                    {
+                        instrument_id: instrument.instrument_id,
+                        bar_semantic: barSemantic,
+                        anchor_kind: "BEFORE_TIME",
+                        before_ns: before,
+                        target_bar_count: 240
+                    },
+                    pageId,
+                    {
+                        sourceId: selectedSource.source_id,
+                        environment: selectedSource.environment,
+                        signal: controller.signal,
+                        onWindow: (window) => {
+                            if (!current()) return;
+                            const snapshot = active.snapshot();
+                            admitMarketDataChartBars([...snapshot.closedBars, ...window.bars]);
+                            const merged = active.mergeHistory(window.bars, window.resolved_end_ns);
+                            added += merged.prependedCount;
+                            if (merged.changed) setLedgerSnapshot(merged.snapshot);
+                        }
+                    }
+                );
+                if (!current()) return;
+                olderNoProgress.current = added === 0 ? before : null;
+                setOlderHistoryStatus(added === 0 ? "empty" : "idle");
+                setOlderHistoryMessage(
+                    result.coverage.status === "COMPLETE"
+                        ? null
+                        : "较早临时行情仍有缺口，可明确重试。"
+                );
+            } catch (error) {
+                if (!current()) return;
+                if (error instanceof MarketDataBarLedgerConflictError) failLedger(error);
+                else {
+                    // A page-local failure does not contradict the retained
+                    // window. A formal denial or unknown shared proof does.
+                    if (
+                        error instanceof MarketDataBarsAuthorityMismatchError ||
+                        (error instanceof MarketDataWebError &&
+                            ([401, 403, 409].includes(error.status ?? 0) ||
+                                ![
+                                    "TRANSPORT_ERROR",
+                                    "MARKET_DATA_SOURCE_TIMEOUT",
+                                    "MARKET_DATA_SOURCE_UNAVAILABLE",
+                                    "MARKET_DATA_REQUEST_INVALID",
+                                    "MARKET_DATA_WINDOW_NOT_CLOSED"
+                                ].includes(error.code)))
+                    )
+                        apply(error);
+                    setOlderHistoryStatus("failed");
+                    setOlderHistoryMessage(
+                        error instanceof Error ? error.message : "较早行情加载失败"
+                    );
+                }
+            } finally {
+                controller.abort();
+                if (olderAbort.current === controller) olderAbort.current = null;
             }
-            setOlderHistoryStatus("failed");
-            setOlderHistoryMessage(
-                error instanceof Error ? `较早行情加载失败：${error.message}` : "较早行情加载失败"
-            );
-        }
-    }, [barSemantic, failLedger, instrument]);
+        },
+        [apply, barSemantic, credentials, failLedger, instrument, pageId, reference, selectedSource]
+    );
 
     return {
+        catalogStatus,
+        restoreSelection: selectExactContext,
+        pageId,
         selectableSources,
         reference,
         resolvedSourceId,
@@ -1172,11 +1197,12 @@ export function useMarketDataChart(): MarketDataChartState {
         barCapability,
         status,
         message,
+        pageReloadRequired,
         coverage,
         chartContextKey,
         bars,
         loadedClosedBarCount: ledgerSnapshot?.closedBars.length ?? 0,
-        historyProjectionFingerprint,
+        windowFingerprint,
         realtimeStatus,
         liveBar,
         olderHistoryStatus,

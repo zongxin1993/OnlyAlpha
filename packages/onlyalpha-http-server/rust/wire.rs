@@ -46,6 +46,19 @@ impl utoipa::PartialSchema for JsonNumber {
 }
 impl utoipa::ToSchema for JsonNumber {}
 
+/// A required JSON null, shared by decoding and the exported schema.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonNull(pub ());
+impl utoipa::PartialSchema for JsonNull {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::Type::Null)
+            .into()
+    }
+}
+impl utoipa::ToSchema for JsonNull {}
+
 /// Required nullable fields decode explicit null but reject omission.
 fn required_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
@@ -807,7 +820,7 @@ strict_object!(ChartStudyIntegerDto);
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct ChartStudyLimitsDto {
-    pub max_concurrent_invocations: Version1,
+    pub max_concurrent_invocations: Version2,
     pub max_input_rows: Version2000,
     pub max_period: Version10000,
 }
@@ -2840,6 +2853,19 @@ pub enum NativeHealthStatus {
 mod tests {
     use super::*;
     #[test]
+    fn chart_limits_admit_only_the_two_owner_resource_contract() {
+        let mut raw = serde_json::json!({
+            "max_input_rows": 2000,
+            "max_period": 10000,
+            "max_concurrent_invocations": 2
+        });
+        assert!(serde_json::from_value::<ChartStudyLimitsDto>(raw.clone()).is_ok());
+        for invalid in [1, 3] {
+            raw["max_concurrent_invocations"] = serde_json::json!(invalid);
+            assert!(serde_json::from_value::<ChartStudyLimitsDto>(raw.clone()).is_err());
+        }
+    }
+    #[test]
     fn chart_output_selection_rejects_duplicates_and_declares_the_same_constraint() {
         let mut raw = serde_json::json!({
             "expected_capability_projection_fingerprint": "a".repeat(64),
@@ -2945,6 +2971,351 @@ mod tests {
                 "\"public_configuration\":{},\"probe_configuration\":null"
             ))
             .is_ok()
+        );
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporaryMarketDataSourceKind {
+    #[serde(rename = "TEMPORARY_MARKET_DATA")]
+    Temporary,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporaryMarketDataAuthority {
+    #[serde(rename = "DISPLAY_ONLY")]
+    DisplayOnly,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporaryMarketDataPublication {
+    #[serde(rename = "NOT_A_RESEARCH_RESULT")]
+    NotResearch,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporaryMarketDataCoverageStatus {
+    #[serde(rename = "PARTIAL")]
+    Partial,
+    #[serde(rename = "COMPLETE")]
+    Complete,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryMarketDataCoverageDto {
+    pub status: TemporaryMarketDataCoverageStatus,
+    #[schema(minimum = 1.0, maximum = 2000.0)]
+    pub expected_bar_count: u32,
+    #[schema(maximum = 2000.0)]
+    pub actual_bar_count: u32,
+    pub gaps: Vec<MarketDataCoverageGapDto>,
+}
+strict_object!(TemporaryMarketDataCoverageDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryMarketDataWindowDto {
+    pub schema_version: Version1,
+    pub source_kind: TemporaryMarketDataSourceKind,
+    pub authority: TemporaryMarketDataAuthority,
+    pub publication_status: TemporaryMarketDataPublication,
+    pub source_selection: MarketDataSourceSelectionDto,
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    pub anchor_kind: MarketDataBarWindowDtoAnchorKind,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub requested_before_ns: Option<String>,
+    #[schema(minimum = 1.0, maximum = 2000.0)]
+    pub requested_bar_count: u32,
+    #[schema(pattern = "^(?:0|[1-9][0-9]*)$")]
+    pub resolved_start_ns: String,
+    #[schema(pattern = "^(?:0|[1-9][0-9]*)$")]
+    pub resolved_end_ns: String,
+    pub coverage: TemporaryMarketDataCoverageDto,
+    pub bars: Vec<MarketDataBarDto>,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub window_fingerprint: String,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub calendar_fingerprint: String,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub resolution_plan_fingerprint: String,
+    pub resolution_mode: MarketDataBarWindowDtoResolutionModeValue,
+}
+strict_object!(TemporaryMarketDataWindowDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryChartStudyEvaluateRequestDto {
+    pub schema_version: Version2,
+    pub source_kind: TemporaryMarketDataSourceKind,
+    #[schema(format = "uuid")]
+    pub page_id: String,
+    pub source_reference: ChartStudySourceReferenceDto,
+    #[schema(min_length = 1, max_length = 256)]
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    pub window: ChartStudyWindowDto,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub expected_window_fingerprint: String,
+    pub calculation: ChartStudyCalculationRequestDto,
+}
+strict_object!(TemporaryChartStudyEvaluateRequestDto);
+
+fn bounded_chart_calculations<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<ChartStudyCalculationRequestDto>, D::Error> {
+    let values = Vec::<ChartStudyCalculationRequestDto>::deserialize(d)?;
+    if values.is_empty() || values.len() > 4 {
+        return Err(serde::de::Error::custom(
+            "batch requires one to four calculations",
+        ));
+    }
+    Ok(values)
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryChartStudyBatchRequestDto {
+    pub schema_version: Version2,
+    pub source_kind: TemporaryMarketDataSourceKind,
+    #[schema(format = "uuid")]
+    pub page_id: String,
+    pub source_reference: ChartStudySourceReferenceDto,
+    #[schema(min_length = 1, max_length = 256)]
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    pub window: ChartStudyWindowDto,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub expected_window_fingerprint: String,
+    #[schema(min_items = 1, max_items = 4)]
+    #[serde(deserialize_with = "bounded_chart_calculations")]
+    pub calculations: Vec<ChartStudyCalculationRequestDto>,
+}
+strict_object!(TemporaryChartStudyBatchRequestDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporaryChartStudyBatchError {
+    #[serde(rename = "CHART_STUDY_REQUEST_INVALID")]
+    RequestInvalid,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "status", deny_unknown_fields)]
+pub enum TemporaryChartStudyBatchItemDto {
+    #[serde(rename = "EVALUATED")]
+    Evaluated {
+        #[schema(minimum = 0, maximum = 3)]
+        request_index: u8,
+        evaluation: TemporaryChartStudyEvaluateDto,
+    },
+    #[serde(rename = "REJECTED")]
+    Rejected {
+        #[schema(minimum = 0, maximum = 3)]
+        request_index: u8,
+        error: TemporaryChartStudyBatchError,
+    },
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryChartStudyBatchDto {
+    pub schema_version: Version2,
+    pub source_kind: ChartStudyEvaluateDtoSourceKind,
+    pub authority: ChartStudyEvaluateDtoAuthority,
+    pub publication_status: ChartStudyEvaluateDtoPublicationStatus,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub window_fingerprint: String,
+    #[schema(min_items = 1, max_items = 4)]
+    pub results: Vec<TemporaryChartStudyBatchItemDto>,
+}
+strict_object!(TemporaryChartStudyBatchDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryChartStudyInputDto {
+    pub source_kind: TemporaryMarketDataSourceKind,
+    pub anchor_kind: ChartStudyInputDtoAnchorKind,
+    pub initialization: ChartStudyInputDtoInitialization,
+    #[schema(pattern = "^[1-9][0-9]{0,18}$")]
+    pub before_ns: String,
+    #[schema(minimum = 1, maximum = 2000)]
+    pub target_bar_count: u32,
+    #[schema(pattern = "^(?:0|[1-9][0-9]*)$")]
+    pub resolved_start_ns: String,
+    #[schema(pattern = "^[1-9][0-9]{0,18}$")]
+    pub resolved_end_ns: String,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub window_fingerprint: String,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub calendar_fingerprint: String,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub resolution_plan_fingerprint: String,
+    pub resolution_mode: MarketDataBarWindowDtoResolutionModeValue,
+}
+strict_object!(TemporaryChartStudyInputDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryChartStudyEvaluateDto {
+    pub schema_version: Version2,
+    pub source_kind: ChartStudyEvaluateDtoSourceKind,
+    pub authority: ChartStudyEvaluateDtoAuthority,
+    pub publication_status: ChartStudyEvaluateDtoPublicationStatus,
+    pub source_selection: MarketDataSourceSelectionDto,
+    #[schema(min_length = 1, max_length = 256)]
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    pub input: TemporaryChartStudyInputDto,
+    pub coverage: TemporaryMarketDataCoverageDto,
+    pub query_status: ChartStudyEvaluateDtoQueryStatus,
+    pub calculation: ChartStudyCalculationDto,
+    #[schema(max_items = 16)]
+    pub series: Vec<ChartStudySeriesDto>,
+    pub preview: JsonNull,
+}
+strict_object!(TemporaryChartStudyEvaluateDto);
+
+#[cfg(test)]
+mod temporary_wire_tests {
+    use super::*;
+    #[test]
+    fn temporary_batch_wire_rejects_unbounded_or_cross_authority_requests() {
+        let calculation = serde_json::json!({"kind":"INDICATOR","type_id":"onlyalpha.indicator.sma","semantic_version":"1","typed_parameters":{},"output_members":["value"],"expected_descriptor_fingerprint":"a".repeat(64),"expected_implementation_fingerprint":"b".repeat(64),"expected_capability_projection_fingerprint":"c".repeat(64)});
+        let good = serde_json::json!({"schema_version":2,"source_kind":"TEMPORARY_MARKET_DATA","page_id":"00000000-0000-4000-8000-000000000001","source_reference":{"integration_id":"source","integration_revision_fingerprint":"a".repeat(64),"expected_type_id":"test.source"},"instrument_id":"BTCUSDT.BINANCE","bar_semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":7,"stride_minutes":7,"alignment":"SESSION_START"},"price_type":"LAST","adjustment_policy":"RAW"},"window":{"anchor_kind":"BEFORE_TIME","before_ns":"6000000000000","target_bar_count":2000},"expected_window_fingerprint":"d".repeat(64),"calculations":[calculation.clone()]});
+        assert!(serde_json::from_value::<TemporaryChartStudyBatchRequestDto>(good.clone()).is_ok());
+        for count in [0, 5] {
+            let mut bad = good.clone();
+            bad["calculations"] = serde_json::json!(vec![calculation.clone(); count]);
+            assert!(serde_json::from_value::<TemporaryChartStudyBatchRequestDto>(bad).is_err());
+        }
+        for field in [
+            "calculation",
+            "bars",
+            "revision_evidence",
+            "runtime_generation",
+        ] {
+            let mut bad = good.clone();
+            bad[field] = serde_json::json!({});
+            assert!(serde_json::from_value::<TemporaryChartStudyBatchRequestDto>(bad).is_err());
+        }
+        for code in [
+            "CHART_STUDY_OUTPUT_INVALID",
+            "REGISTRATION_CHANGED",
+            "REQUEST_REJECTED",
+        ] {
+            let bad = serde_json::json!({"status":"REJECTED","request_index":0,"error":code});
+            assert!(serde_json::from_value::<TemporaryChartStudyBatchItemDto>(bad).is_err());
+        }
+    }
+    #[test]
+    fn temporary_chart_input_decodes_both_native_and_derived_without_widening_sealed_input() {
+        for mode in ["PROVIDER_NATIVE", "DERIVED"] {
+            let input = serde_json::json!({"source_kind":"TEMPORARY_MARKET_DATA","anchor_kind":"BEFORE_TIME","initialization":"FINITE_WINDOW_START","before_ns":"6000000000000","target_bar_count":2000,"resolved_start_ns":"1","resolved_end_ns":"6000000000000","window_fingerprint":"a".repeat(64),"calendar_fingerprint":"b".repeat(64),"resolution_plan_fingerprint":"c".repeat(64),"resolution_mode":mode});
+            assert!(
+                serde_json::from_value::<TemporaryChartStudyInputDto>(input).is_ok(),
+                "{mode}"
+            );
+        }
+        assert!(serde_json::from_str::<ChartStudyInputDtoResolutionMode>("\"DERIVED\"").is_err());
+    }
+
+    #[test]
+    fn temporary_preview_is_required_null_in_both_decoder_and_schema() {
+        assert!(serde_json::from_str::<JsonNull>("null").is_ok());
+        for value in ["{}", "[]", "true", "0", "\"preview\""] {
+            assert!(serde_json::from_str::<JsonNull>(value).is_err());
+        }
+        let schema = serde_json::to_value(<JsonNull as utoipa::PartialSchema>::schema()).unwrap();
+        assert_eq!(schema["type"], "null");
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct WorkspaceSeriesStyleDto {
+    pub color: String,
+    pub visible: bool,
+}
+strict_object!(WorkspaceSeriesStyleDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct WorkspacePresentationDto {
+    pub placement: String,
+    pub color: String,
+    #[schema(minimum = 1.0, maximum = 5.0)]
+    pub line_width: f64,
+    #[schema(minimum = 0.0, maximum = 1.0)]
+    pub opacity: f64,
+    pub visible: bool,
+    pub series_styles: std::collections::BTreeMap<String, WorkspaceSeriesStyleDto>,
+}
+strict_object!(WorkspacePresentationDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct WorkspaceStudyDto {
+    pub kind: String,
+    pub type_id: String,
+    pub semantic_version: String,
+    pub parameters: std::collections::BTreeMap<String, ResearchScalarDto>,
+    #[schema(min_items = 1, max_items = 32)]
+    pub output_names: Vec<String>,
+    pub presentation: WorkspacePresentationDto,
+}
+strict_object!(WorkspaceStudyDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct WorkspaceConfigurationDto {
+    pub source: WatchlistSourceDto,
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    #[schema(max_items = 32)]
+    pub studies: Vec<WorkspaceStudyDto>,
+}
+strict_object!(WorkspaceConfigurationDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct SaveWorkspaceDto {
+    pub schema_version: Version2,
+    pub command_id: String,
+    #[schema(minimum = 0.0)]
+    pub expected_version: i64,
+    pub configuration: WorkspaceConfigurationDto,
+}
+strict_object!(SaveWorkspaceDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct WorkspaceBookDto {
+    pub schema_version: Version2,
+    #[schema(minimum = 0.0)]
+    pub version: i64,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub configuration: Option<WorkspaceConfigurationDto>,
+}
+strict_object!(WorkspaceBookDto);
+
+#[cfg(test)]
+mod default_workspace_tests {
+    use super::*;
+    #[test]
+    fn default_workspace_preserves_existing_half_pixel_line_width() {
+        assert!(serde_json::from_str::<WorkspacePresentationDto>(r##"{"placement":"PRICE_OVERLAY","color":"#abcdef","line_width":2.5,"opacity":0.6,"visible":true,"series_styles":{}}"##).is_ok());
+    }
+    #[test]
+    fn default_workspace_config_wire_excludes_values_and_requires_explicit_version() {
+        let config = serde_json::json!({"source":{"integration_id":"source","integration_revision_fingerprint":"a".repeat(64),"expected_type_id":"test.source"},"instrument_id":"BTCUSDT.BINANCE","bar_semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":7,"stride_minutes":7,"alignment":"SESSION_START"},"price_type":"LAST","adjustment_policy":"RAW"},"studies":[]});
+        let good = serde_json::json!({"schema_version":2,"command_id":"00000000-0000-4000-8000-000000000001","expected_version":0,"configuration":config});
+        assert!(serde_json::from_str::<SaveWorkspaceDto>(&good.to_string()).is_ok());
+        for field in ["bars", "results", "viewport", "secret", "capability"] {
+            let mut bad = good.clone();
+            bad["configuration"][field] = serde_json::json!([]);
+            assert!(serde_json::from_str::<SaveWorkspaceDto>(&bad.to_string()).is_err());
+        }
+        let mut bad = good.clone();
+        bad.as_object_mut().unwrap().remove("expected_version");
+        assert!(serde_json::from_str::<SaveWorkspaceDto>(&bad.to_string()).is_err());
+        assert!(
+            serde_json::from_str::<WorkspaceBookDto>(
+                r#"{"schema_version":2,"version":0,"configuration":null}"#
+            )
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<WorkspaceBookDto>(r#"{"schema_version":2,"version":0}"#)
+                .is_err()
         );
     }
 }

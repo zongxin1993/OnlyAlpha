@@ -1005,7 +1005,7 @@ async fn drain_capture(
     Ok(drained)
 }
 
-fn timing_payload(
+pub(super) fn timing_payload(
     stream_id: &str,
     timing: Option<onlyalpha_integration_contract::source::IngressTiming>,
 ) -> Value {

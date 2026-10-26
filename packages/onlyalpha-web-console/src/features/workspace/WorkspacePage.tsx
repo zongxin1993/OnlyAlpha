@@ -1,6 +1,9 @@
+import { useDefaultWorkspace } from "./useDefaultWorkspace";
+import type { WorkspaceConfiguration } from "../../api/workspace/client";
+import { sameChartBinding } from "../../api/chartStudies/client";
 import { WatchlistPanel } from "./WatchlistPanel";
 import { formatMarketDataDelay } from "./marketDataTiming";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { SymbolSearch } from "./SymbolSearch";
 import { useWatchlists } from "./useWatchlists";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
@@ -16,7 +19,7 @@ import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/W
 import { useMarketDataChart } from "./useMarketDataChart";
 import { LocalReadAccess } from "./LocalReadAccess";
 import { ChartStudies } from "./ChartStudies";
-import { onlyMarketDataChartContextKey } from "./marketDataHistoryLoader";
+import { onlyMarketDataChartContextKey } from "./marketDataChartContext";
 import {
     fixedDurationMinutes,
     formatBarSemantic,
@@ -79,24 +82,76 @@ export function WorkspacePage() {
     };
     const [managerOpen, setManagerOpen] = useState(false);
     const dataSources = useDataSourceOverview();
-    const marketData = useMarketDataChart();
     const credentials = useLocalReadCredentials();
+    const workspace = useDefaultWorkspace(credentials);
+    const startup = !credentials.localSession
+        ? "default"
+        : workspace.restoration === null
+          ? "pending"
+          : workspace.restoration.configuration === null
+            ? "default"
+            : "restore";
+    const marketData = useMarketDataChart({ startup });
+    const studyRestoration = useMemo(() => {
+        const saved = workspace.restoration;
+        return saved?.configuration == null
+            ? null
+            : {
+                  key: saved.key,
+                  contextKey: onlyMarketDataChartContextKey(
+                      saved.configuration.source,
+                      saved.configuration.instrument_id,
+                      saved.configuration.bar_semantic
+                  ),
+                  studies: saved.configuration.studies
+              };
+    }, [workspace.restoration]);
+    const [restoreOutcome, setRestoreOutcome] = useState<{
+        key: string;
+        message: string | null;
+    } | null>(null);
+    const restoreNotice =
+        restoreOutcome?.key === workspace.restoration?.key ? restoreOutcome?.message : null;
+    const restoreKey = useRef<string | null>(null);
+    const { catalogStatus, restoreSelection } = marketData;
+    useEffect(() => {
+        const saved = workspace.restoration;
+        if (saved === null || restoreKey.current === saved.key || catalogStatus === "loading")
+            return;
+        restoreKey.current = saved.key;
+        if (saved.configuration === null) return;
+        const config = saved.configuration;
+        void restoreSelection(config.source, config.instrument_id, config.bar_semantic).then(
+            (restored) => {
+                if (restoreKey.current === saved.key)
+                    setRestoreOutcome({
+                        key: saved.key,
+                        message: restored
+                            ? null
+                            : "保存的行情上下文未恢复；请检查精确来源、标的和周期，不会自动换源。"
+                    });
+            }
+        );
+    }, [catalogStatus, restoreSelection, workspace.restoration]);
     const market = useMarketDataApi();
     const watchlists = useWatchlists(credentials);
     const realInstrument = marketData.instrument;
-    const studyContext =
-        marketData.reference === null || realInstrument === null
-            ? null
-            : {
-                  key: onlyMarketDataChartContextKey(
-                      marketData.reference,
-                      realInstrument.instrument_id,
-                      marketData.barSemantic
-                  ),
-                  source: marketData.reference,
-                  instrumentId: realInstrument.instrument_id,
-                  barSemantic: marketData.barSemantic
-              };
+    const studyContext = useMemo(
+        () =>
+            marketData.reference === null || realInstrument === null
+                ? null
+                : {
+                      key: onlyMarketDataChartContextKey(
+                          marketData.reference,
+                          realInstrument.instrument_id,
+                          marketData.barSemantic
+                      ),
+                      source: marketData.reference,
+                      instrumentId: realInstrument.instrument_id,
+                      barSemantic: marketData.barSemantic
+                  },
+        [marketData.reference, realInstrument, marketData.barSemantic]
+    );
     const selectedBar =
         selection?.contextKey === marketData.chartContextKey
             ? marketData.liveBar?.barStartNs === selection.barStartNs
@@ -115,14 +170,12 @@ export function WorkspacePage() {
                 : "preview";
     const olderHistoryCopy =
         marketData.olderHistoryStatus === "loading"
-            ? "正在加载更早行情…"
-            : marketData.olderHistoryStatus === "acquiring"
-              ? "正在补齐更早行情…"
-              : marketData.olderHistoryStatus === "failed"
-                ? (marketData.olderHistoryMessage ?? "更早行情加载失败")
-                : marketData.olderHistoryStatus === "exhausted"
-                  ? "已到达可用历史起点"
-                  : null;
+            ? "正在加载更早临时行情…"
+            : marketData.olderHistoryStatus === "failed"
+              ? (marketData.olderHistoryMessage ?? "更早行情加载失败")
+              : marketData.olderHistoryStatus === "empty"
+                ? "当前范围暂无更早临时行情，可重试"
+                : null;
     const duration = fixedDurationMinutes(marketData.barSemantic);
     const preset = realBarPresets.includes(duration as (typeof realBarPresets)[number]);
     const statusCopy =
@@ -158,8 +211,8 @@ export function WorkspacePage() {
                   { label: "Bar semantic", value: formatBarSemantic(marketData.barSemantic) },
                   { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
                   {
-                      label: "History projection",
-                      value: marketData.historyProjectionFingerprint ?? "尚未验证"
+                      label: "Temporary window",
+                      value: marketData.windowFingerprint ?? "尚未验证"
                   },
                   { label: "Realtime", value: marketData.realtimeStatus },
                   {
@@ -361,7 +414,7 @@ export function WorkspacePage() {
                         />
                         {marketData.status === "ready" ? (
                             <span className="real-tag" data-testid="market-data-source-tag">
-                                real · DB
+                                临时行情 · 仅内存
                             </span>
                         ) : null}
                         <button
@@ -380,146 +433,231 @@ export function WorkspacePage() {
                 </header>
                 <ChartStudies
                     context={studyContext}
+                    restoration={studyRestoration}
                     {...(credentials.capture().bearer === null && !credentials.localSession
                         ? {}
                         : { credentials })}
                 >
-                    {({ instances, selectedId, incarnationKey, onTransientRevalidated }) => (
-                        <>
-                            {instances.length === 0 ? null : (
-                                <p
-                                    className="chart-region__overlay-note"
-                                    data-testid="real-overlay-note"
+                    {({
+                        instances,
+                        selectedId,
+                        incarnationKey,
+                        onTransientRevalidated,
+                        configurationIntents,
+                        configurationReady
+                    }) => {
+                        const workspaceConfiguration: WorkspaceConfiguration | null =
+                            studyContext === null
+                                ? null
+                                : {
+                                      source: {
+                                          ...studyContext.source,
+                                          expected_type_id:
+                                              studyContext.source.expected_type_id ?? ""
+                                      },
+                                      instrument_id: studyContext.instrumentId,
+                                      bar_semantic: studyContext.barSemantic,
+                                      studies: [...configurationIntents]
+                                  };
+                        const workspaceDirty =
+                            workspaceConfiguration !== null &&
+                            !sameChartBinding(
+                                workspaceConfiguration,
+                                workspace.book?.configuration
+                            );
+                        return (
+                            <>
+                                <div
+                                    className="workspace-configuration"
+                                    aria-label="默认工作区配置"
                                 >
-                                    {instances.length === 0
-                                        ? CATALOG_NOTE
-                                        : instances.some(
-                                                (instance) =>
-                                                    instance.selection.source ===
-                                                    "CHART_STUDY_TRANSIENT"
-                                            )
-                                          ? "图表指标 · 仅供观察，不是正式研究结果"
-                                          : "指标尚未接入计算"}
-                                </p>
-                            )}
-                            <p
-                                className="chart-region__status"
-                                role="status"
-                                data-status={marketData.status}
-                                data-history-projection-fingerprint={
-                                    marketData.historyProjectionFingerprint ?? ""
-                                }
-                                data-loaded-bar-count={marketData.loadedClosedBarCount}
-                                data-older-history-status={marketData.olderHistoryStatus}
-                                data-testid="market-data-status"
-                            >
-                                {statusCopy}
-                                {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
-                                {credentials.localSession &&
-                                (marketData.status === "incomplete" ||
-                                    marketData.status === "failed") &&
-                                realInstrument !== null ? (
                                     <button
                                         type="button"
+                                        disabled={
+                                            workspace.book === null ||
+                                            workspaceConfiguration === null ||
+                                            workspace.busy ||
+                                            workspace.pending !== null ||
+                                            !configurationReady ||
+                                            !workspaceDirty
+                                        }
                                         onClick={() => {
-                                            void marketData.selectBarDuration(duration);
+                                            if (workspaceConfiguration !== null)
+                                                void workspace.save(workspaceConfiguration);
                                         }}
                                     >
-                                        重新读取历史
+                                        保存默认工作区
                                     </button>
-                                ) : null}
-                            </p>
-                            <div
-                                className="chart-observation"
-                                data-testid="market-data-observation"
-                                data-observation-mode={observationMode}
-                                data-bar-start-ns={observation?.barStartNs ?? ""}
-                                data-chart-context-key={marketData.chartContextKey ?? ""}
-                            >
-                                <span>
-                                    {observation == null
-                                        ? "UTC —"
-                                        : new Date(observation.time * 1000)
-                                              .toISOString()
-                                              .replace("T", " ")
-                                              .replace(".000Z", " UTC")}
-                                </span>
-                                {(["open", "high", "low", "close", "volume"] as const).map(
-                                    (field) => (
-                                        <span key={field}>
-                                            {
-                                                {
-                                                    open: "O",
-                                                    high: "H",
-                                                    low: "L",
-                                                    close: "C",
-                                                    volume: "V"
-                                                }[field]
-                                            }{" "}
-                                            <span data-observation-field={field}>
-                                                {observation?.[field] ?? "—"}
-                                            </span>
-                                        </span>
-                                    )
-                                )}
-                                <span>
-                                    {observationMode === "crosshair"
-                                        ? "十字线"
-                                        : observationMode === "preview"
-                                          ? "实时预览"
-                                          : observationMode === "latest-closed"
-                                            ? "最新已关闭"
-                                            : "不可用"}
-                                </span>
-                            </div>
-                            <div className="chart-region__body">
-                                <TransientStudyPriceChart
-                                    context={studyContext}
-                                    previewStreamId={
-                                        marketData.realtimeStatus === "ready"
-                                            ? marketData.streamId
-                                            : null
-                                    }
-                                    onTransientRevalidated={onTransientRevalidated}
-                                    dataGeneration={marketData.historyProjectionFingerprint}
-                                    expectedSourceId={marketData.resolvedSourceId}
-                                    expectedEnvironment={
-                                        marketData.selectableSources.find(
-                                            (source) =>
-                                                marketDataSourceChoiceKey(source) ===
-                                                marketData.sourceId
-                                        )?.environment ?? null
-                                    }
-                                    studies={instances}
-                                    selectedStudyId={selectedId}
-                                    incarnationKey={incarnationKey}
-                                    chartType={chartType}
-                                    onSelection={setSelection}
-                                    barSemantic={marketData.barSemantic}
-                                    bars={marketData.bars}
-                                    liveBar={marketData.liveBar}
-                                    contextKey={marketData.chartContextKey}
-                                    onNearLeftEdge={() => {
-                                        void marketData.loadOlderHistory();
-                                    }}
-                                />
-                                {latestBar == null ? (
-                                    <div className="chart-region__empty" aria-label="行情空态">
-                                        <p>{statusCopy}</p>
+                                    <button
+                                        type="button"
+                                        disabled={workspace.busy || workspace.pending !== null}
+                                        onClick={() => void workspace.reload()}
+                                    >
+                                        载入已保存工作区
+                                    </button>
+                                    {workspace.pending === null ? null : (
                                         <button
                                             type="button"
-                                            className="button-secondary"
+                                            disabled={workspace.busy}
+                                            onClick={() => void workspace.resolvePending()}
+                                        >
+                                            核对原保存提交
+                                        </button>
+                                    )}
+                                    <span>
+                                        {workspace.busy
+                                            ? "正在处理保存配置…"
+                                            : workspace.book === null
+                                              ? "保存配置尚未读取"
+                                              : workspaceDirty
+                                                ? "有未保存配置"
+                                                : "配置与已保存版本一致"}
+                                    </span>
+                                    {workspace.message === null ? null : (
+                                        <p role="status">{workspace.message}</p>
+                                    )}
+                                    {restoreNotice === null ? null : (
+                                        <p role="alert">{restoreNotice}</p>
+                                    )}
+                                </div>
+
+                                {instances.length === 0 ? null : (
+                                    <p
+                                        className="chart-region__overlay-note"
+                                        data-testid="real-overlay-note"
+                                    >
+                                        {instances.length === 0
+                                            ? CATALOG_NOTE
+                                            : instances.some(
+                                                    (instance) =>
+                                                        instance.selection.source ===
+                                                        "CHART_STUDY_TRANSIENT"
+                                                )
+                                              ? "图表指标 · 仅供观察，不是正式研究结果"
+                                              : "指标尚未接入计算"}
+                                    </p>
+                                )}
+                                <p
+                                    className="chart-region__status"
+                                    role="status"
+                                    data-status={marketData.status}
+                                    data-temporary-window-fingerprint={
+                                        marketData.windowFingerprint ?? ""
+                                    }
+                                    data-loaded-bar-count={marketData.loadedClosedBarCount}
+                                    data-older-history-status={marketData.olderHistoryStatus}
+                                    data-testid="market-data-status"
+                                >
+                                    {marketData.pageReloadRequired
+                                        ? "本地会话已失效；请重新载入页面后继续。"
+                                        : statusCopy}
+                                    {olderHistoryCopy === null ? null : ` · ${olderHistoryCopy}`}
+                                    {credentials.localSession && marketData.pageReloadRequired ? (
+                                        <a href="/">重新载入页面</a>
+                                    ) : credentials.localSession &&
+                                      (marketData.status === "incomplete" ||
+                                          marketData.status === "failed" ||
+                                          marketData.realtimeStatus === "failed") &&
+                                      realInstrument !== null ? (
+                                        <button
+                                            type="button"
                                             onClick={() => {
-                                                setManagerOpen(true);
+                                                void marketData.selectBarDuration(duration);
                                             }}
                                         >
-                                            管理数据源
+                                            重新读取临时行情
                                         </button>
-                                    </div>
-                                ) : null}
-                            </div>
-                        </>
-                    )}
+                                    ) : null}
+                                </p>
+                                <div
+                                    className="chart-observation"
+                                    data-testid="market-data-observation"
+                                    data-observation-mode={observationMode}
+                                    data-bar-start-ns={observation?.barStartNs ?? ""}
+                                    data-chart-context-key={marketData.chartContextKey ?? ""}
+                                >
+                                    <span>
+                                        {observation == null
+                                            ? "UTC —"
+                                            : new Date(observation.time * 1000)
+                                                  .toISOString()
+                                                  .replace("T", " ")
+                                                  .replace(".000Z", " UTC")}
+                                    </span>
+                                    {(["open", "high", "low", "close", "volume"] as const).map(
+                                        (field) => (
+                                            <span key={field}>
+                                                {
+                                                    {
+                                                        open: "O",
+                                                        high: "H",
+                                                        low: "L",
+                                                        close: "C",
+                                                        volume: "V"
+                                                    }[field]
+                                                }{" "}
+                                                <span data-observation-field={field}>
+                                                    {observation?.[field] ?? "—"}
+                                                </span>
+                                            </span>
+                                        )
+                                    )}
+                                    <span>
+                                        {observationMode === "crosshair"
+                                            ? "十字线"
+                                            : observationMode === "preview"
+                                              ? "实时预览"
+                                              : observationMode === "latest-closed"
+                                                ? "最新已关闭"
+                                                : "不可用"}
+                                    </span>
+                                </div>
+                                <div className="chart-region__body">
+                                    <TransientStudyPriceChart
+                                        context={studyContext}
+                                        pageId={marketData.pageId}
+                                        onTransientRevalidated={onTransientRevalidated}
+                                        dataGeneration={marketData.windowFingerprint}
+                                        continuityReady={marketData.realtimeStatus === "ready"}
+                                        expectedSourceId={marketData.resolvedSourceId}
+                                        expectedEnvironment={
+                                            marketData.selectableSources.find(
+                                                (source) =>
+                                                    marketDataSourceChoiceKey(source) ===
+                                                    marketData.sourceId
+                                            )?.environment ?? null
+                                        }
+                                        studies={instances}
+                                        selectedStudyId={selectedId}
+                                        incarnationKey={incarnationKey}
+                                        chartType={chartType}
+                                        onSelection={setSelection}
+                                        barSemantic={marketData.barSemantic}
+                                        bars={marketData.bars}
+                                        liveBar={marketData.liveBar}
+                                        contextKey={marketData.chartContextKey}
+                                        onNearLeftEdge={() => {
+                                            void marketData.loadOlderHistory();
+                                        }}
+                                    />
+                                    {latestBar == null ? (
+                                        <div className="chart-region__empty" aria-label="行情空态">
+                                            <p>{statusCopy}</p>
+                                            <button
+                                                type="button"
+                                                className="button-secondary"
+                                                onClick={() => {
+                                                    setManagerOpen(true);
+                                                }}
+                                            >
+                                                管理数据源
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </>
+                        );
+                    }}
                 </ChartStudies>
             </section>
             <aside className="context-panel" aria-label="上下文面板">

@@ -86,6 +86,41 @@ async fn watchlist(
     };
     Ok(json!({"book":book.map(|value|value.to_record())}))
 }
+async fn workspace(
+    request: &Value,
+    client: &mut tokio_postgres::Client,
+) -> Result<Value, onlyalpha_product_runtime::workspace::Error> {
+    use onlyalpha_product_runtime::{
+        workspace::{Book, Error},
+        workspace_postgres::Workspaces,
+    };
+    let mut owner = Workspaces::new(
+        client,
+        request["namespace_id"].as_str().ok_or(Error::Invalid)?,
+    )?;
+    let id = CommandId::new(request["command_id"].as_str().ok_or(Error::Invalid)?)
+        .map_err(|_| Error::Invalid)?;
+    let book = match request["op"].as_str() {
+        Some("workspace-read") => Some(owner.read().await?),
+        Some("workspace-command") => owner.command(&id).await?,
+        Some("workspace-save") => {
+            let proposed = Book::from_record(
+                &json!({"version":request["expected_version"],"configuration":request["configuration"]}),
+            )?;
+            Some(
+                owner
+                    .save(
+                        &id,
+                        &proposed,
+                        request["accepted_at"].as_str().ok_or(Error::Invalid)?,
+                    )
+                    .await?,
+            )
+        }
+        _ => return Err(Error::Invalid),
+    };
+    Ok(json!({"book":book.map(|value|value.to_record())}))
+}
 async fn integration(
     request: &Value,
     client: &mut tokio_postgres::Client,
@@ -475,6 +510,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let r=if matches!(op,"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(receipt(&request)?)} else {None};
   let outcome:Result<Value,Error>=async {
    Ok(match op {
+    value if value.starts_with("workspace-")=>match workspace(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     value if value.starts_with("watchlist-")=>match watchlist(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     "credential"=>credential(&request,&mut client).await.map_err(|_|Error::Unavailable)?,
     "integration-write"=>integration_write(&request,&mut client).await.map_err(|_|Error::Unavailable)?,

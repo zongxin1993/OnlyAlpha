@@ -327,6 +327,7 @@ def test_pre_0038_acquisition_identity_remains_exactly_readable(postgres_dsn: st
         "0051_watchlist_configuration",
         "0052_watchlist_member_sources",
         "0053_backtest_native_specification",
+        "0054_default_workspace_configuration",
     )
     catalog = OnlyPostgresMarketDataCatalog(postgres_dsn)
     loaded = catalog.load_acquisition_intent(acquisition_id)

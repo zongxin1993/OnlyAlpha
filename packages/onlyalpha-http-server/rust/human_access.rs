@@ -103,7 +103,10 @@ impl Access {
         let mode = single(headers, "sec-fetch-mode")?;
         let destination = single(headers, "sec-fetch-dest")?;
         let upgrade = single(headers, "upgrade")?;
-        let stream = path == "/api/v2/market-data/stream" || upgrade.is_some();
+        let stream = matches!(
+            path.as_str(),
+            "/api/v2/market-data/stream" | "/api/v2/chart/market-data/stream"
+        ) || upgrade.is_some();
         let mutation = !matches!(*request.method(), Method::GET | Method::HEAD) || stream;
         if single(headers, "host")? != Some(HOST)
             || origin.is_some_and(|value| value != ORIGIN)

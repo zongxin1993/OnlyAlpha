@@ -1405,6 +1405,21 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
+    query.capabilities(&source_session).unwrap();
+    let second_pending = query
+        .prepare(
+            &app,
+            resolved.as_ref(),
+            &source_session,
+            &mut store(business.client_mut().await.unwrap(), &ch),
+            onlyalpha_product_runtime::chart::ChartInput {
+                raw: &pending_request.to_string(),
+                preview_stream: None,
+                clock_ns: NOW,
+            },
+        )
+        .await
+        .unwrap();
     assert!(matches!(
         query.capabilities(&source_session),
         Err(onlyalpha_product_runtime::chart::Error::Capacity)
@@ -1421,6 +1436,13 @@ async fn native_source_application() {
         pending.execute().is_err(),
         "cancelled invocation cannot retry a fresh process"
     );
+    let second_cancellation = second_pending.cancellation().unwrap();
+    assert_eq!(
+        second_cancellation.state(),
+        onlyalpha_calculation_worker::ProcessState::Running
+    );
+    second_cancellation.cancel().unwrap();
+    assert!(second_pending.execute().is_err());
     let dropped_request = chart_request(&original, &caps["capabilities"][0], None).to_string();
     let dropped = query
         .prepare(

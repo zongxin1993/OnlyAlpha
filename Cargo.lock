@@ -1173,7 +1173,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "onlyalpha-account"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-backtest-driver"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "onlyalpha-calculation",
  "onlyalpha-calculation-worker",
@@ -1201,7 +1201,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-broker"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -1211,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "serde_json",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-calculation-worker"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "onlyalpha-calculation",
  "onlyalpha-domain",
@@ -1234,7 +1234,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-clock"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-domain"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "jiff",
@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-event"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-execution"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-account",
@@ -1282,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-fee"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-gateway-protocol"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "prost",
  "prost-build",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-http-server"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-integration-contract"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -1346,11 +1346,11 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-kernel"
-version = "0.11.0"
+version = "0.11.1"
 
 [[package]]
 name = "onlyalpha-margin"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -1361,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-construction"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-delivery"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-pipeline"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-market-data-state"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-domain",
@@ -1405,7 +1405,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-metadata-json"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-order"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -1425,7 +1425,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-plugin-binance"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "flate2",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-plugin-tushare"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "onlyalpha-integration-contract",
  "onlyalpha-metadata-json",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-position"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-product-runtime"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-risk"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-runtime-persistence"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-settlement"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "onlyalpha-domain",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "num-bigint",
  "onlyalpha-calculation",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "onlyalpha-strategy-ledger"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bigdecimal",
  "num-bigint",

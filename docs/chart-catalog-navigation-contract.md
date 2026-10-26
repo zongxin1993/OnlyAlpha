@@ -293,6 +293,29 @@ resources, numeric policy and atomic value/readiness result. The Product owner
 checks the installed resource bytes and full capability relation before admission.
 An unavailable installation is unavailable, never an empty ready catalog.
 
+`POST /api/v2/chart/temporary-studies/evaluate-batch` accepts one to four ordered Calculation intents sharing one exact
+page, Source/Integration Revision, Instrument, BarSemantic and closed-window fingerprint. It retains the same ten-second
+budget, one owned child per request and original Source release fence as the single-item temporary Query. One newly isolated worker
+serves that request only; each intent resolves its own Definition and independent value/readiness output. Equal configurations
+may occupy different request indexes. The response echoes each exact index once, in order; absent, duplicate, reordered or
+cross-bound entries invalidate the response. The browser validates the entire envelope and every successful result before
+issuing any new presentation evidence. Only `CHART_STUDY_REQUEST_INVALID` item rejections proved by Rust request validation are local failures.
+An unclassified worker rejection always refuses the whole response. Uncertain protocol/process outcomes or missing/changed/unavailable shared proof refuse the
+whole response. Worker join, current installation verification and the original Source/input fence precede outward release.
+No partial response stream, cross-request worker reuse, automatic retry or scientific publication is introduced.
+
+A parameter or closed-window change may carry the selected declaration into its next actual evaluation while the exact
+context, incarnation, Source/environment, credential occurrence, page and selected capabilities remain bound. That declaration
+is no freshness proof: the new isolated evaluation must reprove the complete catalog/invocation/capability relation. A window
+change recomputes all selected indicators against the new exact input. Only a normal contiguous closed-bar append may
+continue displaying the prior independently verified window while that new batch is pending. The UI labels its original
+calculation cutoff and “updating”; it never presents those values as calculated against the new window. All overlapping exact
+closed facts must agree. A completed newly validated batch replaces that display atomically, including any historical values
+changed by the finite initialization window; no browser indicator calculation is permitted. Source, authorization, configuration,
+selected capability, timeframe, incarnation, input-generation or continuity departures immediately revoke the old occurrence;
+a failed or invalid new batch also withdraws it. Only one previous window per selected instance may remain in memory. Focus,
+authorization or selection departures retain their existing re-observation fences; unknown or changed proof refuses reuse.
+
 The current composition offers the fourteen indicator families with their current
 mathematical semantics. Exact older semantic versions that are absent are
 unavailable; a family name cannot select another version. Definition2 identity
@@ -312,7 +335,9 @@ immediate-successor relation. Resource pointer equality only constrains local
 issuance and I/O; it is not canonical Source identity. Each original fence survives
 through outward release. Replacement/disconnection discards only preview when
 closed history remains authorized. Shared authentication or Source withdrawal
-denies the affected response. One invocation permit remains held until its owned
+denies the affected response. The shared chart invocation gate admits at most two
+concurrent requests, including catalog and capability reads; further requests wait
+within their original deadline. One invocation permit remains held until its owned
 process is joined; cancellation or uncertain protocol failure cannot retry another
 process implicitly.
 

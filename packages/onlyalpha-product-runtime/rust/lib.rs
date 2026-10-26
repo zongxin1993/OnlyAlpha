@@ -48,3 +48,6 @@ pub mod market_product;
 
 pub mod chart;
 pub mod private_assets;
+
+pub mod workspace;
+pub mod workspace_postgres;

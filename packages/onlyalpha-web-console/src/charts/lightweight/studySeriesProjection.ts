@@ -11,6 +11,11 @@ export interface StudySeriesEvidence {
               readonly kind: "CHART_STUDY_TRANSIENT";
               readonly historyProjectionFingerprint: string;
               readonly capabilityProjectionFingerprint: string;
+          }
+        | {
+              readonly kind: "CHART_STUDY_TEMPORARY";
+              readonly windowFingerprint: string;
+              readonly capabilityProjectionFingerprint: string;
           };
     readonly instanceId: string;
     readonly chartContextKey: string;
@@ -43,6 +48,16 @@ export interface StudySeriesProjection {
 export type StudySeriesView =
     | { readonly status: "NOT_CONNECTED" | "STALE" | "INVALID"; readonly detail: string }
     | { readonly status: "PROJECTED"; readonly projection: StudySeriesProjection };
+
+// Only original deeply frozen client admissions are reusable. Their liveness
+// is checked on every projection; controlled/unadmitted objects are never cached.
+const admittedPointLedgers = new WeakMap<
+    StudySeriesEvidence,
+    {
+        readonly pointsByTime: Map<number, StudySeriesEvidence["points"][number]>;
+        readonly numeric: Map<number, number>;
+    }
+>();
 
 const text = z.string().min(1);
 const evidenceShape = z.strictObject({
@@ -101,47 +116,55 @@ export function projectStudySeries(
         if (
             (evidence.source.kind === "CONTROLLED_TEST_EVIDENCE" &&
                 evidence.source.fixtureId.trim() === "") ||
-            (evidence.source.kind === "CHART_STUDY_TRANSIENT" &&
+            ((evidence.source.kind === "CHART_STUDY_TRANSIENT" ||
+                evidence.source.kind === "CHART_STUDY_TEMPORARY") &&
                 !isAdmittedChartStudyEvidence(evidence))
         )
             throw new Error("缺少来源证明");
-        const pointsByTime = new Map<number, StudySeriesEvidence["points"][number]>();
-        const numeric = new Map<number, number>();
-        let previous = -Infinity;
-        for (const point of [
-            ...evidence.points,
-            ...(evidence.previewPoint === undefined ? [] : [evidence.previewPoint])
-        ]) {
-            if (!/^(?:0|[1-9][0-9]*)$/.test(point.timeNs) || point.timeNs.length > 30)
-                throw new Error("非法 UTC timestamp");
-            const ns = BigInt(point.timeNs),
-                time = Number(ns / 1_000_000_000n);
-            // Exact whole seconds only: do not alias distinct nanosecond identities.
-            if (
-                ns % 1_000_000_000n !== 0n ||
-                !Number.isSafeInteger(time) ||
-                !Number.isFinite(new Date(time * 1000).getTime()) ||
-                time <= previous
-            )
-                throw new Error("重复 / 倒序 / 不安全 timestamp");
-            previous = time;
-            if (point.value !== null) {
+        const admitted = isAdmittedChartStudyEvidence(evidence);
+        const cached = admitted ? admittedPointLedgers.get(evidence) : undefined;
+        const pointsByTime =
+            cached?.pointsByTime ?? new Map<number, StudySeriesEvidence["points"][number]>();
+        const numeric = cached?.numeric ?? new Map<number, number>();
+        if (cached === undefined) {
+            let previous = -Infinity;
+            const points =
+                evidence.previewPoint === undefined
+                    ? evidence.points
+                    : [...evidence.points, evidence.previewPoint];
+            for (const point of points) {
+                if (!/^(?:0|[1-9][0-9]*)$/.test(point.timeNs) || point.timeNs.length > 30)
+                    throw new Error("非法 UTC timestamp");
+                const ns = BigInt(point.timeNs),
+                    time = Number(ns / 1_000_000_000n);
+                // Exact whole seconds only: do not alias distinct nanosecond identities.
                 if (
-                    !/^-?(?:0|[1-9][0-9]*)(?:\.\d+)?$/.test(point.value) ||
-                    point.value.length > 4096
+                    ns % 1_000_000_000n !== 0n ||
+                    !Number.isSafeInteger(time) ||
+                    !Number.isFinite(new Date(time * 1000).getTime()) ||
+                    time <= previous
                 )
-                    throw new Error("非法数值文本");
-                // Deliberately lossy plotting only; hover retains the original text.
-                const value = Number(point.value);
-                if (
-                    !Number.isFinite(value) ||
-                    Math.abs(value) > Number.MAX_SAFE_INTEGER ||
-                    (value === 0 && /[1-9]/.test(point.value))
-                )
-                    throw new Error("无法安全显示数值");
-                numeric.set(time, value);
+                    throw new Error("重复 / 倒序 / 不安全 timestamp");
+                previous = time;
+                if (point.value !== null) {
+                    if (
+                        !/^-?(?:0|[1-9][0-9]*)(?:\.\d+)?$/.test(point.value) ||
+                        point.value.length > 4096
+                    )
+                        throw new Error("非法数值文本");
+                    // Deliberately lossy plotting only; hover retains the original text.
+                    const value = Number(point.value);
+                    if (
+                        !Number.isFinite(value) ||
+                        Math.abs(value) > Number.MAX_SAFE_INTEGER ||
+                        (value === 0 && /[1-9]/.test(point.value))
+                    )
+                        throw new Error("无法安全显示数值");
+                    numeric.set(time, value);
+                }
+                pointsByTime.set(time, admitted ? point : { ...point });
             }
-            pointsByTime.set(time, { ...point });
+            if (admitted) admittedPointLedgers.set(evidence, { pointsByTime, numeric });
         }
         const times = [...new Set([...timeline, ...pointsByTime.keys()])].sort((a, b) => a - b);
         const segments: (LineData<UTCTimestamp> | WhitespaceData<UTCTimestamp>)[][] = [];

@@ -58,6 +58,7 @@ const ChartStudyInputSupportDtoCoveragePolicySchema = z.literal("COMPLETE_VERIFI
 const ChartStudyInputSupportDtoInstrumentPolicySchema = z.literal("EXACT_SOURCE_CATALOG");
 const ChartStudyInputSupportDtoPreviewModeSchema = z.literal("OWNING_STREAM_SNAPSHOT");
 const ChartStudyInputSupportDtoResolutionModeSchema = z.literal("VERIFIED_NATIVE_OR_DERIVED");
+const Version2Schema = z.literal(2);
 const Version2000Schema = z.literal(2000);
 const Version10000Schema = z.literal(10000);
 const Version0Schema = z.literal(0);
@@ -89,7 +90,6 @@ const ChartStudyPresentationSeriesDtoUnitSchema = z.enum(["PRICE", "RATIO", "VOL
 const ChartStudyProviderManifestDtoKindSchema = z.literal("INDICATOR");
 const ChartStudyDistributionDtoKindSchema = z.literal("DISTRIBUTION");
 const ChartStudyCapabilityProjectionDtoPublicationStatusSchema = z.literal("NOT_A_RESEARCH_RESULT");
-const Version2Schema = z.literal(2);
 const ChartStudyCapabilityProjectionDtoSourceKindSchema = z.literal("CHART_STUDY_TRANSIENT");
 const ChartStudyCapabilityProjectionDtoSupportedShapeSchema = z.literal("TIME_SERIES/BAR_FIELDS");
 const ChartStudyCapabilityDtoExecutionShapeSchema = z.literal("TIME_SERIES");
@@ -187,6 +187,11 @@ const MarketDataSourceSelectionDtoSchema = z.strictObject({
     source_id: z.string().min(1),
     type_id: z.string().min(1)
 });
+const TemporaryMarketDataSourceKindSchema = z.literal("TEMPORARY_MARKET_DATA");
+const TemporaryMarketDataCoverageStatusSchema = z.enum(["PARTIAL", "COMPLETE"]);
+const MarketDataBarWindowDtoResolutionModeValueSchema = z.enum(["PROVIDER_NATIVE", "DERIVED"]);
+const JsonNullSchema = z.null();
+const TemporaryChartStudyBatchErrorSchema = z.literal("CHART_STUDY_REQUEST_INVALID");
 const ChartStudyPortDtoSchema = z.strictObject({
     data_type: ChartStudyPortDtoDataTypeSchema,
     dimensions: z.array(ChartStudyPortDtoDimensionsItemSchema).min(1).max(1),
@@ -228,7 +233,7 @@ const ChartStudyInputSupportDtoSchema = z.strictObject({
     resolution_mode: ChartStudyInputSupportDtoResolutionModeSchema
 });
 const ChartStudyLimitsDtoSchema = z.strictObject({
-    max_concurrent_invocations: Version1Schema,
+    max_concurrent_invocations: Version2Schema,
     max_input_rows: Version2000Schema,
     max_period: Version10000Schema
 });
@@ -365,6 +370,25 @@ const ChartStudyPointDtoSchema = z.strictObject({
     reason: ChartStudyPointDtoReasonSchema,
     time_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
     value: z.string().nullable()
+});
+const TemporaryMarketDataCoverageDtoSchema = z.strictObject({
+    actual_bar_count: z.number().int().min(0).max(2000),
+    expected_bar_count: z.number().int().min(1).max(2000),
+    gaps: z.array(MarketDataCoverageGapDtoSchema),
+    status: TemporaryMarketDataCoverageStatusSchema
+});
+const TemporaryChartStudyInputDtoSchema = z.strictObject({
+    anchor_kind: ChartStudyInputDtoAnchorKindSchema,
+    before_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
+    calendar_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    initialization: ChartStudyInputDtoInitializationSchema,
+    resolution_mode: MarketDataBarWindowDtoResolutionModeValueSchema,
+    resolution_plan_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    resolved_end_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
+    resolved_start_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
+    source_kind: TemporaryMarketDataSourceKindSchema,
+    target_bar_count: z.number().int().min(1).max(2000),
+    window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$"))
 });
 const ChartStudyDescriptorDtoSchema = z.strictObject({
     execution_shape: ChartStudyDescriptorDtoExecutionShapeSchema,
@@ -557,6 +581,33 @@ const ChartStudyCapabilityDtoSchema = z.strictObject({
     semantic_version: z.string().min(1).max(256),
     type_id: z.string().min(1).max(256)
 });
+const TemporaryChartStudyEvaluateDtoSchema = z.strictObject({
+    authority: ChartStudyEvaluateDtoAuthoritySchema,
+    bar_semantic: MarketDataBarSemanticDtoSchema,
+    calculation: ChartStudyCalculationDtoSchema,
+    coverage: TemporaryMarketDataCoverageDtoSchema,
+    input: TemporaryChartStudyInputDtoSchema,
+    instrument_id: z.string().min(1).max(256),
+    preview: JsonNullSchema,
+    publication_status: ChartStudyEvaluateDtoPublicationStatusSchema,
+    query_status: ChartStudyEvaluateDtoQueryStatusSchema,
+    schema_version: Version2Schema,
+    series: z.array(ChartStudySeriesDtoSchema).max(16),
+    source_kind: ChartStudyEvaluateDtoSourceKindSchema,
+    source_selection: MarketDataSourceSelectionDtoSchema
+});
+const TemporaryChartStudyBatchItemDtoSchema = z.union([
+    z.strictObject({
+        evaluation: TemporaryChartStudyEvaluateDtoSchema,
+        request_index: z.number().int().min(0).max(3),
+        status: z.literal("EVALUATED")
+    }),
+    z.strictObject({
+        error: TemporaryChartStudyBatchErrorSchema,
+        request_index: z.number().int().min(0).max(3),
+        status: z.literal("REJECTED")
+    })
+]);
 export const ChartStudyCapabilitiesSchema = z.strictObject({
     capabilities: z.array(ChartStudyCapabilityDtoSchema).min(1).max(64),
     schema_version: Version2Schema
@@ -590,3 +641,54 @@ export const ChartStudyEvaluateSchema = z.strictObject({
     source_selection: MarketDataSourceSelectionDtoSchema
 }) satisfies z.ZodType<components["schemas"]["ChartStudyEvaluateDto"]>;
 export type ChartStudyEvaluate = z.infer<typeof ChartStudyEvaluateSchema>;
+export const TemporaryChartStudyEvaluateRequestSchema = z.strictObject({
+    bar_semantic: MarketDataBarSemanticDtoSchema,
+    calculation: ChartStudyCalculationRequestDtoSchema,
+    expected_window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    instrument_id: z.string().min(1).max(256),
+    page_id: z.string(),
+    schema_version: Version2Schema,
+    source_kind: TemporaryMarketDataSourceKindSchema,
+    source_reference: ChartStudySourceReferenceDtoSchema,
+    window: ChartStudyWindowDtoSchema
+}) satisfies z.ZodType<components["schemas"]["TemporaryChartStudyEvaluateRequestDto"]>;
+export type TemporaryChartStudyEvaluateRequest = z.infer<
+    typeof TemporaryChartStudyEvaluateRequestSchema
+>;
+export const TemporaryChartStudyEvaluateSchema = z.strictObject({
+    authority: ChartStudyEvaluateDtoAuthoritySchema,
+    bar_semantic: MarketDataBarSemanticDtoSchema,
+    calculation: ChartStudyCalculationDtoSchema,
+    coverage: TemporaryMarketDataCoverageDtoSchema,
+    input: TemporaryChartStudyInputDtoSchema,
+    instrument_id: z.string().min(1).max(256),
+    preview: JsonNullSchema,
+    publication_status: ChartStudyEvaluateDtoPublicationStatusSchema,
+    query_status: ChartStudyEvaluateDtoQueryStatusSchema,
+    schema_version: Version2Schema,
+    series: z.array(ChartStudySeriesDtoSchema).max(16),
+    source_kind: ChartStudyEvaluateDtoSourceKindSchema,
+    source_selection: MarketDataSourceSelectionDtoSchema
+}) satisfies z.ZodType<components["schemas"]["TemporaryChartStudyEvaluateDto"]>;
+export type TemporaryChartStudyEvaluate = z.infer<typeof TemporaryChartStudyEvaluateSchema>;
+export const TemporaryChartStudyBatchRequestSchema = z.strictObject({
+    bar_semantic: MarketDataBarSemanticDtoSchema,
+    calculations: z.array(ChartStudyCalculationRequestDtoSchema).min(1).max(4),
+    expected_window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    instrument_id: z.string().min(1).max(256),
+    page_id: z.string(),
+    schema_version: Version2Schema,
+    source_kind: TemporaryMarketDataSourceKindSchema,
+    source_reference: ChartStudySourceReferenceDtoSchema,
+    window: ChartStudyWindowDtoSchema
+}) satisfies z.ZodType<components["schemas"]["TemporaryChartStudyBatchRequestDto"]>;
+export type TemporaryChartStudyBatchRequest = z.infer<typeof TemporaryChartStudyBatchRequestSchema>;
+export const TemporaryChartStudyBatchSchema = z.strictObject({
+    authority: ChartStudyEvaluateDtoAuthoritySchema,
+    publication_status: ChartStudyEvaluateDtoPublicationStatusSchema,
+    results: z.array(TemporaryChartStudyBatchItemDtoSchema).min(1).max(4),
+    schema_version: Version2Schema,
+    source_kind: ChartStudyEvaluateDtoSourceKindSchema,
+    window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$"))
+}) satisfies z.ZodType<components["schemas"]["TemporaryChartStudyBatchDto"]>;
+export type TemporaryChartStudyBatch = z.infer<typeof TemporaryChartStudyBatchSchema>;

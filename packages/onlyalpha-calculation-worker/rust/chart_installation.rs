@@ -43,22 +43,25 @@ impl ChartInstallation {
             .map(str::to_owned)
             .ok_or(WorkerError::Invalid)
     }
-    pub fn require_resource(&self, relative: &str, digest: &str) -> Result<()> {
+    pub fn require_resources(&self, required: &BTreeSet<(String, String)>) -> Result<()> {
         let raw = std::fs::read(self.root.join("algorithm-installation.json"))
             .map_err(|_| WorkerError::Invalid)?;
         if hash(&raw) != self.artifact {
             return Err(WorkerError::Invalid);
         }
         let manifest: Value = serde_json::from_slice(&raw).map_err(|_| WorkerError::Invalid)?;
-        let suffix = format!("/site-packages/{relative}");
-        let matches = manifest["files"]
-            .as_object()
-            .ok_or(WorkerError::Invalid)?
-            .iter()
-            .filter(|(name, _)| name.ends_with(&suffix))
-            .collect::<Vec<_>>();
-        if matches.len() != 1 || matches[0].1.as_str() != Some(digest) {
-            return Err(WorkerError::Invalid);
+        // One request-local manifest observation covers every resource binding.
+        // The next pass reads and fingerprints it again; this retains no proof cache.
+        let files = manifest["files"].as_object().ok_or(WorkerError::Invalid)?;
+        for (relative, digest) in required {
+            let suffix = format!("/site-packages/{relative}");
+            let matches = files
+                .iter()
+                .filter(|(name, _)| name.ends_with(&suffix))
+                .collect::<Vec<_>>();
+            if matches.len() != 1 || matches[0].1.as_str() != Some(digest.as_str()) {
+                return Err(WorkerError::Invalid);
+            }
         }
         Ok(())
     }
@@ -185,5 +188,65 @@ impl ChartInstallation {
             self.artifact.clone(),
             completion,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn resource_pass_checks_every_binding_and_reobserves_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "onlyalpha-chart-resource-pass-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let path = root.join("algorithm-installation.json");
+        let bytes = serde_json::to_vec(&json!({"files": {
+            "lib/python3.12/site-packages/a.py": "a".repeat(64),
+            "lib/python3.12/site-packages/b.py": "b".repeat(64)
+        }}))
+        .unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let installation = ChartInstallation {
+            root,
+            artifact: hash(&bytes),
+        };
+        let bindings = BTreeSet::from([
+            ("a.py".to_owned(), "a".repeat(64)),
+            ("b.py".to_owned(), "b".repeat(64)),
+        ]);
+        installation.require_resources(&bindings).unwrap();
+        let mut wrong = bindings.clone();
+        wrong.insert(("b.py".into(), "c".repeat(64)));
+        assert!(installation.require_resources(&wrong).is_err());
+        let mut missing = bindings.clone();
+        missing.insert(("missing.py".into(), "a".repeat(64)));
+        assert!(installation.require_resources(&missing).is_err());
+        let ambiguous = serde_json::to_vec(&json!({"files": {
+            "lib/python3.12/site-packages/a.py": "a".repeat(64),
+            "lib/other/site-packages/a.py": "a".repeat(64),
+            "lib/python3.12/site-packages/b.py": "b".repeat(64)
+        }}))
+        .unwrap();
+        std::fs::write(&path, &ambiguous).unwrap();
+        let duplicate = ChartInstallation {
+            root: installation.root.clone(),
+            artifact: hash(&ambiguous),
+        };
+        assert!(duplicate.require_resources(&bindings).is_err());
+        // A successful prior pass cannot authorize changed or unavailable files.
+        std::fs::write(&path, b"{}").unwrap();
+        assert!(installation.require_resources(&bindings).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(installation.require_resources(&bindings).is_err());
     }
 }

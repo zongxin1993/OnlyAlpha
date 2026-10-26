@@ -613,6 +613,86 @@
       ],
       "type": "object"
     },
+    "TemporarySubscribedDto": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/TemporaryMarketDataAuthority"
+        },
+        "cursor_bar_stride_minutes": {
+          "format": "int32",
+          "maximum": 240,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "event": {
+          "$ref": "#/$defs/MarketDataSubscribedDtoEvent"
+        },
+        "instrument_id": {
+          "type": "string"
+        },
+        "publication_status": {
+          "$ref": "#/$defs/TemporaryMarketDataPublication"
+        },
+        "resolution_mode": {
+          "$ref": "#/$defs/MarketDataSubscribedDtoResolutionMode"
+        },
+        "resolution_plan_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/Version2"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "source_kind": {
+          "$ref": "#/$defs/TemporaryMarketDataSourceKind"
+        },
+        "stream_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event",
+        "source_kind",
+        "authority",
+        "publication_status",
+        "stream_id",
+        "source_id",
+        "instrument_id",
+        "resolution_mode",
+        "resolution_plan_fingerprint",
+        "cursor_bar_stride_minutes"
+      ],
+      "type": "object"
+    },
+    "TemporaryMarketDataAuthority": {
+      "enum": [
+        "DISPLAY_ONLY"
+      ],
+      "type": "string"
+    },
+    "TemporaryMarketDataPublication": {
+      "enum": [
+        "NOT_A_RESEARCH_RESULT"
+      ],
+      "type": "string"
+    },
+    "TemporaryMarketDataSourceKind": {
+      "enum": [
+        "TEMPORARY_MARKET_DATA"
+      ],
+      "type": "string"
+    },
+    "TemporarySubscribeOperation": {
+      "enum": [
+        "SUBSCRIBE_TEMPORARY_BARS"
+      ],
+      "type": "string"
+    },
     "subscribe": {
       "additionalProperties": false,
       "properties": {
@@ -694,14 +774,90 @@
           "$ref": "#/$defs/MarketDataStreamErrorDto"
         }
       ]
+    },
+    "temporary_subscribe": {
+      "additionalProperties": false,
+      "properties": {
+        "bar_semantic": {
+          "$ref": "#/$defs/MarketDataBarSemanticDto"
+        },
+        "before_ns": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "expected_window_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "instrument_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "$ref": "#/$defs/TemporarySubscribeOperation"
+        },
+        "page_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/Version2"
+        },
+        "source_reference": {
+          "$ref": "#/$defs/MarketDataStreamSourceReferenceDto"
+        },
+        "target_bar_count": {
+          "format": "int32",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation",
+        "page_id",
+        "source_reference",
+        "instrument_id",
+        "bar_semantic",
+        "before_ns",
+        "target_bar_count",
+        "expected_window_fingerprint"
+      ],
+      "type": "object"
+    },
+    "temporary_event": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TemporarySubscribedDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataStateDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataBarPreviewDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataBarClosedDto"
+        },
+        {
+          "$ref": "#/$defs/MarketDataStreamErrorDto"
+        }
+      ]
     }
   },
-  "oneOf": [
+  "anyOf": [
     {
       "$ref": "#/$defs/subscribe"
     },
     {
       "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/temporary_subscribe"
+    },
+    {
+      "$ref": "#/$defs/temporary_event"
     }
   ]
 }

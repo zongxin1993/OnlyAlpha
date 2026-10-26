@@ -36,6 +36,7 @@ _FORWARD = (
     "0051_watchlist_configuration",
     "0052_watchlist_member_sources",
     "0053_backtest_native_specification",
+    "0054_default_workspace_configuration",
 )
 _GROUPS = ("onlyalpha_chart_input_reader", "onlyalpha_chart_execution_controller")
 _UNSAFE_ROLE_MUTATIONS = {
@@ -376,7 +377,17 @@ def test_attempt_writer_cannot_slip_between_history_check_and_guard_installation
     after = snapshot(postgres_dsn)
     assert after[:3] == before[:3]
     assert after[3][: -len(_FORWARD)] == before[3]
-    assert after[4] == tuple(sorted((*before[4], ("watchlist_head", []), ("watchlist_revision", []))))
+    assert after[4] == tuple(
+        sorted(
+            (
+                *before[4],
+                ("watchlist_head", []),
+                ("watchlist_revision", []),
+                ("workspace_head", []),
+                ("workspace_revision", []),
+            )
+        )
+    )
 
 
 @pytest.mark.parametrize("historical_state", ["QUEUED", "CANCELLED"])
@@ -404,7 +415,17 @@ def test_forward_migration_preserves_exact_queued_and_direct_cancelled_bytes(
     after = snapshot(postgres_dsn)
     assert after[:3] == before[:3]
     assert after[3][: -len(_FORWARD)] == before[3]
-    assert after[4] == tuple(sorted((*before[4], ("watchlist_head", []), ("watchlist_revision", []))))
+    assert after[4] == tuple(
+        sorted(
+            (
+                *before[4],
+                ("watchlist_head", []),
+                ("watchlist_revision", []),
+                ("workspace_head", []),
+                ("workspace_revision", []),
+            )
+        )
+    )
     assert OnlyPostgresResearchRunStore(postgres_dsn).load(run.run_id) == run
     assert OnlyPostgresMigrationAuthority(postgres_dsn).migrate() == ()
     with pytest.raises(OnlyPostgresSchemaIncompatibleError, match="AHEAD"):
@@ -507,7 +528,17 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
         after = snapshot(postgres_dsn)
         assert after[:3] == before[:3]
         assert after[3][: -len(_FORWARD)] == before[3]
-        assert after[4] == tuple(sorted((*before[4], ("watchlist_head", []), ("watchlist_revision", []))))
+        assert after[4] == tuple(
+            sorted(
+                (
+                    *before[4],
+                    ("watchlist_head", []),
+                    ("watchlist_revision", []),
+                    ("workspace_head", []),
+                    ("workspace_revision", []),
+                )
+            )
+        )
         roles_after = role_inventory(postgres_dsn)
         assert len(roles_after[0]) == 2
         if groups == "fresh":

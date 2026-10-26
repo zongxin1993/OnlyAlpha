@@ -1,3 +1,7 @@
+import { requiredValue } from "../../test/requiredValue";
+import { readTemporaryMarketData } from "../../api/marketData/temporary";
+import { temporaryWindowForQuery } from "../../test/temporaryMarketDataClient";
+import { TEMPORARY_VECTOR_FINGERPRINT } from "../../test/temporaryChartVectors";
 import { marketDataSourceChoiceKey } from "../../api/marketData/model";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -8,7 +12,6 @@ import type { MarketDataApiClient } from "../../api/marketData/client";
 import {
     fixedDurationMinutes,
     marketDataBarSemantic,
-    type MarketDataAcquisition,
     type MarketDataBars,
     type MarketDataSource
 } from "../../api/marketData/model";
@@ -21,7 +24,6 @@ import {
 } from "../../test/integrationClient";
 import {
     incompleteBars,
-    marketDataAcquisition,
     marketDataBars,
     marketDataBarsForQuery,
     marketDataClient,
@@ -46,14 +48,19 @@ const shiftBar = (bar: MarketDataChartBarProjection, seconds: number) => ({
     barEndNs: (BigInt(bar.barEndNs) + BigInt(seconds) * 1_000_000_000n).toString()
 });
 import { WorkspacePage } from "./WorkspacePage";
-import type { MarketDataStreamEvent } from "../../api/marketData/stream";
+import type { TemporaryMarketDataStreamEvent as MarketDataStreamEvent } from "../../api/marketData/stream.generated";
 
 const streams = vi.hoisted(() => ({
     callbacks: [] as ((event: MarketDataStreamEvent) => void)[],
     requests: [] as unknown[]
 }));
-vi.mock("../../api/marketData/stream", () => ({
-    openMarketDataStream: (request: unknown, callback: (event: MarketDataStreamEvent) => void) => {
+vi.mock("../../api/marketData/temporary", () => ({ readTemporaryMarketData: vi.fn() }));
+let temporaryProducer: MarketDataApiClient;
+vi.mock("../../api/marketData/temporaryStream", () => ({
+    openTemporaryMarketDataStream: (
+        request: unknown,
+        callback: (event: MarketDataStreamEvent) => void
+    ) => {
         streams.requests.push(request);
         streams.callbacks.push(callback);
         return () => undefined;
@@ -180,6 +187,7 @@ function configuredSources() {
 }
 
 function renderWorkspace(client: MarketDataApiClient) {
+    temporaryProducer = client;
     return render(
         <AppProviders integrationClient={configuredSources()} marketDataClient={client}>
             <WorkspacePage />
@@ -221,6 +229,76 @@ const dialogDescriptors = {
 };
 
 beforeEach(() => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify(
+                        url === "/api/v2/workspace"
+                            ? { schema_version: 2, version: 0, configuration: null }
+                            : url === "/api/v2/watchlists"
+                              ? { schema_version: 2, version: 0, lists: [] }
+                              : { error: { code: "UNAVAILABLE" } }
+                    ),
+                    {
+                        status: ["/api/v2/workspace", "/api/v2/watchlists"].includes(url)
+                            ? 200
+                            : 503
+                    }
+                )
+            )
+        )
+    );
+    // Controlled data producer only: extend the older two-row vectors to the real
+    // 2000-row temporary window. No production retained-history API is invoked.
+    vi.mocked(readTemporaryMarketData).mockImplementation(async (credentials, reference, query) => {
+        if (!credentials.localSession || credentials.capture().bearer !== null)
+            throw new MarketDataWebError(
+                "MARKET_DATA_ACCESS_DENIED",
+                "临时行情需要本地 Owner 会话",
+                403
+            );
+        const sample = await temporaryProducer.queryBars(reference, query);
+        const value = temporaryWindowForQuery(reference, {
+            ...query,
+            before_ns: query.before_ns ?? sample.resolved_end_ns
+        });
+        value.anchor_kind = query.anchor_kind;
+        value.requested_before_ns = query.before_ns ?? null;
+        value.source_selection = sample.source_selection;
+        value.window_fingerprint = TEMPORARY_VECTOR_FINGERPRINT;
+        value.resolution_plan_fingerprint = requiredValue(sample.resolution_plan_fingerprint);
+        const first = sample.bars[0];
+        if (first !== undefined) {
+            value.bars = value.bars.map((bar, index) => {
+                const prices =
+                    sample.bars[index - (value.bars.length - sample.bars.length)] ?? first;
+                return {
+                    ...bar,
+                    open: prices.open,
+                    high: prices.high,
+                    low: prices.low,
+                    close: prices.close,
+                    volume: prices.volume
+                };
+            });
+        }
+        if (sample.coverage.status !== "COMPLETE") {
+            value.coverage = {
+                ...value.coverage,
+                status: "PARTIAL",
+                actual_bar_count: 0,
+                gaps: value.bars.map((bar) => ({
+                    start_ns: bar.bar_start_ns,
+                    end_ns: bar.bar_end_ns
+                }))
+            };
+            value.bars = [];
+        }
+        return value;
+    });
     // jsdom has no modal API; native focus/modal behavior is Browser-owned.
     Object.defineProperties(HTMLDialogElement.prototype, {
         showModal: {
@@ -260,6 +338,8 @@ afterEach(() => {
         else Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
     }
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
 });
 
 const binanceSource = (overrides: Partial<MarketDataSource> = {}) =>
@@ -459,7 +539,7 @@ it.each(["name", "revision"])(
             expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
                 marketDataSourceChoiceKey(source)
             );
-            expect(renderedPrices()).toEqual([101, 102.5]);
+            expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
         }
         expect(listInstruments).toHaveBeenCalledTimes(3);
     }
@@ -539,6 +619,7 @@ it("does not let a delayed default instrument replace a user's completed manual 
 });
 
 it("preserves configuration-only discovery in Shipping Workspace without a local bearer", async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "false");
     const fixture = chartCatalogFixture();
     const reads: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
@@ -620,7 +701,7 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
     expect(queryBars).toHaveBeenCalledExactlyOnceWith(reference, {
         instrument_id: instrument.instrument_id,
         anchor_kind: "LATEST_CLOSED",
-        target_bar_count: 1440,
+        target_bar_count: 2000,
         bar_semantic: marketDataBarSemantic(15)
     });
     expect(streams.requests[0]).toMatchObject({
@@ -629,7 +710,7 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
         bar_semantic: marketDataBarSemantic(15)
     });
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
-    expect(renderedPrices()).toEqual([101, 102.5]);
+    expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
@@ -664,7 +745,7 @@ it("keeps the default chart incarnation when reselecting its source, instrument 
     expect(queryBars).toHaveBeenCalledTimes(1);
     expect(streams.requests).toHaveLength(1);
     expect(observation).toHaveAttribute("data-chart-context-key", context);
-    expect(renderedPrices()).toEqual([101, 102.5]);
+    expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
 });
 
 it.each([
@@ -852,7 +933,7 @@ it("defaults discard a delayed bootstrap response after an explicit source chang
     );
 });
 
-it("defaults ignore aborted source discovery during StrictMode effect replay", async () => {
+it("defaults fence the aborted workspace bootstrap before starting one Source discovery in StrictMode", async () => {
     const source = binanceSource();
     const listInstruments = vi.fn<MarketDataApiClient["listInstruments"]>(() =>
         Promise.resolve([binanceInstrument()])
@@ -867,7 +948,13 @@ it("defaults ignore aborted source discovery during StrictMode effect replay", a
         <StrictMode>
             <AppProviders
                 integrationClient={configuredSources()}
-                marketDataClient={marketDataClient({ listSources, listInstruments, queryBars })}
+                marketDataClient={
+                    (temporaryProducer = marketDataClient({
+                        listSources,
+                        listInstruments,
+                        queryBars
+                    }))
+                }
             >
                 <WorkspacePage />
             </AppProviders>
@@ -878,7 +965,12 @@ it("defaults ignore aborted source discovery during StrictMode effect replay", a
     });
     expect(queryBars).toHaveBeenCalledTimes(1);
     expect(listInstruments).toHaveBeenCalledTimes(1);
-    expect(listSources.mock.calls[0]?.[0]?.aborted).toBe(true);
+    expect(listSources).toHaveBeenCalledTimes(1);
+    expect(listSources.mock.calls[0]?.[0]?.aborted).toBe(false);
+    expect(
+        vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/v2/workspace")?.[1]?.signal
+            ?.aborted
+    ).toBe(true);
     expect(queryBars.mock.calls[0]?.[1].bar_semantic).toEqual(marketDataBarSemantic(15));
 });
 
@@ -932,7 +1024,7 @@ it.each(["timeframe", "instrument"] as const)(
         );
         const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
         expect(inspector.getByText("COMPLETE")).toBeInTheDocument();
-        expect(inspector.getByText("8".repeat(64))).toBeInTheDocument();
+        expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeInTheDocument();
         if (variant === "timeframe")
             await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
         else {
@@ -944,7 +1036,7 @@ it.each(["timeframe", "instrument"] as const)(
             expect(queryBars).toHaveBeenCalledTimes(2);
         });
         expect(inspector.queryByText("COMPLETE")).not.toBeInTheDocument();
-        expect(inspector.queryByText("8".repeat(64))).not.toBeInTheDocument();
+        expect(inspector.queryByText(TEMPORARY_VECTOR_FINGERPRINT)).not.toBeInTheDocument();
         expect(inspector.getByText("尚未查询")).toBeInTheDocument();
         expect(inspector.getByText("尚未验证")).toBeInTheDocument();
         await act(async () => {
@@ -958,7 +1050,7 @@ it.each(["timeframe", "instrument"] as const)(
             );
         });
         expect(inspector.queryByText("COMPLETE")).not.toBeInTheDocument();
-        expect(inspector.queryByText("8".repeat(64))).not.toBeInTheDocument();
+        expect(inspector.queryByText(TEMPORARY_VECTOR_FINGERPRINT)).not.toBeInTheDocument();
     }
 );
 
@@ -998,9 +1090,10 @@ it("replaces only the active price series, preserving range, preview and left-ed
         numeric: { ...preview.numeric, close: 109 }
     };
     view.rerender(chart("LINE", updated));
-    expect(chartMocks.overlays.setData).toHaveBeenLastCalledWith(
-        [...bars, updated].map((bar) => ({ time: bar.time, value: bar.numeric.close }))
-    );
+    expect(chartMocks.overlays.update).toHaveBeenLastCalledWith({
+        time: updated.time,
+        value: updated.numeric.close
+    });
     view.rerender(chart("CANDLESTICK", updated));
     expect(chartMocks.created.removeSeries).toHaveBeenLastCalledWith(chartMocks.overlays);
     expect(chartMocks.candles.setData).toHaveBeenLastCalledWith(
@@ -1228,8 +1321,8 @@ it("conflicting closed history withdraws its fingerprint without starting acquis
     if (history === null || bar === undefined) throw new Error("Expected owning closed history");
     expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(
-        "data-history-projection-fingerprint",
-        history.history_projection_fingerprint
+        "data-temporary-window-fingerprint",
+        TEMPORARY_VECTOR_FINGERPRINT
     );
     act(() => {
         streams.callbacks[0]?.({
@@ -1246,7 +1339,7 @@ it("conflicting closed history withdraws its fingerprint without starting acquis
     expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "failed");
     // The Shipping consumer receives null rather than retaining a stale witness.
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(
-        "data-history-projection-fingerprint",
+        "data-temporary-window-fingerprint",
         ""
     );
     expect(acquire).not.toHaveBeenCalled();
@@ -1357,8 +1450,8 @@ it("initializes the first non-empty history once even after an empty context pub
     expect(chartMocks.timeScale.setVisibleLogicalRange).not.toHaveBeenCalled();
     view.rerender(chart("context-a", history));
     expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenCalledExactlyOnceWith({
-        from: 0,
-        to: 6
+        from: history.length - 30,
+        to: history.length + 4
     });
     expect(callback).not.toHaveBeenCalled();
     view.rerender(chart("context-a", [...history]));
@@ -1507,7 +1600,7 @@ it("resets a changed context to the recent range", () => {
     );
 
     expect(chartMocks.timeScale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
-        from: 0,
+        from: historical.length - 30,
         to: historical.length + 4
     });
 });
@@ -1564,60 +1657,56 @@ it("renders no invented candles in an unconfigured workspace", async () => {
     await waitFor(() => {
         expect(renderedPrices()).toEqual([]);
     });
-    expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-        "尚未配置可用的行情来源，请先添加行情来源。"
-    );
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "尚未配置可用的行情来源，请先添加行情来源。"
+        );
+    });
     expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
 });
 
-it("never renders a synthetic price once a real market data source is selected", async () => {
-    const user = userEvent.setup();
-    const barQueries: ((bars: MarketDataBars) => void)[] = [];
-    const acquisitions: ((value: MarketDataAcquisition) => void)[] = [];
+it("never renders invented prices through a partial temporary window or a failed explicit re-read", async () => {
+    const pending: {
+        resolve: (window: MarketDataBars) => void;
+        reject: (error: Error) => void;
+    }[] = [];
+    const acquisition = vi.fn<MarketDataApiClient["createAcquisition"]>();
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
         queryBars: () =>
-            new Promise<MarketDataBars>((resolve) => {
-                barQueries.push(resolve);
+            new Promise((resolve, reject) => {
+                pending.push({ resolve, reject });
             }),
-        createAcquisition: () =>
-            new Promise<MarketDataAcquisition>((resolve) => {
-                acquisitions.push(resolve);
-            })
+        createAcquisition: acquisition
     });
     renderWorkspace(client);
-
+    const user = userEvent.setup();
     await selectSource(user);
     await selectBtcInstrument(user);
-
-    await waitFor(() => {
-        expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "loading");
-    });
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "loading");
     expect(renderedPrices()).toEqual([]);
-
-    barQueries[0]?.(incompleteBars());
+    act(() => {
+        pending[0]?.resolve(incompleteBars());
+    });
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveAttribute(
             "data-status",
-            "acquiring"
+            "incomplete"
         );
     });
     expect(renderedPrices()).toEqual([]);
-
-    acquisitions[0]?.(
-        marketDataAcquisition({
-            status: "FAILED",
-            coverage: incompleteBars().coverage,
-            revision_id: null,
-            revision_fingerprint: null,
-            seal_id: null,
-            failure_detail: "OnlyBinanceError:BINANCE_HTTP_ERROR"
-        })
-    );
-    await waitFor(() => {
-        expect(screen.getByTestId("market-data-status")).toHaveTextContent(/历史行情同步失败/);
+    expect(acquisition).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "重新读取临时行情" }));
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "loading");
+    act(() => {
+        pending[1]?.reject(new MarketDataWebError("TRANSPORT_ERROR", "Provider unavailable"));
     });
-    expect(chartMocks.candles.setData.mock.calls.at(-1)?.[0]).toEqual([]);
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "failed");
+    });
+    expect(renderedPrices()).toEqual([]);
+    expect(acquisition).not.toHaveBeenCalled();
+    expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
 });
 
 it("renders only canonical Product bars in real READY and disables synthetic overlays", async () => {
@@ -1632,9 +1721,9 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     await selectBtcInstrument(user);
 
     await waitFor(() => {
-        expect(screen.getByTestId("market-data-source-tag")).toHaveTextContent("real · DB");
+        expect(screen.getByTestId("market-data-source-tag")).toHaveTextContent("临时行情 · 仅内存");
     });
-    expect(renderedPrices()).toEqual([101, 102.5]);
+    expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /指标/ })).toHaveAttribute("aria-haspopup", "dialog");
@@ -1648,8 +1737,11 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     );
     const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
     expect(inspector.getByText("test.market_data.live")).toBeVisible();
-    expect(inspector.getByText("8".repeat(64))).toBeVisible();
-    expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-loaded-bar-count", "2");
+    expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeVisible();
+    expect(screen.getByTestId("market-data-status")).toHaveAttribute(
+        "data-loaded-bar-count",
+        "2000"
+    );
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(
         "data-older-history-status",
         "idle"
@@ -1683,7 +1775,8 @@ it("accepts a custom seven-minute specification through the real Product query",
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("custom");
 });
 
-it("shows missing coverage without issuing an Acquisition when read credentials are supplied", async () => {
+it("refuses temporary data for read-only credentials without falling back to retained data or acquisition", async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "false");
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
         queryBars: (_reference, query) =>
@@ -1699,7 +1792,7 @@ it("shows missing coverage without issuing an Acquisition when read credentials 
     await selectBtcInstrument(user);
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "只读行情覆盖不足；需要先完成受控历史准备，本页面不会自动采集"
+            "MARKET_DATA_ACCESS_DENIED"
         );
     });
     expect(acquisition).not.toHaveBeenCalled();
@@ -1707,179 +1800,69 @@ it("shows missing coverage without issuing an Acquisition when read credentials 
     expect(renderedPrices()).toEqual([]);
 });
 
-it("ordinary dev prepares missing history before rendering the selected instrument", async () => {
-    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
-    try {
-        const calls: string[] = [];
+it.each([
+    ["LOCAL_READ_UNAUTHORIZED", 401, true],
+    ["MARKET_DATA_ACCESS_DENIED", 403, false]
+] as const)(
+    "offers a page reload only when the local session expires: %s",
+    async (code, status, expired) => {
         const client = marketDataClient({
             listInstruments: () => Promise.resolve([marketDataInstrument()]),
-            queryBars: (_reference, query) => {
-                calls.push("bars");
-                expect(query.target_bar_count).toBe(2000);
-                return Promise.resolve(
-                    marketDataBarsForQuery(
-                        query,
-                        calls.filter((item) => item === "bars").length === 1
-                            ? incompleteBars({ requested_bar_count: query.target_bar_count })
-                            : {}
-                    )
-                );
-            },
-            createAcquisition: () => {
-                calls.push("acquisition");
-                return Promise.resolve(marketDataAcquisition());
-            }
+            queryBars: () => Promise.reject(new MarketDataWebError(code, code, status))
         });
+        const history = vi.spyOn(client, "queryBars");
+        const acquisition = vi.spyOn(client, "createAcquisition");
         renderWorkspace(client);
         const user = userEvent.setup();
-        expect(screen.queryByText("本地只读访问", { exact: true })).not.toBeInTheDocument();
-        expect(screen.queryByLabelText("本地行情凭据")).not.toBeInTheDocument();
         await selectSource(user);
         await selectBtcInstrument(user);
         await waitFor(() => {
             expect(screen.getByTestId("market-data-status")).toHaveAttribute(
                 "data-status",
-                "ready"
+                "failed"
             );
         });
-        expect(calls).toEqual(["bars", "acquisition", "bars"]);
-        expect(renderedPrices()).toEqual([101, 102.5]);
-    } finally {
-        cleanup();
-        vi.unstubAllEnvs();
+        if (expired) {
+            expect(screen.getByRole("link", { name: "重新载入页面" })).toHaveAttribute("href", "/");
+            expect(screen.getByTestId("market-data-status")).toHaveTextContent("本地会话已失效");
+            expect(
+                screen.queryByRole("button", { name: "重新读取临时行情" })
+            ).not.toBeInTheDocument();
+        } else {
+            expect(screen.queryByRole("link", { name: "重新载入页面" })).not.toBeInTheDocument();
+            expect(screen.getByTestId("market-data-status")).toHaveTextContent(code);
+        }
+        expect(history).toHaveBeenCalledTimes(1);
+        expect(acquisition).not.toHaveBeenCalled();
+        expect(streams.requests).toEqual([]);
+        expect(renderedPrices()).toEqual([]);
     }
-});
+);
 
-it("requests an explicit acquisition for incomplete coverage and then renders database bars", async () => {
-    const user = userEvent.setup();
-    const calls: string[] = [];
+it("shows an honest partial temporary window and offers explicit re-read without automatic collection", async () => {
+    let available = false;
     const client = marketDataClient({
         listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: (_reference, query) => {
-            calls.push("bars");
-            return Promise.resolve(
-                marketDataBarsForQuery(query, calls.length === 1 ? incompleteBars() : {})
-            );
-        },
-        createAcquisition: () => {
-            calls.push("acquisition");
-            return Promise.resolve(marketDataAcquisition());
-        }
+        queryBars: (_reference, query) =>
+            Promise.resolve(marketDataBarsForQuery(query, available ? {} : incompleteBars()))
     });
+    const acquisition = vi.spyOn(client, "createAcquisition");
     renderWorkspace(client);
-
-    await selectSource(user);
-    await selectBtcInstrument(user);
-
-    await waitFor(() => {
-        expect(calls).toEqual(["bars", "acquisition", "bars"]);
-    });
-    await waitFor(() => {
-        expect(screen.getByTestId("market-data-source-tag")).toHaveTextContent("real · DB");
-    });
-    expect(renderedPrices()).toEqual([101, 102.5]);
-});
-
-it("submits multiple server-planned acquisition ranges in order", async () => {
     const user = userEvent.setup();
-    const ranges = [
-        { start_ns: "1767225600000000000", end_ns: "1767225660000000000" },
-        { start_ns: "1767225660000000000", end_ns: "1767225720000000000" }
-    ];
-    const submitted: string[] = [];
-    let queries = 0;
-    const client = marketDataClient({
-        listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: (_reference, query) => {
-            queries += 1;
-            return Promise.resolve(
-                queries === 1
-                    ? incompleteBars({
-                          coverage: {
-                              ...incompleteBars().coverage,
-                              gaps: ranges,
-                              planned_acquisition_ranges: ranges
-                          }
-                      })
-                    : marketDataBarsForQuery(query)
-            );
-        },
-        createAcquisition: (_reference, query) => {
-            submitted.push(`${query.start_ns}-${query.end_ns}`);
-            return Promise.resolve(marketDataAcquisition());
-        }
-    });
-    renderWorkspace(client);
-
     await selectSource(user);
     await selectBtcInstrument(user);
-
     await waitFor(() => {
-        expect(submitted).toEqual(ranges.map((range) => `${range.start_ns}-${range.end_ns}`));
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent("临时行情窗口不完整");
     });
-    expect(queries).toBe(2);
-});
-
-it("re-enters the command after owner loss and re-queries the frozen window", async () => {
-    const setTimeout = window.setTimeout.bind(window);
-    vi.spyOn(window, "setTimeout").mockImplementation((handler: TimerHandler, timeout?: number) => {
-        if (timeout === 250 && typeof handler === "function") {
-            queueMicrotask(handler as () => void);
-            return 1;
-        }
-        return setTimeout(handler, timeout);
-    });
-    const user = userEvent.setup();
-    const calls: string[] = [];
-    const queries: Parameters<MarketDataApiClient["queryBars"]>[1][] = [];
-    let creates = 0;
-    const client = marketDataClient({
-        listInstruments: () => Promise.resolve([marketDataInstrument()]),
-        queryBars: (_reference, query) => {
-            queries.push(query);
-            calls.push("bars");
-            return Promise.resolve(
-                calls.filter((item) => item === "bars").length === 1
-                    ? incompleteBars()
-                    : marketDataBarsForQuery(query)
-            );
-        },
-        createAcquisition: () => {
-            creates += 1;
-            calls.push(creates === 1 ? "create:RUNNING" : "create:COMPLETE");
-            return Promise.resolve(
-                marketDataAcquisition({ status: creates === 1 ? "RUNNING" : "COMPLETE" })
-            );
-        },
-        getAcquisition: () => {
-            calls.push("status:PENDING");
-            return Promise.resolve(marketDataAcquisition({ status: "PENDING" }));
-        }
-    });
-    renderWorkspace(client);
-
-    await selectSource(user);
-    await selectBtcInstrument(user);
-
+    expect(acquisition).not.toHaveBeenCalled();
+    expect(renderedPrices()).toEqual([]);
+    available = true;
+    await user.click(screen.getByRole("button", { name: "重新读取临时行情" }));
     await waitFor(() => {
-        expect(calls).toEqual([
-            "bars",
-            "create:RUNNING",
-            "status:PENDING",
-            "create:COMPLETE",
-            "bars"
-        ]);
+        expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     });
-    expect(queries).toHaveLength(2);
-    const initial = queries[0];
-    if (initial === undefined) throw new Error("initial Market Data query was not recorded");
-    expect(queries[1]).toMatchObject({
-        anchor_kind: "BEFORE_TIME",
-        before_ns: incompleteBars().resolved_end_ns,
-        target_bar_count: initial.target_bar_count,
-        bar_semantic: initial.bar_semantic
-    });
-    expect(renderedPrices()).toEqual([101, 102.5]);
+    expect(acquisition).not.toHaveBeenCalled();
+    expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
 });
 
 it("surfaces an unavailable market data backend without fake bars", async () => {

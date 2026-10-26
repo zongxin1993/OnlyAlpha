@@ -1,3 +1,8 @@
+import {
+    temporaryWindowVector,
+    temporaryEvaluationVector,
+    temporaryBatchVector
+} from "../../test/temporaryChartVectors";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChartStudies } from "./ChartStudies";
@@ -20,20 +25,20 @@ import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
 import { isAdmittedChartStudyEvidence } from "../../api/chartStudies/client";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 import type { ChartStudyInstance } from "./chartStudy";
-
 const observedEvidence: (readonly object[])[] = [];
 const observedMainChartInputs: {
     readonly bars: readonly MarketDataChartBarProjection[];
     readonly barSemantic: MarketDataBarSemantic | undefined;
 }[] = [];
-
 vi.mock("../../charts/lightweight/PriceChart", () => ({
     PriceChart: ({
         studyEvidence,
         bars,
         barSemantic
     }: {
-        studyEvidence: readonly { instanceId: string }[];
+        studyEvidence: readonly {
+            instanceId: string;
+        }[];
         bars: readonly MarketDataChartBarProjection[];
         barSemantic?: MarketDataBarSemantic;
     }) => {
@@ -54,6 +59,7 @@ const modalMethods = {
     close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
 };
 beforeEach(async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     document.documentElement.style.setProperty("--accent-solid", "#2962FF");
     Object.defineProperties(HTMLDialogElement.prototype, {
         showModal: {
@@ -71,7 +77,11 @@ beforeEach(async () => {
     });
     vi.stubGlobal(
         "crypto",
-        (await vi.importActual<{ webcrypto: Crypto }>("node:crypto")).webcrypto
+        (
+            await vi.importActual<{
+                webcrypto: Crypto;
+            }>("node:crypto")
+        ).webcrypto
     );
 });
 afterEach(() => {
@@ -79,6 +89,7 @@ afterEach(() => {
     observedMainChartInputs.length = 0;
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     document.documentElement.style.removeProperty("--accent-solid");
     for (const name of ["showModal", "close"] as const) {
         const method = modalMethods[name];
@@ -86,12 +97,10 @@ afterEach(() => {
         else Object.defineProperty(HTMLDialogElement.prototype, name, method);
     }
 });
-
-function required<T>(value: T | undefined): T {
-    if (value === undefined) throw new Error("Missing required test fact");
+function required<T>(value: T | undefined | null): T {
+    if (value === undefined || value === null) throw new Error("Missing required test fact");
     return value;
 }
-
 function setup(
     minutes = 15,
     instrument = "BTCUSDT.BINANCE",
@@ -102,7 +111,7 @@ function setup(
         capabilities: [sample.capability]
     }).capabilities[0];
     const admittedCapability = required(capability);
-    const duration = BigInt(minutes) * 60_000_000_000n;
+    const duration = BigInt(minutes) * 60000000000n;
     const baseEnd = BigInt(sample.history.resolved_end_ns);
     const page = (anchor: string) => {
         const history = marketDataBarsSchema.parse(structuredClone(sample.history));
@@ -127,7 +136,7 @@ function setup(
         });
         return history;
     };
-    const response = (anchor: string) => {
+    const response = (anchor: string, count = 1) => {
         const history = page(anchor);
         const value = ChartStudyEvaluateSchema.parse(structuredClone(sample.evaluation));
         value.instrument_id = instrument;
@@ -138,7 +147,16 @@ function setup(
         value.series[0]?.points.forEach((point, index) => {
             point.time_ns = required(history.bars[index]).bar_start_ns;
         });
-        return new Response(JSON.stringify(value), { headers: { "cache-control": "no-store" } });
+        return new Response(
+            JSON.stringify(
+                temporaryBatchVector(
+                    Array.from({ length: count }, () => temporaryEvaluationVector(value))
+                )
+            ),
+            {
+                headers: { "cache-control": "no-store" }
+            }
+        );
     };
     const initial = page(baseEnd.toString());
     const context = {
@@ -174,29 +192,80 @@ function setup(
     };
     const traffic: {
         anchors: string[];
-        held: { anchor: string; resolve: (value: Response) => void }[];
+        batchSizes: number[];
+        held: {
+            anchor: string;
+            resolve: (value: Response) => void;
+        }[];
         hold: boolean;
         failSibling: boolean;
-        siblingFailure: { code: string; status: number };
+        siblingFailure: {
+            code: string;
+            status: number;
+        };
         siblingBody?: string;
         retryAfter?: string;
         conflict: boolean;
     } = {
         anchors: [],
+        batchSizes: [],
         held: [],
         hold: false,
         failSibling: false,
         siblingFailure: { code: "CHART_STUDY_CAPACITY_UNAVAILABLE", status: 503 },
         conflict: false
     };
-    const queryBars = vi.fn((_source: MarketDataSourceReference, query: MarketDataBarsQuery) => {
-        const result = page(required(query.before_ns));
-        if (traffic.conflict) required(result.bars.at(-1)).close = "999";
-        return Promise.resolve(result);
-    });
+    const temporaryReads = vi.fn(
+        (_source: MarketDataSourceReference, query: MarketDataBarsQuery) => {
+            const result = page(required(query.before_ns));
+            if (traffic.conflict) required(result.bars.at(-1)).close = "999";
+            return Promise.resolve(result);
+        }
+    );
     vi.stubGlobal(
         "fetch",
         vi.fn((url: string, init: RequestInit) => {
+            if (url.includes("/api/v2/chart/market-data/bars?")) {
+                const params = new URL(url, "http://test").searchParams;
+                return temporaryReads(initial.source_selection, {
+                    instrument_id: required(params.get("instrument_id")),
+                    bar_semantic: JSON.parse(
+                        required(params.get("bar_semantic"))
+                    ) as MarketDataBarSemantic,
+                    anchor_kind: "BEFORE_TIME",
+                    before_ns: required(params.get("before_ns")),
+                    target_bar_count: Number(params.get("target_bar_count"))
+                })
+                    .then(
+                        (value) =>
+                            new Response(JSON.stringify(temporaryWindowVector(value)), {
+                                headers: { "cache-control": "no-store" }
+                            })
+                    )
+                    .catch((error: unknown) => {
+                        if (error instanceof MarketDataWebError)
+                            return new Response(
+                                JSON.stringify({
+                                    schema_version: 1,
+                                    error: {
+                                        phase: "QUERY",
+                                        code: error.code,
+                                        detail: error.message
+                                    }
+                                }),
+                                {
+                                    status: error.status ?? 503,
+                                    headers: {
+                                        "cache-control": "no-store",
+                                        ...(error.retryAfterSeconds === null
+                                            ? {}
+                                            : { "Retry-After": String(error.retryAfterSeconds) })
+                                    }
+                                }
+                            );
+                        throw error;
+                    });
+            }
             if (url.endsWith("capabilities"))
                 return Promise.resolve(
                     new Response(
@@ -205,11 +274,14 @@ function setup(
                     )
                 );
             const request = JSON.parse(init.body as string) as {
-                window: { before_ns: string };
-                calculation: { typed_parameters: { period: { value: number } } };
+                window: {
+                    before_ns: string;
+                };
+                calculations: unknown[];
             };
             const anchor = request.window.before_ns;
-            traffic.anchors.push(anchor);
+            traffic.batchSizes.push(request.calculations.length);
+            traffic.anchors.push(...request.calculations.map(() => anchor));
             if (traffic.failSibling && traffic.anchors.length > 1)
                 return Promise.resolve(
                     new Response(
@@ -233,10 +305,16 @@ function setup(
                 );
             if (traffic.hold)
                 return new Promise<Response>((resolve) => traffic.held.push({ anchor, resolve }));
-            return Promise.resolve(response(anchor));
+            return Promise.resolve(response(anchor, request.calculations.length));
         })
     );
-    const market = marketDataClient({ queryBars });
+    const market = marketDataClient({
+        queryBars: vi.fn(() =>
+            Promise.resolve().then(() => {
+                throw new Error("persistent history is prohibited");
+            })
+        )
+    });
     let activeCredentials: LocalReadCredentials | undefined;
     let initializedCredential = false;
     function Query({
@@ -249,9 +327,11 @@ function setup(
         older = false,
         preview = false,
         previewSequence = 0,
-        stream = false,
         incarnation = "owner",
-        stale = false
+        stale = false,
+        continuous = true,
+        period = 20,
+        gap = false
     }: {
         step?: number;
         siblings?: boolean;
@@ -265,13 +345,15 @@ function setup(
         stream?: boolean;
         incarnation?: string;
         stale?: boolean;
+        continuous?: boolean;
+        period?: number;
+        gap?: boolean;
     }) {
         const credentials = useLocalReadCredentials();
         activeCredentials = credentials;
         useLayoutEffect(() => {
             if (!initializedCredential) {
                 initializedCredential = true;
-                if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
             }
         }, [credentials]);
         const anchor = (baseEnd + BigInt(step) * duration).toString();
@@ -282,12 +364,14 @@ function setup(
                 bar_start_ns: (BigInt(required(raw[0]).bar_start_ns) - duration).toString(),
                 bar_end_ns: required(raw[0]).bar_start_ns
             });
+        if (gap) raw.splice(raw.length - 2, 1);
         const bars = raw.map(projectMarketDataBar);
         if (owner)
             return (
                 <ChartStudies context={context} credentials={credentials}>
                     {({ instances, incarnationKey, onTransientRevalidated }) => (
                         <TransientStudyPriceChart
+                            pageId="00000000-0000-4000-8000-000000000001"
                             context={context}
                             onTransientRevalidated={onTransientRevalidated}
                             dataGeneration={proof}
@@ -304,13 +388,14 @@ function setup(
             );
         return (
             <TransientStudyPriceChart
+                pageId="00000000-0000-4000-8000-000000000001"
                 context={context}
                 dataGeneration={proof}
+                continuityReady={continuous}
                 expectedSourceId={initial.source_selection.source_id}
                 expectedEnvironment={initial.source_selection.environment}
                 contextKey={context.key}
                 incarnationKey={incarnation}
-                previewStreamId={stream ? "f47ac10b-58cc-4372-a567-0e02b2c3d479" : null}
                 studies={
                     siblings
                         ? [
@@ -331,6 +416,13 @@ function setup(
                         : [
                               {
                                   ...instance,
+                                  configuration: {
+                                      ...instance.configuration,
+                                      parameters: {
+                                          ...instance.configuration.parameters,
+                                          period: { type: "INTEGER", value: period }
+                                      }
+                                  },
                                   presentation: { ...instance.presentation, visible: !hidden },
                                   connectionState: stale
                                       ? "STALE_CONFIG"
@@ -363,12 +455,11 @@ function setup(
             <Query {...props} />
         </AppProviders>
     );
-    const recoverSession = (bearer: string | null = "ee".repeat(32)) => {
+    const recoverSession = (bearer: string | null = null) => {
         required(activeCredentials).replace(bearer);
     };
-    return { traffic, tree, response, queryBars, baseEnd, duration, recoverSession };
+    return { traffic, tree, response, temporaryReads, baseEnd, duration, recoverSession };
 }
-
 it.each([1, 3, 5, 15, 30, 60, 120, 240])(
     "loads ETH proved native %sm without source capability guessing",
     async (minutes) => {
@@ -424,7 +515,11 @@ it("fails closed when the fresh Study input conflicts with current main-chart cl
 it("preserves successful sibling when evaluation fails and makes Query retry discoverable", async () => {
     const test = setup();
     test.traffic.failSibling = true;
-    render(test.tree({ siblings: true }));
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true }));
     await waitFor(() => {
         expect(screen.getByTestId("overlays")).toHaveTextContent("one");
     });
@@ -448,7 +543,43 @@ it("does not evaluate partial main history even if old closed bars are displayed
     });
     expect(test.traffic.anchors).toHaveLength(0);
 });
-
+it.each([false, true])(
+    "withdraws admitted numeric evidence when input proof is revoked, including pending=%s",
+    async (pending) => {
+        const test = setup();
+        const view = render(test.tree());
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        if (pending) {
+            test.traffic.hold = true;
+            view.rerender(test.tree({ step: 1 }));
+            await waitFor(() => {
+                expect(test.traffic.held).toHaveLength(1);
+            });
+        }
+        view.rerender(test.tree({ step: pending ? 1 : 0, proof: null }));
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                pending ? "STALE" : "INPUT_INCOMPLETE"
+            );
+        });
+        if (pending) {
+            const held = required(test.traffic.held[0]);
+            await act(async () => {
+                held.resolve(test.response(held.anchor));
+                await Promise.resolve();
+            });
+            expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "INPUT_INCOMPLETE"
+            );
+        }
+    }
+);
 it("viewport older pages and Preview do not change finite Study initialization", async () => {
     const test = setup();
     const view = render(test.tree());
@@ -457,7 +588,7 @@ it("viewport older pages and Preview do not change finite Study initialization",
     });
     view.rerender(test.tree({ older: true, preview: true }));
     expect(test.traffic.anchors).toHaveLength(1);
-    expect(test.queryBars).toHaveBeenCalledTimes(1);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(1);
 });
 it("focus-stale intent is revalidated through fresh capability and finite owning history", async () => {
     const test = setup();
@@ -465,9 +596,8 @@ it("focus-stale intent is revalidated through fresh capability and finite owning
     await waitFor(() => {
         expect(screen.getByTestId("overlays")).toHaveTextContent("one");
     });
-    expect(test.queryBars).toHaveBeenCalledTimes(1);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(1);
 });
-
 it("preserves 7m main-chart input while refusing an unsupported UTC-aligned Study request", async () => {
     const test = setup(7, "BTCUSDT.BINANCE", "UTC");
     render(test.tree());
@@ -478,7 +608,7 @@ it("preserves 7m main-chart input while refusing an unsupported UTC-aligned Stud
         );
     });
     expect(test.traffic.anchors).toHaveLength(0);
-    expect(test.queryBars).not.toHaveBeenCalled();
+    expect(test.temporaryReads).not.toHaveBeenCalled();
     expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
     const main = required(observedMainChartInputs.at(-1));
     expect(main.barSemantic?.formation).toEqual({
@@ -492,11 +622,14 @@ it("preserves 7m main-chart input while refusing an unsupported UTC-aligned Stud
     expect(main.bars[0]?.barStartNs).toBe((test.baseEnd - 2000n * test.duration).toString());
     expect(main.bars.at(-1)?.barEndNs).toBe(test.baseEnd.toString());
 });
-
 it("retrying one failed Study retains the other failed sibling's retry and valid sibling evidence", async () => {
     const test = setup();
     test.traffic.failSibling = true;
-    render(test.tree({ siblings: true, third: true }));
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true, third: true }));
     await waitFor(() => {
         expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
     });
@@ -508,11 +641,14 @@ it("retrying one failed Study retains the other failed sibling's retry and valid
     expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
     expect(test.traffic.anchors).toHaveLength(4);
 });
-
 it("a queued latest closed full batch takes priority over a same-turn sibling retry", async () => {
     const test = setup();
     test.traffic.failSibling = true;
-    const view = render(test.tree({ siblings: true, third: true }));
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true, third: true }));
     await waitFor(() => {
         expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
     });
@@ -533,27 +669,29 @@ it("a queued latest closed full batch takes priority over a same-turn sibling re
         first.resolve(test.response(first.anchor));
         await Promise.resolve();
     });
-    for (let index = 1; index <= 3; index++) {
-        await waitFor(() => {
-            expect(test.traffic.held).toHaveLength(index + 1);
-        });
-        const pending = required(test.traffic.held[index]);
-        expect(pending.anchor).toBe((test.baseEnd + test.duration).toString());
-        await act(async () => {
-            pending.resolve(test.response(pending.anchor));
-            await Promise.resolve();
-        });
-    }
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(2);
+    });
+    const pending = required(test.traffic.held[1]);
+    expect(pending.anchor).toBe((test.baseEnd + test.duration).toString());
+    expect(test.traffic.batchSizes.at(-1)).toBe(3);
+    await act(async () => {
+        pending.resolve(test.response(pending.anchor, 3));
+        await Promise.resolve();
+    });
     await waitFor(() => {
         expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
     });
     expect(test.traffic.anchors).toHaveLength(7);
 });
-
 it("a queued sibling retry sees the prior completion's committed evidence", async () => {
     const test = setup();
     test.traffic.failSibling = true;
-    render(test.tree({ siblings: true, third: true }));
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true, third: true }));
     await waitFor(() => {
         expect(screen.getByRole("button", { name: /重试.*three/ })).toBeEnabled();
     });
@@ -579,7 +717,6 @@ it("a queued sibling retry sees the prior completion's committed evidence", asyn
     });
     expect(test.traffic.anchors).toHaveLength(5);
 });
-
 it("focus reproof followed by color-only editor confirmation does not reevaluate", async () => {
     const test = setup();
     const user = userEvent.setup();
@@ -617,7 +754,6 @@ it("focus reproof followed by color-only editor confirmation does not reevaluate
     });
     expect(test.traffic.anchors).toHaveLength(2);
 });
-
 it.each([
     ["MARKET_DATA_REVISION_EVIDENCE_INVALID", 500],
     ["MARKET_DATA_FACT_STORE_UNAVAILABLE", 503],
@@ -636,7 +772,11 @@ it.each([
         const test = setup();
         test.traffic.failSibling = true;
         test.traffic.siblingFailure = { code, status };
-        render(test.tree({ siblings: true }));
+        const view = render(test.tree());
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        view.rerender(test.tree({ siblings: true }));
         await waitFor(() => {
             expect(test.traffic.anchors).toHaveLength(2);
             expect(screen.getByTestId("chart-study-query-status")).not.toHaveAttribute(
@@ -652,7 +792,6 @@ it.each([
         );
     }
 );
-
 it.each([
     ["MARKET_DATA_WINDOW_REQUEST_INVALID", 400, "UNAVAILABLE"],
     ["MARKET_DATA_FACT_STORE_UNAVAILABLE", 503, "UNAVAILABLE"],
@@ -666,7 +805,7 @@ it.each([
         expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
     });
     const prior = required(observedEvidence.at(-1)?.[0]);
-    test.queryBars.mockRejectedValueOnce(
+    test.temporaryReads.mockRejectedValueOnce(
         new MarketDataWebError(code, "Formal history read refused", status)
     );
     view.rerender(test.tree({ siblings: true, step: 1 }));
@@ -696,10 +835,9 @@ it.each([
         expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
     }
 });
-
 it("keeps unknown shared history exceptions private", async () => {
     const test = setup();
-    test.queryBars.mockRejectedValueOnce(new Error("internal credential=do-not-display"));
+    test.temporaryReads.mockRejectedValueOnce(new Error("internal credential=do-not-display"));
     render(test.tree({ siblings: true }));
     await waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
@@ -711,7 +849,6 @@ it("keeps unknown shared history exceptions private", async () => {
     expect(document.body).not.toHaveTextContent("do-not-display");
     expect(screen.getByRole("button", { name: "重新查询指标" })).toBeEnabled();
 });
-
 it.each([
     ["CHART_STUDY_CAPACITY_UNAVAILABLE", 503],
     ["CHART_STUDY_CAPACITY_EXCEEDED", 503],
@@ -721,7 +858,11 @@ it.each([
     const test = setup();
     test.traffic.failSibling = true;
     test.traffic.siblingFailure = { code, status };
-    render(test.tree({ siblings: true }));
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true }));
     await waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
             "data-query-status",
@@ -732,12 +873,15 @@ it.each([
     expect(screen.getByTestId("overlays")).not.toHaveTextContent("two");
     expect(screen.getByRole("button", { name: /重试.*two/ })).toBeEnabled();
 });
-
 it("shared input failure revokes a retained sibling's response admission before explicit recovery", async () => {
     const test = setup();
     test.traffic.failSibling = true;
-    render(test.tree({ siblings: true }));
-    await waitFor(() => {
+    const view = render(test.tree());
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true }));
+    await vi.waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
             "data-query-status",
             "PARTIALLY_DISPLAYABLE"
@@ -747,7 +891,7 @@ it("shared input failure revokes a retained sibling's response admission before 
     expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
     test.traffic.siblingFailure = { code: "MARKET_DATA_REVISION_EVIDENCE_INVALID", status: 500 };
     fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
-    await waitFor(() => {
+    await vi.waitFor(() => {
         expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
             "data-query-status",
             "INVALID"
@@ -757,12 +901,11 @@ it("shared input failure revokes a retained sibling's response admission before 
     expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
     test.traffic.failSibling = false;
     fireEvent.click(screen.getByRole("button", { name: "重新查询指标" }));
-    await waitFor(() => {
+    await vi.waitFor(() => {
         expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
     });
     expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
 });
-
 const malformedFailures = (
     [
         [401, "UNAUTHORIZED"],
@@ -776,7 +919,6 @@ const malformedFailures = (
         body
     }))
 );
-
 it.each(malformedFailures)(
     "withdraws a successful first sibling on HTTP $status with undecodable body $body",
     async ({ status, terminal, body }) => {
@@ -784,8 +926,12 @@ it.each(malformedFailures)(
         test.traffic.failSibling = true;
         test.traffic.siblingFailure = { code: "INVALID", status };
         test.traffic.siblingBody = body;
-        render(test.tree({ siblings: true }));
-        await waitFor(() => {
+        const view = render(test.tree());
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        view.rerender(test.tree({ siblings: true }));
+        await vi.waitFor(() => {
             expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
                 "data-query-status",
                 terminal
@@ -795,14 +941,17 @@ it.each(malformedFailures)(
         expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
     }
 );
-
 it.each(malformedFailures)(
     "retires retained sibling admission on HTTP $status with undecodable body $body",
     async ({ status, terminal, body }) => {
         const test = setup();
         test.traffic.failSibling = true;
-        render(test.tree({ siblings: true }));
-        await waitFor(() => {
+        const view = render(test.tree());
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        view.rerender(test.tree({ siblings: true }));
+        await vi.waitFor(() => {
             expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
                 "data-query-status",
                 "PARTIALLY_DISPLAYABLE"
@@ -813,7 +962,7 @@ it.each(malformedFailures)(
         test.traffic.siblingFailure = { code: "INVALID", status };
         test.traffic.siblingBody = body;
         fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
-        await waitFor(() => {
+        await vi.waitFor(() => {
             expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
                 "data-query-status",
                 terminal
@@ -830,10 +979,10 @@ it.each(malformedFailures)(
         act(() => {
             test.recoverSession();
         });
-        await waitFor(() => {
+        await vi.waitFor(() => {
             expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
         });
-        expect(test.queryBars).toHaveBeenCalledTimes(3);
+        expect(test.temporaryReads).toHaveBeenCalledTimes(4);
         expect(
             vi
                 .mocked(fetch)
@@ -844,7 +993,6 @@ it.each(malformedFailures)(
         expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
     }
 );
-
 it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
     "isolates malformed HTTP 200 body %s without retiring the valid sibling",
     async (body) => {
@@ -852,8 +1000,12 @@ it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
         test.traffic.failSibling = true;
         test.traffic.siblingFailure = { code: "INVALID", status: 200 };
         test.traffic.siblingBody = body;
-        render(test.tree({ siblings: true }));
-        await waitFor(() => {
+        const view = render(test.tree());
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        view.rerender(test.tree({ siblings: true }));
+        await vi.waitFor(() => {
             expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
                 "data-query-status",
                 "PARTIALLY_DISPLAYABLE"
@@ -864,7 +1016,7 @@ it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
         expect(screen.getByTestId("overlays")).not.toHaveTextContent("two");
         expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
         fireEvent.click(screen.getByRole("button", { name: /重试.*two/ }));
-        await waitFor(() => {
+        await vi.waitFor(() => {
             expect(test.traffic.anchors).toHaveLength(3);
             expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
                 "data-query-status",
@@ -875,19 +1027,22 @@ it.each(["", "<html>Malformed</html>", '{"schema_version":'])(
         expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
     }
 );
-
 it.each(["history", "evaluation"])(
     "defers one shared %s window once and then freshly admits both SMA instances",
     async (failureAt) => {
         const test = setup(1);
-        const view = render(test.tree({ siblings: true }));
-        await waitFor(() => {
+        const view = render(test.tree());
+        await vi.waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        view.rerender(test.tree({ siblings: true }));
+        await vi.waitFor(() => {
             expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
         });
         const prior = required(observedEvidence.at(-1)?.[0]);
         vi.useFakeTimers();
         if (failureAt === "history")
-            test.queryBars.mockRejectedValueOnce(
+            test.temporaryReads.mockRejectedValueOnce(
                 new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
             );
         else {
@@ -913,7 +1068,7 @@ it.each(["history", "evaluation"])(
         expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent(
             "等待 K 线时间窗口就绪 · 将自动重新查询一次"
         );
-        const count = test.queryBars.mock.calls.length;
+        const count = test.temporaryReads.mock.calls.length;
         vi.setSystemTime(new Date("2000-01-01T00:00:00Z"));
         test.traffic.failSibling = false;
         await act(async () => {
@@ -925,22 +1080,21 @@ it.each(["history", "evaluation"])(
         await vi.waitFor(() => {
             expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
         });
-        expect(test.queryBars).toHaveBeenCalledTimes(count + 1);
-        expect(test.queryBars.mock.calls.at(-1)?.[1].before_ns).toBe(
+        expect(test.temporaryReads).toHaveBeenCalledTimes(count + 1);
+        expect(test.temporaryReads.mock.calls.at(-1)?.[1].before_ns).toBe(
             (test.baseEnd + test.duration).toString()
         );
-        expect(test.queryBars.mock.calls.at(-1)?.[1].target_bar_count).toBe(2000);
+        expect(test.temporaryReads.mock.calls.at(-1)?.[1].target_bar_count).toBe(2000);
         expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
         await act(async () => {
-            await vi.advanceTimersByTimeAsync(60_000);
+            await vi.advanceTimersByTimeAsync(60000);
         });
-        expect(test.queryBars).toHaveBeenCalledTimes(count + 1);
+        expect(test.temporaryReads).toHaveBeenCalledTimes(count + 1);
     }
 );
-
 it("stops after the one server-directed reobservation is still not ready", async () => {
     const test = setup(1);
-    test.queryBars.mockRejectedValue(
+    test.temporaryReads.mockRejectedValue(
         new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
     );
     vi.useFakeTimers();
@@ -971,31 +1125,30 @@ it("stops after the one server-directed reobservation is still not ready", async
     );
     expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
     await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60000);
     });
-    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByRole("button", { name: "重新查询指标" }));
     await act(async () => {
         await Promise.resolve();
     });
     await vi.waitFor(() => {
-        expect(test.queryBars).toHaveBeenCalledTimes(3);
+        expect(test.temporaryReads).toHaveBeenCalledTimes(3);
     });
     await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60000);
     });
-    expect(test.queryBars).toHaveBeenCalledTimes(3);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(3);
     expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
         "data-query-status",
         "UNAVAILABLE"
     );
 });
-
 it.each(["new-close", "context", "auth-replacement", "logout", "unmount"])(
     "retires a pending window timer after %s",
     async (change) => {
         const test = setup(1);
-        test.queryBars.mockRejectedValueOnce(
+        test.temporaryReads.mockRejectedValueOnce(
             new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Window not closed", 503, 4)
         );
         vi.useFakeTimers();
@@ -1012,7 +1165,7 @@ it.each(["new-close", "context", "auth-replacement", "logout", "unmount"])(
         if (change === "unmount") view.unmount();
         else if (change === "logout" || change === "auth-replacement")
             act(() => {
-                test.recoverSession(change === "logout" ? null : "ff".repeat(32));
+                test.recoverSession(null);
             });
         else {
             const replacement = change === "context" ? setup(15) : test;
@@ -1024,14 +1177,13 @@ it.each(["new-close", "context", "auth-replacement", "logout", "unmount"])(
                 expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
             });
         }
-        const count = test.queryBars.mock.calls.length;
+        const count = test.temporaryReads.mock.calls.length;
         await act(async () => {
             await vi.advanceTimersByTimeAsync(4000);
         });
-        expect(test.queryBars).toHaveBeenCalledTimes(count);
+        expect(test.temporaryReads).toHaveBeenCalledTimes(count);
     }
 );
-
 it.each([
     new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503),
     new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 400, 4),
@@ -1040,7 +1192,7 @@ it.each([
     new MarketDataWebError("MARKET_DATA_RANGE_COMPOSITION_CONFLICT", "Conflict", 409, 4)
 ])("does not schedule unadmitted readiness or denial %s", async (error) => {
     const test = setup(1);
-    test.queryBars.mockRejectedValue(error);
+    test.temporaryReads.mockRejectedValue(error);
     vi.useFakeTimers();
     render(test.tree({ siblings: true }));
     await act(async () => {
@@ -1051,17 +1203,16 @@ it.each([
     });
     expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
     await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60000);
     });
-    expect(test.queryBars).toHaveBeenCalledTimes(1);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(1);
 });
-
 it("ignores queued stale timer callbacks without disturbing the latest intent timer", async () => {
     const test = setup(1);
-    test.queryBars.mockRejectedValueOnce(
+    test.temporaryReads.mockRejectedValueOnce(
         new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503, 4)
     );
-    test.queryBars.mockRejectedValueOnce(
+    test.temporaryReads.mockRejectedValueOnce(
         new MarketDataWebError("MARKET_DATA_WINDOW_NOT_CLOSED", "Not ready", 503, 4)
     );
     vi.useFakeTimers();
@@ -1090,7 +1241,7 @@ it("ignores queued stale timer callbacks without disturbing the latest intent ti
         required(callbacks[0])();
     });
     view.rerender(test.tree({ siblings: true, step: 1, hidden: true, older: true, preview: true }));
-    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(2);
     await act(async () => {
         await vi.advanceTimersByTimeAsync(4000);
     });
@@ -1100,11 +1251,10 @@ it("ignores queued stale timer callbacks without disturbing the latest intent ti
     await vi.waitFor(() => {
         expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
     });
-    expect(test.queryBars).toHaveBeenCalledTimes(3);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(3);
     spy.mockRestore();
 });
-
-it("coalesces continuous preview bursts while each completed batch has five seconds of idle and retains closed evidence", async () => {
+it("keeps preview bursts outside indicator inputs and retains the original closed evidence", async () => {
     const test = setup();
     vi.useFakeTimers();
     const view = render(test.tree({ siblings: true, preview: true, stream: true }));
@@ -1120,37 +1270,25 @@ it("coalesces continuous preview bursts while each completed batch has five seco
         });
     }
     expect(test.traffic.anchors).toHaveLength(2);
-    expect(test.queryBars).toHaveBeenCalledTimes(1);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(1);
     expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
     expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
     await act(async () => {
         await vi.advanceTimersByTimeAsync(3000);
     });
-    await vi.waitFor(() => {
-        expect(test.traffic.anchors).toHaveLength(4);
-    });
-    await vi.waitFor(() => {
-        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
-            "data-query-status",
-            "DISPLAYABLE"
-        );
-    });
-    expect(test.queryBars).toHaveBeenCalledTimes(2);
+    expect(test.traffic.anchors).toHaveLength(2);
+    expect(test.temporaryReads).toHaveBeenCalledTimes(1);
     view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence: 21 }));
     await act(async () => {
-        await vi.advanceTimersByTimeAsync(4000);
+        await vi.advanceTimersByTimeAsync(60000);
     });
-    expect(test.traffic.anchors).toHaveLength(4);
+    expect(test.traffic.anchors).toHaveLength(2);
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
     view.unmount();
-    await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
-    });
-    expect(test.traffic.anchors).toHaveLength(4);
     expect(vi.getTimerCount()).toBe(0);
 });
-
-it.each(["closed-anchor", "incarnation", "configuration", "credential", "context"])(
-    "does not delay %s behind preview cooldown",
+it.each(["closed-anchor", "incarnation", "added-instance", "credential", "context"])(
+    "handles %s immediately while preview remains excluded from calculation",
     async (change) => {
         const test = setup();
         vi.useFakeTimers();
@@ -1168,7 +1306,7 @@ it.each(["closed-anchor", "incarnation", "configuration", "credential", "context
             view.rerender(active.tree({ siblings: true, preview: true, stream: true }));
         else if (change === "credential")
             act(() => {
-                test.recoverSession("ff".repeat(32));
+                test.recoverSession(null);
             });
         else
             view.rerender(
@@ -1184,23 +1322,35 @@ it.each(["closed-anchor", "incarnation", "configuration", "credential", "context
                           : { third: true })
                 })
             );
-        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
-        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        // Adding an independent instance does not revoke unchanged closed evidence.
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(
+            change === "added-instance" || change === "closed-anchor"
+        );
+        if (change === "closed-anchor") {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "UPDATING"
+            );
+        } else expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
         await vi.waitFor(() => {
             expect(screen.getByTestId("overlays")).toHaveTextContent(
-                change === "configuration" ? "one,two,three" : "one,two"
+                change === "added-instance" ? "one,two,three" : "one,two"
+            );
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                "DISPLAYABLE"
             );
         });
         expect(Date.now() - started).toBeLessThan(5000);
         expect(active.traffic.anchors).toHaveLength(
-            change === "context" ? 2 : change === "configuration" ? 5 : 4
+            change === "context" ? 2 : change === "added-instance" ? 3 : 4
         );
         view.unmount();
         expect(vi.getTimerCount()).toBe(0);
     }
 );
-
-it("withdraws closed evidence immediately on credential revocation during preview cooldown", async () => {
+it("withdraws closed evidence immediately on Cookie-session revocation during preview display", async () => {
     const test = setup();
     vi.useFakeTimers();
     const view = render(test.tree({ siblings: true, preview: true, stream: true }));
@@ -1209,6 +1359,9 @@ it("withdraws closed evidence immediately on credential revocation during previe
     });
     const prior = required(observedEvidence.at(-1)?.[0]);
     view.rerender(test.tree({ siblings: true, preview: true, stream: true, previewSequence: 1 }));
+    test.temporaryReads.mockRejectedValueOnce(
+        new MarketDataWebError("LOCAL_READ_UNAUTHORIZED", "session withdrawn", 401)
+    );
     act(() => {
         test.recoverSession(null);
     });
@@ -1224,12 +1377,15 @@ it("withdraws closed evidence immediately on credential revocation during previe
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
 });
-
-it("lets an explicit retry bypass preview cooldown even with a latest preview batch pending", async () => {
+it("retries only the failed sibling while preview display does not add calculation work", async () => {
     const test = setup();
     test.traffic.failSibling = true;
     vi.useFakeTimers();
-    const view = render(test.tree({ siblings: true, preview: true, stream: true }));
+    const view = render(test.tree());
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true, preview: true, stream: true }));
     await vi.waitFor(() => {
         expect(screen.getByRole("button", { name: "重试指标 two" })).toBeVisible();
     });
@@ -1241,16 +1397,19 @@ it("lets an explicit retry bypass preview cooldown even with a latest preview ba
         expect(screen.getByTestId("overlays")).toHaveTextContent("one,two");
     });
     expect(Date.now() - started).toBeLessThan(5000);
-    expect(test.traffic.anchors).toHaveLength(4);
+    expect(test.traffic.anchors).toHaveLength(3);
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
 });
-
-it("does not insert preview idle ahead of an explicit sibling retry queued during another retry", async () => {
+it("does not delay an explicit sibling retry queued during another closed-input retry", async () => {
     const test = setup();
     test.traffic.failSibling = true;
     vi.useFakeTimers();
-    const view = render(test.tree({ siblings: true, third: true, preview: true, stream: true }));
+    const view = render(test.tree());
+    await vi.waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    view.rerender(test.tree({ siblings: true, third: true, preview: true, stream: true }));
     await vi.waitFor(() => {
         expect(screen.getByRole("button", { name: "重试指标 two" })).toBeVisible();
     });
@@ -1275,4 +1434,229 @@ it("does not insert preview idle ahead of an explicit sibling retry queued durin
     expect(test.traffic.anchors).toHaveLength(5);
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
+});
+
+it("batches one complete closed-window update and leaves Preview outside it", async () => {
+    const test = setup();
+    const view = render(test.tree({ siblings: true, third: true }));
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+    });
+    expect(test.traffic.batchSizes).toEqual([3]);
+    view.rerender(test.tree({ siblings: true, third: true, step: 1 }));
+    await waitFor(() => {
+        expect(test.traffic.batchSizes).toEqual([3, 3]);
+    });
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    view.rerender(
+        test.tree({ siblings: true, third: true, step: 1, preview: true, previewSequence: 2 })
+    );
+    expect(test.traffic.batchSizes).toEqual([3, 3]);
+    expect(test.traffic.anchors).toHaveLength(6);
+});
+
+it.each(["valid", "changed-catalog"])(
+    "reproves every advanced-window Study in a new batch without serial metadata: %s",
+    async (proof) => {
+        const test = setup();
+        const view = render(test.tree({ siblings: true, third: true }));
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        const metadataReads = () =>
+            vi
+                .mocked(fetch)
+                .mock.calls.filter(
+                    ([url]) => typeof url === "string" && url.endsWith("capabilities")
+                ).length;
+        expect(metadataReads()).toBe(1);
+        test.traffic.hold = true;
+        view.rerender(test.tree({ siblings: true, third: true, step: 1, proof: "next-window" }));
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        await waitFor(() => {
+            expect(test.traffic.held).toHaveLength(1);
+        });
+        expect(test.traffic.batchSizes).toEqual([3, 3]);
+        expect(metadataReads()).toBe(1);
+        const pending = required(test.traffic.held[0]);
+        expect(pending.anchor).toBe((test.baseEnd + test.duration).toString());
+        let response = test.response(pending.anchor, 3);
+        if (proof === "changed-catalog") {
+            const value = (await response.json()) as {
+                results: {
+                    evaluation: { calculation: { catalog_generation_fingerprint: string } };
+                }[];
+            };
+            for (const result of value.results)
+                result.evaluation.calculation.catalog_generation_fingerprint = "0".repeat(64);
+            response = new Response(JSON.stringify(value), {
+                headers: { "cache-control": "no-store" }
+            });
+        }
+        await act(async () => {
+            pending.resolve(response);
+            await Promise.resolve();
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+                "data-query-status",
+                proof === "valid" ? "DISPLAYABLE" : "REJECTED_CONFIG"
+            );
+        });
+        if (proof === "valid")
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one,two,three");
+        else expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+    }
+);
+
+it("retires the advanced-window batch when its original credential occurrence is withdrawn", async () => {
+    const test = setup();
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    test.traffic.hold = true;
+    view.rerender(test.tree({ step: 1, proof: "next-window" }));
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    const pending = required(test.traffic.held[0]);
+    act(() => {
+        test.recoverSession();
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    await act(async () => {
+        pending.resolve(test.response(pending.anchor));
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(2);
+    });
+    expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    const current = required(test.traffic.held[1]);
+    await act(async () => {
+        current.resolve(test.response(current.anchor));
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+});
+
+it("labels and retains the last verified window during a contiguous close, then atomically replaces it", async () => {
+    const test = setup();
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    test.traffic.hold = true;
+    view.rerender(test.tree({ step: 1 }));
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+        "data-query-status",
+        "UPDATING"
+    );
+    expect(screen.getByTestId("chart-study-query-status")).toHaveTextContent("计算至");
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+    const pending = required(test.traffic.held[0]);
+    await act(async () => {
+        pending.resolve(test.response(pending.anchor));
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(screen.getByTestId("chart-study-query-status")).toHaveAttribute(
+            "data-query-status",
+            "DISPLAYABLE"
+        );
+    });
+    expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+});
+
+it.each(["continuity", "incarnation", "configuration", "generation", "credential", "gap"])(
+    "withdraws a lagging window immediately on %s departure, including late completion",
+    async (departure) => {
+        const test = setup();
+        const view = render(test.tree());
+        await waitFor(() => {
+            expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+        });
+        const prior = required(observedEvidence.at(-1)?.[0]);
+        test.traffic.hold = true;
+        view.rerender(test.tree({ step: 1 }));
+        await waitFor(() => {
+            expect(test.traffic.held).toHaveLength(1);
+        });
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+        if (departure === "credential")
+            act(() => {
+                test.recoverSession(null);
+            });
+        view.rerender(
+            test.tree({
+                step: departure === "gap" ? 3 : 1,
+                ...(departure === "continuity"
+                    ? { continuous: false }
+                    : departure === "incarnation"
+                      ? { incarnation: "other" }
+                      : departure === "configuration"
+                        ? { period: 21 }
+                        : departure === "gap"
+                          ? { gap: true }
+                          : departure === "credential"
+                            ? {}
+                            : { proof: "new-epoch" })
+            })
+        );
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        const pending = required(test.traffic.held[0]);
+        await act(async () => {
+            pending.resolve(test.response(pending.anchor));
+            await Promise.resolve();
+        });
+        expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+        view.unmount();
+    }
+);
+
+it("withdraws the previous window when the replacing batch loses shared proof", async () => {
+    const test = setup();
+    const view = render(test.tree());
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toHaveTextContent("one");
+    });
+    const prior = required(observedEvidence.at(-1)?.[0]);
+    test.traffic.hold = true;
+    view.rerender(test.tree({ step: 1 }));
+    await waitFor(() => {
+        expect(test.traffic.held).toHaveLength(1);
+    });
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(true);
+    await act(async () => {
+        required(test.traffic.held[0]).resolve(
+            new Response("{}", {
+                status: 403,
+                headers: { "cache-control": "no-store" }
+            })
+        );
+        await Promise.resolve();
+    });
+    await waitFor(() => {
+        expect(screen.getByTestId("overlays")).toBeEmptyDOMElement();
+    });
+    expect(isAdmittedChartStudyEvidence(prior)).toBe(false);
 });

@@ -51,17 +51,20 @@ const validateBounds = (bar: MarketDataBar): void => {
 
 export class OnlyMarketDataBarLedger {
     private closedByStart = new Map<string, MarketDataBar>();
+    private closedSnapshot: readonly MarketDataBar[] | null = null;
     private preview: MarketDataBar | null = null;
     private version = 0;
 
     constructor(readonly contextKey: string) {}
 
     snapshot(): MarketDataBarLedgerSnapshot {
-        const closedBars = [...this.closedByStart.values()]
-            .sort((left, right) =>
-                BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns) ? -1 : 1
-            )
-            .map((bar) => ({ ...bar }));
+        const closedBars = (this.closedSnapshot ??= Object.freeze(
+            [...this.closedByStart.values()]
+                .sort((left, right) =>
+                    BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns) ? -1 : 1
+                )
+                .map((bar) => Object.freeze({ ...bar }))
+        ));
         return {
             contextKey: this.contextKey,
             closedBars,
@@ -72,7 +75,11 @@ export class OnlyMarketDataBarLedger {
         };
     }
 
-    mergeHistory(bars: readonly MarketDataBar[]): MarketDataBarLedgerMerge {
+    mergeHistory(bars: readonly MarketDataBar[], anchorEndNs?: string): MarketDataBarLedgerMerge {
+        if (anchorEndNs !== undefined && !NANOS.test(anchorEndNs))
+            throw new MarketDataBarLedgerConflictError(
+                "Retention anchor must be canonical nanoseconds"
+            );
         const next = new Map(this.closedByStart);
         const previousEarliest = this.earliestClosedStart();
         let acceptedCount = 0;
@@ -99,8 +106,55 @@ export class OnlyMarketDataBarLedger {
             }
         }
 
-        if (acceptedCount > 0) {
+        if (next.size > 4000) {
+            const anchor =
+                anchorEndNs === undefined
+                    ? bars.reduce(
+                          (latest, bar) =>
+                              BigInt(bar.bar_end_ns) > latest ? BigInt(bar.bar_end_ns) : latest,
+                          0n
+                      )
+                    : BigInt(anchorEndNs);
+            const distance = (bar: MarketDataBar) => {
+                const delta = BigInt(bar.bar_end_ns) - anchor;
+                return delta < 0n ? -delta : delta;
+            };
+            const retained = new Set(
+                [...next.values()]
+                    .sort((left, right) =>
+                        BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns) ? -1 : 1
+                    )
+                    .slice(-2000)
+                    .map((bar) => bar.bar_start_ns)
+            );
+            // Historical browsing shares this bound with the latest closed
+            // calculation prefix. Retaining facts supplies no continuity proof.
+            const candidates = [...next.values()].sort((left, right) => {
+                const a = distance(left),
+                    b = distance(right);
+                return a < b
+                    ? -1
+                    : a > b
+                      ? 1
+                      : BigInt(left.bar_start_ns) < BigInt(right.bar_start_ns)
+                        ? -1
+                        : 1;
+            });
+            for (const bar of candidates) {
+                if (retained.size === 4000) break;
+                retained.add(bar.bar_start_ns);
+            }
+            for (const key of next.keys()) if (!retained.has(key)) next.delete(key);
+            const inserted = [...next.keys()].filter((key) => !this.closedByStart.has(key));
+            acceptedCount = inserted.length;
+            prependedCount =
+                previousEarliest === null
+                    ? 0
+                    : inserted.filter((key) => BigInt(key) < BigInt(previousEarliest)).length;
+        }
+        if (acceptedCount > 0 || next.size !== this.closedByStart.size) {
             this.closedByStart = next;
+            this.closedSnapshot = null;
             this.version += 1;
         }
         return {

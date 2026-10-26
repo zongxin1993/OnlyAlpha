@@ -1,14 +1,132 @@
-import { useLayoutEffect } from "react";
-import { AppProviders, useLocalReadCredentials } from "../../app/providers";
+import {
+    temporaryWindowVector,
+    temporaryEvaluationVector,
+    temporaryBatchVector
+} from "../../test/temporaryChartVectors";
+import { AppProviders } from "../../app/providers";
 import { marketDataClient } from "../../test/marketDataClient";
 import { marketDataBarsSchema } from "../../api/marketData/model";
-import { ChartStudyCapabilitiesSchema } from "../../api/chartStudies/http.generated";
+import {
+    ChartStudyCapabilitiesSchema,
+    ChartStudyEvaluateSchema
+} from "../../api/chartStudies/http.generated";
 import { TransientStudyPriceChart } from "../../features/workspace/TransientStudyPriceChart";
 import { projectMarketDataBar } from "./marketDataChartProjection";
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PriceChart } from "./PriceChart";
 import { studySeriesFixture } from "../../test/studySeries";
+
+it("updates preview prices without rewriting unchanged closed study series", () => {
+    const { bars, instance, evidence } = studySeriesFixture();
+    const last = bars.at(-1);
+    if (last === undefined) throw new Error("Missing last bar");
+    const studies = [instance];
+    const studyEvidence = [evidence];
+    const preview = {
+        ...last,
+        closed: false,
+        time: (last.time + 900) as typeof last.time,
+        barStartNs: last.barEndNs,
+        barEndNs: (BigInt(last.barEndNs) + 900_000_000_000n).toString()
+    };
+    const renderChart = (close: number, time = preview.time) => (
+        <PriceChart
+            bars={bars}
+            studies={studies}
+            studyEvidence={studyEvidence}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            liveBar={{ ...preview, time, numeric: { ...preview.numeric, close } }}
+        />
+    );
+    const view = render(renderChart(101));
+    const curves = renderer.series.slice(2);
+    expect(curves.length).toBeGreaterThan(0);
+    const writes = curves.map((curve) => curve.setData.mock.calls.length);
+    const priceWrites = renderer.series[0]?.setData.mock.calls.length;
+    const volumeWrites = renderer.series[1]?.setData.mock.calls.length;
+    for (let close = 102; close <= 111; close++) view.rerender(renderChart(close));
+    expect(curves.map((curve) => curve.setData.mock.calls.length)).toEqual(writes);
+    expect(renderer.series[0]?.setData.mock.calls.length).toBe(priceWrites);
+    expect(renderer.series[1]?.setData.mock.calls.length).toBe(volumeWrites);
+    expect(renderer.series[0]?.update.mock.calls.at(-1)?.[0]).toMatchObject({ close: 111 });
+    view.rerender(renderChart(112, (preview.time + 900) as typeof preview.time));
+    const nextWindow = renderer.series[0]?.setData.mock.calls.at(-1)?.[0];
+    expect(nextWindow).toHaveLength(bars.length + 1);
+    expect(nextWindow).not.toContainEqual(expect.objectContaining({ time: preview.time }));
+    expect(
+        curves.some(
+            (curve, index) =>
+                curve.setData.mock.calls.length > (writes[index] ?? 0) ||
+                curve.update.mock.calls.length > 0
+        )
+    ).toBe(true);
+});
+
+it("appends admitted closes without replacing price or volume history", () => {
+    const { bars, instance } = studySeriesFixture();
+    const initial = bars.slice(0, -1);
+    const closed = bars.at(-1);
+    if (closed === undefined) throw new Error("Missing closed bar");
+    const view = render(
+        <PriceChart
+            bars={initial}
+            contextKey={instance.context.key}
+            liveBar={{ ...closed, closed: false }}
+        />
+    );
+    const price = renderer.series[0];
+    const volume = renderer.series[1];
+    const priceWrites = price?.setData.mock.calls.length;
+    const volumeWrites = volume?.setData.mock.calls.length;
+    view.rerender(<PriceChart bars={bars} contextKey={instance.context.key} />);
+    expect(price?.setData.mock.calls.length).toBe(priceWrites);
+    expect(volume?.setData.mock.calls.length).toBe(volumeWrites);
+    expect(price?.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ time: closed.time, close: closed.numeric.close })
+    );
+    expect(volume?.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ time: closed.time, value: closed.numeric.volume })
+    );
+});
+
+it("updates an appended study point while retaining its existing series", () => {
+    const { bars, instance, evidence } = studySeriesFixture();
+    const renderChart = (count: number) => (
+        <PriceChart
+            bars={bars.slice(0, count)}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            studies={[instance]}
+            studyEvidence={[{ ...evidence, points: evidence.points.slice(0, count) }]}
+        />
+    );
+    const view = render(renderChart(79));
+    const curves = renderer.series.slice(2);
+    const writes = curves.map((curve) => curve.setData.mock.calls.length);
+    view.rerender(renderChart(80));
+    expect(renderer.series.slice(2)).toEqual(curves);
+    expect(curves.map((curve) => curve.setData.mock.calls.length)).toEqual(writes);
+    expect(curves.some((curve) => curve.update.mock.calls.length > 0)).toBe(true);
+});
+
+it("keeps readable candle spacing when progressive history fills a partial first window", () => {
+    const { bars, instance } = studySeriesFixture();
+    const renderChart = (rows: typeof bars) => (
+        <PriceChart
+            bars={rows}
+            barSemantic={instance.context.barSemantic}
+            contextKey={instance.context.key}
+        />
+    );
+    const view = render(renderChart(bars.slice(-2)));
+    const initial = { ...renderer.range.value };
+    expect(initial.to - initial.from).toBeGreaterThanOrEqual(30);
+    view.rerender(renderChart(bars));
+    expect(renderer.range.value.to - renderer.range.value.from).toBe(initial.to - initial.from);
+    expect(renderer.range.value.to).toBe(bars.length + 4);
+});
 
 const renderer = vi.hoisted(() => {
     interface Pane {
@@ -466,7 +584,7 @@ it("colors up/down/doji volume and preview by the corresponding candle and keeps
         />
     );
     expect(screen.getByLabelText("成交量悬浮信息")).toHaveTextContent("5.000000000000000001");
-    expect(renderer.series[1]?.setData.mock.calls.at(-1)?.[0].at(-1)).toEqual({
+    expect(renderer.series[1]?.update.mock.calls.at(-1)?.[0]).toEqual({
         time: first.time + 2700,
         value: 5,
         color: "#c8332a"
@@ -513,6 +631,7 @@ it("a displayed admitted transient study keeps every Query input and call unchan
         capabilities: [sample.capability]
     }).capabilities[0];
     if (!capability) throw new Error("Missing producer capability");
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     const { instance } = studySeriesFixture();
     const context = {
         key: "admitted-display",
@@ -538,9 +657,15 @@ it("a displayed admitted transient study keeps every Query input and call unchan
         Promise.resolve(
             new Response(
                 JSON.stringify(
-                    url.endsWith("capabilities")
-                        ? { schema_version: 2, capabilities: [sample.capability] }
-                        : sample.evaluation
+                    url.includes("/api/v2/chart/market-data/bars?")
+                        ? temporaryWindowVector(history)
+                        : url.endsWith("capabilities")
+                          ? { schema_version: 2, capabilities: [sample.capability] }
+                          : temporaryBatchVector([
+                                temporaryEvaluationVector(
+                                    ChartStudyEvaluateSchema.parse(sample.evaluation)
+                                )
+                            ])
                 ),
                 { headers: { "cache-control": "no-store" } }
             )
@@ -548,12 +673,9 @@ it("a displayed admitted transient study keeps every Query input and call unchan
     );
     vi.stubGlobal("fetch", transport);
     function Query() {
-        const credentials = useLocalReadCredentials();
-        useLayoutEffect(() => {
-            if (credentials.capture().bearer === null) credentials.replace("ee".repeat(32));
-        }, [credentials]);
         return (
             <TransientStudyPriceChart
+                pageId="00000000-0000-4000-8000-000000000001"
                 context={context}
                 contextKey={context.key}
                 incarnationKey="display-owner"
@@ -604,6 +726,7 @@ it("a displayed admitted transient study keeps every Query input and call unchan
     storage.mockRestore();
     view.unmount();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
 });
 
 it("keeps two selected outputs in one instance pane and rejects a duplicate output owner", () => {

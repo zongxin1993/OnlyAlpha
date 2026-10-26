@@ -165,7 +165,20 @@ impl From<onlyalpha_product_runtime::watchlists::Error> for Failure {
         )
     }
 }
-// Admission follows the canonical one-child capacity. The permit is moved into
+impl From<onlyalpha_product_runtime::workspace::Error> for Failure {
+    fn from(e: onlyalpha_product_runtime::workspace::Error) -> Self {
+        use onlyalpha_product_runtime::workspace::Error::*;
+        Self(
+            match e {
+                Invalid => StatusCode::BAD_REQUEST,
+                CommandConflict | VersionConflict => StatusCode::CONFLICT,
+                _ => StatusCode::SERVICE_UNAVAILABLE,
+            },
+            e.code(),
+        )
+    }
+}
+// Admission follows the canonical shared capacity. Each permit is moved into
 // actual blocking work; abandoning an HTTP future cannot release its owner.
 pub(crate) async fn chart_permit(
     gate: Arc<tokio::sync::Semaphore>,
@@ -218,6 +231,15 @@ impl Host {
         failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")
     }
     pub async fn dispatch(self: &Arc<Self>, request: Request<Body>) -> Response {
+        let started = Instant::now();
+        let startup_read = match request.uri().path() {
+            "/api/v2/market-data/sources" => Some("SOURCES"),
+            "/api/v2/market/instruments" => Some("INSTRUMENTS"),
+            "/api/v2/watchlists" => Some("WATCHLISTS"),
+            "/api/v2/workspace" => Some("WORKSPACE"),
+            path if path.starts_with("/api/v2/integration") => Some("INTEGRATIONS"),
+            _ => None,
+        };
         let phase = if request.method() == Method::GET {
             "QUERY"
         } else {
@@ -227,6 +249,15 @@ impl Host {
             Ok(r) => r,
             Err(e) => e.into_response(),
         };
+        if let Some(category) = startup_read
+            && started.elapsed() >= std::time::Duration::from_secs(1)
+        {
+            eprintln!(
+                "WORKSPACE_STARTUP_HTTP category={category} status={} handler_ms={}",
+                response.status().as_u16(),
+                started.elapsed().as_millis()
+            );
+        }
         if !response.status().is_success() && response.status() != StatusCode::SWITCHING_PROTOCOLS {
             let (mut parts, body) = response.into_parts();
             let original = to_bytes(body, 65536)
@@ -323,6 +354,9 @@ impl Host {
         if path.starts_with("/api/v2/integrations") && request.method() != Method::GET {
             return self.integration_command(request, deadline).await;
         }
+        if path == "/api/v2/workspace" || path.starts_with("/api/v2/workspace/commands/") {
+            return self.workspace(request, deadline).await;
+        }
         if path.starts_with("/api/v2/watchlists") {
             return self.watchlists(request, deadline).await;
         }
@@ -349,7 +383,9 @@ impl Host {
             path.as_str(),
             "/api/v2/chart/studies/capabilities" | "/api/v2/research/catalog/calculations"
         ) {
+            let started = Instant::now();
             let permit = chart_permit(Arc::clone(&self.chart_gate), deadline).await?;
+            let queued_ms = started.elapsed().as_millis();
             if !self.admitted() {
                 return Err(Failure::unavailable("PRODUCT_NODE_NOT_READY"));
             }
@@ -367,13 +403,32 @@ impl Host {
             .await
             .map_err(|_| Failure::unavailable("CHART_STUDY_QUERY_UNAVAILABLE"))?
             .map_err(|e| Failure::unavailable(e.code()))?;
+            if started.elapsed() >= std::time::Duration::from_secs(1) {
+                eprintln!(
+                    "CHART_METADATA_HTTP catalog={catalog} queued_ms={queued_ms} total_ms={}",
+                    started.elapsed().as_millis()
+                );
+            }
             return Ok(Json(value).into_response());
         }
-        if path == "/api/v2/market-data/stream" {
+        if matches!(
+            path.as_str(),
+            "/api/v2/market-data/stream" | "/api/v2/chart/market-data/stream"
+        ) {
             return self.websocket(request, human).await;
+        }
+        if matches!(
+            path.as_str(),
+            "/api/v2/chart/temporary-studies/evaluate"
+                | "/api/v2/chart/temporary-studies/evaluate-batch"
+        ) {
+            return self.temporary_chart_evaluate(request, deadline).await;
         }
         if path == "/api/v2/chart/studies/evaluate" {
             return self.chart_evaluate(request, deadline).await;
+        }
+        if path == "/api/v2/chart/market-data/bars" {
+            return self.temporary_market(request, deadline).await;
         }
         if path.starts_with("/api/v2/private-assets") {
             return self.private_assets(request, &human).await;
@@ -955,6 +1010,49 @@ mod chart_admission_tests {
         time::Duration,
     };
     use tokio::sync::{Semaphore, oneshot};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn two_chart_owners_can_progress_but_a_third_keeps_its_bounded_queue() {
+        let gate = Arc::new(Semaphore::new(ChartQuery::MAX_CONCURRENT_INVOCATIONS));
+        let first = chart_permit(Arc::clone(&gate), Instant::now() + Duration::from_secs(10))
+            .await
+            .unwrap();
+        let mut second = Box::pin(chart_permit(
+            Arc::clone(&gate),
+            Instant::now() + Duration::from_secs(10),
+        ));
+        let second = match second
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+        {
+            Poll::Ready(Ok(permit)) => Some(permit),
+            _ => None,
+        };
+        assert!(
+            second.is_some(),
+            "the second page must make progress without waiting for the first"
+        );
+        let mut third = Box::pin(chart_permit(
+            Arc::clone(&gate),
+            Instant::now() + Duration::from_secs(10),
+        ));
+        assert!(
+            third
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        drop(third);
+        assert_eq!(
+            gate.available_permits(),
+            0,
+            "queue cancellation cannot release either owner"
+        );
+        drop(first);
+        assert_eq!(gate.available_permits(), 1);
+        drop(second);
+        assert_eq!(gate.available_permits(), 2);
+    }
 
     async fn occupied() -> (
         Arc<Semaphore>,

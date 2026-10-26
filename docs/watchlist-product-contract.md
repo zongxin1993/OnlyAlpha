@@ -66,12 +66,13 @@ unrefreshed. Transport failure retains any previous value only with a stale warn
 The existing `GET /api/v2/market-data/latest-bar` remains a sealed historical-Bar reader; it is not the sidebar latest-price source.
 
 Selecting a search result or sidebar member preserves chart period/type and Study parameters, then uses the existing chart reader.
-The selection itself authorizes automatic preparation of the bounded server-planned missing history through the existing acquisition
-API. No additional preparation button or confirmation is required. Quote observation and adding a member never acquire historical Bars.
+The chart reads temporary Provider data into bounded memory through the versioned chart Product API. Selection, quote observation,
+adding a member and viewport history do not authorize Acquisition, Recorder/WAL persistence or mixing with retained history.
+Formal collection remains an explicit, separate operation through its normal Product UI and owning Authority.
 Unsupported periods and stale Source bindings fail visibly without changing period, substituting latest Revision or switching Source.
 Already selected healthy exact chart contexts remain unchanged. Replaced contexts fence every late response, including A→B→A.
 Command uncertainty is resolved through the owning identity rather than a blind new-effect retry. Loading, partial coverage and failed
-observations remain visible; automatic preparation does not certify completion without the owning history proof.
+observations remain visible; a temporary complete window certifies only its exact display input, never sealed history or Research Evidence.
 
 ## Persistence evolution
 

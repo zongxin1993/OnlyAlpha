@@ -468,6 +468,38 @@ impl PublicRest {
         }
         Ok(response)
     }
+    /// One bounded volatile display page. This returns no durable acceptance.
+    pub async fn temporary_klines(
+        &self,
+        symbol_id: &str,
+        minutes: u16,
+        start_ms: i64,
+        end_ms: i64,
+        deadline: Instant,
+    ) -> Result<PublicResponse> {
+        let (interval, stride) = native_interval(minutes)?;
+        if !symbol(symbol_id)
+            || start_ms < 0
+            || start_ms >= end_ms
+            || start_ms % stride != 0
+            || end_ms % stride != 0
+            || (end_ms - start_ms) / stride > 1000
+        {
+            return Err(Error::Range);
+        }
+        self.get(
+            "/api/v3/klines",
+            &[
+                ("symbol", symbol_id.into()),
+                ("interval", interval.into()),
+                ("startTime", start_ms.to_string()),
+                ("endTime", (end_ms - 1).to_string()),
+                ("limit", ((end_ms - start_ms) / stride).to_string()),
+            ],
+            deadline,
+        )
+        .await
+    }
     /// Acquire only canonical provider-base 1m rows. Capture is mandatory and
     /// runs before JSON decoding; Product must supply its durable WAL recorder.
     /// The returned pages alone do not prove persistence or COMPLETE coverage.

@@ -8,23 +8,54 @@ import {
 } from "react";
 import { PriceChart } from "../../charts/lightweight/PriceChart";
 import type { StudySeriesEvidence } from "../../charts/lightweight/studySeriesProjection";
-import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
+import { useLocalReadCredentials } from "../../app/providers";
 import { MarketDataWebError } from "../../api/marketData/client";
 import {
+    isAdmittedChartStudyEvidence,
     readChartStudyCapabilities,
-    readChartStudyEvidence,
-    assertChartStudyHistory,
+    readTemporaryChartStudyBatchEvidence,
+    type TemporaryChartStudyBatchIntent,
     ChartStudyWebError,
     type ChartStudyCapability
 } from "../../api/chartStudies/client";
-import type { ChartStudyEvaluateRequest } from "../../api/chartStudies/http.generated";
+import type { TemporaryChartStudyEvaluateRequest } from "../../api/chartStudies/http.generated";
 import { transientConfigurationErrors, type ChartStudyContext } from "./chartStudy";
-import {
-    onlyAssertMarketDataBarsAuthority,
-    MarketDataBarsAuthorityMismatchError
-} from "./marketDataBarsAuthority";
+import { MarketDataBarsAuthorityMismatchError } from "./marketDataBarsAuthority";
+import { readTemporaryMarketData } from "../../api/marketData/temporary";
 import "./TransientStudyPriceChart.css";
 
+interface Occurrence {
+    key: string;
+    evidence: readonly StudySeriesEvidence[];
+}
+/** Presentation continuity only: all overlapping exact closed facts must agree. */
+function appendedCloses(
+    previous: ComponentProps<typeof PriceChart>["bars"],
+    next: ComponentProps<typeof PriceChart>["bars"]
+): boolean {
+    const last = previous.at(-1);
+    if (last === undefined) return false;
+    const index = next.findIndex((bar) => bar.barStartNs === last.barStartNs);
+    if (index < 0 || index === next.length - 1) return false;
+    const old = new Map(previous.map((bar) => [bar.barStartNs, bar]));
+    for (const [position, bar] of next.entries()) {
+        const prior = old.get(bar.barStartNs);
+        if (
+            position <= index &&
+            (prior?.barEndNs !== bar.barEndNs ||
+                prior.open !== bar.open ||
+                prior.high !== bar.high ||
+                prior.low !== bar.low ||
+                prior.close !== bar.close ||
+                prior.volume !== bar.volume ||
+                !bar.closed)
+        )
+            return false;
+        if (position > index && (!bar.closed || next[position - 1]?.barEndNs !== bar.barStartNs))
+            return false;
+    }
+    return true;
+}
 interface QueryState {
     readonly key: string;
     readonly evidence: readonly StudySeriesEvidence[];
@@ -33,7 +64,12 @@ interface QueryState {
     readonly failed: readonly string[];
 }
 function failureStatus(error: unknown): string {
-    if (error instanceof MarketDataBarsAuthorityMismatchError) return "INVALID";
+    if (
+        error instanceof MarketDataBarsAuthorityMismatchError ||
+        (error instanceof MarketDataWebError &&
+            ["MARKET_DATA_TEMPORARY_RESPONSE_MISMATCH", "CONTRACT_ERROR"].includes(error.code))
+    )
+        return "INVALID";
     if (!(error instanceof ChartStudyWebError) && !(error instanceof MarketDataWebError))
         return "UNAVAILABLE";
     return error.status === 401
@@ -54,21 +90,35 @@ function failureStatus(error: unknown): string {
                   ? "UNSUPPORTED"
                   : "UNAVAILABLE";
 }
-/** Shipping read-only consumer. Main-chart Acquisition and stream remain independent. */
+function occurrenceAdmission(
+    live: { current: { mounted: boolean } },
+    admitted: { current: Map<string, { key: string; evidence: readonly StudySeriesEvidence[] }> },
+    instanceId: string,
+    occurrence: Occurrence,
+    lagging: { current: Map<string, Occurrence> }
+): () => boolean {
+    return () =>
+        live.current.mounted &&
+        (admitted.current.get(instanceId) === occurrence ||
+            lagging.current.get(instanceId) === occurrence);
+}
+/** Shipping display consumer. Only closed temporary inputs enter indicator calculation. */
 export function TransientStudyPriceChart({
     context,
     dataGeneration,
     expectedSourceId,
     expectedEnvironment,
-    previewStreamId = null,
+    pageId,
     onTransientRevalidated,
+    continuityReady = true,
     ...chart
 }: ComponentProps<typeof PriceChart> & {
     readonly context: ChartStudyContext | null;
     readonly dataGeneration: string | null;
     readonly expectedSourceId: string | null;
     readonly expectedEnvironment: string | null;
-    readonly previewStreamId?: string | null;
+    readonly pageId: string;
+    readonly continuityReady?: boolean;
     readonly onTransientRevalidated?: (
         capability: ChartStudyCapability,
         instanceIds: readonly string[]
@@ -77,7 +127,6 @@ export function TransientStudyPriceChart({
     const [settled, setSettled] = useState(0);
     const [retry, setRetry] = useState<{ id: string | null } | null>(null);
     const credentials = useLocalReadCredentials();
-    const marketApi = useMarketDataApi();
     const [state, setState] = useState<QueryState>({
         key: "",
         evidence: [],
@@ -85,17 +134,17 @@ export function TransientStudyPriceChart({
         rejected: [],
         failed: []
     });
-    // Only complete initial history plus admitted closes advances this anchor. Older
+    // Initial temporary inputs plus admitted closes advance this anchor. Older
     // pages and Preview are deliberately absent from the calculation intent.
     const before = dataGeneration === null ? null : (chart.bars.at(-1)?.barEndNs ?? null);
     const intent = JSON.stringify(
         (chart.studies ?? []).map((instance) => ({
             id: instance.instanceId,
             configuration: instance.configuration,
-            source: instance.selection.source
+            selection: instance.selection
         }))
     );
-    const key = JSON.stringify([
+    const inputKey = JSON.stringify([
         context?.key,
         chart.incarnationKey,
         before,
@@ -103,41 +152,116 @@ export function TransientStudyPriceChart({
         expectedSourceId,
         expectedEnvironment,
         credentials.getGeneration(),
-        intent,
-        previewStreamId
+        pageId,
+        continuityReady
     ]);
-    const previewRevision = previewStreamId === null ? null : JSON.stringify(chart.liveBar);
+    const key = JSON.stringify([
+        inputKey,
+        intent,
+        (chart.studies ?? []).map((row) => row.connectionState === "STALE_CONFIG")
+    ]);
+    const continuityBinding = JSON.stringify([
+        context,
+        chart.contextKey,
+        chart.incarnationKey,
+        dataGeneration,
+        expectedSourceId,
+        expectedEnvironment,
+        credentials.getGeneration(),
+        pageId,
+        intent,
+        (chart.studies ?? []).map((row) => row.connectionState === "STALE_CONFIG"),
+        continuityReady
+    ]);
+    const [previousWindow, setPreviousWindow] = useState<{
+        binding: string;
+        key: string;
+        bars: typeof chart.bars;
+        before: string | null;
+        lagBefore: string | null;
+        lagEvidence: readonly StudySeriesEvidence[];
+    } | null>(null);
+    const canContinue =
+        continuityReady &&
+        dataGeneration !== null &&
+        previousWindow?.binding === continuityBinding &&
+        appendedCloses(previousWindow.bars, chart.bars);
+    const lagging = useRef(new Map<string, Occurrence>());
+    const selectionKey = JSON.stringify([
+        context?.key,
+        chart.incarnationKey,
+        expectedSourceId,
+        expectedEnvironment,
+        credentials.getGeneration(),
+        pageId,
+        (chart.studies ?? []).map((instance) => [instance.instanceId, instance.selection])
+    ]);
+    const verifiedSelection = useRef<string | null>(null);
+    // At most one admitted result per currently selected instance. Configuration
+    // or input departures retire the occurrence, including an A→B→A restoration.
+    const admitted = useRef(
+        new Map<
+            string,
+            {
+                key: string;
+                evidence: readonly StudySeriesEvidence[];
+            }
+        >()
+    );
+    const instanceKey = (instance: NonNullable<typeof chart.studies>[number]) =>
+        JSON.stringify([inputKey, instance.configuration, instance.selection]);
     const live = useRef({ key, generation: 0, mounted: true });
     const work = useRef<{
         running: boolean;
         pending: boolean;
         retryId: string | null;
-        immediate: boolean;
         controller: AbortController | null;
         timer: ReturnType<typeof setTimeout> | null;
-        timerKind: "CLOSED_WINDOW" | "PREVIEW_COOLDOWN" | null;
+        timerKind: "CLOSED_WINDOW" | null;
         deferred: boolean;
     }>({
         running: false,
         pending: false,
         retryId: null,
-        immediate: false,
         controller: null,
         timer: null,
         timerKind: null,
         deferred: false
     });
+    const retireAdmissions = useEffectEvent(() => {
+        for (const [id, entry] of admitted.current) {
+            const instance = chart.studies?.find((row) => row.instanceId === id);
+            if (instance === undefined || entry.key !== instanceKey(instance))
+                admitted.current.delete(id);
+        }
+    });
+    const advanceWindow = useEffectEvent(() => {
+        if (canContinue) {
+            for (const [id, occurrence] of admitted.current)
+                if (occurrence.evidence.length > 0) lagging.current.set(id, occurrence);
+        } else lagging.current.clear();
+        setPreviousWindow({
+            binding: continuityBinding,
+            key,
+            bars: chart.bars,
+            before,
+            lagBefore: canContinue ? (previousWindow.lagBefore ?? previousWindow.before) : null,
+            lagEvidence: [...lagging.current.values()].flatMap((row) => row.evidence)
+        });
+    });
     useLayoutEffect(() => {
+        advanceWindow();
+        retireAdmissions();
         if (work.current.timer !== null) clearTimeout(work.current.timer);
         work.current.timer = null;
         work.current.timerKind = null;
-        work.current.immediate = false;
         work.current.deferred = false;
         live.current = { key, generation: live.current.generation + 1, mounted: true };
     }, [key]);
     useEffect(
         () => () => {
             live.current.mounted = false;
+            lagging.current.clear();
             ++live.current.generation;
             work.current.pending = false;
             if (work.current.timer !== null) clearTimeout(work.current.timer);
@@ -164,10 +288,24 @@ export function TransientStudyPriceChart({
                 failed: readonly string[] = []
             ) => {
                 if (current()) {
+                    if (status !== "QUERYING") {
+                        lagging.current.clear();
+                        setPreviousWindow((previous) =>
+                            previous === null
+                                ? null
+                                : { ...previous, lagBefore: null, lagEvidence: [] }
+                        );
+                    }
                     setState({ key, status, evidence, rejected, failed });
+                    if (status !== "QUERYING" && evidence.length > 0)
+                        verifiedSelection.current = selectionKey;
                     // Withdrawing shared proof also retires every captured admission,
                     // including a previously displayed sibling retained for a retry.
-                    if (status !== "QUERYING" && evidence.length === 0) ++live.current.generation;
+                    if (status !== "QUERYING" && evidence.length === 0) {
+                        admitted.current.clear();
+                        verifiedSelection.current = null;
+                        ++live.current.generation;
+                    }
                 }
             };
             const selected = (chart.studies ?? []).filter(
@@ -177,7 +315,7 @@ export function TransientStudyPriceChart({
                 update("NOT_CONNECTED");
                 return;
             }
-            if (dataGeneration === null) {
+            if (dataGeneration === null || !continuityReady) {
                 update("INPUT_INCOMPLETE");
                 return;
             }
@@ -206,10 +344,32 @@ export function TransientStudyPriceChart({
                     : [];
             update("QUERYING", state.key === key ? state.evidence : retained, rejected, failed);
             try {
-                const capabilities = await readChartStudyCapabilities(
-                    credentials,
-                    controller.signal
+                // Parameter or closed-window changes can prove the unchanged
+                // whole catalog through their new canonical evaluation. The adapter verifies that
+                // reply's catalog generation, provider, invocation and capability;
+                // local metadata alone never authorizes a sibling cache hit.
+                const capabilitiesFresh = !(
+                    retryId === null &&
+                    verifiedSelection.current === selectionKey &&
+                    selected.every((instance) => instance.connectionState !== "STALE_CONFIG") &&
+                    selected.some(
+                        (instance) =>
+                            instance.selection.source === "CHART_STUDY_TRANSIENT" &&
+                            (admitted.current.get(instance.instanceId)?.evidence.length ?? 0) ===
+                                0 &&
+                            transientConfigurationErrors(
+                                instance.selection.capability,
+                                instance.configuration
+                            ).length === 0
+                    )
                 );
+                const capabilities = capabilitiesFresh
+                    ? await readChartStudyCapabilities(credentials, controller.signal)
+                    : selected.flatMap((instance) =>
+                          instance.selection.source === "CHART_STUDY_TRANSIENT"
+                              ? [instance.selection.capability]
+                              : []
+                      );
                 if (!current()) return;
                 const supports = capabilities.map(
                     (capability) => capability.capability_projection.input_support
@@ -233,58 +393,25 @@ export function TransientStudyPriceChart({
                     before_ns: before,
                     target_bar_count: 2000
                 };
-                const history = await marketApi.queryBars(
+                const history = await readTemporaryMarketData(
+                    credentials,
                     context.source,
                     {
                         instrument_id: context.instrumentId,
                         bar_semantic: context.barSemantic,
                         ...window
                     },
+                    pageId,
                     controller.signal
                 );
                 if (!current()) return;
-                onlyAssertMarketDataBarsAuthority(
-                    {
-                        reference: sourceReference,
-                        expectedSourceId,
-                        instrumentId: context.instrumentId,
-                        barSemantic: context.barSemantic,
-                        anchorKind: window.anchor_kind,
-                        beforeNs: before,
-                        targetBarCount: window.target_bar_count
-                    },
-                    history
-                );
-                if (history.source_selection.environment !== expectedEnvironment)
-                    throw new ChartStudyWebError("INVALID");
-                // Native capabilities admit both verified provider-native and
-                // constructed history. Exact plan/evidence validation follows.
                 if (
-                    history.coverage.status === "COMPLETE" &&
-                    history.resolution_mode !== "PROVIDER_NATIVE" &&
-                    history.resolution_mode !== "DERIVED"
+                    history.source_selection.source_id !== expectedSourceId ||
+                    history.source_selection.environment !== expectedEnvironment
                 )
                     throw new ChartStudyWebError("INVALID");
-                assertChartStudyHistory(
-                    {
-                        source_reference: sourceReference,
-                        instrument_id: context.instrumentId,
-                        bar_semantic: context.barSemantic,
-                        window
-                    },
-                    expectedSourceId,
-                    expectedEnvironment,
-                    history
-                );
-                if (history.coverage.status === "INCOMPLETE") {
+                if (history.coverage.status !== "COMPLETE") {
                     update("INPUT_INCOMPLETE");
-                    return;
-                }
-                if (
-                    history.coverage.status !== "COMPLETE" ||
-                    history.history_projection_fingerprint === null
-                ) {
-                    update("UNAVAILABLE");
                     return;
                 }
                 // Compare exact currently plotted closed facts, not lossy renderer numbers
@@ -307,12 +434,11 @@ export function TransientStudyPriceChart({
                 if (
                     retained.some(
                         (row) =>
-                            row.source.kind !== "CHART_STUDY_TRANSIENT" ||
-                            row.source.historyProjectionFingerprint !==
-                                history.history_projection_fingerprint ||
+                            row.source.kind !== "CHART_STUDY_TEMPORARY" ||
+                            row.source.windowFingerprint !== history.window_fingerprint ||
                             !capabilities.some(
                                 (capability) =>
-                                    row.source.kind === "CHART_STUDY_TRANSIENT" &&
+                                    row.source.kind === "CHART_STUDY_TEMPORARY" &&
                                     row.source.capabilityProjectionFingerprint ===
                                         capability.capability_projection_fingerprint
                             )
@@ -322,7 +448,90 @@ export function TransientStudyPriceChart({
                     return;
                 }
                 const evidence: StudySeriesEvidence[] = [...retained];
-                for (const instance of selected) {
+                const verifiedCatalogs = new Set<string>();
+                const queryOrder = capabilitiesFresh
+                    ? selected
+                    : [...selected].sort(
+                          (a, b) =>
+                              Number(
+                                  (admitted.current.get(a.instanceId)?.evidence.length ?? 0) > 0
+                              ) -
+                              Number((admitted.current.get(b.instanceId)?.evidence.length ?? 0) > 0)
+                      );
+                const pending: {
+                    intent: TemporaryChartStudyBatchIntent;
+                    instanceId: string;
+                    occurrence: { key: string; evidence: readonly StudySeriesEvidence[] };
+                }[] = [];
+                const reject = (instanceId: string, error: unknown) => {
+                    if (
+                        error instanceof ChartStudyWebError &&
+                        (error.status === 401 ||
+                            error.status === 403 ||
+                            error.status === 409 ||
+                            ![
+                                "CHART_STUDY_CAPACITY_UNAVAILABLE",
+                                "CHART_STUDY_CAPACITY_EXCEEDED",
+                                "CHART_STUDY_REQUEST_INVALID",
+                                "CHART_STUDY_OUTPUT_INVALID",
+                                "INVALID",
+                                "UNAVAILABLE"
+                            ].includes(error.code))
+                    )
+                        throw error;
+                    rejected.push(
+                        `${instanceId}: ${error instanceof ChartStudyWebError ? error.code : failureStatus(error)}`
+                    );
+                    failed.push(instanceId);
+                };
+                const flush = async (): Promise<boolean> => {
+                    if (pending.length === 0) return true;
+                    const batch = pending.splice(0);
+                    let results;
+                    try {
+                        results = await readTemporaryChartStudyBatchEvidence(
+                            credentials,
+                            batch.map((item) => item.intent),
+                            history,
+                            current,
+                            controller.signal
+                        );
+                    } catch (error) {
+                        if (!current()) return false;
+                        for (const item of batch) reject(item.instanceId, error);
+                        return true;
+                    }
+                    if (!current()) return false;
+                    if (
+                        results.some(
+                            (result) => result.status === "EVALUATED" && result.evidence === null
+                        )
+                    ) {
+                        update("INPUT_INCOMPLETE");
+                        return false;
+                    }
+                    for (const [index, item] of batch.entries()) {
+                        const result = results[index];
+                        if (result === undefined) throw new ChartStudyWebError("INVALID");
+                        if (result.status === "REJECTED") {
+                            reject(item.instanceId, result.error);
+                            continue;
+                        }
+                        if (result.evidence === null) throw new ChartStudyWebError("INVALID");
+                        const capability = item.intent.capability;
+                        verifiedCatalogs.add(
+                            JSON.stringify([
+                                capability.catalog_generation_fingerprint,
+                                capability.invocation_implementation_fingerprint
+                            ])
+                        );
+                        item.occurrence.evidence = result.evidence;
+                        evidence.push(...result.evidence);
+                        onTransientRevalidated?.(capability, [item.instanceId]);
+                    }
+                    return true;
+                };
+                for (const instance of queryOrder) {
                     if (retryId !== null && instance.instanceId !== retryId) continue;
                     if (instance.selection.source !== "CHART_STUDY_TRANSIENT") continue;
                     const capability = capabilities.find(
@@ -333,6 +542,7 @@ export function TransientStudyPriceChart({
                                 instance.selection.capability.semantic_version
                     );
                     if (capability === undefined) {
+                        admitted.current.delete(instance.instanceId);
                         rejected.push(`${instance.instanceId}: UNAVAILABLE`);
                         continue;
                     }
@@ -342,22 +552,65 @@ export function TransientStudyPriceChart({
                         instance.selection.capability.capability_projection_fingerprint !==
                             capability.capability_projection_fingerprint
                     ) {
+                        admitted.current.delete(instance.instanceId);
                         rejected.push(`${instance.instanceId}: STALE`);
                         continue;
                     }
                     const errors = transientConfigurationErrors(capability, instance.configuration);
                     if (errors.length > 0) {
+                        admitted.current.delete(instance.instanceId);
                         rejected.push(`${instance.instanceId}: ${errors.join("；")}`);
                         continue;
                     }
-                    const request: ChartStudyEvaluateRequest = {
+                    const cached = admitted.current.get(instance.instanceId);
+                    // A changed calculation must first prove the current catalog before
+                    // unchanged siblings can reuse independently admitted evidence.
+                    if (
+                        !capabilitiesFresh &&
+                        cached !== undefined &&
+                        cached.evidence.length > 0 &&
+                        pending.length > 0 &&
+                        !(await flush())
+                    )
+                        return;
+                    if (
+                        retryId === null &&
+                        cached !== undefined &&
+                        cached.evidence.length > 0 &&
+                        (capabilitiesFresh ||
+                            verifiedCatalogs.has(
+                                JSON.stringify([
+                                    capability.catalog_generation_fingerprint,
+                                    capability.invocation_implementation_fingerprint
+                                ])
+                            )) &&
+                        cached.evidence.every(
+                            (row) =>
+                                isAdmittedChartStudyEvidence(row) &&
+                                row.source.kind === "CHART_STUDY_TEMPORARY" &&
+                                row.source.windowFingerprint === history.window_fingerprint &&
+                                row.source.capabilityProjectionFingerprint ===
+                                    capability.capability_projection_fingerprint
+                        )
+                    ) {
+                        evidence.push(...cached.evidence);
+                        onTransientRevalidated?.(capability, [instance.instanceId]);
+                        continue;
+                    }
+                    const occurrence = {
+                        key: instanceKey(instance),
+                        evidence: [] as readonly StudySeriesEvidence[]
+                    };
+                    admitted.current.set(instance.instanceId, occurrence);
+                    const request: TemporaryChartStudyEvaluateRequest = {
                         schema_version: 2,
+                        source_kind: "TEMPORARY_MARKET_DATA",
+                        page_id: pageId,
                         source_reference: sourceReference,
                         instrument_id: context.instrumentId,
                         bar_semantic: context.barSemantic,
                         window,
-                        expected_history_projection_fingerprint:
-                            history.history_projection_fingerprint,
+                        expected_window_fingerprint: history.window_fingerprint,
                         calculation: {
                             kind: capability.kind,
                             type_id: capability.type_id,
@@ -378,60 +631,39 @@ export function TransientStudyPriceChart({
                                 capability.implementation_fingerprint,
                             expected_capability_projection_fingerprint:
                                 capability.capability_projection_fingerprint
-                        },
-                        include_unclosed_preview:
-                            previewStreamId !== null && capability.presentation.preview_supported,
-                        preview_stream_id: capability.presentation.preview_supported
-                            ? previewStreamId
-                            : null
+                        }
                     };
-                    try {
-                        const result = await readChartStudyEvidence(
-                            credentials,
+                    const instanceId = instance.instanceId;
+                    pending.push({
+                        instanceId,
+                        occurrence,
+                        intent: {
                             request,
                             capability,
-                            history,
-                            {
-                                instanceId: instance.instanceId,
+                            binding: {
+                                instanceId,
                                 chartContextKey: context.key,
                                 incarnationKey: chart.incarnationKey ?? "",
                                 configurationKey: JSON.stringify(instance.configuration)
                             },
-                            current,
-                            controller.signal
-                        );
-                        if (!current()) return;
-                        if (result === null) {
-                            update("INPUT_INCOMPLETE");
-                            return;
+                            admissionCurrent: occurrenceAdmission(
+                                live,
+                                admitted,
+                                instanceId,
+                                occurrence,
+                                lagging
+                            )
                         }
-                        evidence.push(...result);
-                        onTransientRevalidated?.(capability, [instance.instanceId]);
-                    } catch (error) {
-                        if (!current()) return;
-                        if (
-                            error instanceof ChartStudyWebError &&
-                            (error.status === 401 ||
-                                error.status === 403 ||
-                                error.status === 409 ||
-                                ![
-                                    "CHART_STUDY_CAPACITY_UNAVAILABLE",
-                                    "CHART_STUDY_CAPACITY_EXCEEDED",
-                                    "CHART_STUDY_REQUEST_INVALID",
-                                    "CHART_STUDY_OUTPUT_INVALID",
-                                    // Adapter/transport failure rejects this reply only;
-                                    // it does not invalidate an independently admitted sibling.
-                                    "INVALID",
-                                    "UNAVAILABLE"
-                                ].includes(error.code))
-                        )
-                            throw error;
-                        rejected.push(
-                            `${instance.instanceId}: ${error instanceof ChartStudyWebError ? error.code : failureStatus(error)}`
-                        );
-                        failed.push(instance.instanceId);
-                    }
+                    });
+                    if (pending.length === 4 && !(await flush())) return;
                 }
+                if (!(await flush())) return;
+
+                evidence.sort(
+                    (a, b) =>
+                        selected.findIndex((row) => row.instanceId === a.instanceId) -
+                        selected.findIndex((row) => row.instanceId === b.instanceId)
+                );
                 // Only exact admitted completions revalidate the presentation owner;
                 // type/version/normalized parameters were proved by the client adapter.
                 update(
@@ -496,10 +728,8 @@ export function TransientStudyPriceChart({
         )
             return;
         // Key changes replace this object, including an A→B→A occurrence.
-        const owner = live.current;
         work.current.running = true;
         work.current.pending = false;
-        work.current.immediate = false;
         const retryId = work.current.retryId;
         work.current.retryId = null;
         const controller = new AbortController();
@@ -509,29 +739,6 @@ export function TransientStudyPriceChart({
         } finally {
             work.current.running = false;
             work.current.controller = null;
-            // A completed preview batch yields resources before its latest pending refresh.
-            // Configuration/safety work and explicit retries keep their immediate priority.
-            const completed = work.current;
-            if (
-                live.current === owner &&
-                owner.mounted &&
-                previewStreamId !== null &&
-                completed.timer === null &&
-                !completed.immediate &&
-                (chart.studies ?? []).some(
-                    (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
-                )
-            ) {
-                const timer = setTimeout(() => {
-                    if (work.current.timer !== timer || live.current !== owner || !owner.mounted)
-                        return;
-                    work.current.timer = null;
-                    work.current.timerKind = null;
-                    setSettled((previous) => previous + 1);
-                }, 5000);
-                work.current.timer = timer;
-                work.current.timerKind = "PREVIEW_COOLDOWN";
-            }
             // Do not abort/reissue on intent changes: disconnected HTTP work may
             // still hold a server slot. Wait for issued completion, then latest only.
             // React must commit this completion before a queued instance retry
@@ -544,15 +751,9 @@ export function TransientStudyPriceChart({
         work.current.pending = true;
         work.current.retryId = null;
         void pump();
-    }, [key, previewRevision]);
+    }, [key]);
     useEffect(() => {
         if (retry === null) return;
-        work.current.immediate = true;
-        if (work.current.timerKind === "PREVIEW_COOLDOWN") {
-            if (work.current.timer !== null) clearTimeout(work.current.timer);
-            work.current.timer = null;
-            work.current.timerKind = null;
-        }
         if (!(work.current.pending && work.current.retryId === null)) {
             work.current.pending = true;
             work.current.retryId = retry.id;
@@ -562,10 +763,22 @@ export function TransientStudyPriceChart({
     useEffect(() => {
         void pump();
     }, [settled]);
-    const active =
-        state.key === key
-            ? state
-            : { key, evidence: [], status: "STALE", rejected: [], failed: [] };
+    const pendingEvidence =
+        canContinue && state.evidence.length > 0
+            ? state.evidence
+            : (previousWindow?.lagEvidence ?? []);
+    const continuing =
+        continuityReady &&
+        previousWindow?.binding === continuityBinding &&
+        (canContinue || previousWindow.key === key) &&
+        pendingEvidence.length > 0 &&
+        (state.key !== key || state.status === "QUERYING");
+    const calculationCutoff = previousWindow?.lagBefore ?? previousWindow?.before ?? "0";
+    const active = continuing
+        ? { key, evidence: pendingEvidence, status: "UPDATING", rejected: [], failed: [] }
+        : state.key === key
+          ? state
+          : { key, evidence: [], status: "STALE", rejected: [], failed: [] };
     const hasTransient = (chart.studies ?? []).some(
         (instance) => instance.selection.source === "CHART_STUDY_TRANSIENT"
     );
@@ -575,10 +788,11 @@ export function TransientStudyPriceChart({
     const statusCopy: Record<string, string> = {
         NOT_CONNECTED: "尚未连接指标",
         QUERYING: "正在加载指标…",
+        UPDATING: `计算至 ${new Date(Number(BigInt(calculationCutoff) / 1_000_000n)).toISOString()} · 更新中`,
         DISPLAYABLE: partial ? "部分可用" : "指标已就绪",
         PARTIALLY_DISPLAYABLE: "部分可用",
         REJECTED_CONFIG: "指标配置不可用",
-        INPUT_INCOMPLETE: "缺少已完成历史 K 线",
+        INPUT_INCOMPLETE: "临时闭合 K 线不足",
         WAITING_FOR_CLOSED_WINDOW: "等待 K 线时间窗口就绪 · 将自动重新查询一次",
         STALE: "指标已过期，请重新查询",
         UNAVAILABLE: "指标暂不可用",
@@ -598,17 +812,13 @@ export function TransientStudyPriceChart({
                     >
                         <span>{statusCopy[active.status] ?? "指标暂不可用"} · 仅供图表观察</span>
                         {active.evidence.length === 0 ? null : (
-                            <span data-testid="chart-study-preview-status">
-                                {active.evidence.some((row) => row.previewPoint !== undefined)
-                                    ? "未收盘预览 · 仅供观察"
-                                    : "未收盘预览：等待实时数据 · 已收盘结果可用"}
-                            </span>
+                            <span data-testid="chart-study-input-status">仅计算已收盘 K 线</span>
                         )}
                         <details className="transient-study-chart__details">
                             <summary>指标查询详情</summary>
                             <p>
                                 {active.status === "INPUT_INCOMPLETE"
-                                    ? "缺少已完成历史 K 线"
+                                    ? "临时闭合 K 线不足"
                                     : active.status === "WAITING_FOR_CLOSED_WINDOW"
                                       ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
                                       : active.status}{" "}

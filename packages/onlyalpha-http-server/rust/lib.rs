@@ -29,3 +29,4 @@ mod host_websocket;
 pub mod stream_wire;
 
 mod host_probe;
+mod host_temporary;

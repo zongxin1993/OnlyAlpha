@@ -1,20 +1,31 @@
+import { readTemporaryMarketData } from "../../api/marketData/temporary";
+import { temporaryWindowForQuery } from "../../test/temporaryMarketDataClient";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { MarketDataApiClient } from "../../api/marketData/client";
 import { AppProviders } from "../../app/providers";
 import { marketDataBarSemantic, marketDataSourceChoiceKey } from "../../api/marketData/model";
 import {
-    marketDataAcquisition,
     marketDataBarsForQuery,
     marketDataClient,
     marketDataInstrument,
-    marketDataSource,
-    FIXTURE_SELECTION
+    marketDataSource
 } from "../../test/marketDataClient";
 import { onlyMarketDataSourceReference, useMarketDataChart } from "./useMarketDataChart";
-
-vi.mock("../../api/marketData/stream", () => ({ openMarketDataStream: () => () => undefined }));
-
+vi.mock("../../api/marketData/temporaryStream", () => ({
+    openTemporaryMarketDataStream: () => () => undefined
+}));
+vi.mock("../../api/marketData/temporary", () => ({ readTemporaryMarketData: vi.fn() }));
+beforeEach(() => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    vi.mocked(readTemporaryMarketData).mockImplementation((_c, reference, query) =>
+        Promise.resolve(temporaryWindowForQuery(reference, query))
+    );
+});
+afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+});
 it("keeps the last A selection when a pending B lookup completes after an A no-op", async () => {
     let finishB: ((items: ReturnType<typeof marketDataInstrument>[]) => void) | undefined;
     const queryBars = vi.fn<MarketDataApiClient["queryBars"]>((_reference, query) =>
@@ -52,58 +63,46 @@ it("keeps the last A selection when a pending B lookup completes after an A no-o
     });
     expect(result.current.instrument?.instrument_id).toBe("BTCUSDT.TEST");
     expect(result.current.chartContextKey).toBe(context);
-    expect(queryBars).toHaveBeenCalledTimes(1);
+    expect(queryBars).not.toHaveBeenCalled();
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(1);
     expect(createAcquisition).not.toHaveBeenCalled();
 });
-
-it("switches exact Watchlist sources while retaining the period and automatically prepares proven gaps", async () => {
+it("switches exact Watchlist sources while retaining the period and fills temporary inputs without acquisition", async () => {
     const first = marketDataSource();
     const second = marketDataSource({
         integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         integration_revision_fingerprint: "b".repeat(64)
     });
-    let prepared = false;
-    const createAcquisition = vi.fn<MarketDataApiClient["createAcquisition"]>(
-        (_reference, query) => {
-            prepared = true;
-            return Promise.resolve(marketDataAcquisition({ ...query }));
-        }
+    let secondReads = 0;
+    vi.mocked(readTemporaryMarketData).mockImplementation((_c, reference, query) =>
+        Promise.resolve().then(() => {
+            const value = temporaryWindowForQuery(reference, query);
+            if (reference.integration_id === second.integration_id && secondReads++ === 0) {
+                const missing = value.bars.slice(0, 1000);
+                value.bars = value.bars.slice(1000);
+                value.coverage = {
+                    status: "PARTIAL",
+                    expected_bar_count: 2000,
+                    actual_bar_count: 1000,
+                    gaps: missing.map((bar) => ({
+                        start_ns: bar.bar_start_ns,
+                        end_ns: bar.bar_end_ns
+                    }))
+                };
+            }
+            return value;
+        })
     );
+    const createAcquisition = vi.fn<MarketDataApiClient["createAcquisition"]>();
     const client = marketDataClient({
         listSources: () => Promise.resolve([first, second]),
         listInstruments: (_reference, _query, _signal, ids) =>
             Promise.resolve([marketDataInstrument({ instrument_id: ids?.[0] ?? "BTCUSDT.TEST" })]),
-        queryBars: (reference, query) => {
-            const result = marketDataBarsForQuery(query, {
-                source_selection: {
-                    ...FIXTURE_SELECTION,
-                    integration_id: reference.integration_id,
-                    integration_revision_fingerprint: reference.integration_revision_fingerprint
-                }
-            });
-            return Promise.resolve(
-                reference.integration_id === second.integration_id && !prepared
-                    ? {
-                          ...result,
-                          bars: [],
-                          history_projection_fingerprint: null,
-                          resume_after_sequence: null,
-                          resume_plan_fingerprint: null,
-                          revision_evidence: [],
-                          coverage: {
-                              ...result.coverage,
-                              status: "INCOMPLETE",
-                              planned_acquisition_ranges: [
-                                  {
-                                      start_ns: result.resolved_start_ns,
-                                      end_ns: result.resolved_end_ns
-                                  }
-                              ]
-                          }
-                      }
-                    : result
-            );
-        },
+        queryBars: vi.fn(() =>
+            Promise.resolve().then(() => {
+                throw new Error("persistent history is prohibited");
+            })
+        ),
         createAcquisition
     });
     const wrapper = ({ children }: { readonly children: ReactNode }) => (
@@ -130,7 +129,7 @@ it("switches exact Watchlist sources while retaining the period and automaticall
     expect(result.current.instrument?.instrument_id).toBe("ETHUSDT.TEST");
     expect(result.current.barSemantic).toEqual(marketDataBarSemantic(7));
     expect(result.current.status).toBe("ready");
-    expect(createAcquisition).toHaveBeenCalledTimes(1);
+    expect(createAcquisition).not.toHaveBeenCalled();
     await act(() =>
         result.current.selectWatchlistInstrument(
             {
@@ -143,7 +142,6 @@ it("switches exact Watchlist sources while retaining the period and automaticall
     expect(result.current.instrument?.instrument_id).toBe("ETHUSDT.TEST");
     expect(result.current.message).toContain("不会自动换源");
 });
-
 it.each(["changed", "removed"])(
     "does not replace a Watchlist Source when its catalog entry is %s",
     async (change) => {
@@ -189,7 +187,6 @@ it.each(["changed", "removed"])(
         expect(createAcquisition).not.toHaveBeenCalled();
     }
 );
-
 // One Integration may retain several immutable published Source Revisions.
 // Choosing an exact Watchlist reference must not collapse that lineage.
 it("keeps two original revisions of one Integration separately selectable", async () => {
@@ -208,7 +205,7 @@ it("keeps two original revisions of one Integration separately selectable", asyn
     });
     const exact = onlyMarketDataSourceReference(original);
     await act(async () => {
-        await result.current.selectWatchlistInstrument(exact, "BTCUSDT.TEST", false);
+        await result.current.selectWatchlistInstrument(exact, "BTCUSDT.TEST");
     });
     expect(result.current.reference).toEqual(exact);
     act(() => {

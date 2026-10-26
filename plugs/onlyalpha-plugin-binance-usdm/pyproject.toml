@@ -1,10 +1,10 @@
 [project]
 name = "onlyalpha-plugin-binance-usdm"
-version = "0.11.0"
+version = "0.11.1"
 description = "Binance USD-M Market Product plugin for OnlyAlpha"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.11.0"]
+dependencies = ["onlyalpha==0.11.1"]
 
 [project.entry-points."onlyalpha.market_products"]
 binance-usdm = "onlyalpha_plugin_binance_usdm.factory:OnlyBinanceUsdmMarketProductFactory"

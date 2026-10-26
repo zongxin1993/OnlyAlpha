@@ -219,11 +219,68 @@ pub enum StreamEvent {
     Variant5(MarketDataStreamErrorDto),
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum TemporarySubscribeOperation {
+    #[serde(rename = "SUBSCRIBE_TEMPORARY_BARS")]
+    Subscribe,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporaryStreamSubscribe {
+    pub schema_version: Version2,
+    pub operation: TemporarySubscribeOperation,
+    #[schema(format = "uuid")]
+    pub page_id: String,
+    pub source_reference: MarketDataStreamSourceReferenceDto,
+    #[schema(min_length = 1)]
+    pub instrument_id: String,
+    pub bar_semantic: MarketDataBarSemanticDto,
+    #[schema(pattern = "^(?:0|[1-9][0-9]*)$")]
+    pub before_ns: String,
+    #[schema(minimum = 1, maximum = 2000)]
+    pub target_bar_count: u32,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub expected_window_fingerprint: String,
+}
+strict_object!(TemporaryStreamSubscribe);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct TemporarySubscribedDto {
+    pub schema_version: Version2,
+    pub event: MarketDataSubscribedDtoEvent,
+    pub source_kind: TemporaryMarketDataSourceKind,
+    pub authority: TemporaryMarketDataAuthority,
+    pub publication_status: TemporaryMarketDataPublication,
+    pub stream_id: String,
+    pub source_id: String,
+    pub instrument_id: String,
+    pub resolution_mode: MarketDataSubscribedDtoResolutionMode,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub resolution_plan_fingerprint: String,
+    #[schema(minimum = 1, maximum = 240)]
+    pub cursor_bar_stride_minutes: u16,
+}
+strict_object!(TemporarySubscribedDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum TemporaryStreamEvent {
+    Subscribed(TemporarySubscribedDto),
+    State(MarketDataStateDto),
+    Preview(MarketDataBarPreviewDto),
+    Closed(MarketDataBarClosedDto),
+    Error(MarketDataStreamErrorDto),
+}
+
 /// Pure owned WS type registry, independent of all Host resources.
 #[derive(utoipa::OpenApi)]
-#[openapi(components(schemas(StreamSubscribe, StreamEvent)))]
+#[openapi(components(schemas(
+    StreamSubscribe,
+    StreamEvent,
+    TemporaryStreamSubscribe,
+    TemporaryStreamEvent
+)))]
 struct StreamContract;
 pub fn document() -> serde_json::Value {
     use utoipa::{OpenApi, ToSchema};
-    serde_json::json!({"contract":StreamContract::openapi(),"message_roots":{"subscribe":StreamSubscribe::name(),"event":StreamEvent::name()}})
+    serde_json::json!({"contract":StreamContract::openapi(),"message_roots":{"subscribe":StreamSubscribe::name(),"event":StreamEvent::name(),"temporary_subscribe":TemporaryStreamSubscribe::name(),"temporary_event":TemporaryStreamEvent::name()}})
 }

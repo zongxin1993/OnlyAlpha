@@ -1,5 +1,51 @@
 # Market Data Source
 
+## Temporary workstation display
+
+Ordinary chart display consumes Provider observations through a distinct versioned
+Product Query/subscription backed only by Rust memory. It neither submits formal
+Acquisition Commands nor automatically mixes retained history into its window.
+Provider protocols remain in plugins; existing canonical construction and exact
+registered indicators own values. Every access retains exact Source/Revision,
+installed implementation, authorization and outward send fences. Cache possession
+does not grant permission or durable authority.
+
+A context initially requests 2000 closed output bars and retains at most 4000.
+After an admitted stream establishes a frontier, its latest 2000 retained closed
+outputs share that same 4000-bar limit with historical browsing. Historical page
+retention cannot evict this calculation prefix and force a Provider fetch on the
+next close. The frontier is only a volatile retention hint: missing inputs still
+require continuity proof, and authorization/epoch withdrawal remains unchanged.
+Each page retains its current context and at most two departed contexts; departed
+contexts expire within five minutes. Base input, in-flight work and process cache
+capacity remain bounded. Evicted history is fetched again; an incomplete retained projection requires
+refresh rather than inventing a Provider fact conflict. Already fenced input snapshots remain valid
+until their original authorization/epoch fence is withdrawn. Last-subscriber departure
+stops continuing Provider work; restart loses values and reacquires. Process memory
+acceptance is fixed after a real UI baseline. Workspace persistence stores exact
+configuration, never prices, results or credentials.
+
+Raw responses, normalized/derived bars and indicator values are not persisted to
+database, WAL, files, disk caches or routine logs/traces. Operational diagnostics
+may record counters/errors without payloads. Formal collection retains real
+append+fsync and publication; opening/closing charts does not control its lifecycle.
+Research explicitly prepares and freezes immutable inputs independently of display.
+
+Incomplete input cannot create a complete derived bar or indicator readiness.
+Unclosed preview is separate and excluded from the closed indicator window.
+A Provider close received ahead of the local clock remains an unpublished in-memory
+event until its exact end is reached, within one cancellation-stable 10-second budget.
+Excess clock disagreement is unavailable, never a tolerance or an early closed row;
+valid prior history is not invalidated merely for this timing condition.
+Disconnect leaves visibly stale data; reconnect repairs continuity before realtime
+readiness. A failed reconnect burst uses at most the five existing backoff delays, then stops with a visible
+manual re-read action; only an actual READY observation starts a new recovery burst. The Binance temporary adapter opens its socket first and pins the REST
+cutover to the first validated Provider frame; a pre-connect local-clock sample
+cannot certify the missing closed prefix. The same finite recovery and input bounds apply. Wrong Source, revoked permission, conflicting closed values and changed
+construction fail explicitly, without automatic substitution. Large/unprovable
+gaps require a new complete window. A 7m window follows existing session/calendar
+alignment; its base input count is derived rather than assumed to be exactly 14000.
+
 ## 边界
 
 市场数据平面与交易执行平面物理分离。`OnlyMarketDataGateway` 只负责实时连接、订阅和把标准 Update 写入 Runtime 的独立有界
@@ -195,6 +241,13 @@ Provider 调用位于独立、可终止的轻量子进程，不重新执行 Web/
 做 literal substring 搜索。snapshot 是可丢弃的 reference projection；父侧内存缓存最多 32 个 exact Integration Revision / binding，
 有效期 60 秒。每次使用仍先解析 owning runtime / grant，不从缓存重建权限或 availability 证明。它不是 Market Fact、交易或
 Research Evidence Authority，也不授权从 catalogue 响应获取行情历史。
+临时看图首次建立窗口时，可以复用同一 exact binding 与安装 artifact 下、尚未满 60 秒的同一 Instrument 描述，
+避免重复查询 reference；读取不续期，仅复制该标的描述。过期、不同绑定或未命中仍执行 fresh reference 查询；
+缓存锁异常报告不可用。每次请求及响应释放仍重新检查当前 Source 权限和资源绑定，缓存不证明安装或授权新鲜性，
+正式采集的 reference 查询不复用此描述。
+空搜索词、单个 exact Instrument ID 且无分类或类型筛选的 instrument 查询直接复用按标的读取能力，
+不先下载完整目录，也不将单标的响应写入完整目录缓存。只有 Provider 成功响应的空集合表示未匹配；
+Provider 错误保持错误，返回其他标的或多条身份行则拒绝。正式 reference 仍要求恰好一条精确描述。
 
 `GET /api/v2/market-data/quotes` 是独立的 operational read，要求 REALTIME_PREVIEW 权限，最多请求同一来源 25 个 Instrument。
 插件通过 `OnlyDataSourceQuotes` 提供当前成交价、涨跌幅、明确的 ROLLING_24H / PREVIOUS_CLOSE 基准及事件时间。
@@ -207,3 +260,23 @@ Provider evidence observer 收到解码后的原始 JSON bytes；JSON 无效时�
 目录查询按 [Binance 官方 REST Contract](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md?plain=1)
 省略未消费的 permissionSets，不改变商品、市场状态、价格步长或数量规则。单来源预算包含轻量进程启动、
 Provider 网络往返、解码和投影，仍服从搜索整体截止；Web transport deadline 不授予服务端额外时间。
+
+### Default workspace configuration
+
+The Owner may explicitly save one default workspace through `PUT /api/v2/workspace` and restore it through
+`GET /api/v2/workspace`. This configuration contains only the exact Source reference (including expected type), instrument,
+Bar semantic and ordered Study kind/type/version, tagged parameter values, selected outputs and existing presentation settings.
+It contains no market Bars, preview, calculated values, capability/grant, Runtime binding, credentials, viewport or Research Evidence.
+Saving configuration does not authorize Source work or collection. No automatic save is implied by ordinary chart interaction.
+
+The existing global Product Command Admission and Receipt own save identity and exact replay. The expected workspace version
+provides compare-and-swap against the sole namespace head; an accepted save appends an immutable configuration revision.
+`GET /api/v2/workspace/commands/{command_id}` resolves the original save. Response loss remains UNKNOWN until that original
+identity is proved, and never authorizes a second save. A conflicting version retains the current edits until explicit reload.
+The browser stores only the pending operational command ID in session storage, never a second durable configuration copy.
+
+Restore revalidates the exact Source/instrument/semantic and fresh exact Study kind/type/version capabilities; missing or
+unsupported references are visible and never upgraded or replaced automatically. Values are fetched again through the temporary
+path and Study values are recomputed from closed inputs. Configuration publication does not preserve a temporary window across restart.
+One request is bounded to 64 KiB and 32 Study intents, parameters and outputs per Study; these are presentation resource limits.
+Migration 0054 adds this configuration family and extends the existing global Command vocabulary; it does not transform market facts.

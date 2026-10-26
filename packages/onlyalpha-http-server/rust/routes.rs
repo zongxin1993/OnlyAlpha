@@ -36,6 +36,7 @@ async fn verify<T: DeserializeOwned>(response: Response) -> Response {
 pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
     let router=OpenApiRouter::<Arc<Host>>::new()
  .routes(routes!(market_data_stream_upgrade))
+ .routes(routes!(temporary_market_data_stream_upgrade))
  .routes(routes!(admit_agent_session_v2))
  .routes(routes!(advance_agent_session_once_v2))
  .routes(routes!(creation_context_api_v2_backtest_creation_context_get))
@@ -48,6 +49,8 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(result_api_v2_backtest_runs_run_id_result_get))
  .routes(routes!(capabilities_api_v2_chart_studies_capabilities_get))
  .routes(routes!(evaluate_api_v2_chart_studies_evaluate_post))
+ .routes(routes!(temporary_chart_studies_evaluate))
+ .routes(routes!(temporary_chart_studies_evaluate_batch))
  .routes(routes!(list_integration_types_api_v2_integration_types_get))
  .routes(routes!(get_integration_type_api_v2_integration_types_type_id_get))
  .routes(routes!(list_integrations_api_v2_integrations_get))
@@ -69,6 +72,7 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(create_acquisition_api_v2_market_data_acquisitions_post))
  .routes(routes!(get_acquisition_api_v2_market_data_acquisitions_acquisition_id_get))
  .routes(routes!(query_bars_api_v2_market_data_bars_get))
+ .routes(routes!(temporary_bars_api_v2_chart_market_data_bars_get))
  .routes(routes!(latest_bar_api_v2_market_data_latest_bar_get))
  .routes(routes!(quotes_api_v2_market_data_quotes_get))
  .routes(routes!(list_sources_api_v2_market_data_sources_get))
@@ -124,6 +128,9 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(promote_qualified_strategy_api_v2_strategies_strategy_fingerprint_qualification_promotions_post))
  .routes(routes!(evaluate_qualification_api_v2_strategies_strategy_fingerprint_qualifications_post))
  .routes(routes!(freeze_strategy_api_v2_strategy_freezes_post))
+ .routes(routes!(read_api_v2_workspace_get))
+ .routes(routes!(save_api_v2_workspace_put))
+ .routes(routes!(command_api_v2_workspace_commands_command_id_get))
  .routes(routes!(read_api_v2_watchlists_get))
  .routes(routes!(save_api_v2_watchlists_put))
  .routes(routes!(command_api_v2_watchlists_commands_command_id_get))
@@ -504,6 +511,14 @@ async fn query_bars_api_v2_market_data_bars_get(
 ) -> Response {
     let response = host.dispatch(request).await;
     verify::<MarketDataBarWindowDto>(response).await
+}
+
+#[utoipa::path(get, path = "/api/v2/chart/market-data/bars", operation_id = "temporary_bars_api_v2_chart_market_data_bars_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("page_id" = String, Query),("integration_id" = String, Query),("integration_revision_fingerprint" = String, Query),("instrument_id" = String, Query),("anchor_kind" = String, Query),("bar_semantic" = String, Query),("target_bar_count" = i64, Query),("before_ns" = Option<String>, Query),("expected_type_id" = Option<String>, Query)), responses((status = 200, body = TemporaryMarketDataWindowDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn temporary_bars_api_v2_chart_market_data_bars_get(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<TemporaryMarketDataWindowDto>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(get, path = "/api/v2/market-data/latest-bar", operation_id = "latest_bar_api_v2_market_data_latest_bar_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("integration_id" = String, Query),("integration_revision_fingerprint" = String, Query),("instrument_id" = String, Query),("bar_semantic" = String, Query),("expected_type_id" = Option<String>, Query)), responses((status = 200, body = Option<MarketDataBarWindowDto>),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
@@ -978,6 +993,33 @@ async fn command_api_v2_watchlists_commands_command_id_get(
     verify::<WatchlistBookDto>(response).await
 }
 
+#[utoipa::path(get, path = "/api/v2/workspace", operation_id = "read_api_v2_workspace_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = WorkspaceBookDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn read_api_v2_workspace_get(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    let response = host.dispatch(request).await;
+    verify::<WorkspaceBookDto>(response).await
+}
+
+#[utoipa::path(put, path = "/api/v2/workspace", operation_id = "save_api_v2_workspace_put", tag = "workstation", security(("LocalDeveloperCookie" = [])), request_body = SaveWorkspaceDto, responses((status = 200, body = WorkspaceBookDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn save_api_v2_workspace_put(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    let response = host.dispatch(request).await;
+    verify::<WorkspaceBookDto>(response).await
+}
+
+#[utoipa::path(get, path = "/api/v2/workspace/commands/{command_id}", operation_id = "command_api_v2_workspace_commands__command_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("command_id" = String, Path)), responses((status = 200, body = WorkspaceBookDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn command_api_v2_workspace_commands_command_id_get(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    let response = host.dispatch(request).await;
+    verify::<WorkspaceBookDto>(response).await
+}
+
 #[utoipa::path(get, path = "/health/execution", operation_id = "execution_health_execution_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 501, body = NativeErrorEnvelope)))]
 async fn execution_health_execution_get(
     State(host): State<Arc<Host>>,
@@ -1004,9 +1046,94 @@ async fn market_data_stream_upgrade(
     host.dispatch(request).await
 }
 
+#[utoipa::path(get,path="/api/v2/chart/market-data/stream",operation_id="temporary_market_data_stream_upgrade",tag="workstation",security(("LocalDeveloperCookie"=[])),responses((status=101,description="Volatile chart WebSocket; explicit temporary input contract"),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope)))]
+async fn temporary_market_data_stream_upgrade(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    host.dispatch(request).await
+}
+
+#[utoipa::path(post,path="/api/v2/chart/temporary-studies/evaluate",operation_id="temporary_chart_studies_evaluate",tag="workstation",security(("LocalDeveloperCookie"=[])),request_body=TemporaryChartStudyEvaluateRequestDto,responses((status=200,body=TemporaryChartStudyEvaluateDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn temporary_chart_studies_evaluate(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<TemporaryChartStudyEvaluateDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/chart/temporary-studies/evaluate-batch",operation_id="temporary_chart_studies_evaluate_batch",tag="workstation",security(("LocalDeveloperCookie"=[])),request_body=TemporaryChartStudyBatchRequestDto,responses((status=200,body=TemporaryChartStudyBatchDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn temporary_chart_studies_evaluate_batch(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<TemporaryChartStudyBatchDto>(host.dispatch(request).await).await
+}
+
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+    #[test]
+    fn bounded_temporary_batch_is_a_formal_authenticated_query() {
+        let (_, document) = declaration();
+        let value = serde_json::to_value(document).unwrap();
+        let operation = &value["paths"]["/api/v2/chart/temporary-studies/evaluate-batch"]["post"];
+        assert_eq!(
+            operation["operationId"],
+            "temporary_chart_studies_evaluate_batch"
+        );
+        assert_eq!(
+            operation["security"],
+            serde_json::json!([{"LocalDeveloperCookie":[]}])
+        );
+        assert!(operation["responses"].get("409").is_some());
+        assert!(operation["responses"].get("503").is_some());
+    }
+    #[test]
+    fn temporary_market_data_is_a_distinct_typed_read_without_durable_proof_fields() {
+        assert_eq!(
+            operation(&Method::GET, "/api/v2/chart/market-data/stream"),
+            Some(Operation::Implemented)
+        );
+        assert_eq!(
+            operation(&Method::POST, "/api/v2/chart/market-data/stream"),
+            None
+        );
+        let stream = crate::stream_wire::document();
+        assert!(stream["message_roots"]["temporary_subscribe"].is_string());
+        assert!(stream["message_roots"]["temporary_event"].is_string());
+        assert_eq!(
+            operation(&Method::POST, "/api/v2/chart/temporary-studies/evaluate"),
+            Some(Operation::Implemented)
+        );
+        assert_eq!(
+            operation(&Method::GET, "/api/v2/chart/temporary-studies/evaluate"),
+            None
+        );
+        let path = "/api/v2/chart/market-data/bars";
+        assert_eq!(operation(&Method::GET, path), Some(Operation::Implemented));
+        assert_eq!(operation(&Method::POST, path), None);
+        let (_, document) = declaration();
+        let value = serde_json::to_value(document).unwrap();
+        assert_eq!(
+            value["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+                ["$ref"],
+            "#/components/schemas/TemporaryMarketDataWindowDto"
+        );
+        let properties =
+            value["components"]["schemas"]["TemporaryMarketDataWindowDto"]["properties"]
+                .as_object()
+                .unwrap();
+        assert!(properties.contains_key("source_kind"));
+        assert!(properties.contains_key("window_fingerprint"));
+        for key in [
+            "revision_evidence",
+            "seal_id",
+            "history_projection_fingerprint",
+        ] {
+            assert!(!properties.contains_key(key));
+        }
+    }
     #[test]
     fn implemented_creation_routes_declare_their_success_bodies() {
         let (_, document) = declaration();
@@ -1044,5 +1171,24 @@ mod policy_tests {
             Some(Operation::Implemented)
         );
         assert_eq!(operation(&Method::GET, "/api/v2/no-such-route"), None);
+    }
+}
+
+#[cfg(test)]
+mod default_workspace_tests {
+    use super::*;
+    #[test]
+    fn default_workspace_routes_are_formal_owner_commands_and_queries() {
+        for (method, path) in [
+            (Method::GET, "/api/v2/workspace"),
+            (Method::PUT, "/api/v2/workspace"),
+            (
+                Method::GET,
+                "/api/v2/workspace/commands/00000000-0000-4000-8000-000000000001",
+            ),
+        ] {
+            assert_eq!(operation(&method, path), Some(Operation::Implemented));
+        }
+        assert_eq!(operation(&Method::POST, "/api/v2/workspace"), None);
     }
 }

@@ -15,6 +15,27 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
     PriceChart: () => <div data-testid="price-chart">chart</div>
 }));
 
+beforeEach(() => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify(
+                        url === "/api/v2/workspace"
+                            ? { schema_version: 2, version: 0, configuration: null }
+                            : { schema_version: 2, version: 0, lists: [] }
+                    )
+                )
+            )
+        )
+    );
+});
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+});
 function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     return render(
         <AppProviders
@@ -26,8 +47,13 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     );
 }
 
-it("lays the primary workspace out as rail, chart, context panel and bottom panel", () => {
+it("lays the primary workspace out as rail, chart, context panel and bottom panel", async () => {
     const { container } = renderWorkspace();
+    await waitFor(() => {
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
+            "尚未配置可用的行情来源"
+        );
+    });
     expect(screen.getByRole("toolbar", { name: "图表工具" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "主图" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "上下文面板" })).toBeInTheDocument();

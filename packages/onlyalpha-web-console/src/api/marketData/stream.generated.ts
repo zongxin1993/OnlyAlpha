@@ -50,6 +50,10 @@ const MarketDataStreamSourceReferenceDtoSchema = z.strictObject({
     integration_id: z.string().min(1),
     integration_revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$"))
 });
+const TemporaryMarketDataAuthoritySchema = z.literal("DISPLAY_ONLY");
+const TemporaryMarketDataPublicationSchema = z.literal("NOT_A_RESEARCH_RESULT");
+const TemporaryMarketDataSourceKindSchema = z.literal("TEMPORARY_MARKET_DATA");
+const TemporarySubscribeOperationSchema = z.literal("SUBSCRIBE_TEMPORARY_BARS");
 const MarketDataSubscribedDtoSchema = z.strictObject({
     cursor_bar_stride_minutes: z.number().int().min(1).max(240),
     event: MarketDataSubscribedDtoEventSchema,
@@ -104,6 +108,19 @@ const MarketDataStreamErrorDtoSchema = z.strictObject({
     detail: z.string().nullable().optional(),
     event: MarketDataStreamErrorDtoEventSchema,
     schema_version: Version2Schema
+});
+const TemporarySubscribedDtoSchema = z.strictObject({
+    authority: TemporaryMarketDataAuthoritySchema,
+    cursor_bar_stride_minutes: z.number().int().min(1).max(240),
+    event: MarketDataSubscribedDtoEventSchema,
+    instrument_id: z.string(),
+    publication_status: TemporaryMarketDataPublicationSchema,
+    resolution_mode: MarketDataSubscribedDtoResolutionModeSchema,
+    resolution_plan_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    schema_version: Version2Schema,
+    source_id: z.string(),
+    source_kind: TemporaryMarketDataSourceKindSchema,
+    stream_id: z.string()
 });
 const MarketDataBarSemanticDtoFormationSchema = z.union([
     MarketDataFixedDurationFormationDtoSchema,
@@ -164,5 +181,27 @@ export const marketDataStreamEventSchema = z.union([
     MarketDataBarClosedDtoSchema,
     MarketDataStreamErrorDtoSchema
 ]);
+export const temporaryMarketDataStreamSubscribeSchema = z.strictObject({
+    bar_semantic: MarketDataBarSemanticDtoSchema,
+    before_ns: z.string().regex(new RegExp("^(?:0|[1-9][0-9]*)$")),
+    expected_window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    instrument_id: z.string().min(1),
+    operation: TemporarySubscribeOperationSchema,
+    page_id: z.string(),
+    schema_version: Version2Schema,
+    source_reference: MarketDataStreamSourceReferenceDtoSchema,
+    target_bar_count: z.number().int().min(1).max(2000)
+});
+export const temporaryMarketDataStreamEventSchema = z.union([
+    TemporarySubscribedDtoSchema,
+    MarketDataStateDtoSchema,
+    MarketDataBarPreviewDtoSchema,
+    MarketDataBarClosedDtoSchema,
+    MarketDataStreamErrorDtoSchema
+]);
+export type TemporaryMarketDataStreamSubscribe = z.infer<
+    typeof temporaryMarketDataStreamSubscribeSchema
+>;
+export type TemporaryMarketDataStreamEvent = z.infer<typeof temporaryMarketDataStreamEventSchema>;
 export type MarketDataStreamSubscribe = z.infer<typeof marketDataStreamSubscribeSchema>;
 export type MarketDataStreamEvent = z.infer<typeof marketDataStreamEventSchema>;

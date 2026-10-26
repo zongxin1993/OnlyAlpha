@@ -100,7 +100,7 @@ function scalar(
     }
     return { type: type === "DECIMAL" ? "DECIMAL" : "STRING", value };
 }
-function typed(value: {
+export function studyScalar(value: {
     readonly type: string;
     readonly value: string | number | boolean | null;
 }): StudyScalar {
@@ -135,10 +135,10 @@ export function studyDescriptor(selection: ChartCalculationDraft): StudyDescript
                 name: parameter.name,
                 type: parameterType(parameter.type),
                 required: parameter.required,
-                default: typed(parameter.default),
-                minimum: parameter.minimum === null ? null : typed(parameter.minimum),
-                maximum: parameter.maximum === null ? null : typed(parameter.maximum),
-                enumValues: parameter.enum_values.map(typed),
+                default: studyScalar(parameter.default),
+                minimum: parameter.minimum === null ? null : studyScalar(parameter.minimum),
+                maximum: parameter.maximum === null ? null : studyScalar(parameter.maximum),
+                enumValues: parameter.enum_values.map(studyScalar),
                 uppercase: parameter.uppercase
             })),
             outputs: item.outputs

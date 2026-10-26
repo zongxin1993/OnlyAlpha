@@ -903,7 +903,7 @@ def test_range_filters_intervals_only_after_whole_revision_proof(
         database.execute(
             f"ALTER TABLE market_bar UPDATE {mutation} WHERE segment_id='wide' AND ts_event_ns={start + 2 * stride} SETTINGS mutations_sync=2"
         )
-    result = probe(market_probe, database, "range", scope=scope, intervals=intervals)
+    result = probe(market_probe, database, "range", scope=scope, intervals=list(reversed(intervals)))
     if case == "conflict":
         assert result == {"error": "MARKET_DATA_IDENTITY_CONFLICT"}
     elif case in {"timestamp", "payload"}:
@@ -912,8 +912,8 @@ def test_range_filters_intervals_only_after_whole_revision_proof(
         assert result["status"] == "COMPLETE"
         assert result["complete_intervals"] == result["expected"] == 2
         assert result["gaps"] == result["issues"] == []
-        assert {fact["canonical_fact_id"] for fact in result["facts"]} == {
+        assert [fact["canonical_fact_id"] for fact in result["facts"]] == [
             facts[index].canonical_fact_id for index in (0, 2)
-        }
+        ]
         assert len(result["facts"]) == 2
         assert len(result["evidence"]) == (2 if case == "duplicate" else 1)

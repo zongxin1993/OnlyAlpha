@@ -9,11 +9,12 @@ import {
 } from "lightweight-charts";
 import { validPresentation, type ChartStudyInstance } from "../../features/workspace/chartStudy";
 import { StudyBandFill, bandPolygons } from "./studyBandFill";
-import type { StudySeriesView } from "./studySeriesProjection";
+import type { StudySeriesProjection, StudySeriesView } from "./studySeriesProjection";
 
 interface Curve {
     readonly series: ISeriesApi<"Line" | "Histogram">;
     readonly kind: "LINE" | "HISTOGRAM";
+    data: StudySeriesProjection["segments"][number];
 }
 interface Resource {
     readonly curves: Map<string, Curve>;
@@ -107,6 +108,7 @@ export class StudySeriesRenderer {
                         const options = { lastValueVisible: false, priceLineVisible: false, color };
                         curve = {
                             kind,
+                            data: [],
                             series:
                                 kind === "HISTOGRAM"
                                     ? this.chart.addSeries(
@@ -142,7 +144,33 @@ export class StudySeriesRenderer {
                               }
                             : {})
                     });
-                    curve.series.setData([...segment]);
+                    const previous = curve.data;
+                    const samePoint = (a: (typeof segment)[number], b: (typeof segment)[number]) =>
+                        a.time === b.time &&
+                        ("value" in a ? a.value : undefined) ===
+                            ("value" in b ? b.value : undefined);
+                    const incremental =
+                        previous.length > 0 &&
+                        segment.length >= previous.length &&
+                        previous.every((point, index) => {
+                            const next = segment[index];
+                            return (
+                                point.time === next?.time &&
+                                (index === previous.length - 1 || samePoint(point, next))
+                            );
+                        });
+                    if (incremental) {
+                        for (let index = previous.length - 1; index < segment.length; index++) {
+                            const point = segment[index];
+                            const prior = previous[index];
+                            if (
+                                point !== undefined &&
+                                (prior === undefined || !samePoint(prior, point))
+                            )
+                                curve.series.update(point);
+                        }
+                    } else curve.series.setData([...segment]);
+                    curve.data = segment;
                 }
             }
             const fill =

@@ -42,6 +42,7 @@ _FORWARD = (
     "0051_watchlist_configuration",
     "0052_watchlist_member_sources",
     "0053_backtest_native_specification",
+    "0054_default_workspace_configuration",
 )
 _CLAIM = "public.chart_native_claim_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,interval,integer,timestamptz)"
 _HEARTBEAT = "public.chart_native_heartbeat_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,integer,interval)"

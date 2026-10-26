@@ -1,3 +1,12 @@
+import type { WorkspaceStudy } from "../../api/workspace/client";
+import { readChartStudyCapabilities } from "../../api/chartStudies/client";
+import { workspaceStudyIntent } from "./workspaceIntent";
+import {
+    studyScalar,
+    configurationErrors,
+    transientConfigurationErrors,
+    validPresentation
+} from "./chartStudy";
 import { studyColorName } from "./studyColors";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createUuidV4 } from "../../api/integrations/submissionIntent";
@@ -19,12 +28,20 @@ import type { LocalReadCredentials } from "../../api/marketData/localReadCredent
 export function ChartStudies({
     context,
     children,
-    credentials
+    credentials,
+    restoration
 }: {
+    readonly restoration?: {
+        readonly key: string;
+        readonly contextKey: string;
+        readonly studies: readonly WorkspaceStudy[];
+    } | null;
     readonly context: ChartStudyContext | null;
     readonly credentials?: LocalReadCredentials;
     readonly children?: (state: {
         readonly instances: readonly ChartStudyInstance[];
+        readonly configurationIntents: readonly WorkspaceStudy[];
+        readonly configurationReady: boolean;
         readonly selectedId: string | null;
         readonly incarnationKey: string;
         readonly onTransientRevalidated: (
@@ -40,6 +57,86 @@ export function ChartStudies({
     const [contextKey, setContextKey] = useState(context?.key ?? null);
     const [editing, setEditing] = useState<ChartStudyInstance | null>(null);
     const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
+    const [initializedRestore, setInitializedRestore] = useState<string | null>(null);
+    const [pendingRestore, setPendingRestore] = useState<readonly WorkspaceStudy[] | null>(null);
+    const [restoreError, setRestoreError] = useState<string | null>(null);
+    const [restoreRetry, setRestoreRetry] = useState(0);
+    if (restoration != null && restoration.key !== initializedRestore) {
+        setInitializedRestore(restoration.key);
+        setInstances([]);
+        setSelectedId(null);
+        setDraft(null);
+        setEditing(null);
+        setIncarnationKey(createUuidV4());
+        setPendingRestore(restoration.studies.length === 0 ? null : restoration.studies);
+        setRestoreError(null);
+    }
+    useEffect(() => {
+        if (pendingRestore === null) return;
+        if (context === null || context.key !== restoration?.contextKey) return;
+        const controller = new AbortController();
+        void (async () => {
+            if (credentials === undefined) throw new Error("需要当前正式会话");
+            const capabilities = await readChartStudyCapabilities(credentials, controller.signal);
+            const restored = pendingRestore.map((saved): ChartStudyInstance => {
+                const capability = capabilities.find(
+                    (row) =>
+                        row.kind === saved.kind &&
+                        row.type_id === saved.type_id &&
+                        row.semantic_version === saved.semantic_version
+                );
+                if (capability === undefined) throw new Error("精确指标版本不可用");
+                const selection = { source: "CHART_STUDY_TRANSIENT" as const, capability };
+                const configuration = {
+                    parameters: Object.fromEntries(
+                        Object.entries(saved.parameters).map(([name, value]) => [
+                            name,
+                            studyScalar(value)
+                        ])
+                    ),
+                    outputNames: saved.output_names
+                };
+                if (!["PRICE_OVERLAY", "SEPARATE_PANE"].includes(saved.presentation.placement))
+                    throw new Error("Pane 配置无效");
+                const presentation = {
+                    placement: saved.presentation.placement as "PRICE_OVERLAY" | "SEPARATE_PANE",
+                    color: saved.presentation.color,
+                    lineWidth: saved.presentation.line_width,
+                    opacity: saved.presentation.opacity,
+                    visible: saved.presentation.visible,
+                    seriesStyles: saved.presentation.series_styles
+                };
+                const descriptor = studyDescriptor(selection);
+                if (
+                    configurationErrors(descriptor, configuration).length > 0 ||
+                    transientConfigurationErrors(capability, configuration).length > 0 ||
+                    !validPresentation(presentation) ||
+                    Object.keys(presentation.seriesStyles).some(
+                        (name) => !descriptor.outputs.some((output) => output.name === name)
+                    )
+                )
+                    throw new Error("保存配置不再被精确版本支持");
+                return {
+                    instanceId: createUuidV4(),
+                    context,
+                    selection,
+                    configuration,
+                    presentation,
+                    connectionState: "CONFIGURED_NOT_EXECUTED"
+                };
+            });
+            if (controller.signal.aborted) return;
+            setInstances(restored);
+            setPendingRestore(null);
+            setRestoreError(null);
+        })().catch(() => {
+            if (!controller.signal.aborted)
+                setRestoreError("保存的指标配置暂不可用；请重试或明确移除，不会替换版本。");
+        });
+        return () => {
+            controller.abort();
+        };
+    }, [context, credentials, pendingRestore, restoration?.contextKey, restoreRetry]);
     // Retain intent, but each context occurrence gets a fresh numeric/request owner.
     if (contextKey !== (context?.key ?? null)) {
         setContextKey(context?.key ?? null);
@@ -98,13 +195,53 @@ export function ChartStudies({
     return (
         <>
             <section className="chart-studies" aria-label="图表配置实例">
-                <div className="chart-studies__toolbar">
+                <div className="chart-studies__toolbar" inert={pendingRestore !== null}>
                     <CalculationPicker
                         draft={draft}
                         onDraftChange={changeDraft}
                         {...(credentials === undefined ? {} : { credentials })}
                     />
                 </div>
+                {pendingRestore === null ? null : (
+                    <section aria-label="待恢复指标配置">
+                        <p role="status">
+                            {context?.key !== restoration?.contextKey
+                                ? "保存的指标配置等待原行情上下文恢复；也可明确移除配置。"
+                                : (restoreError ?? "正在验证保存的指标配置…")}
+                        </p>
+                        <ol>
+                            {pendingRestore.map((saved, index) => (
+                                <li
+                                    key={`${String(index)}:${saved.type_id}:${saved.semantic_version}`}
+                                >
+                                    {saved.type_id} · {saved.semantic_version}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setRestoreError(null);
+                                            setPendingRestore((previous) => {
+                                                if (previous === null) return null;
+                                                const next = previous.filter((_, i) => i !== index);
+                                                return next.length === 0 ? null : next;
+                                            });
+                                        }}
+                                    >
+                                        移除此保存配置
+                                    </button>
+                                </li>
+                            ))}
+                        </ol>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setRestoreError(null);
+                                setRestoreRetry((value) => value + 1);
+                            }}
+                        >
+                            重试恢复指标配置
+                        </button>
+                    </section>
+                )}
                 {instances.length === 0 ? null : (
                     <ul className="chart-studies__list">
                         {instances.map((instance) => {
@@ -276,7 +413,14 @@ export function ChartStudies({
                     />
                 )}
             </section>
-            {children?.({ instances, selectedId, incarnationKey, onTransientRevalidated })}
+            {children?.({
+                instances,
+                selectedId,
+                incarnationKey,
+                onTransientRevalidated,
+                configurationIntents: pendingRestore ?? instances.map(workspaceStudyIntent),
+                configurationReady: pendingRestore === null
+            })}
         </>
     );
 }

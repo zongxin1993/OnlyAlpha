@@ -74,6 +74,110 @@ fn fixture() -> (Fixture, ChartQuery, Value) {
     )
 }
 #[test]
+fn fixed_catalog_rechecks_every_installation_proof_and_preserves_identity() {
+    let (fixture, query, catalog) = fixture();
+    query.admit_catalog(&catalog).unwrap();
+    query.check_catalog(&catalog, true).unwrap();
+    let read = || query.registered_capabilities_before(Instant::now() + Duration::from_secs(10));
+    // This fixture's interpreter is deliberately not executable. A retained
+    // declaration does not promise current worker availability.
+    let expected = read().unwrap();
+    for name in [
+        "algorithm-installation.json",
+        "bin/python",
+        "pyvenv.cfg",
+        "runtime1",
+        "runtime2",
+        "runtime3",
+        "lib/site-packages/math.py",
+    ] {
+        let path = fixture.0.join(name);
+        let bytes = fs::read(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&path, b"changed").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(read().is_err(), "changed {name}");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        assert_eq!(read().unwrap(), expected, "restored {name}");
+    }
+    let path = fixture.0.join("lib/site-packages/math.py");
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o755)).unwrap();
+    let saved = path.with_extension("saved");
+    fs::rename(&path, &saved).unwrap();
+    assert!(read().is_err(), "missing exact resource");
+    fs::rename(&saved, &path).unwrap();
+    fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o555)).unwrap();
+    assert_eq!(read().unwrap(), expected);
+    let permit = query.slot.clone().try_acquire_owned().unwrap();
+    assert_eq!(read().unwrap(), expected);
+    let second = query.slot.clone().try_acquire_owned().unwrap();
+    assert!(matches!(read(), Err(Error::Capacity)));
+    drop(permit);
+    assert_eq!(read().unwrap(), expected);
+    drop(second);
+    assert!(
+        query
+            .registered_capabilities_before(Instant::now())
+            .is_err()
+    );
+    query.close().unwrap();
+    assert!(read().is_err());
+}
+
+#[test]
+fn fixed_catalog_conflicts_are_atomic_and_never_replace_the_original() {
+    let (_fixture, query, catalog) = fixture();
+    let query = Arc::new(query);
+    let barrier = Arc::new(std::sync::Barrier::new(3));
+    let mut other = catalog.clone();
+    other["artifact_fingerprint"] = json!("b".repeat(64));
+    other["entries"][0]["artifact_fingerprint"] = json!("b".repeat(64));
+    query.admit_catalog(&other).unwrap();
+    let handles = [catalog.clone(), other]
+        .into_iter()
+        .map(|observed| {
+            let query = query.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                query.check_catalog(&observed, true).is_ok()
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    assert_eq!(
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap() as usize)
+            .sum::<usize>(),
+        1
+    );
+    assert!(query.check_catalog(&catalog, true).is_err());
+    assert!(
+        query
+            .registered_capabilities_before(Instant::now() + Duration::from_secs(10))
+            .is_err()
+    );
+}
+
+#[test]
+fn fixed_catalog_never_mixes_another_native_invocation() {
+    let (_fixture, mut query, catalog) = fixture();
+    query.check_catalog(&catalog, true).unwrap();
+    let original = query.invocation.clone();
+    query.invocation["implementation_fingerprint"] = json!("b".repeat(64));
+    assert!(
+        query
+            .registered_capabilities_before(Instant::now() + Duration::from_secs(10))
+            .is_err()
+    );
+    assert!(query.check_catalog(&catalog, false).is_err());
+    query.invocation = original;
+    assert!(query.check_catalog(&catalog, false).is_err());
+}
+#[test]
 fn catalog_resolver_and_result_mutations_are_rejected_by_native_admission() {
     let (_fixture, query, good) = fixture();
     let admitted = query.admit_catalog(&good).unwrap();
@@ -110,7 +214,7 @@ fn catalog_resolver_and_result_mutations_are_rejected_by_native_admission() {
     let good_resolved =
         json!({"definition":record,"definition_fingerprint":candidate.fingerprint()});
     let definition = resolved_definition(entry, &good_resolved).unwrap();
-    for case in 0..7 {
+    for case in 0..10 {
         let mut bad = good_resolved.clone();
         match case {
             0 => bad["definition"]["type_id"] = json!("other"),
@@ -119,16 +223,21 @@ fn catalog_resolver_and_result_mutations_are_rejected_by_native_admission() {
             3 => bad["definition"]["warmup"]["minimum_observations"] = json!(10001),
             4 => bad["definition"]["outputs"][0]["nullable"] = json!(false),
             5 => bad["definition"]["parameters"]["period"] = json!({"type":"BOOLEAN","value":true}),
-            _ => bad["definition_fingerprint"] = json!("b".repeat(64)),
+            6 => bad["definition_fingerprint"] = json!("b".repeat(64)),
+            7 => bad["definition_fingerprint"] = json!(42),
+            8 => bad["unexpected"] = json!(true),
+            _ => {
+                bad.as_object_mut().unwrap().remove("definition");
+            }
         }
         // Coherent new fingerprints must not hide an invalid descriptor relation.
-        if case != 6
+        if case < 6
             && let Ok(d) = Definition::from_record(&bad["definition"], WORK)
         {
             bad["definition_fingerprint"] = json!(d.fingerprint());
         }
         assert!(
-            resolved_definition(entry, &bad).is_err(),
+            matches!(resolved_definition(entry, &bad), Err(Error::Unavailable)),
             "resolve case {case}"
         );
     }

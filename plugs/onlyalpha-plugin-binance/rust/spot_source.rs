@@ -27,6 +27,9 @@ use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream,
     tungstenite::{Message, protocol::WebSocketConfig},
 };
+#[path = "spot_temporary.rs"]
+mod temporary;
+use temporary::TemporaryBars;
 fn end(budget: Budget) -> Instant {
     Instant::now() + Duration::from_millis(budget.millis())
 }
@@ -490,6 +493,89 @@ impl Resource for Spot {
                 .await
                 .map_err(|e| observed_error.unwrap_or(e.into()))?;
             Ok(bars)
+        })
+    }
+    fn temporary_history<'a>(
+        &'a self,
+        request: &'a HistoryRequest,
+        deadline: Budget,
+    ) -> FutureResult<'a, Vec<OnlyBar>> {
+        Box::pin(async move {
+            let response = self
+                .rest
+                .temporary_klines(
+                    request.instrument.specification().raw_symbol().value(),
+                    request.minutes,
+                    request.start_ms,
+                    request.end_ms,
+                    end(deadline),
+                )
+                .await?;
+            let bars = response.canonical_bars(&self.identity.source_id, &request.instrument)?;
+            let stride = spot_rest::native_interval(request.minutes)?.1;
+            let expected = usize::try_from((request.end_ms - request.start_ms) / stride)
+                .map_err(|_| SourceError::Invalid)?;
+            let mut previous = None;
+            if bars.len() > expected {
+                return Err(SourceError::Invalid);
+            }
+            for bar in &bars {
+                let opened = OnlyTimestamp::from_datetime(*bar.bar_start())
+                    .unix_nanos()
+                    .to_string()
+                    .parse::<i64>()
+                    .map_err(|_| SourceError::Invalid)?
+                    / 1_000_000;
+                if opened < request.start_ms
+                    || opened >= request.end_ms
+                    || previous.is_some_and(|p| p >= opened)
+                {
+                    return Err(SourceError::Invalid);
+                }
+                previous = Some(opened);
+            }
+            Ok(bars)
+        })
+    }
+    fn temporary_stream<'a>(
+        &'a self,
+        request: HistoryRequest,
+        checkpoint: OnlyBar,
+        deadline: Budget,
+    ) -> FutureResult<'a, Box<dyn TemporaryStream>> {
+        Box::pin(async move {
+            if !*checkpoint.is_closed()
+                || checkpoint.instrument_id() != request.instrument.specification().instrument_id()
+                || checkpoint.bar_type().semantic() != &semantic(request.minutes)?
+            {
+                return Err(SourceError::Invalid);
+            }
+            let (_, stride) = spot_rest::native_interval(request.minutes)?;
+            let closed_end = ns(*checkpoint.bar_end())? / 1_000_000;
+            if closed_end <= 0 || closed_end % stride != 0 {
+                return Err(SourceError::Invalid);
+            }
+            let cursor = closed_end / stride - 1;
+            let last = (self.clock.now_ns()? / 1_000_000).div_euclid(stride) - 1;
+            if cursor > last {
+                return Err(SourceError::Invalid);
+            }
+            if last - cursor > i64::from(self.resume_limit.min(temporary::MAX_RECOVERY_INPUTS)) {
+                return Err(SourceError::RefreshRequired);
+            }
+            let inner = Bars {
+                source: self.clone(),
+                request,
+                socket: None,
+                pending: VecDeque::from([StreamEvent::Recovering]),
+                cursor: Some(cursor),
+                known: BTreeMap::from([(cursor, checkpoint.to_record())]),
+                recovering: true,
+                stopped: false,
+                bootstrap_deadline: Some(end(deadline)),
+                delay: self.reconnect_initial,
+            };
+            Ok(Box::new(TemporaryBars { inner }) as Box<dyn TemporaryStream>)
         })
     }
     fn stream<'a>(
@@ -1213,6 +1299,24 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
         ])
     }
     #[test]
+    fn temporary_history_uses_the_exact_provider_response_without_a_durable_recorder() {
+        runtime().block_on(async {
+            let bytes = json!([row(0, 1), row(60_000, 1)]).to_string();
+            let (url, server) = http(vec![bytes]);
+            let s = source(&url);
+            let bars = s
+                .temporary_history(&request(1, 0, 2), Budget::from_millis(5000).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(bars.len(), 2);
+            assert_eq!(bars[0].instrument_id().to_string(), "BTCUSDT.BINANCE");
+            assert_eq!(bars[1].bar_start().to_string(), "1970-01-01T00:01:00Z");
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(requests[0].contains("symbol=BTCUSDT"));
+        })
+    }
+    #[test]
     fn actual_history_records_one_original_response_and_all_rows_before_visibility() {
         runtime().block_on(async {
             for minutes in spot_rest::NATIVE_MINUTES {
@@ -1397,6 +1501,219 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
         fn now_ns(&self) -> Result<i64, SourceError> {
             Ok(self.0.load(std::sync::atomic::Ordering::SeqCst))
         }
+    }
+    #[test]
+    fn temporary_stream_caps_small_gap_at_120_even_with_a_larger_formal_resume_setting() {
+        runtime().block_on(async {
+            let mut s = source("http://127.0.0.1:1");
+            s.resume_limit = 1000;
+            // Checkpoint closes interval 2; latest closed interval is 123.
+            s.clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                124 * 60_000_000_000,
+            )));
+            let checkpoint =
+                spot_normalize::rest_bar_interval(&row(120_000, 1), &instrument(), 1).unwrap();
+            assert!(matches!(
+                s.temporary_stream(
+                    request(1, 0, 1),
+                    checkpoint,
+                    Budget::from_millis(5000).unwrap()
+                )
+                .await,
+                Err(SourceError::RefreshRequired)
+            ));
+        });
+    }
+    #[test]
+    fn temporary_stream_recovers_from_the_owned_bar_and_rejects_changed_checkpoint_values() {
+        runtime().block_on(async {
+            for changed in [false, true] {
+                let checkpoint =
+                    spot_normalize::rest_bar_interval(&row(120_000, 1), &instrument(), 1).unwrap();
+                let mut first = row(120_000, 1);
+                if changed {
+                    first[4] = json!("10.4");
+                }
+                let (url, http_task) = http(vec![json!([first, row(180_000, 1)]).to_string()]);
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let mut s = source(&url);
+                s.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+                s.clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                    239_000_000_000,
+                )));
+                let peer = tokio::spawn(async move {
+                    let (tcp, _) = listener.accept().await.unwrap();
+                    let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                    // Provider has crossed the next interval while the local
+                    // clock is still behind it. The connected socket is the
+                    // explicit cutover marker, not a guessed local latest bar.
+                    socket.send(kline(240_000, 1, false)).await.unwrap();
+                    let terminal = socket.next().await;
+                    if !changed {
+                        assert!(matches!(terminal, Some(Ok(Message::Close(_)))));
+                    }
+                });
+                let mut stream = s
+                    .temporary_stream(
+                        request(1, 0, 1),
+                        checkpoint,
+                        Budget::from_millis(5000).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(matches!(
+                    stream.next().await.unwrap(),
+                    StreamEvent::Recovering
+                ));
+                if changed {
+                    assert!(matches!(
+                        stream.next().await.unwrap(),
+                        StreamEvent::Lost(SourceError::Conflict)
+                    ));
+                } else {
+                    assert!(matches!(
+                        stream.next().await.unwrap(),
+                        StreamEvent::Closed(_, 3, _)
+                    ));
+                    assert!(matches!(
+                        stream.next().await.unwrap(),
+                        StreamEvent::Preview(_, 4, _)
+                    ));
+                    assert!(matches!(stream.next().await.unwrap(), StreamEvent::Ready));
+                }
+                stream.close().await.unwrap();
+                peer.await.unwrap();
+                http_task.join().unwrap();
+            }
+        });
+    }
+    #[test]
+    fn temporary_recovery_keeps_its_deadline_across_client_control_cancellation() {
+        runtime().block_on(async {
+            let (url, http_task) = http(vec![json!([row(120_000, 1)]).to_string()]);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut source = source(&url);
+            source.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+            source.timeout = Duration::from_secs(60);
+            source.clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                180_000_000_000,
+            )));
+            let controls = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let client = TcpStream::connect(controls.local_addr().unwrap())
+                .await
+                .unwrap();
+            let (server, _) = controls.accept().await.unwrap();
+            let mut browser = WebSocketStream::from_raw_socket(
+                client,
+                tokio_tungstenite::tungstenite::protocol::Role::Client,
+                None,
+            )
+            .await;
+            let mut transport = WebSocketStream::from_raw_socket(
+                server,
+                tokio_tungstenite::tungstenite::protocol::Role::Server,
+                None,
+            )
+            .await;
+            let (cancelled, mut cancellation) = tokio::sync::mpsc::channel(1);
+            let peer = tokio::spawn(async move {
+                for control in [Message::Ping(vec![1].into()), Message::Pong(vec![2].into())] {
+                    let (tcp, _) = listener.accept().await.unwrap();
+                    let socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                    // The Provider handshake is the barrier: recovery has already
+                    // selected its deadline before the client frame cancels next().
+                    browser.send(control).await.unwrap();
+                    cancellation.recv().await.unwrap();
+                    drop(socket);
+                }
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                socket.send(kline(180_000, 1, false)).await.unwrap();
+                assert!(matches!(
+                    socket.next().await.unwrap().unwrap(),
+                    Message::Close(_)
+                ));
+            });
+            let checkpoint =
+                spot_normalize::rest_bar_interval(&row(120_000, 1), &instrument(), 1).unwrap();
+            let original = Instant::now() + Duration::from_secs(30);
+            let mut stream = TemporaryBars {
+                inner: Bars {
+                    source,
+                    request: request(1, 0, 1),
+                    socket: None,
+                    pending: VecDeque::from([StreamEvent::Recovering]),
+                    cursor: Some(2),
+                    known: BTreeMap::from([(2, checkpoint.to_record())]),
+                    recovering: true,
+                    stopped: false,
+                    bootstrap_deadline: Some(original),
+                    delay: Duration::ZERO,
+                },
+            };
+            assert!(matches!(
+                stream.next().await.unwrap(),
+                StreamEvent::Recovering
+            ));
+            for ping in [true, false] {
+                let control = tokio::select! { biased;
+                    message = transport.next() => message.unwrap().unwrap(),
+                    _ = stream.next() => panic!("Provider must wait at the controlled frontier"),
+                };
+                assert!(matches!(
+                    (&control, ping),
+                    (Message::Ping(_), true) | (Message::Pong(_), false)
+                ));
+                assert_eq!(stream.inner.bootstrap_deadline, Some(original));
+                assert!(stream.inner.recovering);
+                assert!(!stream.inner.stopped);
+                cancelled.send(()).await.unwrap();
+            }
+            assert!(matches!(
+                stream.next().await.unwrap(),
+                StreamEvent::Preview(_, 3, _)
+            ));
+            assert!(matches!(stream.next().await.unwrap(), StreamEvent::Ready));
+            assert_eq!(stream.inner.bootstrap_deadline, None);
+            assert!(!stream.inner.recovering);
+            stream.close().await.unwrap();
+            peer.await.unwrap();
+            http_task.join().unwrap();
+        });
+    }
+    #[test]
+    fn temporary_recovery_timeout_is_terminal_instead_of_starting_another_budget() {
+        runtime().block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut source = source("http://127.0.0.1:1");
+            source.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+            source.clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                180_000_000_000,
+            )));
+            let mut stream = TemporaryBars {
+                inner: Bars {
+                    source,
+                    request: request(1, 0, 1),
+                    socket: None,
+                    pending: VecDeque::new(),
+                    cursor: Some(2),
+                    known: BTreeMap::new(),
+                    recovering: true,
+                    stopped: false,
+                    bootstrap_deadline: Some(Instant::now() - Duration::from_secs(1)),
+                    delay: Duration::ZERO,
+                },
+            };
+            assert!(matches!(
+                stream.next().await.unwrap(),
+                StreamEvent::Lost(SourceError::Timeout)
+            ));
+            assert!(stream.inner.stopped);
+            assert!(stream.inner.socket.is_none());
+            assert_eq!(stream.inner.bootstrap_deadline, None);
+            assert!(matches!(stream.next().await, Err(SourceError::Stopped)));
+            stream.close().await.unwrap();
+        });
     }
     #[test]
     fn bootstrap_expiry_is_not_reused_by_any_later_recovery_entry() {

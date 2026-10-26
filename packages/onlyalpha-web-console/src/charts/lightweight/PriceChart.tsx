@@ -99,14 +99,15 @@ export function PriceChart({
         readonly incarnation: string;
         readonly time: number | null;
     }>({ context: null, incarnation: "", time: null });
+    const previewTime = liveBar?.time ?? null;
     const timeline = useMemo(
         () => [
             ...new Set([
                 ...productBars.map((bar) => bar.time),
-                ...(liveBar === null ? [] : [liveBar.time])
+                ...(previewTime === null ? [] : [previewTime])
             ])
         ],
-        [productBars, liveBar]
+        [productBars, previewTime]
     );
     const views = useMemo(() => {
         const entries = studies.filter((instance) => instance.context.key === contextKey);
@@ -142,6 +143,11 @@ export function PriceChart({
             )
         );
     }, [studies, contextKey, studyEvidence, incarnationKey, timeline]);
+    const studySync = useRef<{
+        studies: typeof studies;
+        views: typeof views;
+        selectedId: typeof selectedStudyId;
+    } | null>(null);
     const activeType = useRef<FinancialChartType>("CANDLESTICK");
     const selectionContext = useRef({
         contextKey,
@@ -154,6 +160,7 @@ export function PriceChart({
     const previousContextKey = useRef<string | null>(null);
     const initializedNonEmptyContext = useRef(false);
     const rendererBars = useRef<readonly RenderBar[]>([]);
+    const previousProductBars = useRef<readonly MarketDataChartBarProjection[]>([]);
     const previousBars = useRef<readonly RenderBar[]>([]);
     const acceptedPreview = useRef<MarketDataChartBarProjection | null>(null);
     const placingHistory = useRef(false);
@@ -236,6 +243,7 @@ export function PriceChart({
             volumePane.paneIndex()
         );
         studyRenderer.current = new StudySeriesRenderer(chart, pricePane);
+        studySync.current = null;
         activeType.current = "CANDLESTICK";
         const timeScale = chart.timeScale();
         const handleVisibleRange = (range: LogicalRange | null) => {
@@ -440,21 +448,61 @@ export function PriceChart({
         );
         axisTimes.current = nextAxis;
         rendererBars.current = displayed;
-        priceSeries.current?.setData(
-            displayed.map((bar) =>
-                activeType.current === "LINE" ? { time: bar.time, value: bar.close } : bar
-            )
-        );
-        volumeSeries.current?.setData(
-            displayedProduct.map((bar) => ({
-                time: bar.time,
-                value: bar.numeric.volume,
-                color:
-                    bar.numeric.close >= bar.numeric.open
-                        ? volumeColors.current.up
-                        : volumeColors.current.down
-            }))
-        );
+        const volumePoint = (bar: MarketDataChartBarProjection) => ({
+            time: bar.time,
+            value: bar.numeric.volume,
+            color:
+                bar.numeric.close >= bar.numeric.open
+                    ? volumeColors.current.up
+                    : volumeColors.current.down
+        });
+        const closedAppend =
+            !contextChanged &&
+            priorBars.length > 0 &&
+            bars.length > priorBars.length &&
+            previousProductBars.current.every((bar, index) => {
+                const next = productBars[index];
+                return (
+                    bar.barStartNs === next?.barStartNs &&
+                    bar.barEndNs === next.barEndNs &&
+                    bar.open === next.open &&
+                    bar.high === next.high &&
+                    bar.low === next.low &&
+                    bar.close === next.close &&
+                    bar.volume === next.volume
+                );
+            }) &&
+            (previousPreview === null || bars[priorBars.length]?.time === previousPreview.time);
+        if (closedAppend) {
+            const from = priorBars.length;
+            for (const bar of displayed.slice(from))
+                priceSeries.current?.update(
+                    activeType.current === "LINE" ? { time: bar.time, value: bar.close } : bar
+                );
+            for (const bar of displayedProduct.slice(from))
+                volumeSeries.current?.update(volumePoint(bar));
+        } else if (
+            !contextChanged &&
+            priorBars === bars &&
+            preview !== null &&
+            previousPreview?.time === preview.time
+        ) {
+            // Only replace the existing unclosed point. A new preview time must
+            // rebuild: the old preview is not an admitted closed fact.
+            priceSeries.current?.update(
+                activeType.current === "LINE"
+                    ? { time: preview.time, value: preview.numeric.close }
+                    : toCandlestick(preview)
+            );
+            volumeSeries.current?.update(volumePoint(preview));
+        } else {
+            priceSeries.current?.setData(
+                displayed.map((bar) =>
+                    activeType.current === "LINE" ? { time: bar.time, value: bar.close } : bar
+                )
+            );
+            volumeSeries.current?.setData(displayedProduct.map(volumePoint));
+        }
         if (container.current !== null) {
             container.current.dataset.volumePointCount = String(displayedProduct.length);
             container.current.dataset.volumeLatest = displayedProduct.at(-1)?.volume ?? "";
@@ -462,11 +510,18 @@ export function PriceChart({
         // Native logical-range writes are applied on the next paint. Sync every
         // series first, then issue one viewport write; a sibling effect would
         // read the old range and overwrite the pending live-bar advance.
-        studyRenderer.current?.sync(
-            studies.filter((instance) => instance.context.key === contextKey),
-            views,
-            selectedStudyId
-        );
+        if (
+            studySync.current?.studies !== studies ||
+            studySync.current.views !== views ||
+            studySync.current.selectedId !== selectedStudyId
+        ) {
+            studyRenderer.current?.sync(
+                studies.filter((instance) => instance.context.key === contextKey),
+                views,
+                selectedStudyId
+            );
+            studySync.current = { studies, views, selectedId: selectedStudyId };
+        }
         if (container.current !== null) {
             container.current.dataset.studySeriesCount = String(
                 studyRenderer.current?.seriesCount ?? 0
@@ -480,7 +535,7 @@ export function PriceChart({
             ).visibleBars;
             nearLeftEdgeArmed.current = false;
             timeScale?.setVisibleLogicalRange({
-                from: Math.max(0, bars.length - visible),
+                from: bars.length - visible,
                 to: bars.length + 4
             });
         } else if (visibleRange !== null && !contextChanged && orderedPrior) {
@@ -498,6 +553,7 @@ export function PriceChart({
         );
         previousContextKey.current = contextKey;
         previousBars.current = bars;
+        previousProductBars.current = productBars;
     }, [barSemantic, bars, contextKey, productBars, liveBar, studies, views, selectedStudyId]);
 
     return (

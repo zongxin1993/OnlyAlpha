@@ -400,6 +400,18 @@ label {
     background: var(--surface);
     overflow-y: auto;
 }
+.workspace-configuration {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+.workspace-configuration p {
+    margin: 0;
+}
 .chart-region__header {
     display: flex;
     flex: 0 0 2.1rem;

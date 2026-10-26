@@ -148,6 +148,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/chart/market-data/bars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["temporary_bars_api_v2_chart_market_data_bars_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/chart/market-data/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["temporary_market_data_stream_upgrade"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/chart/studies/capabilities": {
         parameters: {
             query?: never;
@@ -174,6 +206,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["evaluate_api_v2_chart_studies_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/chart/temporary-studies/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["temporary_chart_studies_evaluate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/chart/temporary-studies/evaluate-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["temporary_chart_studies_evaluate_batch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1364,6 +1428,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read_api_v2_workspace_get"];
+        put: operations["save_api_v2_workspace_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspace/commands/{command_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["command_api_v2_workspace_commands__command_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/execution": {
         parameters: {
             query?: never;
@@ -1721,7 +1817,7 @@ export interface components {
         /** @enum {string} */
         ChartStudyIntegerDtoType: "INTEGER";
         ChartStudyLimitsDto: {
-            max_concurrent_invocations: components["schemas"]["Version1"];
+            max_concurrent_invocations: components["schemas"]["Version2"];
             max_input_rows: components["schemas"]["Version2000"];
             max_period: components["schemas"]["Version10000"];
         };
@@ -2161,6 +2257,7 @@ export interface components {
         IntegrationTypeListDto: {
             items: components["schemas"]["IntegrationTypeDto"][];
         };
+        JsonNull: null;
         JsonNumber: number;
         JsonValue: unknown;
         MarketDataAcquisitionDto: {
@@ -2541,10 +2638,130 @@ export interface components {
             lists: components["schemas"]["WatchlistDto"][];
             schema_version: components["schemas"]["Version2"];
         };
+        SaveWorkspaceDto: {
+            command_id: string;
+            configuration: components["schemas"]["WorkspaceConfigurationDto"];
+            /** Format: int64 */
+            expected_version: number;
+            schema_version: components["schemas"]["Version2"];
+        };
         /** @enum {string} */
         SourceHistoryPolicy: "EXACT_SEALED_PROOF";
         /** @enum {string} */
         SourceNewWorkStatus: "AVAILABLE" | "UNAVAILABLE";
+        TemporaryChartStudyBatchDto: {
+            authority: components["schemas"]["ChartStudyEvaluateDtoAuthority"];
+            publication_status: components["schemas"]["ChartStudyEvaluateDtoPublicationStatus"];
+            results: components["schemas"]["TemporaryChartStudyBatchItemDto"][];
+            schema_version: components["schemas"]["Version2"];
+            source_kind: components["schemas"]["ChartStudyEvaluateDtoSourceKind"];
+            window_fingerprint: string;
+        };
+        /** @enum {string} */
+        TemporaryChartStudyBatchError: "CHART_STUDY_REQUEST_INVALID";
+        TemporaryChartStudyBatchItemDto: {
+            evaluation: components["schemas"]["TemporaryChartStudyEvaluateDto"];
+            /** Format: int32 */
+            request_index: number;
+            /** @enum {string} */
+            status: "EVALUATED";
+        } | {
+            error: components["schemas"]["TemporaryChartStudyBatchError"];
+            /** Format: int32 */
+            request_index: number;
+            /** @enum {string} */
+            status: "REJECTED";
+        };
+        TemporaryChartStudyBatchRequestDto: {
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+            calculations: components["schemas"]["ChartStudyCalculationRequestDto"][];
+            expected_window_fingerprint: string;
+            instrument_id: string;
+            /** Format: uuid */
+            page_id: string;
+            schema_version: components["schemas"]["Version2"];
+            source_kind: components["schemas"]["TemporaryMarketDataSourceKind"];
+            source_reference: components["schemas"]["ChartStudySourceReferenceDto"];
+            window: components["schemas"]["ChartStudyWindowDto"];
+        };
+        TemporaryChartStudyEvaluateDto: {
+            authority: components["schemas"]["ChartStudyEvaluateDtoAuthority"];
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+            calculation: components["schemas"]["ChartStudyCalculationDto"];
+            coverage: components["schemas"]["TemporaryMarketDataCoverageDto"];
+            input: components["schemas"]["TemporaryChartStudyInputDto"];
+            instrument_id: string;
+            preview: components["schemas"]["JsonNull"];
+            publication_status: components["schemas"]["ChartStudyEvaluateDtoPublicationStatus"];
+            query_status: components["schemas"]["ChartStudyEvaluateDtoQueryStatus"];
+            schema_version: components["schemas"]["Version2"];
+            series: components["schemas"]["ChartStudySeriesDto"][];
+            source_kind: components["schemas"]["ChartStudyEvaluateDtoSourceKind"];
+            source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
+        };
+        TemporaryChartStudyEvaluateRequestDto: {
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+            calculation: components["schemas"]["ChartStudyCalculationRequestDto"];
+            expected_window_fingerprint: string;
+            instrument_id: string;
+            /** Format: uuid */
+            page_id: string;
+            schema_version: components["schemas"]["Version2"];
+            source_kind: components["schemas"]["TemporaryMarketDataSourceKind"];
+            source_reference: components["schemas"]["ChartStudySourceReferenceDto"];
+            window: components["schemas"]["ChartStudyWindowDto"];
+        };
+        TemporaryChartStudyInputDto: {
+            anchor_kind: components["schemas"]["ChartStudyInputDtoAnchorKind"];
+            before_ns: string;
+            calendar_fingerprint: string;
+            initialization: components["schemas"]["ChartStudyInputDtoInitialization"];
+            resolution_mode: components["schemas"]["MarketDataBarWindowDtoResolutionModeValue"];
+            resolution_plan_fingerprint: string;
+            resolved_end_ns: string;
+            resolved_start_ns: string;
+            source_kind: components["schemas"]["TemporaryMarketDataSourceKind"];
+            /** Format: int32 */
+            target_bar_count: number;
+            window_fingerprint: string;
+        };
+        /** @enum {string} */
+        TemporaryMarketDataAuthority: "DISPLAY_ONLY";
+        TemporaryMarketDataCoverageDto: {
+            /** Format: int32 */
+            actual_bar_count: number;
+            /** Format: int32 */
+            expected_bar_count: number;
+            gaps: components["schemas"]["MarketDataCoverageGapDto"][];
+            status: components["schemas"]["TemporaryMarketDataCoverageStatus"];
+        };
+        /** @enum {string} */
+        TemporaryMarketDataCoverageStatus: "PARTIAL" | "COMPLETE";
+        /** @enum {string} */
+        TemporaryMarketDataPublication: "NOT_A_RESEARCH_RESULT";
+        /** @enum {string} */
+        TemporaryMarketDataSourceKind: "TEMPORARY_MARKET_DATA";
+        TemporaryMarketDataWindowDto: {
+            anchor_kind: components["schemas"]["MarketDataBarWindowDtoAnchorKind"];
+            authority: components["schemas"]["TemporaryMarketDataAuthority"];
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+            bars: components["schemas"]["MarketDataBarDto"][];
+            calendar_fingerprint: string;
+            coverage: components["schemas"]["TemporaryMarketDataCoverageDto"];
+            instrument_id: string;
+            publication_status: components["schemas"]["TemporaryMarketDataPublication"];
+            /** Format: int32 */
+            requested_bar_count: number;
+            requested_before_ns: string | null;
+            resolution_mode: components["schemas"]["MarketDataBarWindowDtoResolutionModeValue"];
+            resolution_plan_fingerprint: string;
+            resolved_end_ns: string;
+            resolved_start_ns: string;
+            schema_version: components["schemas"]["Version1"];
+            source_kind: components["schemas"]["TemporaryMarketDataSourceKind"];
+            source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
+            window_fingerprint: string;
+        };
         /** @enum {integer} */
         Version0: 0;
         /** @enum {integer} */
@@ -2586,6 +2803,44 @@ export interface components {
             expected_type_id: string;
             integration_id: string;
             integration_revision_fingerprint: string;
+        };
+        WorkspaceBookDto: {
+            configuration: components["schemas"]["WorkspaceConfigurationDto"] | null;
+            schema_version: components["schemas"]["Version2"];
+            /** Format: int64 */
+            version: number;
+        };
+        WorkspaceConfigurationDto: {
+            bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
+            instrument_id: string;
+            source: components["schemas"]["WatchlistSourceDto"];
+            studies: components["schemas"]["WorkspaceStudyDto"][];
+        };
+        WorkspacePresentationDto: {
+            color: string;
+            /** Format: double */
+            line_width: number;
+            /** Format: double */
+            opacity: number;
+            placement: string;
+            series_styles: {
+                [key: string]: components["schemas"]["WorkspaceSeriesStyleDto"];
+            };
+            visible: boolean;
+        };
+        WorkspaceSeriesStyleDto: {
+            color: string;
+            visible: boolean;
+        };
+        WorkspaceStudyDto: {
+            kind: string;
+            output_names: string[];
+            parameters: {
+                [key: string]: components["schemas"]["ResearchScalarDto"];
+            };
+            presentation: components["schemas"]["WorkspacePresentationDto"];
+            semantic_version: string;
+            type_id: string;
         };
     };
     responses: never;
@@ -2803,6 +3058,133 @@ export interface operations {
             };
         };
     };
+    temporary_bars_api_v2_chart_market_data_bars_get: {
+        parameters: {
+            query: {
+                page_id: string;
+                integration_id: string;
+                integration_revision_fingerprint: string;
+                instrument_id: string;
+                anchor_kind: string;
+                bar_semantic: string;
+                target_bar_count: number;
+                before_ns?: string;
+                expected_type_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryMarketDataWindowDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    temporary_market_data_stream_upgrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Volatile chart WebSocket; explicit temporary input contract */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
     capabilities_api_v2_chart_studies_capabilities_get: {
         parameters: {
             query?: never;
@@ -2956,6 +3338,164 @@ export interface operations {
                 };
             };
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    temporary_chart_studies_evaluate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemporaryChartStudyEvaluateRequestDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryChartStudyEvaluateDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    temporary_chart_studies_evaluate_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemporaryChartStudyBatchRequestDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryChartStudyBatchDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6764,6 +7304,261 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WatchlistBookDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    read_api_v2_workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBookDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    save_api_v2_workspace_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveWorkspaceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBookDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    command_api_v2_workspace_commands__command_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                command_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBookDto"];
                 };
             };
             400: {

@@ -65,6 +65,12 @@ fn source_reissue_rejection(error: &commands::Error) -> bool {
 fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Failure> {
     serde_json::from_slice(bytes).map_err(|_| invalid())
 }
+fn workspace_body<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Failure> {
+    let raw = std::str::from_utf8(bytes).map_err(|_| invalid())?;
+    onlyalpha_metadata_json::canonical_json(raw, bytes.len().checked_mul(32).ok_or_else(invalid)?)
+        .map_err(|_| invalid())?;
+    decode(bytes)
+}
 fn version(n: i64) -> Result<i32, Failure> {
     i32::try_from(n).ok().filter(|n| *n > 0).ok_or_else(invalid)
 }
@@ -431,6 +437,68 @@ impl Host {
         Ok(Json(watchlist_wire(value)).into_response())
     }
 }
+impl Host {
+    pub(crate) async fn workspace(
+        self: &Arc<Self>,
+        request: Request<Body>,
+        deadline: Instant,
+    ) -> Result<Response, Failure> {
+        use onlyalpha_product_runtime::{
+            workspace::Book as WorkspaceBook, workspace_postgres::Workspaces,
+        };
+        if request.uri().query().is_some_and(|q| !q.is_empty()) {
+            return Err(invalid());
+        }
+        let method = request.method().clone();
+        let path = request.uri().path().to_owned();
+        let value = if method == Method::GET {
+            let mut reader = self.reader.lock().await;
+            let client = reader
+                .as_mut()
+                .ok_or_else(|| Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            let mut store = Workspaces::new(client, self.inputs.namespace().value())?;
+            if path == "/api/v2/workspace" {
+                store.read().await?
+            } else {
+                let id = CommandId::new(path.rsplit('/').next().ok_or_else(invalid)?)
+                    .map_err(|_| invalid())?;
+                store.command(&id).await?.ok_or_else(|| {
+                    Failure::with_status(StatusCode::NOT_FOUND, "WORKSPACE_COMMAND_NOT_FOUND")
+                })?
+            }
+        } else {
+            let dto: SaveWorkspaceDto = workspace_body(
+                &to_bytes(request.into_body(), 65536)
+                    .await
+                    .map_err(|_| invalid())?,
+            )?;
+            let id = CommandId::new(&dto.command_id).map_err(|_| invalid())?;
+            // Configuration is an intent, never a Source grant, captured input or calculation proof.
+            let proposed = WorkspaceBook::new(
+                u64::try_from(dto.expected_version).map_err(|_| invalid())?,
+                Some(serde_json::to_value(dto.configuration).map_err(|_| invalid())?),
+            )?;
+            let mut authority = self.writer.lock().await;
+            let authority = authority
+                .as_mut()
+                .ok_or_else(|| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            let client = authority
+                .client_mut()
+                .await
+                .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            if deadline <= Instant::now() {
+                return Err(Failure::unavailable("REQUEST_DEADLINE_EXPIRED"));
+            }
+            Workspaces::new(client, self.inputs.namespace().value())?
+                .save(&id, &proposed, &now()?.to_string())
+                .await?
+        };
+        let mut body = value.to_record();
+        body["schema_version"] = json!(2);
+        Ok(Json(body).into_response())
+    }
+}
+
 fn watchlist_wire(book: Book) -> Value {
     let mut value = book.to_record();
     value["schema_version"] = json!(2);
@@ -461,5 +529,20 @@ mod source_reissue_tests {
         ] {
             assert!(!source_reissue_rejection(&error));
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_body_tests {
+    #[test]
+    fn workspace_raw_body_rejects_duplicate_map_keys_before_typed_decode() {
+        let raw=br#"{"parameters":{"period":{"type":"INTEGER","value":20},"period":{"type":"INTEGER","value":30}}}"#;
+        assert!(super::workspace_body::<serde_json::Value>(raw).is_err());
+        assert!(
+            super::workspace_body::<serde_json::Value>(
+                br#"{"parameters":{"period":{"type":"INTEGER","value":20}}}"#
+            )
+            .is_ok()
+        );
     }
 }

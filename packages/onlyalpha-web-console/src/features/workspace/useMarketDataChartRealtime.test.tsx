@@ -1,1367 +1,1002 @@
+import { requiredValue } from "../../test/requiredValue";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { afterEach, expect, it, vi } from "vitest";
 import { AppProviders } from "../../app/providers";
+import { useMarketDataChart, STREAM_RECONNECT_DELAYS_MS } from "./useMarketDataChart";
 import {
-    marketDataStreamEventSchema,
-    type MarketDataStreamEvent
-} from "../../api/marketData/stream";
-import {
-    fixedDurationMinutes,
-    marketDataBarSemantic,
-    marketDataSourceChoiceKey,
-    type MarketDataBars,
-    type MarketDataSource,
-    type MarketDataSourceReference
-} from "../../api/marketData/model";
-import type { MarketDataBarsQuery } from "../../api/marketData/client";
-import {
-    dataSourceSummary,
-    dataSourceType,
-    integrationClient,
-    operationalStatus
-} from "../../test/integrationClient";
-import {
-    FIXTURE_SELECTION,
-    incompleteBars,
-    marketDataBars,
-    marketDataBarsForQuery,
     marketDataClient,
+    marketDataSource,
     marketDataInstrument,
-    marketDataSource
+    FIXTURE_SELECTION
 } from "../../test/marketDataClient";
-import { useMarketDataChart } from "./useMarketDataChart";
-
-const stream = vi.hoisted(() => ({
-    callbacks: [] as ((event: MarketDataStreamEvent) => void)[],
-    disconnects: [] as ((failure?: "MALFORMED_JSON" | "CONTRACT_ERROR") => void)[],
-    requests: [] as unknown[],
-    closed: { count: 0 }
+import { integrationClient } from "../../test/integrationClient";
+import { marketDataSourceChoiceKey } from "../../api/marketData/model";
+import { MarketDataWebError, type MarketDataBarsQuery } from "../../api/marketData/client";
+import { readTemporaryMarketData } from "../../api/marketData/temporary";
+import { openTemporaryMarketDataStream } from "../../api/marketData/temporaryStream";
+import { temporaryMarketDataWindowSchema } from "../../api/marketData/temporary.generated";
+vi.mock("../../api/marketData/temporary", () => ({ readTemporaryMarketData: vi.fn() }));
+vi.mock("../../api/marketData/temporaryStream", () => ({
+    openTemporaryMarketDataStream: vi.fn(() => vi.fn())
 }));
-
-vi.mock("../../api/marketData/stream", async (original) => ({
-    ...(await original()),
-    openMarketDataStream: vi.fn(
-        (
-            request: unknown,
-            onEvent: (event: MarketDataStreamEvent) => void,
-            onDisconnect: (failure?: "MALFORMED_JSON" | "CONTRACT_ERROR") => void
-        ) => {
-            stream.callbacks.push(onEvent);
-            stream.disconnects.push(onDisconnect);
-            stream.requests.push(request);
-            return () => {
-                stream.closed.count += 1;
-            };
-        }
-    )
-}));
-
-const eth = { ...marketDataInstrument(), instrument_id: "ETHUSDT.TEST", display_symbol: "ETHUSDT" };
-
-function resetStream() {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    stream.closed.count = 0;
+function windowFor(query: MarketDataBarsQuery) {
+    const stride =
+        BigInt(
+            query.bar_semantic.formation.kind === "FIXED_DURATION"
+                ? query.bar_semantic.formation.window_minutes
+                : 1
+        ) * 60000000000n;
+    const end = BigInt(query.before_ns ?? "1767225600000000000");
+    const start = end - BigInt(query.target_bar_count) * stride;
+    return temporaryMarketDataWindowSchema.parse({
+        schema_version: 1,
+        source_kind: "TEMPORARY_MARKET_DATA",
+        authority: "DISPLAY_ONLY",
+        publication_status: "NOT_A_RESEARCH_RESULT",
+        source_selection: FIXTURE_SELECTION,
+        instrument_id: query.instrument_id,
+        bar_semantic: query.bar_semantic,
+        anchor_kind: query.anchor_kind,
+        requested_before_ns: query.before_ns ?? null,
+        requested_bar_count: query.target_bar_count,
+        resolved_start_ns: start.toString(),
+        resolved_end_ns: end.toString(),
+        coverage: {
+            status: "COMPLETE",
+            expected_bar_count: query.target_bar_count,
+            actual_bar_count: query.target_bar_count,
+            gaps: []
+        },
+        bars: Array.from({ length: query.target_bar_count }, (_, index) => ({
+            bar_start_ns: (start + BigInt(index) * stride).toString(),
+            bar_end_ns: (start + BigInt(index + 1) * stride).toString(),
+            open: "10.00",
+            high: "12.00",
+            low: "9.00",
+            close: "11.00",
+            volume: "1.00",
+            closed: true
+        })),
+        window_fingerprint: "a".repeat(64),
+        calendar_fingerprint: "b".repeat(64),
+        resolution_plan_fingerprint: "c".repeat(64),
+        resolution_mode: "PROVIDER_NATIVE"
+    });
 }
-
-async function selectFixtureSource(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByRole("button", { name: "source" }));
-    await user.click(screen.getByRole("button", { name: "1m" }));
-}
-
-it.each(["merge", "stale", "mismatch"] as const)(
-    "holds an older page across realtime BAR_CLOSED: %s",
-    async (variant) => {
-        resetStream();
-        const firstBar = marketDataBars().bars[0];
-        const lastBar = marketDataBars().bars[1];
-        if (firstBar === undefined || lastBar === undefined)
-            throw new Error("fixture requires two Bars");
-        let release!: (page: MarketDataBars) => void;
-        let frozen!: MarketDataBarsQuery;
-        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) => {
-            if (query.target_bar_count === 240) {
-                frozen = query;
-                return new Promise<MarketDataBars>((resolve) => {
-                    release = resolve;
-                });
-            }
-            return Promise.resolve(marketDataBarsForQuery(query));
-        });
-        const user = userEvent.setup();
-        render(
-            <AppProviders
-                integrationClient={integrationClient()}
-                marketDataClient={marketDataClient({ queryBars })}
-            >
-                <Harness />
-            </AppProviders>
-        );
-        await selectFixtureSource(user);
-        await user.click(screen.getByRole("button", { name: "btc" }));
-        await waitFor(() => {
-            expect(stream.requests).toHaveLength(1);
-        });
-        act(() => {
-            stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
-        });
-        await user.click(screen.getByRole("button", { name: "older" }));
-        await user.click(screen.getByRole("button", { name: "older" }));
-        expect(queryBars).toHaveBeenCalledTimes(2);
-        expect(screen.getByTestId("older-status")).toHaveTextContent("loading");
-        act(() =>
-            stream.callbacks[0]?.({
-                schema_version: 2,
-                event: "BAR_CLOSED",
-                timing: null,
-                source_id: FIXTURE_SELECTION.source_id,
-                instrument_id: "BTCUSDT.TEST",
-                bar_semantic: marketDataBarSemantic(1),
-                sequence: "29453762",
-                bar: {
-                    ...lastBar,
-                    bar_start_ns: "1767225720000000000",
-                    bar_end_ns: "1767225780000000000",
-                    close: "103"
-                }
-            })
-        );
-        expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
-        const earlier = {
-            ...firstBar,
-            bar_start_ns: "1767225540000000000",
-            bar_end_ns: "1767225600000000000",
-            close: "99"
-        };
-        if (variant === "stale") {
-            await user.click(screen.getByRole("button", { name: "eth" }));
-            await waitFor(() => {
-                expect(stream.requests).toHaveLength(2);
-            });
-        }
-        await act(async () => {
-            release(
-                marketDataBarsForQuery(frozen, {
-                    resolved_start_ns: earlier.bar_start_ns,
-                    resolved_end_ns: earlier.bar_end_ns,
-                    bars: [earlier, { ...earlier }],
-                    ...(variant === "mismatch"
-                        ? { source_selection: { ...FIXTURE_SELECTION, source_id: "wrong" } }
-                        : {})
-                })
-            );
-            await Promise.resolve();
-        });
-        if (variant === "stale") {
-            expect(screen.getByTestId("closed-bars").textContent).toBe("101.00,102.50");
-            expect(screen.getByTestId("context-key")).toHaveTextContent("ETHUSDT.TEST");
-            expect(screen.getByTestId("older-status")).toHaveTextContent("idle");
-        } else {
-            expect(screen.getByTestId("closed-bars").textContent).toBe(
-                variant === "merge" ? "99,101.00,102.50,103" : "101.00,102.50,103"
-            );
-            expect(screen.getByTestId("closed-count").textContent).toBe(
-                variant === "merge" ? "4" : "3"
-            );
-            expect(screen.getByTestId("older-status")).toHaveTextContent(
-                variant === "merge" ? "idle" : "failed"
-            );
-            expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
-            expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
-            expect(stream.requests).toHaveLength(1);
-            expect(stream.closed.count).toBe(0);
-            expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
-            if (variant === "merge") {
-                const timer = vi.spyOn(window, "setTimeout");
-                act(() => {
-                    stream.disconnects[0]?.();
-                });
-                const reconnect = timer.mock.calls.at(-1)?.[0] as (() => void) | undefined;
-                if (typeof reconnect !== "function") throw new Error("missing reconnect callback");
-                act(() => {
-                    reconnect();
-                });
-                expect(stream.requests[1]).toMatchObject({
-                    resume_after_sequence: "29453762",
-                    resume_plan_fingerprint: "f".repeat(64)
-                });
-                timer.mockRestore();
-            }
-        }
-    }
-);
-
-it.each(["initial", "reload"] as const)(
-    "fails a mismatched %s response before publishing or opening a stream",
-    async (path) => {
-        resetStream();
-        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
-            Promise.resolve(
-                path === "reload" && query.anchor_kind === "LATEST_CLOSED"
-                    ? marketDataBarsForQuery(query, incompleteBars())
-                    : marketDataBarsForQuery(query, {
-                          ...(path === "initial" ? incompleteBars() : {}),
-                          instrument_id: "ETHUSDT.TEST"
-                      })
-            )
-        );
-        const user = userEvent.setup();
-        const client = marketDataClient({ queryBars });
-        const acquire = vi.spyOn(client, "createAcquisition");
-        render(
-            <AppProviders integrationClient={integrationClient()} marketDataClient={client}>
-                <Harness />
-            </AppProviders>
-        );
-        await selectFixtureSource(user);
-        await user.click(screen.getByRole("button", { name: "btc" }));
-        await waitFor(() => {
-            expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
-        });
-        expect(screen.getByTestId("chart-message")).toHaveTextContent(
-            "MARKET_DATA_HISTORY_RESPONSE_MISMATCH"
-        );
-        expect(screen.getByTestId("closed-count").textContent).toBe("0");
-        expect(stream.requests).toHaveLength(0);
-        expect(queryBars).toHaveBeenCalledTimes(path === "initial" ? 1 : 2);
-        expect(acquire).toHaveBeenCalledTimes(path === "initial" ? 0 : 1);
-    }
-);
-
-function Harness({
-    source = marketDataSource(),
-    secondSource = marketDataSource({ integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })
-}: {
-    source?: MarketDataSource;
-    secondSource?: MarketDataSource;
-}) {
+function Probe() {
     const state = useMarketDataChart();
     return (
         <>
             <button
-                type="button"
+                disabled={state.selectableSources.length === 0}
                 onClick={() => {
-                    state.selectSource(marketDataSourceChoiceKey(source));
+                    state.selectSource(marketDataSourceChoiceKey(marketDataSource()));
                 }}
             >
                 source
             </button>
-            <button
-                type="button"
-                onClick={() => {
-                    state.selectSource(marketDataSourceChoiceKey(secondSource));
-                }}
-            >
-                second source
+            <button onClick={() => void state.selectInstrument(marketDataInstrument())}>
+                instrument
             </button>
             <button
-                type="button"
-                onClick={() => void state.selectInstrument(marketDataInstrument())}
+                onClick={() =>
+                    void state.selectInstrument(
+                        marketDataInstrument({
+                            instrument_id: "ETHUSDT.TEST",
+                            display_symbol: "ETHUSDT"
+                        })
+                    )
+                }
             >
-                btc
-            </button>
-            <button type="button" onClick={() => void state.selectBarDuration(1)}>
-                1m
-            </button>
-            <button type="button" onClick={() => void state.selectInstrument(eth)}>
                 eth
             </button>
-            <button type="button" onClick={() => void state.selectBarDuration(7)}>
-                7m
+            <button onClick={() => void state.selectBarDuration(1)}>1m</button>
+            <button onClick={() => void state.selectBarDuration(15)}>15m</button>
+            <button onClick={() => void state.selectBarDuration(7)}>7m</button>
+            <button onClick={() => void state.selectBarDuration(37)}>37m</button>
+            <button onClick={() => void state.loadOlderHistory(true)}>older</button>
+            <button onClick={() => void state.loadOlderHistory()}>auto-older</button>
+            <button onClick={() => void state.searchInstruments("ETHUSDT")}>search</button>
+            <button
+                onClick={() => {
+                    state.refreshSources();
+                }}
+            >
+                refresh
             </button>
-            <button type="button" onClick={() => void state.selectBarDuration(37)}>
-                37m
-            </button>
-            <button type="button" onClick={() => void state.loadOlderHistory()}>
-                older
-            </button>
-            <button type="button" onClick={() => void state.searchInstruments("ETHUSDT")}>
-                search
-            </button>
-            <output>{state.liveBar?.close ?? "none"}</output>
-            <output data-testid="closed-bars">
-                {state.bars.map((bar) => bar.close).join(",")}
-            </output>
-            <output data-testid="closed-count">{state.loadedClosedBarCount}</output>
-            <output data-testid="chart-status">{state.status}</output>
-            <output data-testid="chart-message">{state.message ?? "none"}</output>
-            <output data-testid="context-key">{state.chartContextKey ?? "none"}</output>
-            <output data-testid="older-status">{state.olderHistoryStatus}</output>
-            <output data-testid="cursor">{state.lastClosedCursor ?? "none"}</output>
-            <output data-testid="realtime-status">{state.realtimeStatus}</output>
-            <output data-testid="timing">{JSON.stringify(state.timing ?? null)}</output>
-            <output data-testid="stream-error">{state.streamError ?? "none"}</output>
-            <output data-testid="exact-bars">{JSON.stringify(state.bars)}</output>
-            <output data-testid="exact-preview">{JSON.stringify(state.liveBar)}</output>
-            <output data-testid="coverage">{state.coverage?.status ?? "none"}</output>
-            <output data-testid="history-proof">
-                {state.historyProjectionFingerprint ?? "none"}
-            </output>
-            <output data-testid="resolved-source">{state.resolvedSourceId ?? "none"}</output>
+            <output data-testid="latest">{state.bars.at(-1)?.close ?? "none"}</output>
+            <output data-testid="latest-end">{state.bars.at(-1)?.barEndNs ?? "none"}</output>
+            <output data-testid="live">{state.liveBar?.close ?? "none"}</output>
+            <output data-testid="context">{state.chartContextKey}</output>
+            <output data-testid="timing">{JSON.stringify(state.timing)}</output>
+            <output data-testid="realtime">{state.realtimeStatus}</output>
+            <output data-testid="message">{state.message}</output>
+            <output data-testid="older">{state.olderHistoryStatus}</output>
+            <output data-testid="fingerprint">{state.windowFingerprint ?? "none"}</output>
+            <output data-testid="status">{state.status}</output>
+            <output data-testid="count">{state.loadedClosedBarCount}</output>
         </>
     );
 }
-
-it.each(["initial", "reload", "older", "BAR_PREVIEW", "BAR_CLOSED"] as const)(
-    "rejects invalid projection before Ledger or cursor mutation: %s",
-    async (path) => {
-        resetStream();
-        const original = marketDataBars().bars[0];
-        if (original === undefined) throw new Error("fixture requires a Bar");
-        const badBar = { ...original, close: "Infinity" };
-        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
-            Promise.resolve(
-                marketDataBarsForQuery(
-                    query,
-                    path === "reload" && query.anchor_kind === "LATEST_CLOSED"
-                        ? incompleteBars()
-                        : path === "initial" ||
-                            path === "reload" ||
-                            (path === "older" && query.target_bar_count === 240)
-                          ? path === "older"
-                              ? {
-                                    bars: [
-                                        {
-                                            ...badBar,
-                                            bar_start_ns: "1767225540000000000",
-                                            bar_end_ns: "1767225600000000000"
-                                        }
-                                    ],
-                                    resolved_start_ns: "1767225540000000000",
-                                    resolved_end_ns: "1767225600000000000"
-                                }
-                              : { bars: [badBar] }
-                          : {}
-                )
-            )
-        );
-        const user = userEvent.setup();
-        render(
-            <AppProviders
-                integrationClient={integrationClient()}
-                marketDataClient={marketDataClient({ queryBars })}
-            >
-                <Harness />
-            </AppProviders>
-        );
-        await selectFixtureSource(user);
-        await user.click(screen.getByRole("button", { name: "btc" }));
-        if (path === "initial" || path === "reload") {
-            await waitFor(() => {
-                expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
-            });
-            expect(screen.getByTestId("chart-message")).toHaveTextContent(
-                "MARKET_DATA_CHART_PROJECTION_INVALID"
+afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+});
+it("loads 2000 temporary closed bars and subscribes without any persistent history or acquisition call", async () => {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    vi.mocked(readTemporaryMarketData).mockImplementation((_credentials, _ref, query) =>
+        Promise.resolve(windowFor(query))
+    );
+    const queryBars = vi.fn(() =>
+        Promise.resolve().then(() => {
+            throw new Error("persistent history is prohibited");
+        })
+    );
+    const createAcquisition = vi.fn(() =>
+        Promise.resolve().then(() => {
+            throw new Error("implicit acquisition is prohibited");
+        })
+    );
+    const queryLatestBar = vi.fn(() =>
+        Promise.resolve().then(() => {
+            throw new Error("retained-history fallback is prohibited");
+        })
+    );
+    const api = marketDataClient({ queryBars, createAcquisition, queryLatestBar });
+    render(
+        <AppProviders integrationClient={integrationClient()} marketDataClient={api}>
+            <Probe />
+        </AppProviders>
+    );
+    const user = userEvent.setup();
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: "source" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "instrument" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent("ready");
+    });
+    expect(screen.getByTestId("count")).toHaveTextContent("2000");
+    expect(queryBars).not.toHaveBeenCalled();
+    expect(createAcquisition).not.toHaveBeenCalled();
+    expect(queryLatestBar).not.toHaveBeenCalled();
+    await waitFor(() => {
+        expect(openTemporaryMarketDataStream).toHaveBeenCalled();
+    });
+    expect(requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[0]).toMatchObject({
+        operation: "SUBSCRIBE_TEMPORARY_BARS",
+        expected_window_fingerprint: "a".repeat(64),
+        target_bar_count: 2000
+    });
+});
+async function running(
+    overrides: Parameters<typeof marketDataClient>[0] = {},
+    reader: typeof readTemporaryMarketData = (_credentials, _ref, query) =>
+        Promise.resolve(windowFor(query)),
+    expected = "ready"
+) {
+    vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
+    vi.mocked(readTemporaryMarketData).mockImplementation(reader);
+    const closures: ReturnType<typeof vi.fn>[] = [];
+    vi.mocked(openTemporaryMarketDataStream).mockImplementation(() => {
+        const close = vi.fn();
+        closures.push(close);
+        return close;
+    });
+    const api = marketDataClient(overrides);
+    const view = render(
+        <AppProviders integrationClient={integrationClient()} marketDataClient={api}>
+            <Probe />
+        </AppProviders>
+    );
+    const user = userEvent.setup();
+    await waitFor(() => {
+        expect(screen.getByRole("button", { name: "source" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "source" }));
+    await user.click(screen.getByRole("button", { name: "instrument" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent(expected);
+    });
+    if (expected === "ready")
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalled();
+        });
+    return { view, user, closures, api };
+}
+function lastQuery() {
+    return requiredValue(vi.mocked(readTemporaryMarketData).mock.calls.at(-1))[2];
+}
+it.each([1, 7])(
+    "keeps the current %im calculation prefix through older paging without a new close",
+    async (minutes) => {
+        const t = await running();
+        await t.user.click(screen.getByRole("button", { name: `${String(minutes)}m` }));
+        await waitFor(() => {
+            expect(screen.getByTestId("context")).toHaveTextContent(
+                `"window_minutes":${String(minutes)}`
             );
-            expect(stream.requests).toHaveLength(0);
-            expect(screen.getByTestId("exact-bars")).toHaveTextContent("[]");
+            expect(screen.getByTestId("status")).toHaveTextContent("ready");
+        });
+        expect(screen.getByTestId("latest-end")).toHaveTextContent("1767225600000000000");
+        emitBar("BAR_PREVIEW");
+        for (let page = 0; page < 9; page++) {
+            await t.user.click(screen.getByRole("button", { name: /^older$/ }));
+            await waitFor(() => {
+                expect(screen.getByTestId("older")).toHaveTextContent("idle");
+            });
+        }
+        expect(screen.getByTestId("count")).toHaveTextContent(/^4000$/);
+        expect(screen.getByTestId("latest-end")).toHaveTextContent("1767225600000000000");
+    }
+);
+function emitBar(kind: "BAR_CLOSED" | "BAR_PREVIEW", change: Record<string, unknown> = {}) {
+    const query = lastQuery(),
+        base = windowFor(query),
+        last = requiredValue(base.bars.at(-1));
+    const width = BigInt(last.bar_end_ns) - BigInt(last.bar_start_ns);
+    const value = {
+        ...last,
+        bar_start_ns: last.bar_end_ns,
+        bar_end_ns: (BigInt(last.bar_end_ns) + width).toString(),
+        closed: kind === "BAR_CLOSED",
+        close: "11.50",
+        ...change
+    };
+    const callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[1];
+    act(() => {
+        callback({
+            schema_version: 2,
+            event: kind,
+            source_id: FIXTURE_SELECTION.source_id,
+            instrument_id: query.instrument_id,
+            bar_semantic: query.bar_semantic,
+            bar: value,
+            timing: null,
+            ...(kind === "BAR_CLOSED" ? { sequence: "123" } : {})
+        } as Parameters<typeof callback>[0]);
+    });
+}
+it("keeps preview separate and closes it only after the corresponding closed bar", async () => {
+    await running();
+    emitBar("BAR_PREVIEW");
+    expect(screen.getByTestId("live")).toHaveTextContent("11.5");
+    expect(screen.getByTestId("count")).toHaveTextContent("2000");
+    emitBar("BAR_CLOSED");
+    expect(screen.getByTestId("count")).toHaveTextContent("2001");
+    expect(screen.getByTestId("live")).toHaveTextContent("none");
+    emitBar("BAR_PREVIEW");
+    expect(screen.getByTestId("live")).toHaveTextContent("none");
+});
+it.each(["BAR_CLOSED", "BAR_PREVIEW"] as const)(
+    "rejects a different instrument in %s",
+    async (kind) => {
+        await running();
+        const query = lastQuery(),
+            callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[1];
+        const bar = requiredValue(windowFor(query).bars.at(-1));
+        act(() => {
+            callback({
+                schema_version: 2,
+                event: kind,
+                source_id: FIXTURE_SELECTION.source_id,
+                instrument_id: "OTHER.TEST",
+                bar_semantic: query.bar_semantic,
+                bar: { ...bar, closed: kind === "BAR_CLOSED" },
+                timing: null,
+                ...(kind === "BAR_CLOSED" ? { sequence: "123" } : {})
+            } as Parameters<typeof callback>[0]);
+        });
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+        expect(screen.getByTestId("count")).toHaveTextContent("0");
+    }
+);
+it.each(["BAR_CLOSED", "BAR_PREVIEW"] as const)(
+    "rejects unsafe renderer values from %s before mutation",
+    async (kind) => {
+        await running();
+        emitBar(kind, { close: "9".repeat(400) });
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+        expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+    }
+);
+it("fails the context on a conflicting closed fact and stops its old subscription", async () => {
+    const t = await running();
+    const query = lastQuery(),
+        callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[1];
+    act(() => {
+        callback({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: FIXTURE_SELECTION.source_id,
+            instrument_id: query.instrument_id,
+            bar_semantic: query.bar_semantic,
+            bar: { ...requiredValue(windowFor(query).bars.at(-1)), close: "10.50" },
+            sequence: "123",
+            timing: null
+        });
+    });
+    expect(screen.getByTestId("status")).toHaveTextContent("failed");
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+    expect(t.closures[0]).toHaveBeenCalled();
+});
+it("closes old subscriptions across 1m, 7m and 37m without deriving input cursors in the browser", async () => {
+    const t = await running();
+    for (const period of ["1m", "7m", "37m"]) {
+        await t.user.click(screen.getByRole("button", { name: period }));
+        await waitFor(() => {
+            expect(screen.getByTestId("status")).toHaveTextContent("ready");
+        });
+    }
+    expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(4);
+    expect(t.closures.slice(0, 3).every((close) => close.mock.calls.length === 1)).toBe(true);
+    expect(
+        requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[0]
+    ).not.toHaveProperty("resume_after_sequence");
+});
+it("drops queued events from the original instrument subscription", async () => {
+    const t = await running();
+    const old = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1],
+        query = lastQuery();
+    await t.user.click(screen.getByRole("button", { name: "eth" }));
+    await waitFor(() => {
+        expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(2);
+    });
+    const before = screen.getByTestId("latest").textContent;
+    act(() => {
+        old({
+            schema_version: 2,
+            event: "BAR_CLOSED",
+            source_id: FIXTURE_SELECTION.source_id,
+            instrument_id: query.instrument_id,
+            bar_semantic: query.bar_semantic,
+            bar: { ...requiredValue(windowFor(query).bars.at(-1)), close: "10.50" },
+            sequence: "123",
+            timing: null
+        });
+    });
+    expect(screen.getByTestId("latest").textContent).toBe(before);
+    expect(screen.getByTestId("context")).toHaveTextContent("ETHUSDT.TEST");
+});
+it("keeps the active context when reselecting the same source, instrument or duration", async () => {
+    const t = await running();
+    const reads = vi.mocked(readTemporaryMarketData).mock.calls.length;
+    for (const name of ["source", "instrument"]) {
+        await t.user.click(screen.getByRole("button", { name }));
+    }
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(reads);
+    expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(1);
+    expect(t.closures[0]).not.toHaveBeenCalled();
+});
+it("keeps price data and subscription when search fails", async () => {
+    const t = await running({
+        listInstruments: vi.fn(() =>
+            Promise.resolve().then(() => {
+                throw new Error("search unavailable");
+            })
+        )
+    });
+    await t.user.click(screen.getByRole("button", { name: "search" }));
+    expect(screen.getByTestId("count")).toHaveTextContent("2000");
+    expect(t.closures[0]).not.toHaveBeenCalled();
+});
+it("retains trusted current data when an older temporary page fails", async () => {
+    const t = await running();
+    vi.mocked(readTemporaryMarketData).mockRejectedValueOnce(
+        new MarketDataWebError("TRANSPORT_ERROR", "offline")
+    );
+    await t.user.click(screen.getByRole("button", { name: "older" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("older")).toHaveTextContent("failed");
+    });
+    expect(screen.getByTestId("count")).toHaveTextContent("2000");
+});
+it.each([
+    ["LOCAL_READ_UNAUTHORIZED", 401],
+    ["MARKET_DATA_ACCESS_DENIED", 403],
+    ["MARKET_DATA_PROVENANCE_CONFLICT", 409],
+    ["MARKET_DATA_TEMPORARY_RESPONSE_MISMATCH", 503],
+    ["MARKET_DATA_SOURCE_CATALOG_CORRUPT", 503],
+    ["CONTRACT_ERROR", 403]
+] as const)("withdraws shared chart proof after older paging refuses %s", async (code, status) => {
+    const t = await running();
+    const callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1];
+    act(() => {
+        callback({ schema_version: 2, event: "STATE", state: "READY" });
+    });
+    expect(screen.getByTestId("fingerprint")).not.toHaveTextContent("none");
+    vi.mocked(readTemporaryMarketData).mockRejectedValueOnce(
+        new MarketDataWebError(code, "denied", status)
+    );
+    await t.user.click(screen.getByRole("button", { name: "older" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+    });
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+    expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+    expect(t.closures[0]).toHaveBeenCalled();
+    act(() => {
+        callback({ schema_version: 2, event: "STATE", state: "READY" });
+    });
+    emitBar("BAR_PREVIEW");
+    emitBar("BAR_CLOSED");
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+    expect(screen.getByTestId("live")).toHaveTextContent("none");
+    expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+});
+
+it("retains stale data on disconnect and re-pins the last closed target before reconnecting", async () => {
+    const t = await running();
+    emitBar("BAR_CLOSED");
+    const closedEnd = requiredValue(windowFor(lastQuery()).bars.at(-1)).bar_end_ns;
+    const width =
+        BigInt(closedEnd) - BigInt(requiredValue(windowFor(lastQuery()).bars.at(-1)).bar_start_ns);
+    vi.useFakeTimers();
+    const disconnected = requiredValue(
+        vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1)
+    )[2];
+    act(() => {
+        disconnected();
+    });
+    expect(screen.getByTestId("realtime")).toHaveTextContent("degraded");
+    expect(screen.getByTestId("count")).toHaveTextContent("2001");
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(2);
+    expect(lastQuery().anchor_kind).toBe("BEFORE_TIME");
+    expect(lastQuery().before_ns).toBe((BigInt(closedEnd) + width).toString());
+    t.view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+});
+it("clears data on authentication refusal instead of reconnecting", async () => {
+    await running();
+    act(() => {
+        requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[2](
+            "AUTHENTICATION_ERROR"
+        );
+    });
+    expect(screen.getByTestId("count")).toHaveTextContent("0");
+    expect(screen.getByTestId("status")).toHaveTextContent("failed");
+    expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(1);
+});
+it.each(["initial", "reload", "older"] as const)(
+    "rejects non-finite price values on %s before publishing data",
+    async (path) => {
+        const invalid = (query: MarketDataBarsQuery) => {
+            const value = windowFor(query);
+            requiredValue(value.bars[0]).close = "9".repeat(400);
+            return value;
+        };
+        if (path === "initial") {
+            await running({}, (_c, _r, q) => Promise.resolve(invalid(q)), "failed");
+            expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
             return;
         }
-        await waitFor(() => {
-            expect(stream.requests).toHaveLength(1);
-        });
-        act(() => stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" }));
-        const before = screen.getByTestId("exact-bars").textContent;
+        const t = await running();
+        vi.mocked(readTemporaryMarketData).mockImplementation((_c, _r, q) =>
+            Promise.resolve(invalid(q))
+        );
+        await t.user.click(screen.getByRole("button", { name: path === "older" ? "older" : "1m" }));
         if (path === "older") {
-            await user.click(screen.getByRole("button", { name: "older" }));
             await waitFor(() => {
-                expect(screen.getByTestId("older-status")).toHaveTextContent("failed");
+                expect(screen.getByTestId("older")).toHaveTextContent("failed");
             });
-            expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
-            expect(stream.closed.count).toBe(0);
+            expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
         } else {
-            act(() =>
-                stream.callbacks[0]?.({
-                    schema_version: 2,
-                    event: path,
-                    timing: null,
-                    source_id: FIXTURE_SELECTION.source_id,
-                    instrument_id: "BTCUSDT.TEST",
-                    bar_semantic: marketDataBarSemantic(1),
-                    sequence: "29453762",
-                    bar: {
-                        ...badBar,
-                        bar_start_ns: "1767225720000000000",
-                        bar_end_ns: "1767225780000000000",
-                        closed: path === "BAR_CLOSED"
-                    }
-                })
-            );
-            expect(screen.getByTestId("realtime-status")).toHaveTextContent("failed");
-            expect(screen.getByTestId("stream-error")).toHaveTextContent(
-                "MARKET_DATA_CHART_PROJECTION_INVALID"
-            );
-            expect(screen.getByTestId("cursor")).toHaveTextContent("none");
-            expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
-            expect(stream.closed.count).toBe(1);
-            act(() => stream.disconnects[0]?.());
+            await waitFor(() => {
+                expect(screen.getByTestId("status")).toHaveTextContent("failed");
+            });
+            expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
         }
-        expect(screen.getByTestId("exact-bars").textContent).toBe(before);
-        expect(stream.requests).toHaveLength(1);
-        expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
     }
 );
-
-it.each(["controlled", "native-schema"] as const)(
-    "retains exact history and idempotently projects preview updates and close: %s",
-    async (projection) => {
-        resetStream();
-        const user = userEvent.setup();
-        render(
-            <AppProviders
-                integrationClient={integrationClient()}
-                marketDataClient={marketDataClient()}
-            >
-                <Harness />
-            </AppProviders>
-        );
-        await selectFixtureSource(user);
-        await user.click(screen.getByRole("button", { name: "btc" }));
-        await waitFor(() => {
-            expect(stream.requests).toHaveLength(1);
+it.each(["BAR_CLOSED", "BAR_PREVIEW"] as const)(
+    "rejects unsafe timestamps from %s",
+    async (kind) => {
+        await running();
+        emitBar(kind, {
+            bar_start_ns: "999999999999999999999999999999999999",
+            bar_end_ns: "9999999999999999999999999999999999999"
         });
-        const projected = JSON.parse(screen.getByTestId("exact-bars").textContent) as {
-            barStartNs: string;
-            open: string;
-            volume: string;
-        }[];
-        const first = projected[0];
-        const original = marketDataBars().bars[0];
-        if (original === undefined) throw new Error("fixture requires a Bar");
-        expect(first).toMatchObject({
-            barStartNs: original.bar_start_ns,
-            open: original.open,
-            volume: original.volume
-        });
-        const bar = {
-            ...original,
-            bar_start_ns: "1767225720000000000",
-            bar_end_ns: "1767225780000000000",
-            closed: false,
-            close: "103.000000000000000001"
-        };
-        const controlled = {
-            schema_version: 2 as const,
-            event: "BAR_PREVIEW" as const,
-            timing: null,
-            source_id: FIXTURE_SELECTION.source_id,
-            instrument_id: "BTCUSDT.TEST",
-            bar_semantic: marketDataBarSemantic(1),
-            bar
-        };
-        const admitted = marketDataStreamEventSchema.parse(controlled);
-        if (admitted.event !== "BAR_PREVIEW") throw new Error("fixture requires a preview");
-        const preview = projection === "native-schema" ? admitted : controlled;
-        act(() => stream.callbacks[0]?.(preview));
-        const exact = screen.getByTestId("exact-preview").textContent;
-        act(() => stream.callbacks[0]?.(preview));
-        expect(screen.getByTestId("exact-preview").textContent).toBe(exact);
-        act(() =>
-            stream.callbacks[0]?.({ ...preview, bar: { ...bar, close: "104.000000000000000001" } })
-        );
-        expect(screen.getByTestId("exact-preview")).toHaveTextContent("104.000000000000000001");
-        act(() =>
-            stream.callbacks[0]?.({
-                ...preview,
-                event: "BAR_CLOSED",
-                timing: null,
-                sequence: "29453762",
-                bar: { ...bar, closed: true }
-            })
-        );
-        expect(screen.getByTestId("exact-preview")).toHaveTextContent("null");
-        expect(screen.getByTestId("exact-bars")).toHaveTextContent("103.000000000000000001");
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+        expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
     }
 );
-
-it("keeps initial history, realtime closed Bars, and preview in one ledger projection", async () => {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    stream.closed.count = 0;
-    const user = userEvent.setup();
-    render(
-        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
+it("drops held out-of-order queries across a rapid duration change", async () => {
+    const t = await running();
+    let resolve!: (value: ReturnType<typeof windowFor>) => void;
+    const held = new Promise<ReturnType<typeof windowFor>>((done) => {
+        resolve = done;
     });
-    const callback = stream.callbacks[0];
-    if (callback === undefined) throw new Error("stream missing");
+    vi.mocked(readTemporaryMarketData)
+        .mockImplementationOnce(() => held)
+        .mockImplementation((_c, _r, q) => Promise.resolve(windowFor(q)));
+    await t.user.click(screen.getByRole("button", { name: "1m" }));
+    const oldQuery = lastQuery();
+    await t.user.click(screen.getByRole("button", { name: "7m" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent("ready");
+    });
+    const context = screen.getByTestId("context").textContent;
+    await act(async () => {
+        resolve(windowFor(oldQuery));
+        await held;
+    });
+    expect(screen.getByTestId("context").textContent).toBe(context);
+    expect(lastQuery().bar_semantic.formation).toMatchObject({ window_minutes: 7 });
+    expect(requiredValue(vi.mocked(readTemporaryMarketData).mock.calls.at(-2))[4]?.aborted).toBe(
+        true
+    );
+});
+it("shows honest partial data, stops at no progress, and permits explicit re-entry", async () => {
+    let partial = true;
+    const t = await running(
+        {},
+        (_c, _r, q) =>
+            Promise.resolve().then(() => {
+                const value = windowFor(q);
+                if (!partial) return value;
+                const missing = value.bars.slice(0, 1000);
+                value.bars = value.bars.slice(-1000);
+                value.coverage = {
+                    status: "PARTIAL",
+                    expected_bar_count: 2000,
+                    actual_bar_count: 1000,
+                    gaps: missing.map((bar) => ({
+                        start_ns: bar.bar_start_ns,
+                        end_ns: bar.bar_end_ns
+                    }))
+                };
+                return value;
+            }),
+        "incomplete"
+    );
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("count")).toHaveTextContent(/^1000$/);
+    partial = false;
+    await t.user.click(screen.getByRole("button", { name: "instrument" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent("ready");
+    });
+    expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
+});
+it("does not auto-select a new latest Revision when the exact source disappears", async () => {
+    let missing = false;
+    const next = marketDataSource({
+        integration_revision_fingerprint: "b".repeat(64),
+        type_id: "binance.spot.market_data"
+    });
+    const t = await running({
+        listSources: () => Promise.resolve(missing ? [next] : [marketDataSource()])
+    });
+    const reads = vi.mocked(readTemporaryMarketData).mock.calls.length;
+    missing = true;
+    await t.user.click(screen.getByRole("button", { name: "refresh" }));
+    await waitFor(() => {
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+    });
+    await t.user.click(screen.getByRole("button", { name: "refresh" }));
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(reads);
+    expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+});
 
+it("fails a mismatched plan without reconnecting or changing Source", async () => {
+    const t = await running();
+    const q = lastQuery(),
+        callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1];
     act(() => {
         callback({
-            schema_version: 2,
-            event: "BAR_PREVIEW",
-            timing: null,
-            source_id: "test.market_data.live",
-            instrument_id: "BTCUSDT.TEST",
-            bar_semantic: marketDataBarSemantic(1),
-            bar: {
-                bar_start_ns: "1767225720000000000",
-                bar_end_ns: "1767225780000000000",
-                open: "102.5",
-                high: "104",
-                low: "102",
-                close: "103",
-                volume: "1",
-                closed: false
-            }
-        });
-    });
-    expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
-    expect(screen.getByText("103")).toBeInTheDocument();
-
-    act(() => {
-        callback({
-            schema_version: 2,
-            event: "BAR_CLOSED",
-            timing: null,
-            source_id: "test.market_data.live",
-            instrument_id: "BTCUSDT.TEST",
-            bar_semantic: marketDataBarSemantic(1),
-            sequence: "29453762",
-            bar: {
-                bar_start_ns: "1767225720000000000",
-                bar_end_ns: "1767225780000000000",
-                open: "102.5",
-                high: "104",
-                low: "102",
-                close: "103",
-                volume: "1",
-                closed: true
-            }
-        });
-    });
-    expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
-    expect(screen.getByTestId("closed-bars")).toHaveTextContent("101.00,102.50,103");
-});
-
-it("preserves current Bars when an older page fails", async () => {
-    stream.callbacks.length = 0;
-    const queryBars = vi
-        .fn()
-        .mockResolvedValueOnce(
-            marketDataBars({
-                anchor_kind: "LATEST_CLOSED",
-                requested_before_ns: null,
-                requested_bar_count: 1440
-            })
-        )
-        .mockRejectedValueOnce(new Error("older unavailable"));
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ queryBars })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
-    });
-
-    await user.click(screen.getByRole("button", { name: "older" }));
-
-    await waitFor(() => {
-        expect(screen.getByTestId("older-status")).toHaveTextContent("failed");
-    });
-    expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
-});
-
-it("fails the exact chart context on a conflicting realtime closed Bar", async () => {
-    stream.callbacks.length = 0;
-    stream.closed.count = 0;
-    const user = userEvent.setup();
-    render(
-        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    const conflicting = marketDataBars().bars[0];
-    if (conflicting === undefined) throw new Error("Market Data fixture requires a first Bar");
-
-    act(() => {
-        stream.callbacks[0]?.({
-            schema_version: 2,
-            event: "BAR_CLOSED",
-            timing: null,
-            source_id: "test.market_data.live",
-            instrument_id: "BTCUSDT.TEST",
-            bar_semantic: marketDataBarSemantic(1),
-            sequence: "29453762",
-            bar: { ...conflicting, close: "999" }
-        });
-    });
-
-    expect(screen.getByTestId("chart-status")).toHaveTextContent("failed");
-    expect(screen.getByTestId("chart-message")).toHaveTextContent(
-        "MARKET_DATA_BAR_LEDGER_CONFLICT"
-    );
-    expect(stream.closed.count).toBeGreaterThan(0);
-});
-
-it("replaces the ledger when the exact Integration Revision changes", async () => {
-    stream.callbacks.length = 0;
-    stream.requests.length = 0;
-    const user = userEvent.setup();
-    const view = (revision: string) => (
-        <AppProviders
-            key={revision}
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({
-                listSources: () =>
-                    Promise.resolve([
-                        marketDataSource({ integration_revision_fingerprint: revision })
-                    ]),
-                queryBars: (_reference, query) =>
-                    Promise.resolve(
-                        marketDataBarsForQuery(query, {
-                            source_selection: {
-                                ...FIXTURE_SELECTION,
-                                integration_revision_fingerprint: revision
-                            }
-                        })
-                    )
-            })}
-        >
-            <Harness source={marketDataSource({ integration_revision_fingerprint: revision })} />
-        </AppProviders>
-    );
-    const rendered = render(view("a".repeat(64)));
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    act(() => {
-        stream.callbacks[0]?.({
-            schema_version: 2,
-            event: "BAR_CLOSED",
-            timing: null,
-            source_id: "test.market_data.live",
-            instrument_id: "BTCUSDT.TEST",
-            bar_semantic: marketDataBarSemantic(1),
-            sequence: "29453762",
-            bar: {
-                bar_start_ns: "1767225720000000000",
-                bar_end_ns: "1767225780000000000",
-                open: "102.5",
-                high: "104",
-                low: "102",
-                close: "103",
-                volume: "1",
-                closed: true
-            }
-        });
-    });
-    expect(screen.getByTestId("closed-count")).toHaveTextContent("3");
-
-    rendered.rerender(view("b".repeat(64)));
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-
-    await waitFor(() => {
-        expect(screen.getByTestId("context-key")).toHaveTextContent("b".repeat(64));
-        expect(screen.getByTestId("closed-count")).toHaveTextContent("2");
-    });
-});
-
-it("ignores queued events from a stale source or instrument stream", async () => {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    stream.closed.count = 0;
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient({
-                listTypes: () => Promise.resolve([dataSourceType()]),
-                listDataSources: () => Promise.resolve([dataSourceSummary()]),
-                getOperationalStatus: () => Promise.resolve(operationalStatus({ status: "READY" }))
-            })}
-            marketDataClient={marketDataClient({
-                listInstruments: () => Promise.resolve([marketDataInstrument(), eth]),
-                queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query))
-            })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    const btcContext = screen.getByTestId("context-key").textContent;
-    const first = stream.callbacks[0];
-    if (first === undefined) throw new Error("first stream missing");
-    first({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar: {
-            bar_start_ns: "1767225720000000000",
-            bar_end_ns: "1767225780000000000",
-            open: "1",
-            high: "2",
-            low: "0.5",
-            close: "2",
-            volume: "1",
-            closed: false
-        }
-    });
-    await waitFor(() => {
-        expect(screen.getByText("2")).toBeInTheDocument();
-    });
-    const historicalCursor = (stream.requests[0] as { resume_after_sequence: string })
-        .resume_after_sequence;
-    expect(historicalCursor).toBe("29453761");
-    expect(
-        (stream.requests[0] as { resume_plan_fingerprint: string }).resume_plan_fingerprint
-    ).toBe("f".repeat(64));
-    const nextCursor = (BigInt(historicalCursor) + 1n).toString();
-    act(() => {
-        first({ schema_version: 2, event: "BASE_CURSOR", sequence: historicalCursor });
-        first({ schema_version: 2, event: "BASE_CURSOR", sequence: nextCursor });
-        first({ schema_version: 2, event: "BASE_CURSOR", sequence: historicalCursor });
-    });
-    expect(screen.getByTestId("cursor")).toHaveTextContent(nextCursor);
-    first({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar: {
-            bar_start_ns: "1767225780000000000",
-            bar_end_ns: "1767225840000000000",
-            open: "3",
-            high: "3",
-            low: "3",
-            close: "3",
-            volume: "1",
-            closed: false
-        }
-    });
-    await waitFor(() => {
-        expect(screen.getByText("3")).toBeInTheDocument();
-    });
-    first({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar: {
-            bar_start_ns: "1767225720000000000",
-            bar_end_ns: "1767225780000000000",
-            open: "9",
-            high: "9",
-            low: "9",
-            close: "9",
-            volume: "1",
-            closed: false
-        }
-    });
-    expect(screen.getByText("3")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "eth" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(2);
-    });
-    expect(screen.getByTestId("context-key").textContent).not.toBe(btcContext);
-    expect((stream.requests[1] as { resume_after_sequence: string }).resume_after_sequence).toBe(
-        "29453761"
-    );
-    expect(
-        (stream.requests[1] as { resume_plan_fingerprint: string }).resume_plan_fingerprint
-    ).toBe("f".repeat(64));
-    first({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar: {
-            bar_start_ns: "120000000000",
-            bar_end_ns: "180000000000",
-            open: "999",
-            high: "999",
-            low: "999",
-            close: "999",
-            volume: "1",
-            closed: false
-        }
-    });
-    expect(screen.queryByText("999")).not.toBeInTheDocument();
-});
-
-it("switches 1m to 7m to 37m by closing each old stream and loading typed history", async () => {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    stream.closed.count = 0;
-    const steps: number[] = [];
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient({
-                listTypes: () => Promise.resolve([dataSourceType()]),
-                listDataSources: () => Promise.resolve([dataSourceSummary()]),
-                getOperationalStatus: () => Promise.resolve(operationalStatus({ status: "READY" }))
-            })}
-            marketDataClient={marketDataClient({
-                queryBars: (_reference, query) => {
-                    steps.push(fixedDurationMinutes(query.bar_semantic));
-                    return Promise.resolve(marketDataBarsForQuery(query));
-                }
-            })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    const oneMinuteContext = screen.getByTestId("context-key").textContent;
-    const first = stream.callbacks[0];
-    await user.click(screen.getByRole("button", { name: "7m" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(2);
-    });
-    const sevenMinuteContext = screen.getByTestId("context-key").textContent;
-    await user.click(screen.getByRole("button", { name: "37m" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(3);
-    });
-    expect(steps).toEqual([1, 7, 37]);
-    expect(sevenMinuteContext).not.toBe(oneMinuteContext);
-    expect(screen.getByTestId("context-key").textContent).not.toBe(sevenMinuteContext);
-    expect(stream.closed.count).toBeGreaterThanOrEqual(2);
-    expect(
-        stream.requests.map((request) =>
-            fixedDurationMinutes(
-                (request as { bar_semantic: ReturnType<typeof marketDataBarSemantic> }).bar_semantic
-            )
-        )
-    ).toEqual([1, 7, 37]);
-    first?.({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar: {
-            bar_start_ns: "60000000000",
-            bar_end_ns: "120000000000",
-            open: "999",
-            high: "999",
-            low: "999",
-            close: "999",
-            volume: "1",
-            closed: false
-        }
-    });
-    expect(screen.queryByText("999")).not.toBeInTheDocument();
-    stream.callbacks[2]?.({
-        schema_version: 2,
-        event: "BAR_PREVIEW",
-        timing: null,
-        source_id: "test.market_data.live",
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(7),
-        bar: {
-            bar_start_ns: "60000000000",
-            bar_end_ns: "480000000000",
-            open: "999",
-            high: "999",
-            low: "999",
-            close: "999",
-            volume: "1",
-            closed: false
-        }
-    });
-    expect(screen.queryByText("999")).not.toBeInTheDocument();
-    expect(stream.closed.count).toBeGreaterThanOrEqual(3);
-});
-
-it("fails a mismatched plan without reconnecting", async () => {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    const user = userEvent.setup();
-    render(
-        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    act(() => {
-        stream.callbacks[0]?.({
             schema_version: 2,
             event: "SUBSCRIBED",
-            stream_id: "wrong",
-            source_id: "test.market_data.live",
-            instrument_id: "BTCUSDT.TEST",
+            source_kind: "TEMPORARY_MARKET_DATA",
+            authority: "DISPLAY_ONLY",
+            publication_status: "NOT_A_RESEARCH_RESULT",
+            stream_id: "stream",
+            source_id: FIXTURE_SELECTION.source_id,
+            instrument_id: q.instrument_id,
             resolution_mode: "PROVIDER_NATIVE",
-            resolution_plan_fingerprint: "a".repeat(64),
-            cursor_bar_stride_minutes: 1
+            resolution_plan_fingerprint: "f".repeat(64),
+            cursor_bar_stride_minutes: 15
         });
-        stream.disconnects[0]?.();
     });
-    expect(screen.getByTestId("realtime-status")).toHaveTextContent("failed");
-    expect(screen.getByTestId("stream-error")).toHaveTextContent(
-        "MARKET_DATA_RESUME_PLAN_MISMATCH"
-    );
-    expect(stream.requests).toHaveLength(1);
+    expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+    expect(t.closures[0]).toHaveBeenCalled();
+    expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(1);
 });
-
-it("reconnects transient closes with bounded exponential delays and the same resume pair", async () => {
-    stream.callbacks.length = 0;
-    stream.disconnects.length = 0;
-    stream.requests.length = 0;
-    const user = userEvent.setup();
-    render(
-        <AppProviders integrationClient={integrationClient()} marketDataClient={marketDataClient()}>
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.callbacks).toHaveLength(1);
-    });
-    const timer = vi.spyOn(window, "setTimeout");
-    act(() => stream.disconnects[0]?.());
-    expect(timer.mock.calls.at(-1)?.[1]).toBe(250);
-    const reconnect = timer.mock.calls.at(-1)?.[0] as (() => void) | undefined;
-    if (typeof reconnect !== "function") throw new Error("missing reconnect callback");
-    act(() => {
-        reconnect();
-    });
-    expect(stream.requests).toHaveLength(2);
-    expect(stream.requests[1]).toEqual(stream.requests[0]);
-    act(() => stream.disconnects[1]?.());
-    expect(timer.mock.calls.at(-1)?.[1]).toBe(500);
-    timer.mockRestore();
-});
-
-it("keeps the active ledger, cursor and stream when reselecting the current context", async () => {
-    resetStream();
-    const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
-        Promise.resolve(marketDataBarsForQuery(query))
-    );
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ queryBars })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
-    act(() => {
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
-        stream.callbacks[0]?.({ schema_version: 2, event: "BASE_CURSOR", sequence: "29453762" });
-    });
-    const context = screen.getByTestId("context-key").textContent;
-    const bars = screen.getByTestId("exact-bars").textContent;
-    for (const name of ["source", "btc", "1m"]) {
-        await user.click(screen.getByRole("button", { name }));
-        expect(screen.getByTestId("context-key").textContent).toBe(context);
-        expect(screen.getByTestId("exact-bars").textContent).toBe(bars);
-        expect(screen.getByTestId("cursor")).toHaveTextContent("29453762");
-        expect(screen.getByTestId("realtime-status")).toHaveTextContent("ready");
-        expect(queryBars).toHaveBeenCalledTimes(1);
-        expect(stream.requests).toHaveLength(1);
-        expect(stream.closed.count).toBe(0);
-    }
-});
-
-it("keeps admitted history and its live consumer when an instrument search fails", async () => {
-    resetStream();
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({
-                listInstruments: () => Promise.reject(new Error("search unavailable"))
-            })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
-    const bars = screen.getByTestId("exact-bars").textContent;
-    const context = screen.getByTestId("context-key").textContent;
-    const proof = screen.getByTestId("history-proof").textContent;
-    await user.click(screen.getByRole("button", { name: "search" }));
-    expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
-    expect(screen.getByTestId("exact-bars").textContent).toBe(bars);
-    expect(screen.getByTestId("context-key").textContent).toBe(context);
-    expect(screen.getByTestId("history-proof").textContent).toBe(proof);
-    expect(stream.requests).toHaveLength(1);
-    expect(stream.closed.count).toBe(0);
-});
-
-it.each(["btc", "1m"])(
-    "allows explicit %s recovery after terminal stream failure",
-    async (action) => {
-        resetStream();
-        const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
-            Promise.resolve(marketDataBarsForQuery(query))
-        );
-        const user = userEvent.setup();
-        render(
-            <AppProviders
-                integrationClient={integrationClient()}
-                marketDataClient={marketDataClient({ queryBars })}
-            >
-                <Harness />
-            </AppProviders>
-        );
-        await selectFixtureSource(user);
-        await user.click(screen.getByRole("button", { name: "btc" }));
-        await waitFor(() => {
-            expect(stream.requests).toHaveLength(1);
+it.each(["merge", "stale", "mismatch"] as const)(
+    "holds an older temporary page across a realtime close: %s",
+    async (mode) => {
+        const t = await running();
+        const original = lastQuery();
+        let resolve!: (value: ReturnType<typeof windowFor>) => void;
+        const held = new Promise<ReturnType<typeof windowFor>>((done) => {
+            resolve = done;
         });
+        vi.mocked(readTemporaryMarketData)
+            .mockImplementationOnce(() => held)
+            .mockImplementation((_c, _r, q) => Promise.resolve(windowFor(q)));
+        await t.user.click(screen.getByRole("button", { name: "older" }));
+        const older = lastQuery();
+        const callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1],
+            last = requiredValue(windowFor(original).bars.at(-1));
+        const width = BigInt(last.bar_end_ns) - BigInt(last.bar_start_ns);
         act(() => {
-            stream.callbacks[0]?.({
+            callback({
                 schema_version: 2,
-                event: "ERROR",
-                code: "PROVIDER_UNAVAILABLE"
+                event: "BAR_CLOSED",
+                source_id: FIXTURE_SELECTION.source_id,
+                instrument_id: original.instrument_id,
+                bar_semantic: original.bar_semantic,
+                bar: {
+                    ...last,
+                    bar_start_ns: last.bar_end_ns,
+                    bar_end_ns: (BigInt(last.bar_end_ns) + width).toString()
+                },
+                sequence: "123",
+                timing: null
             });
         });
-        expect(screen.getByTestId("realtime-status")).toHaveTextContent("failed");
-        await user.click(screen.getByRole("button", { name: action }));
-        await waitFor(() => {
-            expect(stream.requests).toHaveLength(2);
+        if (mode === "stale") {
+            await t.user.click(screen.getByRole("button", { name: "eth" }));
+            await waitFor(() => {
+                expect(screen.getByTestId("context")).toHaveTextContent("ETHUSDT.TEST");
+            });
+        }
+        const value = windowFor(older);
+        if (mode === "mismatch") value.source_selection.environment = "OTHER";
+        await act(async () => {
+            resolve(value);
+            await held;
         });
-        expect(queryBars).toHaveBeenCalledTimes(2);
-        expect(stream.closed.count).toBe(1);
-        expect(screen.getByTestId("realtime-status")).toHaveTextContent("connecting");
+        if (mode === "merge") expect(screen.getByTestId("count")).toHaveTextContent(/^2241$/);
+        else if (mode === "mismatch") {
+            expect(screen.getByTestId("older")).toHaveTextContent("failed");
+            expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+            expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+            expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+        } else expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
     }
 );
-
-it.each(["btc", "1m"])("allows explicit %s re-entry after incomplete history", async (action) => {
-    resetStream();
-    const queryBars = vi.fn((_reference, query: MarketDataBarsQuery) =>
-        Promise.resolve(
-            marketDataBarsForQuery(
-                query,
-                queryBars.mock.calls.length <= 2
-                    ? {
-                          ...incompleteBars(),
-                          anchor_kind: query.anchor_kind,
-                          requested_before_ns: query.before_ns ?? null,
-                          instrument_id: query.instrument_id,
-                          bar_semantic: query.bar_semantic,
-                          coverage: { ...incompleteBars().coverage, planned_acquisition_ranges: [] }
-                      }
-                    : {}
-            )
-        )
-    );
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ queryBars })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(screen.getByTestId("chart-status")).toHaveTextContent("incomplete");
-    });
-    expect(stream.requests).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: action }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
-    expect(queryBars).toHaveBeenCalledTimes(3);
-    expect(screen.getByTestId("chart-status")).toHaveTextContent("ready");
-});
-
-it("fences held out-of-order history across rapid source, instrument and period changes", async () => {
-    resetStream();
-    const secondSource = marketDataSource({
-        integration_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        integration_revision_fingerprint: "b".repeat(64),
-        source_id: "second.server.source"
-    });
-    const held: { release: (bars: MarketDataBars) => void; bars: MarketDataBars }[] = [];
-    const queryBars = vi.fn((_reference: MarketDataSourceReference, query: MarketDataBarsQuery) => {
-        const bars = marketDataBarsForQuery(query, {
-            source_selection:
-                _reference.integration_id === secondSource.integration_id
-                    ? {
-                          ...FIXTURE_SELECTION,
-                          integration_id: secondSource.integration_id,
-                          integration_revision_fingerprint:
-                              secondSource.integration_revision_fingerprint,
-                          source_id: secondSource.source_id
-                      }
-                    : FIXTURE_SELECTION
+it.each(["instrument", "1m"])(
+    "permits explicit %s recovery after terminal stream failure",
+    async (name) => {
+        const t = await running();
+        act(() => {
+            requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1]({
+                schema_version: 2,
+                event: "ERROR",
+                code: "SOURCE_UNAVAILABLE",
+                detail: "offline"
+            });
         });
-        if (queryBars.mock.calls.length === 1) return Promise.resolve(bars);
-        return new Promise<MarketDataBars>((release) => {
-            held.push({ release, bars });
+        expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+        await t.user.click(screen.getByRole("button", { name }));
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(2);
         });
-    });
-    const user = userEvent.setup();
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({
-                listSources: () => Promise.resolve([marketDataSource(), secondSource]),
-                queryBars
-            })}
-        >
-            <Harness secondSource={secondSource} />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
-    for (const name of ["eth", "7m", "second source", "btc", "37m"]) {
-        await user.click(screen.getByRole("button", { name }));
-        expect(screen.getByTestId("coverage")).toHaveTextContent("none");
-        expect(screen.getByTestId("history-proof")).toHaveTextContent("none");
-        expect(screen.getByTestId("resolved-source")).toHaveTextContent("none");
-        expect(screen.getByTestId("exact-bars")).toHaveTextContent("[]");
+        expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
     }
-    expect(held).toHaveLength(4);
-    const final = held[3];
-    if (final === undefined) throw new Error("Final history request not held");
-    await act(async () => {
-        final.release(final.bars);
-        await Promise.resolve();
-    });
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(2);
-    });
-    const current = screen.getByTestId("context-key").textContent;
-    expect(current).toContain(secondSource.integration_revision_fingerprint);
-    expect(current).toContain("BTCUSDT.TEST");
-    expect(current).toContain('"window_minutes":37');
-    expect(stream.closed.count).toBe(1);
-    for (const index of [1, 0, 2]) {
-        const stale = held[index];
-        if (stale === undefined) throw new Error("Stale history request not held");
-        await act(async () => {
-            stale.release(stale.bars);
-            stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
-            await Promise.resolve();
-        });
-        expect(screen.getByTestId("context-key").textContent).toBe(current);
-        expect(screen.getByTestId("resolved-source")).toHaveTextContent(secondSource.source_id);
-        expect(screen.getByTestId("realtime-status")).toHaveTextContent("connecting");
-        expect(stream.requests).toHaveLength(2);
-        expect(stream.closed.count).toBe(1);
-    }
-});
-
-it("admits same-occurrence timing, keeps signed ns, and fences reconnect/context/replay", async () => {
-    resetStream();
-    const user = userEvent.setup();
-    const queryBars = vi.fn((_reference: MarketDataSourceReference, query: MarketDataBarsQuery) =>
-        Promise.resolve(marketDataBarsForQuery(query))
-    );
-    render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ queryBars })}
-        >
-            <Harness />
-        </AppProviders>
-    );
-    await selectFixtureSource(user);
-    await user.click(screen.getByRole("button", { name: "btc" }));
-    await waitFor(() => {
-        expect(stream.requests).toHaveLength(1);
-    });
+);
+it("preserves signed native timing and rejects timing from another subscription occurrence", async () => {
+    await running();
+    const req = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[0],
+        callback = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1];
     const subscribed = {
         schema_version: 2 as const,
         event: "SUBSCRIBED" as const,
-        source_id: FIXTURE_SELECTION.source_id,
-        instrument_id: "BTCUSDT.TEST",
+        source_kind: "TEMPORARY_MARKET_DATA" as const,
+        authority: "DISPLAY_ONLY" as const,
+        publication_status: "NOT_A_RESEARCH_RESULT" as const,
         stream_id: "current",
+        source_id: FIXTURE_SELECTION.source_id,
+        instrument_id: req.instrument_id,
         resolution_mode: "PROVIDER_NATIVE" as const,
-        resolution_plan_fingerprint: "f".repeat(64),
-        cursor_bar_stride_minutes: 1
+        resolution_plan_fingerprint: "c".repeat(64),
+        cursor_bar_stride_minutes: 15
     };
-    const fixtureBar = marketDataBars().bars[1];
-    if (fixtureBar === undefined) throw new Error("missing fixture bar");
-    const bar = {
-        ...fixtureBar,
-        bar_start_ns: "1767225720000000000",
-        bar_end_ns: "1767225780000000000",
-        closed: false
-    };
-    const preview = {
+    act(() => {
+        callback(subscribed);
+        callback({ schema_version: 2, event: "STATE", state: "READY" });
+    });
+    const last = requiredValue(windowFor(lastQuery()).bars.at(-1));
+    const event = {
         schema_version: 2 as const,
         event: "BAR_PREVIEW" as const,
         source_id: FIXTURE_SELECTION.source_id,
-        instrument_id: "BTCUSDT.TEST",
-        bar_semantic: marketDataBarSemantic(1),
-        bar,
-        timing: {
-            stream_id: "current",
-            provider_event_ns: "1767225780000000003",
-            ingress_received_ns: "1767225780000000002"
-        }
+        instrument_id: req.instrument_id,
+        bar_semantic: req.bar_semantic,
+        bar: {
+            ...last,
+            bar_start_ns: last.bar_end_ns,
+            bar_end_ns: (BigInt(last.bar_end_ns) + 900000000000n).toString(),
+            closed: false
+        },
+        timing: { stream_id: "current", provider_event_ns: "1002", ingress_received_ns: "1000" }
     };
     act(() => {
-        stream.callbacks[0]?.(subscribed);
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
-        stream.callbacks[0]?.(preview);
+        callback(event);
     });
-    expect(screen.getByTestId("timing").textContent).toBe(
-        JSON.stringify({
-            streamId: "current",
-            currentConnection: true,
-            receiveDelayNs: "-1",
-            closedArrivalDelayNs: null
-        })
-    );
-    const closedBeforeTiming = screen.getByTestId("exact-bars").textContent;
-    const previewBeforeTiming = screen.getByTestId("exact-preview").textContent;
-    const proofBeforeTiming = screen.getByTestId("history-proof").textContent;
-    // Identical price is still a new real observation, even without a ledger mutation.
-    act(() =>
-        stream.callbacks[0]?.({
-            ...preview,
-            timing: { ...preview.timing, provider_event_ns: preview.timing.ingress_received_ns }
-        })
-    );
-    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"0"');
-    expect(screen.getByTestId("exact-bars").textContent).toBe(closedBeforeTiming);
-    expect(screen.getByTestId("exact-preview").textContent).toBe(previewBeforeTiming);
-    expect(screen.getByTestId("history-proof").textContent).toBe(proofBeforeTiming);
-    expect(queryBars).toHaveBeenCalledTimes(1);
-    expect(stream.requests).toHaveLength(1);
-    act(() =>
-        stream.callbacks[0]?.({
-            ...preview,
-            bar: { ...bar, bar_start_ns: "1767225600000000000", bar_end_ns: "1767225660000000000" }
-        })
-    );
-    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"0"');
-    act(() =>
-        stream.callbacks[0]?.({
-            ...preview,
-            event: "BAR_CLOSED",
-            sequence: "29453762",
-            bar: { ...bar, closed: true }
-        })
-    );
-    expect(screen.getByTestId("timing").textContent).toBe(
-        JSON.stringify({
-            streamId: "current",
-            currentConnection: true,
-            receiveDelayNs: "-1",
-            closedArrivalDelayNs: "2"
-        })
-    );
-    act(() =>
-        stream.callbacks[0]?.({
-            ...preview,
-            event: "BAR_CLOSED",
-            sequence: "29453762",
-            bar: { ...bar, closed: true },
-            timing: { ...preview.timing, ingress_received_ns: "1767225780000000099" }
-        })
-    );
-    expect(screen.getByTestId("timing")).toHaveTextContent('"closedArrivalDelayNs":"2"');
+    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"-2"');
     act(() => {
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "DEGRADED" });
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
-    });
-    expect(screen.getByTestId("timing")).toHaveTextContent('"currentConnection":false');
-    act(() => {
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "RECOVERING" });
-        stream.callbacks[0]?.({
-            ...preview,
-            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" }
+        callback({
+            ...event,
+            bar: { ...event.bar, close: "11.50" },
+            timing: { ...event.timing, stream_id: "other", ingress_received_ns: "9999" }
         });
-        stream.callbacks[0]?.({ schema_version: 2, event: "STATE", state: "READY" });
     });
-    expect(screen.getByTestId("timing")).toHaveTextContent('"currentConnection":false');
-    const timer = vi.spyOn(window, "setTimeout");
-    act(() => stream.disconnects[0]?.());
-    expect(screen.getByTestId("realtime-status")).toHaveTextContent("degraded");
-    expect(screen.getByTestId("timing")).toHaveTextContent('"closedArrivalDelayNs":"2"');
-    const reconnect = timer.mock.calls.at(-1)?.[0] as (() => void) | undefined;
-    if (typeof reconnect !== "function") throw new Error("missing reconnect");
-    act(() => {
-        reconnect();
-    });
-    act(() => {
-        stream.callbacks[1]?.({ ...subscribed, stream_id: "new" });
-        stream.callbacks[0]?.(preview);
-    });
-    expect(screen.getByTestId("timing").textContent).toBe("null");
-    act(() =>
-        stream.callbacks[1]?.({
-            ...preview,
-            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" }
-        })
-    );
-    expect(screen.getByTestId("timing").textContent).toBe("null");
-    act(() =>
-        stream.callbacks[1]?.({
-            ...preview,
-            bar: { ...bar, bar_start_ns: "1767225780000000000", bar_end_ns: "1767225840000000000" },
-            timing: {
-                stream_id: "new",
-                provider_event_ns: null,
-                ingress_received_ns: "1767225780000000002"
-            }
-        })
-    );
-    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":null');
-    await user.click(screen.getByRole("button", { name: "eth" }));
-    expect(screen.getByTestId("timing").textContent).toBe("null");
-    timer.mockRestore();
+    expect(screen.getByTestId("timing")).toHaveTextContent('"receiveDelayNs":"-2"');
 });
+it.each(["HISTORY_REFRESH_REQUIRED", "MARKET_DATA_CONTINUITY_UNPROVEN"])(
+    "fully refreshes the temporary window after %s without durable acquisition",
+    async (code) => {
+        const acquisition = vi.fn(() =>
+            Promise.resolve().then(() => {
+                throw new Error("durable acquisition forbidden");
+            })
+        );
+        const t = await running({ createAcquisition: acquisition });
+        const reads = vi.mocked(readTemporaryMarketData).mock.calls.length;
+        act(() => {
+            requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1]({
+                schema_version: 2,
+                event: "ERROR",
+                code,
+                detail: code
+            });
+        });
+        await waitFor(() => {
+            expect(readTemporaryMarketData).toHaveBeenCalledTimes(reads + 1);
+        });
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(2);
+        });
+        expect(t.closures[0]).toHaveBeenCalled();
+        expect(acquisition).not.toHaveBeenCalled();
+    }
+);
+it.each(["initial", "reload", "older"] as const)(
+    "rejects unsafe time projection on %s without mutating a retained chart",
+    async (path) => {
+        const invalid = (q: MarketDataBarsQuery) => {
+            const value = windowFor(q);
+            requiredValue(value.bars[0]).bar_start_ns = "999999999999999999999999999999999999";
+            return value;
+        };
+        if (path === "initial") {
+            await running({}, (_c, _r, q) => Promise.resolve(invalid(q)), "failed");
+            expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+            return;
+        }
+        const t = await running();
+        vi.mocked(readTemporaryMarketData).mockImplementation((_c, _r, q) =>
+            Promise.resolve(invalid(q))
+        );
+        await t.user.click(screen.getByRole("button", { name: path === "older" ? "older" : "1m" }));
+        if (path === "older") {
+            await waitFor(() => {
+                expect(screen.getByTestId("older")).toHaveTextContent("failed");
+            });
+            expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
+        } else {
+            await waitFor(() => {
+                expect(screen.getByTestId("status")).toHaveTextContent("failed");
+            });
+            expect(screen.getByTestId("count")).toHaveTextContent(/^0$/);
+        }
+    }
+);
+it.each(["transport", "unauthorized", "mismatch"])(
+    "retains only trusted partial rows after %s failure while completing a cold window",
+    async (kind) => {
+        let reads = 0;
+        await running(
+            {},
+            (_c, _r, q) =>
+                Promise.resolve().then(() => {
+                    if (reads++ > 0)
+                        throw new MarketDataWebError(
+                            kind === "transport"
+                                ? "CHART_STUDY_QUERY_UNAVAILABLE"
+                                : kind === "unauthorized"
+                                  ? "MARKET_DATA_ACCESS_DENIED"
+                                  : "MARKET_DATA_TEMPORARY_RESPONSE_MISMATCH",
+                            "failed",
+                            kind === "unauthorized" ? 403 : 503
+                        );
+                    const value = windowFor(q),
+                        missing = value.bars.slice(0, 1000);
+                    value.bars = value.bars.slice(-1000);
+                    value.coverage = {
+                        status: "PARTIAL",
+                        expected_bar_count: 2000,
+                        actual_bar_count: 1000,
+                        gaps: missing.map((bar) => ({
+                            start_ns: bar.bar_start_ns,
+                            end_ns: bar.bar_end_ns
+                        }))
+                    };
+                    return value;
+                }),
+            "failed"
+        );
+        expect(screen.getByTestId("count")).toHaveTextContent(
+            kind === "transport" ? /^1000$/ : /^0$/
+        );
+        expect(openTemporaryMarketDataStream).not.toHaveBeenCalled();
+        if (kind === "transport")
+            expect(screen.getByTestId("fingerprint")).toHaveTextContent("a".repeat(64));
+    }
+);
+it.each([
+    "MARKET_DATA_IDENTITY_CONFLICT",
+    "MARKET_DATA_PROVENANCE_CONFLICT",
+    "MARKET_DATA_SOURCE_CATALOG_CORRUPT"
+])(
+    "withdraws old calculation input on %s rather than retaining a displayable numeric proof",
+    async (code) => {
+        const t = await running();
+        act(() => {
+            requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[1]({
+                schema_version: 2,
+                event: "ERROR",
+                code,
+                detail: code
+            });
+        });
+        expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+        expect(t.closures[0]).toHaveBeenCalled();
+        expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(1);
+    }
+);
+it.each(["MALFORMED_JSON", "CONTRACT_ERROR"] as const)(
+    "withdraws old numeric input after a terminal %s",
+    async (failure) => {
+        const t = await running();
+        act(() => {
+            requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls[0])[2](failure);
+        });
+        expect(screen.getByTestId("fingerprint")).toHaveTextContent("none");
+        expect(screen.getByTestId("status")).toHaveTextContent("failed");
+        expect(t.closures[0]).toHaveBeenCalled();
+    }
+);
+it("deduplicates pending older reads and stops automatic no-progress paging while retaining an explicit retry", async () => {
+    const t = await running();
+    let finish!: (window: ReturnType<typeof windowFor>) => void;
+    vi.mocked(readTemporaryMarketData).mockImplementationOnce(
+        () =>
+            new Promise((resolve) => {
+                finish = resolve;
+            })
+    );
+    const before = vi.mocked(readTemporaryMarketData).mock.calls.length;
+    await t.user.click(screen.getByRole("button", { name: "auto-older" }));
+    await t.user.click(screen.getByRole("button", { name: "auto-older" }));
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(before + 1);
+    const noProgress = windowFor(lastQuery());
+    noProgress.bars = [];
+    noProgress.coverage = {
+        ...noProgress.coverage,
+        status: "PARTIAL",
+        actual_bar_count: 0,
+        gaps: [{ start_ns: noProgress.resolved_start_ns, end_ns: noProgress.resolved_end_ns }]
+    };
+    await act(() =>
+        Promise.resolve().then(() => {
+            finish(noProgress);
+        })
+    );
+    await t.user.click(screen.getByRole("button", { name: "auto-older" }));
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(before + 1);
+    await t.user.click(screen.getByRole("button", { name: "older" }));
+    expect(readTemporaryMarketData).toHaveBeenCalledTimes(before + 2);
+});
+it("stops after the bounded reconnect delays and permits an explicit same-context recovery", async () => {
+    const t = await running();
+    vi.useFakeTimers();
+    act(() => {
+        requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[2]();
+    });
+    for (const [index, delay] of STREAM_RECONNECT_DELAYS_MS.entries()) {
+        await act(async () => vi.advanceTimersByTimeAsync(delay));
+        expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(index + 2);
+        act(() => {
+            requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[2]();
+        });
+    }
+    expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+    await t.user.click(screen.getByRole("button", { name: "1m" }));
+    await waitFor(() => {
+        expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(
+            STREAM_RECONNECT_DELAYS_MS.length + 2
+        );
+    });
+});
+
+it("retries unavailable Provider recovery within the frozen burst and ignores its late disconnect", async () => {
+    const t = await running();
+    vi.useFakeTimers();
+    act(() => {
+        requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[1]({
+            schema_version: 2,
+            event: "STATE",
+            state: "READY"
+        });
+    });
+    const unavailable = () => {
+        const call = requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1));
+        act(() => {
+            call[1]({ schema_version: 2, event: "STATE", state: "RECOVERING" });
+            call[1]({
+                schema_version: 2,
+                event: "ERROR",
+                code: "MARKET_DATA_SOURCE_UNAVAILABLE",
+                detail: "Provider recovery unavailable"
+            });
+            call[2]();
+        });
+    };
+    unavailable();
+    expect(screen.getByTestId("realtime")).toHaveTextContent("degraded");
+    for (const [index, delay] of [250, 500, 1000, 2000, 4000].entries()) {
+        await act(async () => vi.advanceTimersByTimeAsync(delay));
+        expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(index + 2);
+        expect(lastQuery().anchor_kind).toBe("BEFORE_TIME");
+        expect(lastQuery().before_ns).toBe("1767225600000000000");
+        unavailable();
+    }
+    expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^2000$/);
+    expect(vi.getTimerCount()).toBe(0);
+    t.view.unmount();
+});
+
+it.each(["HISTORY_REFRESH_REQUIRED", "MARKET_DATA_CONTINUITY_UNPROVEN"])(
+    "stops repeated full refresh after %s until an explicit reread",
+    async (code) => {
+        const t = await running();
+        const reads = vi.mocked(readTemporaryMarketData).mock.calls.length;
+        const fault = () => {
+            act(() => {
+                requiredValue(vi.mocked(openTemporaryMarketDataStream).mock.calls.at(-1))[1]({
+                    schema_version: 2,
+                    event: "ERROR",
+                    code,
+                    detail: code
+                });
+            });
+        };
+        fault();
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(2);
+        });
+        expect(screen.getByTestId("fingerprint")).not.toHaveTextContent("none");
+        fault();
+        await waitFor(() => {
+            expect(screen.getByTestId("realtime")).toHaveTextContent("failed");
+        });
+        expect(screen.getByTestId("fingerprint")).toHaveTextContent(/^none$/);
+        expect(readTemporaryMarketData).toHaveBeenCalledTimes(reads + 1);
+        expect(screen.getByTestId("latest")).toHaveTextContent("11.00");
+        await t.user.click(screen.getByRole("button", { name: "15m" }));
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(3);
+        });
+        expect(readTemporaryMarketData).toHaveBeenCalledTimes(reads + 2);
+        fault();
+        await waitFor(() => {
+            expect(openTemporaryMarketDataStream).toHaveBeenCalledTimes(4);
+        });
+    }
+);

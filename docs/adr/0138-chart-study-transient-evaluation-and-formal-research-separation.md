@@ -61,6 +61,24 @@ persistent Study schema, database migration or additional Compose topology is in
 to 2000 rows, integer parameters to 10000, one actual invocation at a time, and the registered backend enforces a finite
 work budget before calculation. Authentication, the existing query deadline and all immutable-history/source fences remain.
 
+## Owner-approved temporary chart input boundary (2026-10-23)
+
+The owner explicitly approved ordinary chart display using only bounded in-memory
+Provider input and instructed implementation. This changes the W3 input selection
+restriction below: ordinary chart navigation, paging, realtime and reconnect do not
+automatically read retained history or submit Acquisition Commands. They use a
+separately typed, versioned temporary Product Query/subscription. Source grants,
+exact installed implementations, canonical bar construction and registered
+Calculation semantics remain mandatory. Temporary windows/results are DISPLAY_ONLY;
+their fingerprints are not sealed history, Dataset or Research evidence.
+
+Formal acquisition keeps its existing Recorder and real WAL append+fsync-before-release
+contract. A distinct temporary Provider entry accepts no durable Recorder and issues
+no durable receipt. Formal Research explicitly prepares/freezes immutable inputs;
+it cannot promote an in-memory chart window into evidence. The lifetime and
+non-persistence boundary is specified in `market_data_source.md`. Registration
+composition, numeric provenance and outward authorization fences remain unchanged.
+
 ## Context
 
 Adding SMA20, changing its period or displaying a momentum curve is an observation workflow, not implicit consent to durable Research.
@@ -236,6 +254,25 @@ No JS array-index warmup, numeric truthiness, interpolation, resampling or forwa
 Only plotting uses explicit lossy number/seconds conversion; hover retains admitted exact Decimal/time text.
 
 ### 5. Cache, lifecycle and promotion
+
+The owner's Rust workbench stabilization decision permits a process-local, fixed installed catalog declaration projection.
+Its first publication requires the exact isolated worker handshake, complete catalog admission and successful worker termination.
+The projection binds the complete observed declaration to the fixed installation and native invocation identities; a conflicting
+declaration cannot replace it. Every metadata read still freshly verifies the complete installation, interpreter, runtime and
+environment bytes, exact declared resources and capability projection. Missing, changed or unavailable proof rejects the read.
+This retains declarations only: no freshness, worker availability, Source entitlement or scientific readiness proof is cached.
+Metadata admission retains the same capacity, deadline, authorization and shutdown boundaries. Every actual calculation request
+starts an isolated worker and freshly admits its observed catalog against the fixed declaration. Restart discards the projection;
+there is no disk cache, TTL, latest substitution or fallback.
+
+The owner additionally approved bounded temporary Chart Study batches of one to four calculations over one exact closed window.
+Each batch owns one fresh isolated worker, retains each item's independent Definition, implementation, numeric binding and
+value/readiness validation, and never reuses that worker for another request. Ordered request indexes correlate display intents;
+they do not confer Calculation identity. Only per-item request rejections proved by Rust validation may preserve siblings; unclassified worker rejections refuse the whole response.
+Missing, changed or unavailable shared Source, window, installation or registration proof rejects the entire batch. The response
+is released only after all items are checked, the worker is joined and the original authorization/input fence and installation
+are revalidated. Each request retains the ten-second budget and owns one fresh worker. The shared invocation gate admits at most two concurrent requests, including metadata reads, and holds each permit until its worker is joined. This adds no Research facts,
+durable input, price persistence, fallback, browser mathematics or new registered indicator families.
 
 A1 needs no server cache. Later non-authoritative caches key full Source/Integration Revision, Instrument, BarSemantic/plan/calendar,
 resolved evaluation window/init policy, verified effective data revisions/history fingerprint/watermark, Definition/parameters/output,

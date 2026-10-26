@@ -454,7 +454,9 @@ impl Running {
             app: Arc::new(Application::default()),
             clickhouse,
             chart,
-            chart_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+            chart_gate: Arc::new(tokio::sync::Semaphore::new(
+                onlyalpha_product_runtime::chart::ChartQuery::MAX_CONCURRENT_INVOCATIONS,
+            )),
             metadata,
             assets,
             issuer: Mutex::new(issuer),
@@ -521,6 +523,7 @@ impl Running {
             }
             tokio::select! {
              _=shutdown.changed()=>break None,
+             expired=self.host.app.expire_temporary()=>{if expired.is_err(){break Some(Failure::unavailable("TEMPORARY_CACHE_LIFECYCLE_FAILED"));}},
              _=writer_live.changed()=>break Some(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST")),
              _=self.reader_driver.as_mut().expect("retained read driver")=>{self.reader_driver.take();break Some(Failure::unavailable("PRODUCT_READ_DRIVER_LOST"));},
              accepted=listener.accept()=>match accepted {Ok((stream,_))=>{let ingress=self.ingress.clone();self.connections.spawn(async move{ingress.serve_connection(stream).await});},Err(_)=>break Some(Failure::unavailable("LISTENER_UNAVAILABLE"))},
