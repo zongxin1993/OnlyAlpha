@@ -19,7 +19,7 @@ def test_no_published_python_business_activation() -> None:
         "onlyalpha-research-worker",
         "onlyalpha-backtest-worker",
     }
-    assert not (ROOT / "packages/onlyalpha-http-server/pyproject.toml").exists()
+    assert not (ROOT / "packages/backend/pyproject.toml").exists()
     for relative in (
         "pyproject.toml",
         "packages/onlyalpha-agent-orchestrator/pyproject.toml",
@@ -59,8 +59,8 @@ def test_runtime_image_cannot_inherit_or_copy_python_reference_backend() -> None
             assert not arguments[-1].startswith("/workspace")
             for source in arguments[:-1]:
                 if source.startswith("/workspace"):
-                    assert source == "/workspace/packages/onlyalpha-web-console/dist"
-    assert 'ENTRYPOINT ["/usr/local/bin/onlyalpha-http-server"]' in stage
+                    assert source == "/workspace/packages/frontend/dist"
+    assert 'ENTRYPOINT ["/usr/local/bin/onlyalpha-backend"]' in stage
     assert " AS reference-tools" in dockerfile
     assert "FROM reference-tools AS test" in dockerfile
 

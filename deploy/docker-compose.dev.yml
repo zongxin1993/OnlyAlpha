@@ -112,12 +112,12 @@ services:
           create_host_path: false
       - type: bind
         source: ../.test-cache/dev-tool-output/tsconfig.app.tsbuildinfo
-        target: /workspace/packages/onlyalpha-web-console/tsconfig.app.tsbuildinfo
+        target: /workspace/packages/frontend/tsconfig.app.tsbuildinfo
         bind:
           create_host_path: false
       - type: bind
         source: ../.test-cache/dev-tool-output/tsconfig.node.tsbuildinfo
-        target: /workspace/packages/onlyalpha-web-console/tsconfig.node.tsbuildinfo
+        target: /workspace/packages/frontend/tsconfig.node.tsbuildinfo
         bind:
           create_host_path: false
       # Native read-only image mounts mask host dependency directories without
@@ -130,10 +130,10 @@ services:
           subpath: workspace/.venv
       - type: image
         source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
-        target: /workspace/packages/onlyalpha-web-console/node_modules
+        target: /workspace/packages/frontend/node_modules
         read_only: true
         image:
-          subpath: workspace/packages/onlyalpha-web-console/node_modules
+          subpath: workspace/packages/frontend/node_modules
       - type: image
         source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
         target: /usr/local/rustup
@@ -153,9 +153,9 @@ services:
       - /workspace/.hypothesis:uid=10001,gid=10001
       - /workspace/.test-cache:uid=10001,gid=10001
       - /workspace/build:uid=10001,gid=10001
-      - /workspace/packages/onlyalpha-web-console/dist:uid=10001,gid=10001
-      - /workspace/packages/onlyalpha-web-console/node_modules/.vite:uid=10001,gid=10001
-      - /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp:uid=10001,gid=10001
+      - /workspace/packages/frontend/dist:uid=10001,gid=10001
+      - /workspace/packages/frontend/node_modules/.vite:uid=10001,gid=10001
+      - /workspace/packages/frontend/node_modules/.vite-temp:uid=10001,gid=10001
     depends_on:
       postgres:
         condition: service_healthy
@@ -209,10 +209,10 @@ services:
           subpath: workspace/.venv
       - type: image
         source: ${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}
-        target: /workspace/packages/onlyalpha-web-console/node_modules
+        target: /workspace/packages/frontend/node_modules
         read_only: true
         image:
-          subpath: workspace/packages/onlyalpha-web-console/node_modules
+          subpath: workspace/packages/frontend/node_modules
       - type: volume
         source: user-data
         target: /var/lib/onlyalpha
@@ -220,7 +220,7 @@ services:
           nocopy: true
     tmpfs:
       - /tmp/onlyalpha-web:uid=10001,gid=10001
-      - /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp:uid=10001,gid=10001
+      - /workspace/packages/frontend/node_modules/.vite-temp:uid=10001,gid=10001
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5173/health/ready')"]
       interval: 5s

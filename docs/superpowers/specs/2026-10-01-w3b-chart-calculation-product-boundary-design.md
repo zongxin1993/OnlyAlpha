@@ -108,7 +108,7 @@ Web/authorized Agent
 ```
 
 Application semantics belong in `src/onlyalpha/application`; Calculation/Research contracts in their existing canonical areas;
-PostgreSQL adapters under existing persistence; HTTP DTOs/routes in `packages/onlyalpha-http-server`; plugin execution semantics in
+PostgreSQL adapters under existing persistence; HTTP DTOs/routes in `packages/backend`; plugin execution semantics in
 `plugs/onlyalpha-plugin-indicators`. Reuse the existing worker hosting/lifecycle and explicit ports; add no plugin or deployment component.
 Wire communication across nodes stays versioned. No consumer directly discovers another component's database rows as an integration API.
 

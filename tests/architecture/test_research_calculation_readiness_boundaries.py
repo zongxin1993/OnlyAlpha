@@ -175,9 +175,7 @@ def test_product_and_http_do_not_expose_internal_readiness_publication_contracts
         "OnlyResearchCalculationResultV2",
         "OnlyResearchCalculationExecutionEvidenceV2",
     }
-    paths = sorted((CORE / "application").rglob("*.py")) + sorted(
-        (ROOT / "packages/onlyalpha-http-server/src").rglob("*.py")
-    )
+    paths = sorted((CORE / "application").rglob("*.py")) + sorted((ROOT / "packages/backend/src").rglob("*.py"))
     assert paths
     for path in paths:
         tree = ast.parse(path.read_text())

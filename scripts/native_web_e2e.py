@@ -81,7 +81,7 @@ def main() -> int:
     resources = output / "artifacts"
     artifact = build(resources)["algorithm_artifact"]
     (output / "algorithm-artifact.sha256").write_text(artifact + "\n")
-    executable = resources / "bin/onlyalpha-http-server"
+    executable = resources / "bin/onlyalpha-backend"
     # Existing immutable authoring metadata is a read-only UI precondition. The
     # test's user goal is discovery/inspection, not Factor authoring or execution.
     from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
@@ -231,7 +231,7 @@ def main() -> int:
             if not args.contract_fuzz or args.tests:
                 browser = subprocess.run(
                     ["npm", "exec", "--", "playwright", "test", "--workers=1", *args.tests],
-                    cwd=ROOT / "packages/onlyalpha-web-console",
+                    cwd=ROOT / "packages/frontend",
                     env={
                         **os.environ,
                         "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",

@@ -81,7 +81,7 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
         if path.startswith("contracts/gateway/"):
             matches.add("onlyalpha-gateway-protocol")
         if path == "tests/support/frozen_strategy.py":
-            matches.update(("onlyalpha-product-runtime", "onlyalpha-http-server"))
+            matches.update(("onlyalpha-backend", "onlyalpha-backend"))
         if not matches:
             raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: {path}; supply reviewed --package selections explicitly")
         owners.update(matches)
@@ -298,80 +298,52 @@ BINANCE_DEPENDENCIES = {
 BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
 
 
-PRODUCT_RUNTIME_DEPENDENCIES = {
-    "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
-    "onlyalpha-calculation-bridge": {"path": "../../crates/onlyalpha-calculation-bridge"},
+BACKEND_DEPENDENCIES = {
     "aes-gcm": {"default-features": False, "features": ["aes", "alloc", "zeroize"], "version": "=0.11.1"},
+    "axum": {"default-features": False, "features": ["json"], "version": "=0.8.9"},
     "base64": {"default-features": False, "features": ["alloc"], "version": "=0.23.1"},
+    "futures-util": {"default-features": False, "features": ["sink", "std"], "version": "=0.3.34"},
     "getrandom": {"default-features": False, "version": "=0.4.3"},
     "hkdf": {"default-features": False, "version": "=0.13.0"},
     "hmac": {"default-features": False, "features": ["zeroize"], "version": "=0.13.0"},
+    "http": {"default-features": False, "features": ["std"], "version": "=1.5.0"},
+    "httparse": {"default-features": False, "features": ["std"], "version": "=1.10.1"},
+    "hyper": {"default-features": False, "features": ["http1", "server"], "version": "=1.12.0"},
+    "hyper-util": {"default-features": False, "features": ["tokio", "service"], "version": "=0.1.21"},
+    "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
+    "onlyalpha-calculation-bridge": {"path": "../../crates/onlyalpha-calculation-bridge"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
     "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
     "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
+    "onlyalpha-plugin-binance": {"path": "../../plugs/onlyalpha-plugin-binance"},
+    "onlyalpha-plugin-tushare": {"path": "../../plugs/onlyalpha-plugin-tushare"},
     "onlyalpha-strategy": {"path": "../../crates/onlyalpha-kernel/strategy"},
+    "percent-encoding": {"default-features": False, "features": ["std"], "version": "=2.3.2"},
     "reqwest": {"default-features": False, "features": ["rustls"], "version": "=0.13.5"},
-    "rustix": {"default-features": False, "features": ["std", "fs", "process"], "version": "=1.1.5"},
-    "serde": {"default-features": False, "features": ["std"], "version": "=1.0.229"},
+    "rustix": {"default-features": False, "features": ["fs", "process", "std"], "version": "=1.1.5"},
+    "serde": {"default-features": False, "features": ["derive", "std"], "version": "=1.0.229"},
     "serde_json": {
         "default-features": False,
-        "features": ["std", "arbitrary_precision", "raw_value"],
+        "features": ["arbitrary_precision", "raw_value", "std"],
         "version": "=1.0.154",
     },
     "sha2": {"default-features": False, "features": ["zeroize"], "version": "=0.11.1"},
     "subtle": {"default-features": False, "version": "=2.6.1"},
-    "tokio": {"default-features": False, "features": ["rt", "sync", "time", "macros"], "version": "=1.54.1"},
+    "tokio": {
+        "default-features": False,
+        "features": ["io-util", "macros", "net", "rt", "signal", "sync", "time"],
+        "version": "=1.54.1",
+    },
     "tokio-postgres": {"default-features": False, "features": ["runtime"], "version": "=0.7.18"},
+    "tokio-tungstenite": {"default-features": False, "features": ["handshake"], "version": "=0.30.0"},
+    "utoipa": {"default-features": False, "features": ["macros"], "version": "=6.0.0"},
+    "utoipa-axum": {"default-features": False, "version": "=0.3.0"},
     "zeroize": {"default-features": False, "features": ["alloc"], "version": "=1.9.1"},
 }
-PRODUCT_RUNTIME_TEST_DEPENDENCIES: dict[str, object] = {}
-
-
-HTTP_SERVER_DEPENDENCIES = {
-    "tokio-postgres": {"version": "=0.7.18", "default-features": False, "features": ["runtime"]},
-    "zeroize": {"version": "=1.9.1", "default-features": False, "features": ["alloc"]},
-    "httparse": {"version": "=1.10.1", "default-features": False, "features": ["std"]},
-    "onlyalpha-product-runtime": {"path": "../onlyalpha-product-runtime"},
-    "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
-    "http": {"version": "=1.5.0", "default-features": False, "features": ["std"]},
-    "rustix": {"version": "=1.1.5", "default-features": False, "features": ["std", "fs", "process"]},
-    "serde": {"version": "=1.0.229", "default-features": False, "features": ["std", "derive"]},
-    "serde_json": {
-        "version": "=1.0.154",
-        "default-features": False,
-        "features": ["std", "arbitrary_precision", "raw_value"],
-    },
-    "sha2": {"version": "=0.11.1", "default-features": False},
-    "subtle": {"version": "=2.6.1", "default-features": False},
-    "axum": {"version": "=0.8.9", "default-features": False, "features": ["json"]},
-    "hyper": {"version": "=1.12.0", "default-features": False, "features": ["http1", "server"]},
-    "hyper-util": {"version": "=0.1.21", "default-features": False, "features": ["tokio", "service"]},
-    "tokio": {
-        "version": "=1.54.1",
-        "default-features": False,
-        "features": ["rt", "net", "io-util", "sync", "time", "macros", "signal"],
-    },
-    "percent-encoding": {"version": "=2.3.2", "default-features": False, "features": ["std"]},
-    "getrandom": {"version": "=0.4.3", "default-features": False},
-}
-HTTP_SERVER_DEPENDENCIES.update(
-    {
-        "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-        "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
-        "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
-        "onlyalpha-calculation-bridge": {"path": "../../crates/onlyalpha-calculation-bridge"},
-        "onlyalpha-plugin-binance": {"path": "../../plugs/onlyalpha-plugin-binance"},
-        "onlyalpha-plugin-tushare": {"path": "../../plugs/onlyalpha-plugin-tushare"},
-        "futures-util": {"version": "=0.3.34", "default-features": False, "features": ["sink", "std"]},
-        "tokio-tungstenite": {"version": "=0.30.0", "default-features": False, "features": ["handshake"]},
-        "utoipa": {"version": "=6.0.0", "default-features": False, "features": ["macros"]},
-        "utoipa-axum": {"version": "=0.3.0", "default-features": False},
-    }
-)
-HTTP_SERVER_TEST_DEPENDENCIES = {
-    "hyper": {"version": "=1.12.0", "default-features": False, "features": ["http1", "client"]},
-    "tokio": {"version": "=1.54.1", "default-features": False, "features": ["test-util"]},
+BACKEND_TEST_DEPENDENCIES = {
+    "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
+    "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
 }
 
 
@@ -385,10 +357,9 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-calculation-bridge": "crates/onlyalpha-calculation-bridge",
         "onlyalpha-runtime-persistence": "crates/onlyalpha-runtime-persistence",
         "onlyalpha-backtest": "crates/onlyalpha-backtest",
-        "onlyalpha-product-runtime": "packages/onlyalpha-product-runtime",
         "onlyalpha-metadata-json": "crates/onlyalpha-metadata-json",
         "onlyalpha-integration-contract": "crates/onlyalpha-integration-contract",
-        "onlyalpha-http-server": "packages/onlyalpha-http-server",
+        "onlyalpha-backend": "packages/backend",
         "onlyalpha-predicates": "crates/onlyalpha-kernel/predicates",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
@@ -436,16 +407,10 @@ def validate_workspace(root: Path) -> None:
             or manifest.get("build-dependencies", {})
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-    product = tomllib.loads((root / modules["onlyalpha-product-runtime"] / "Cargo.toml").read_text())
+    backend = tomllib.loads((root / modules["onlyalpha-backend"] / "Cargo.toml").read_text())
     if registry and (
-        product.get("dependencies") != PRODUCT_RUNTIME_DEPENDENCIES
-        or product.get("dev-dependencies", {}) != PRODUCT_RUNTIME_TEST_DEPENDENCIES
-    ):
-        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-    http_server = tomllib.loads((root / modules["onlyalpha-http-server"] / "Cargo.toml").read_text())
-    if registry and (
-        http_server.get("dependencies") != HTTP_SERVER_DEPENDENCIES
-        or http_server.get("dev-dependencies") != HTTP_SERVER_TEST_DEPENDENCIES
+        backend.get("dependencies") != BACKEND_DEPENDENCIES
+        or backend.get("dev-dependencies", {}) != BACKEND_TEST_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     domain = tomllib.loads((root / "crates/onlyalpha-kernel/domain/Cargo.toml").read_text())
@@ -624,26 +589,12 @@ def validate_workspace(root: Path) -> None:
                         ).get(alias)
                     )
                     admitted = admitted or (
-                        name == "onlyalpha-product-runtime"
+                        name == "onlyalpha-backend"
                         and section is manifest
                         and kind in {"dependencies", "dev-dependencies"}
                         and alias == dependency
                         and config
-                        == (
-                            PRODUCT_RUNTIME_DEPENDENCIES
-                            if kind == "dependencies"
-                            else PRODUCT_RUNTIME_TEST_DEPENDENCIES
-                        ).get(alias)
-                    )
-                    admitted = admitted or (
-                        name == "onlyalpha-http-server"
-                        and section is manifest
-                        and kind in {"dependencies", "dev-dependencies"}
-                        and alias == dependency
-                        and config
-                        == (HTTP_SERVER_DEPENDENCIES if kind == "dependencies" else HTTP_SERVER_TEST_DEPENDENCIES).get(
-                            alias
-                        )
+                        == (BACKEND_DEPENDENCIES if kind == "dependencies" else BACKEND_TEST_DEPENDENCIES).get(alias)
                     )
                     admitted = admitted or (
                         name in {"onlyalpha-plugin-binance", "onlyalpha-plugin-tushare"}
@@ -1112,29 +1063,29 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 _INFRASTRUCTURE_RESOURCES = {
-    "packages/onlyalpha-product-runtime/rust/chart/admission_tests.rs": {
-        "admission-vector.json": "packages/onlyalpha-product-runtime/rust/chart/admission-vector.json",
-        "admission-definition.json": "packages/onlyalpha-product-runtime/rust/chart/admission-definition.json",
+    "packages/backend/src/application/chart/admission_tests.rs": {
+        "admission-vector.json": "packages/backend/src/application/chart/admission-vector.json",
+        "admission-definition.json": "packages/backend/src/application/chart/admission-definition.json",
     },
-    "packages/onlyalpha-product-runtime/rust/market_product/temporary_tests.rs": {
-        "../../../../test-data/domain/instrument-records-v2.jsonl": "test-data/domain/instrument-records-v2.jsonl",
+    "packages/backend/src/application/market_product/temporary_tests.rs": {
+        "../../../../../test-data/domain/instrument-records-v2.jsonl": "test-data/domain/instrument-records-v2.jsonl",
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
     "plugs/onlyalpha-plugin-binance/rust/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-plugin-binance/rust/spot_temporary.rs",
     },
-    "packages/onlyalpha-product-runtime/rust/market_product/temporary.rs": {
-        "temporary_tests.rs": "packages/onlyalpha-product-runtime/rust/market_product/temporary_tests.rs",
+    "packages/backend/src/application/market_product/temporary.rs": {
+        "temporary_tests.rs": "packages/backend/src/application/market_product/temporary_tests.rs",
     },
-    "packages/onlyalpha-product-runtime/rust/market_product/queries.rs": {
-        "temporary_reference_tests.rs": "packages/onlyalpha-product-runtime/rust/market_product/temporary_reference_tests.rs",
+    "packages/backend/src/application/market_product/queries.rs": {
+        "temporary_reference_tests.rs": "packages/backend/src/application/market_product/temporary_reference_tests.rs",
     },
 }
 _CARGO_VERSION_SOURCES = {
     "crates/onlyalpha-backtest/rust/main.rs",
-    "packages/onlyalpha-http-server/rust/main.rs",
-    "packages/onlyalpha-http-server/rust/workstation_startup.rs",
+    "packages/backend/src/main.rs",
+    "packages/backend/src/bootstrap/workstation_startup.rs",
 }
 
 
@@ -1150,7 +1101,13 @@ def _without_declared_infrastructure_inputs(root: Path, path: Path) -> str:
     relative = path.relative_to(root).as_posix()
     if relative in _CARGO_VERSION_SOURCES:
         # Cargo derives this value from the fingerprinted manifest.
-        _declared_source_file(root, str(path.parent.parent.relative_to(root) / "Cargo.toml"))
+        _declared_source_file(
+            root,
+            str(
+                next(parent for parent in path.parents if (parent / "Cargo.toml").is_file()).relative_to(root)
+                / "Cargo.toml"
+            ),
+        )
         text = re.sub(r'\benv\s*!\s*\(\s*"CARGO_PKG_VERSION"\s*\)', '"declared-package-version"', text)
     for argument, resource in _INFRASTRUCTURE_RESOURCES.get(relative, {}).items():
         pattern = r'\binclude_str\s*!\s*\(\s*"' + re.escape(argument) + r'"\s*\)'
@@ -1173,33 +1130,27 @@ def validate_infrastructure_sources(root: Path) -> None:
         "onlyalpha-calculation-bridge",
         "onlyalpha-runtime-persistence",
         "onlyalpha-backtest",
-        "onlyalpha-product-runtime",
+        "onlyalpha-backend",
         "onlyalpha-metadata-json",
         "onlyalpha-integration-contract",
-        "onlyalpha-http-server",
     ):
-        area = (
-            root
-            / ("packages" if component in {"onlyalpha-product-runtime", "onlyalpha-http-server"} else "crates")
-            / component
-        )
+        area = root / module_path("backend") if component == "onlyalpha-backend" else root / "crates" / component
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (
             (area / "build.rs").exists()
             or manifest.get("package", {}).get("build", False) is not False
-            or manifest.get("lib") != {"path": "rust/lib.rs"}
+            or manifest.get("lib") != {"path": "src/lib.rs" if component == "onlyalpha-backend" else "rust/lib.rs"}
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         sources = (
-            area / "rust"
+            area / ("src" if component == "onlyalpha-backend" else "rust")
             if component
             in {
                 "onlyalpha-runtime-persistence",
                 "onlyalpha-backtest",
-                "onlyalpha-product-runtime",
+                "onlyalpha-backend",
                 "onlyalpha-metadata-json",
                 "onlyalpha-integration-contract",
-                "onlyalpha-http-server",
             }
             else area
         )
@@ -1218,7 +1169,7 @@ def validate_infrastructure_sources(root: Path) -> None:
         if (
             (area / "build.rs").exists()
             or manifest.get("package", {}).get("build", False) is not False
-            or manifest.get("lib") != {"path": "rust/lib.rs"}
+            or manifest.get("lib") != {"path": "src/lib.rs" if component == "onlyalpha-backend" else "rust/lib.rs"}
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         for path in (area / "rust").rglob("*.rs"):
@@ -1248,8 +1199,8 @@ def module_directory(module: str) -> str:
 def module_path(module: str) -> Path:
     if module in {"plugin_binance", "plugin_tushare"}:
         return Path("plugs") / ("onlyalpha-" + module.replace("_", "-"))
-    if module in {"product_runtime", "http_server"}:
-        return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
+    if module == "backend":
+        return Path("packages/backend")
     if module in {
         "gateway_protocol",
         "calculation_bridge",
@@ -1266,15 +1217,11 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
     destination.mkdir(parents=True)
     for module in modules:
         relative = module_path(module)
-        if module in {"http_server", "plugin_binance", "plugin_tushare"}:
+        if module in {"plugin_binance", "plugin_tushare"}:
             area = destination / relative
             area.mkdir(parents=True)
             shutil.copyfile(root / relative / "Cargo.toml", area / "Cargo.toml")
             shutil.copytree(root / relative / "rust", area / "rust")
-            if module == "http_server":
-                (area / "tests/support").mkdir(parents=True)
-                for support in ("integration_http_probe.rs", "http.rs"):
-                    shutil.copyfile(root / relative / "tests/support" / support, area / "tests/support" / support)
             (area / "tests").mkdir(exist_ok=True)
             for test in sorted((root / relative / "tests").glob("*.rs")):
                 shutil.copyfile(test, area / "tests" / test.name)
@@ -1286,10 +1233,9 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "calculation_bridge",
             "runtime_persistence",
             "backtest",
-            "product_runtime",
+            "backend",
             "metadata_json",
             "integration_contract",
-            "http_server",
             "plugin_binance",
             "plugin_tushare",
         }:
@@ -1457,8 +1403,8 @@ def isolated_plugin_tushare(root: Path, destination: Path) -> Path:
     )
 
 
-def isolated_product_runtime(root: Path, destination: Path) -> Path:
-    """Product owner with declared immutable Strategy and PostgreSQL dependencies."""
+def isolated_backend(root: Path, destination: Path) -> Path:
+    """Backend builds from its exact declared source/dependency closure."""
     return _isolated_modules(
         root,
         destination,
@@ -1475,31 +1421,7 @@ def isolated_product_runtime(root: Path, destination: Path) -> Path:
             "market_data_pipeline",
             "gateway_protocol",
             "calculation_bridge",
-            "product_runtime",
-        ),
-    )
-
-
-def isolated_http_server(root: Path, destination: Path) -> Path:
-    """Native ingress uses only its declared Product/Strategy closure."""
-    return _isolated_modules(
-        root,
-        destination,
-        (
-            "domain",
-            "calculation",
-            "market_data_construction",
-            "strategy",
-            "metadata_json",
-            "integration_contract",
-            "event",
-            "market_data_state",
-            "market_data_delivery",
-            "market_data_pipeline",
-            "gateway_protocol",
-            "calculation_bridge",
-            "product_runtime",
-            "http_server",
+            "backend",
             "plugin_binance",
             "plugin_tushare",
         ),
@@ -2199,8 +2121,7 @@ def main(argv: list[str] | None = None) -> int:
         ("integration-contract", isolated_integration_contract),
         ("plugin-binance", isolated_plugin_binance),
         ("plugin-tushare", isolated_plugin_tushare),
-        ("product-runtime", isolated_product_runtime),
-        ("http-server", isolated_http_server),
+        ("backend", isolated_backend),
         ("broker", isolated_broker),
         ("fee", isolated_fee),
         ("settlement", isolated_settlement),

@@ -1,7 +1,7 @@
 ---
 version: 1
-slug: "packages-onlyalpha-web-console"
-primary_target: "packages/onlyalpha-web-console"
+slug: "packages-onlyalpha-frontend"
+primary_target: "packages/frontend"
 related_targets: []
 ---
 
@@ -275,7 +275,7 @@ error；comp 是 fidelity 基准，任何偏离都要在 finish review 里被点
 | 运行状态 | `GET /api/v2/integrations/{id}/operational-status` |
 | 探测与历史 | `POST /api/v2/integrations/{id}/probe`、`GET .../probe-attempts`、`GET .../probe-attempts/{id}` |
 
-复用现有 `packages/onlyalpha-web-console/src/api/integrations/client.ts` 与 `MutationSubmissionIntent`；不得新造第二套提交路径。
+复用现有 `packages/frontend/src/api/integrations/client.ts` 与 `MutationSubmissionIntent`；不得新造第二套提交路径。
 
 ### 已知缺口（必须在实现中显性，不得由 Web 伪造）
 

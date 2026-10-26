@@ -23,7 +23,7 @@ Gateway bindings are a reusable library; canonical protocol sources remain in `c
 The direct typed deterministic trading chain and sole fact Authorities remain unchanged.
 
 This is the target layout, not a statement that current package paths have moved. Detailed source maps below may name existing
-`onlyalpha-http-server`, `onlyalpha-product-runtime`, worker packages and Python source; migrate those consumers atomically
+`onlyalpha-backend`, `onlyalpha-backend`, worker packages and Python source; migrate those consumers atomically
 under the [repository work program](repository-migration-work-program.md). Do not treat an old package path as a permanent
 independent deployment or maintain Python business merely because it is still named in a source map.
 
@@ -157,9 +157,9 @@ P7.11 已激活 finite Research Factory：Runtime 从 exact verified Dataset Sna
 Artifact 与 final verified load 顺序编排既有 authority，并使用 verified immutable authority + deterministic re-entry 恢复；不创建
 Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
 精确选择的 Statistics rows、可脱离全部上游 Store 自验证的 immutable Research Artifact。P7.10 已在 Artifact 之上实现无状态、
-transport-neutral Query Model/Service，并由独立 `onlyalpha-http-server` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
+transport-neutral Query Model/Service，并由独立 `onlyalpha-backend` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
 Statistics 或 Research authority，Query Result 只是 ephemeral projection。P7.12 将 HTTP transport 独立升级为 schema v2，以 canonical
-decimal string 表达纳秒和 cursor，并建立 `packages/onlyalpha-web-console` browser consumer：OpenAPI generated type + Zod admission 后映射为
+decimal string 表达纳秒和 cursor，并建立 `packages/frontend` browser consumer：OpenAPI generated type + Zod admission 后映射为
 `bigint`/exact Decimal text，URL 拥有 selection，TanStack Query 只拥有 disposable cache，Lightweight Charts 只消费显式 lossy projection。
 Web 仅调用 same-origin read-only API，不读取 Artifact path/Parquet/Store，不访问或控制 Research Runtime。P8.2 已在 Runtime 外建立
 PostgreSQL operational Scheduler/Worker：Run 是总体 intent/outcome，Attempt 是 lease-governed execution ownership/history；claim、heartbeat、
@@ -704,7 +704,7 @@ OBV and Stochastic retain explicit financial inputs and do not create a second F
 Human → Web
 Agent / Automation → canonical versioned Product API
 → HTTPS / JSON
-→ backend HTTP/WebSocket transport (current onlyalpha-http-server)
+→ backend HTTP/WebSocket transport (current onlyalpha-backend)
 → Product Command / Query
 → Stateful Kernel / Application authority
 ```

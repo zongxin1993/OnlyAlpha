@@ -566,7 +566,7 @@ The Parameter Product adapter delegates transitions to `OnlyParameterSearchContr
 `OnlyParameterSearchControllerV1.reconcile_open_plans()`, or the nearest stable canonical application adapter preserving those exact
 semantics. It may not construct a Feedback Decision, Plan batch, Evidence score, or STOP.
 
-HTTP is a thin adapter over the transport-neutral Product boundary and belongs only under `packages/onlyalpha-http-server/`. It may
+HTTP is a thin adapter over the transport-neutral Product boundary and belongs only under `packages/backend/`. It may
 not import Search persistence Stores, manipulate PostgreSQL Search data, or call method internals directly.
 
 ### Query operation classification
@@ -723,7 +723,7 @@ spelling remains non-semantic. HTTP cannot be used as a Store integration API.
 
 Future transport-neutral Product command/query values belong in `src/onlyalpha/application/search_product.py` or the nearest accepted
 application boundary. Method-specific adapters may live under `src/onlyalpha/research/search/product/` or the nearest stable Search
-application boundary. HTTP remains in `packages/onlyalpha-http-server/`; the first-class OpenAPI contract remains under `contracts/`.
+application boundary. HTTP remains in `packages/backend/`; the first-class OpenAPI contract remains under `contracts/`.
 
 The dependency map is:
 

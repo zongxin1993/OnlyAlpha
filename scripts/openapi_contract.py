@@ -24,7 +24,7 @@ LEGACY_CONTRACT_RELATIVE = Path("contracts/research-api/v2/openapi.json")
 CONTRACT = ROOT / CONTRACT_RELATIVE
 AUTHORIZED_A0_CORRECTIONS = CONTRACT.parent / "authorized-a0-corrections.json"
 CONTRACT_POLICY = CONTRACT.parent / "compatibility-policy.json"
-WEB = ROOT / "packages/onlyalpha-web-console"
+WEB = ROOT / "packages/frontend"
 GENERATED_CLIENT = WEB / "src/api/research/generated.ts"
 OPENAPI_TYPESCRIPT = WEB / "node_modules/.bin/openapi-typescript"
 API_MAJOR = 2
@@ -909,7 +909,7 @@ def check_current_contract() -> tuple[JsonObject, bytes]:
 
 def check_generated_client() -> None:
     if not OPENAPI_TYPESCRIPT.is_file():
-        raise ValueError("pinned openapi-typescript is unavailable; run npm ci in packages/onlyalpha-web-console")
+        raise ValueError("pinned openapi-typescript is unavailable; run npm ci in packages/frontend")
     with tempfile.TemporaryDirectory(prefix="onlyalpha-openapi-") as raw:
         candidate = Path(raw) / "generated.ts"
         completed = subprocess.run(

@@ -21,8 +21,8 @@ def _environment(root: Path) -> None:
         "pyproject.toml",
         "uv.lock",
         "deploy/Dockerfile.dev",
-        "packages/onlyalpha-web-console/package.json",
-        "packages/onlyalpha-web-console/package-lock.json",
+        "packages/frontend/package.json",
+        "packages/frontend/package-lock.json",
         "plugs/example/pyproject.toml",
         "test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml",
         "test-data/runtime_factor_provider/pyproject.toml",
@@ -46,7 +46,7 @@ def test_source_edits_reuse_environment_but_dependency_edits_require_rebuild(tmp
 def test_source_inventory_excludes_artifacts_and_host_dependencies(tmp_path: Path) -> None:
     _environment(tmp_path)
     before = dev_verification.source_inputs(tmp_path)
-    for directory in ("test-results", ".venv", "packages/onlyalpha-web-console/node_modules", "target"):
+    for directory in ("test-results", ".venv", "packages/frontend/node_modules", "target"):
         path = tmp_path / directory
         path.mkdir(parents=True, exist_ok=True)
         (path / "generated").write_text("not source")
@@ -189,7 +189,7 @@ def _host(monkeypatch, tmp_path: Path, arguments: list[str], *, present: bool = 
 def _container(root: Path):
     dependencies = [
         "/workspace/.venv",
-        "/workspace/packages/onlyalpha-web-console/node_modules",
+        "/workspace/packages/frontend/node_modules",
         "/usr/local/rustup",
         "/usr/local/cargo",
     ]
@@ -497,7 +497,7 @@ def test_validation_is_source_mounted_and_cannot_start_business_services() -> No
     dependencies = [mount for mount in service["volumes"] if mount["type"] == "image"]
     assert {mount["target"] for mount in dependencies} == {
         "/workspace/.venv",
-        "/workspace/packages/onlyalpha-web-console/node_modules",
+        "/workspace/packages/frontend/node_modules",
         "/usr/local/rustup",
         "/usr/local/cargo",
     }
@@ -509,7 +509,7 @@ def test_validation_is_source_mounted_and_cannot_start_business_services() -> No
     dockerfile = (root / "deploy/Dockerfile.dev").read_text()
     for cache in (".vite", ".vite-temp"):
         # A read-only image mount cannot create a missing nested tmpfs mountpoint.
-        assert f"/workspace/packages/onlyalpha-web-console/node_modules/{cache}" in dockerfile
+        assert f"/workspace/packages/frontend/node_modules/{cache}" in dockerfile
         assert any(f"/node_modules/{cache}:" in mount for mount in service["tmpfs"])
 
 

@@ -52,10 +52,10 @@ coverage.xml
 .test-metrics/
 test-results/
 node_modules/
-packages/onlyalpha-web-console/dist/
-packages/onlyalpha-web-console/coverage/
-packages/onlyalpha-web-console/playwright-report/
-packages/onlyalpha-web-console/test-results/
+packages/frontend/dist/
+packages/frontend/coverage/
+packages/frontend/playwright-report/
+packages/frontend/test-results/
 *.tsbuildinfo
 .test-cache/
 .baseline-*.txt

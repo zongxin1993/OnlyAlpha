@@ -291,7 +291,7 @@ def test_research_artifact_change_is_scoped_to_portable_boundary() -> None:
 def test_research_query_and_public_api_changes_use_broad_consumer_proof() -> None:
     plan = _plan(
         "src/onlyalpha/research/query/service.py",
-        "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/routes.py",
+        "packages/backend/src/onlyalpha_http_server/research/routes.py",
         "tests/research/query/test_service.py",
     )
 
@@ -309,7 +309,7 @@ def test_research_query_and_public_api_changes_use_broad_consumer_proof() -> Non
 
 
 def test_web_only_change_stops_at_api_boundary_and_runs_web_evidence() -> None:
-    plan = _plan("packages/onlyalpha-web-console/src/charts/researchSeriesProjection.ts")
+    plan = _plan("packages/frontend/src/charts/researchSeriesProjection.ts")
 
     assert plan.impact.escalation is VerificationEscalation.COMPONENT
     assert plan.impact.lanes == ()
@@ -571,14 +571,14 @@ def test_gateway_wire_and_manifest_changes_select_rust_projection_consumers(path
 
 def test_product_rust_scope_selects_native_checks_and_only_persistence_changes_select_postgres() -> None:
     for path in (
-        "packages/onlyalpha-product-runtime/rust/postgres.rs",
-        "packages/onlyalpha-product-runtime/tests/test_command_postgres.py",
-        "packages/onlyalpha-product-runtime/Cargo.toml",
+        "packages/backend/src/persistence/postgres.rs",
+        "packages/backend/tests/application/test_command_postgres.py",
+        "packages/backend/Cargo.toml",
     ):
         plan = _plan(path)
         assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
         assert OnlyTestLane.RESEARCH_POSTGRES in plan.impact.lanes
-    session = _plan("packages/onlyalpha-product-runtime/rust/source_access.rs")
+    session = _plan("packages/backend/src/application/source_access.rs")
     assert OnlyReleaseCheck.RUST_KERNEL in session.impact.checks
     assert OnlyTestLane.RESEARCH_POSTGRES not in session.impact.lanes
 
@@ -586,13 +586,13 @@ def test_product_rust_scope_selects_native_checks_and_only_persistence_changes_s
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-http-server/tests/configuration.rs",
-        "packages/onlyalpha-http-server/tests/deployment.rs",
-        "packages/onlyalpha-http-server/tests/ingress.rs",
-        "packages/onlyalpha-http-server/tests/schema.rs",
-        "packages/onlyalpha-http-server/tests/integration_types.rs",
-        "packages/onlyalpha-http-server/tests/human_access.rs",
-        "packages/onlyalpha-http-server/tests/developer_ingress.rs",
+        "packages/backend/tests/transport/configuration.rs",
+        "packages/backend/tests/transport/deployment.rs",
+        "packages/backend/tests/transport/ingress.rs",
+        "packages/backend/tests/transport/schema.rs",
+        "packages/backend/tests/transport/integration_types.rs",
+        "packages/backend/tests/transport/human_access.rs",
+        "packages/backend/tests/transport/developer_ingress.rs",
     ],
 )
 def test_native_http_scope_selects_rust_checks_without_unrelated_postgres_lane(path: str) -> None:
@@ -604,13 +604,13 @@ def test_native_http_scope_selects_rust_checks_without_unrelated_postgres_lane(p
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-product-runtime/rust/integration_catalog.rs",
-        "packages/onlyalpha-product-runtime/rust/integration_resolver.rs",
+        "packages/backend/src/application/integration_catalog.rs",
+        "packages/backend/src/application/integration_resolver.rs",
         "crates/onlyalpha-integration-contract/rust/authoring.rs",
-        "packages/onlyalpha-product-runtime/tests/test_integration_authoring_postgres.py",
-        "packages/onlyalpha-product-runtime/tests/support/integration.py",
+        "packages/backend/tests/application/test_integration_authoring_postgres.py",
+        "packages/backend/tests/application/support/integration.py",
         "tests/support/postgres_link.py",
-        "packages/onlyalpha-product-runtime/tests/support/postgres_probe.rs",
+        "packages/backend/tests/application/support/postgres_probe.rs",
         "tests/support/integration_configuration.py",
     ],
 )
@@ -622,8 +622,8 @@ def test_authoring_changes_select_postgres_owning_consumer_proof(path: str) -> N
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-product-runtime/rust/deployment.rs",
-        "packages/onlyalpha-product-runtime/tests/test_deployment_postgres.py",
+        "packages/backend/src/bootstrap/deployment.rs",
+        "packages/backend/tests/application/test_deployment_postgres.py",
     ],
 )
 def test_native_deployment_binding_selects_owning_postgres_lane(path: str) -> None:
@@ -633,8 +633,8 @@ def test_native_deployment_binding_selects_owning_postgres_lane(path: str) -> No
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-product-runtime/rust/schema.rs",
-        "packages/onlyalpha-product-runtime/tests/test_schema_postgres.py",
+        "packages/backend/src/persistence/schema.rs",
+        "packages/backend/tests/application/test_schema_postgres.py",
     ],
 )
 def test_native_schema_reader_selects_owning_postgres_lane(path: str) -> None:
@@ -644,16 +644,16 @@ def test_native_schema_reader_selects_owning_postgres_lane(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-http-server/rust/integrations.rs",
-        "packages/onlyalpha-http-server/rust/node.rs",
-        "packages/onlyalpha-http-server/tests/node.rs",
-        "packages/onlyalpha-http-server/tests/conftest.py",
-        "packages/onlyalpha-http-server/tests/test_native_node_authority.py",
-        "packages/onlyalpha-http-server/rust/integration_types.rs",
-        "packages/onlyalpha-http-server/rust/ingress.rs",
-        "packages/onlyalpha-http-server/tests/test_native_integration_queries.py",
-        "packages/onlyalpha-http-server/tests/support/integration_http_probe.rs",
-        "packages/onlyalpha-http-server/Cargo.toml",
+        "packages/backend/src/transport/integrations.rs",
+        "packages/backend/src/bootstrap/node.rs",
+        "packages/backend/tests/transport/node.rs",
+        "packages/backend/tests/transport/conftest.py",
+        "packages/backend/tests/transport/test_native_node_authority.py",
+        "packages/backend/src/transport/integration_types.rs",
+        "packages/backend/src/security/ingress.rs",
+        "packages/backend/tests/transport/test_native_integration_queries.py",
+        "packages/backend/tests/transport/support/integration_http_probe.rs",
+        "packages/backend/Cargo.toml",
     ],
 )
 def test_native_integration_http_selects_owning_postgres_and_rust(path: str) -> None:
@@ -665,9 +665,9 @@ def test_native_integration_http_selects_owning_postgres_and_rust(path: str) -> 
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-http-server/tests/web_assets.rs",
-        "packages/onlyalpha-http-server/tests/test_native_web_assets.py",
-        "packages/onlyalpha-http-server/tests/support/http.rs",
+        "packages/backend/tests/transport/web_assets.rs",
+        "packages/backend/tests/transport/test_native_web_assets.py",
+        "packages/backend/tests/transport/support/http.rs",
     ],
 )
 def test_native_web_asset_delivery_selects_rust_verification(path: str) -> None:
@@ -677,19 +677,19 @@ def test_native_web_asset_delivery_selects_rust_verification(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-http-server/rust/startup.rs",
-        "packages/onlyalpha-http-server/tests/test_native_frozen_strategy.py",
-        "packages/onlyalpha-http-server/tests/test_native_strategy_projection.py",
-        "packages/onlyalpha-product-runtime/rust/strategy_projection.rs",
-        "packages/onlyalpha-product-runtime/rust/qualification_policy.rs",
-        "packages/onlyalpha-http-server/tests/test_native_qualification_policy.py",
+        "packages/backend/src/bootstrap/startup.rs",
+        "packages/backend/tests/transport/test_native_frozen_strategy.py",
+        "packages/backend/tests/transport/test_native_strategy_projection.py",
+        "packages/backend/src/application/strategy_projection.rs",
+        "packages/backend/src/application/qualification_policy.rs",
+        "packages/backend/tests/transport/test_native_qualification_policy.py",
         "tests/support/frozen_strategy.py",
-        "packages/onlyalpha-product-runtime/rust/frozen_strategy.rs",
-        "packages/onlyalpha-product-runtime/rust/authority_session.rs",
-        "packages/onlyalpha-product-runtime/rust/protected_files.rs",
-        "packages/onlyalpha-http-server/rust/configuration.rs",
-        "packages/onlyalpha-http-server/tests/startup.rs",
-        "packages/onlyalpha-http-server/tests/test_native_startup_storage.py",
+        "packages/backend/src/application/frozen_strategy.rs",
+        "packages/backend/src/persistence/authority_session.rs",
+        "packages/backend/src/security/protected_files.rs",
+        "packages/backend/src/bootstrap/configuration.rs",
+        "packages/backend/tests/transport/startup.rs",
+        "packages/backend/tests/transport/test_native_startup_storage.py",
     ],
 )
 def test_native_startup_storage_selects_owning_rust_and_postgres(path: str) -> None:
@@ -743,7 +743,7 @@ def test_coarse_legacy_full_core_lane_requires_bounded_manual_selection() -> Non
 
 def test_complete_local_web_workflow_requires_bounded_manual_selection() -> None:
     with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
-        verify.verification_commands(_plan("packages/onlyalpha-web-console/src/App.tsx"))
+        verify.verification_commands(_plan("packages/frontend/src/App.tsx"))
 
 
 @pytest.mark.parametrize(

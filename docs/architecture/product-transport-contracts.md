@@ -1,8 +1,8 @@
 # Product transport contracts
 
 The versioned HTTP Product API is authored by the native HTTP adapter's
-`packages/onlyalpha-http-server/rust/routes.rs` route declarations and
-`packages/onlyalpha-http-server/rust/wire.rs` typed wire declarations, which
+`packages/backend/src/transport/routes.rs` route declarations and
+`packages/backend/src/transport/wire.rs` typed wire declarations, which
 also drive actual serving. The native executable's pure `--export-openapi`
 mode exports the contract without starting Product owners, opening stores,
 loading configuration or issuing credentials. Its sole committed HTTP
@@ -11,7 +11,7 @@ command retains canonical versioning, freshness, immutable-baseline comparison
 and breaking-change classification.
 
 The Market Data WebSocket contract is authored by
-`packages/onlyalpha-http-server/rust/stream_wire.rs`, shared by native ingress
+`packages/backend/src/transport/stream_wire.rs`, shared by native ingress
 and the executable's pure `--export-websocket` mode.
 `scripts/market_data_stream_contract.py` projects this declaration to the sole
 committed WebSocket schema,

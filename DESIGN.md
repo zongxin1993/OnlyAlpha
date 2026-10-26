@@ -267,5 +267,5 @@ facts、chart、table 与 inspector 仍是 signature surfaces：优先显示 pro
 ## Surfaces
 
 当前已实现的首个 Product Vertical Slice 是 W0 chart-centric workspace shell（路由 `/` 加持久外壳），其 surface
-brief 与 direction contract 位于 `.impeccable/surfaces/packages-onlyalpha-web-console.md`。旧世界（深色 Evidence
+brief 与 direction contract 位于 `.impeccable/surfaces/packages-onlyalpha-frontend.md`。旧世界（深色 Evidence
 Workbench）已被替换，仓库内不再保留其视觉语言。

@@ -44,7 +44,7 @@ def test_command_core_is_transport_and_execution_neutral() -> None:
 
 
 def test_run_http_adapter_cannot_start_execution_or_modify_attempt_authority() -> None:
-    root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
+    root = Path("packages/backend/src/onlyalpha_http_server")
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
     for forbidden in (
         "OnlyResearchWorkerService",
@@ -60,7 +60,7 @@ def test_run_http_adapter_cannot_start_execution_or_modify_attempt_authority() -
 
 
 def test_standalone_artifact_composition_is_absent() -> None:
-    assert not Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/artifact_main.py").exists()
+    assert not Path("packages/backend/src/onlyalpha_http_server/artifact_main.py").exists()
 
 
 def test_command_api_does_not_return_artifact_or_result_content() -> None:
@@ -73,9 +73,9 @@ def test_command_api_does_not_return_artifact_or_result_content() -> None:
 
 
 def test_production_research_command_composition_requires_read_to_act_authorities() -> None:
-    assert not Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").exists()
-    source = "".join((Path("packages/onlyalpha-http-server/rust/host.rs").read_text(encoding="utf-8")).split())
-    assert "Some(crate::routes::Operation::Deferred)" in source
+    assert not Path("packages/backend/src/onlyalpha_http_server/main.py").exists()
+    source = "".join((Path("packages/backend/src/transport/host.rs").read_text(encoding="utf-8")).split())
+    assert "Some(crate::transport::routes::Operation::Deferred)" in source
     assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in source
     assert "OnlyResearchCommandService(" not in source
     assert "allow_legacy_ungated=True" not in source

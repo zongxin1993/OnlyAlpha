@@ -20,7 +20,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-WEB = Path("packages/onlyalpha-web-console")
+WEB = Path("packages/frontend")
 IMAGE = "onlyalpha-browser-test:dev"
 ENVIRONMENT_RECORD = Path("/opt/onlyalpha-dev-environment.json")
 CONTAINER_LOCK = Path("/tmp/onlyalpha-dev-verification.lock")
@@ -316,7 +316,7 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         "/workspace/.venv": ("image", image_id, False),
         "/usr/local/rustup": ("image", image_id, False),
         "/usr/local/cargo": ("image", image_id, False),
-        "/workspace/packages/onlyalpha-web-console/node_modules": ("image", image_id, False),
+        "/workspace/packages/frontend/node_modules": ("image", image_id, False),
         **{
             f"/workspace/{WEB}/{name}": ("bind", str(root / ".test-cache/dev-tool-output" / name), True)
             for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo")

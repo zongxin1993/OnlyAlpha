@@ -177,7 +177,7 @@ def test_sdk_wheel_release_comes_from_frozen_source(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()
     (source / "pyproject.toml").write_text('[project]\nversion = "9.9.9"\n')
-    backend = source / "packages/onlyalpha-http-server/Cargo.toml"
+    backend = source / "packages/backend/Cargo.toml"
     backend.parent.mkdir(parents=True)
     backend.write_text('[package]\nversion = "0.11.0"\n')
     monkeypatch.setattr(builder, "ROOT", source)
@@ -197,7 +197,7 @@ def test_algorithm_plugin_wheel_keeps_its_own_version(tmp_path, monkeypatch):
     from scripts import build_algorithm_sdk as builder
 
     source = tmp_path / "source"
-    backend = source / "packages/onlyalpha-http-server/Cargo.toml"
+    backend = source / "packages/backend/Cargo.toml"
     backend.parent.mkdir(parents=True)
     backend.write_text('[package]\nversion = "0.7.0"\n')
     plugin = source / "plugs/onlyalpha-plugin-indicators/pyproject.toml"

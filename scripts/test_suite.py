@@ -206,7 +206,7 @@ LANES = {
         (
             "tests/research/query",
             "tests/architecture/test_research_query_boundaries.py",
-            "packages/onlyalpha-http-server/tests",
+            "packages/backend/tests/transport",
         ),
         "not external and not postgres",
         "2",
@@ -216,7 +216,7 @@ LANES = {
         (
             "tests/research/command",
             "tests/architecture/test_research_command_boundaries.py",
-            "packages/onlyalpha-http-server/tests",
+            "packages/backend/tests/transport",
         ),
         "not external and not postgres",
         "2",
@@ -253,8 +253,8 @@ LANES = {
             "tests/research/postgres",
             "tests/persistence",
             "tests/architecture/test_postgres_operational_authority.py",
-            "packages/onlyalpha-http-server/tests/test_native_integration_queries.py",
-            "packages/onlyalpha-product-runtime/tests",
+            "packages/backend/tests/transport/test_native_integration_queries.py",
+            "packages/backend/tests/application",
             "tests/tools/test_chart_study_query_fixture.py",
         ),
         "postgres or architecture",

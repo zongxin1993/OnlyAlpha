@@ -51,7 +51,7 @@ def test_compilation_postgres_adapter_does_not_own_market_or_numeric_authorities
 
 
 def test_http_and_web_do_not_wire_compilation_service_or_store() -> None:
-    for component in ("onlyalpha-http-server", "onlyalpha-web-console"):
+    for component in ("onlyalpha-backend", "onlyalpha-frontend"):
         for path in (ROOT / "packages" / component / "src").rglob("*.py"):
             _assert_boundary(
                 path,

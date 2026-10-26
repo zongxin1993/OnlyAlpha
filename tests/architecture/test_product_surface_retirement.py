@@ -61,7 +61,7 @@ def test_only_provider_diagnostics_remain_as_python_entrypoints() -> None:
     assert "onlyalpha" not in entry_points
     assert "onlyalpha-client" not in entry_points
     assert {
-        "onlyalpha-http-server",
+        "onlyalpha-backend",
         "onlyalpha-research-worker",
         "onlyalpha-backtest-worker",
         "onlyalpha-agent",
@@ -102,17 +102,17 @@ def test_product_runtime_cannot_be_admitted_from_a_file() -> None:
                 continue
             source = path.read_text(encoding="utf-8")
             assert "OnlyClusterRunConfig.load(" not in source, path
-    for path in (ROOT / "packages/onlyalpha-http-server/src").rglob("*.py"):
+    for path in (ROOT / "packages/backend/src").rglob("*.py"):
         imports = _imports(path)
         assert not any(name == "onlyalpha.config" or name.startswith("onlyalpha.config.") for name in imports), path
 
 
 def test_web_remains_the_governed_product_consumer() -> None:
-    package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
+    package = (ROOT / "packages/frontend/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
     assert package.count("../../contracts/product-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite
-    for path in (ROOT / "packages/onlyalpha-web-console/src").rglob("*"):
+    for path in (ROOT / "packages/frontend/src").rglob("*"):
         if path.suffix in {".ts", ".tsx"}:
             source = path.read_text(encoding="utf-8")
             assert "OnlyEngine" not in source

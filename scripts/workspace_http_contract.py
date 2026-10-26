@@ -11,7 +11,7 @@ from scripts.market_data_stream_contract import _definitions, _expression
 from scripts.native_http_contract import exported, schema_document
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "packages/onlyalpha-web-console/src/api/workspace/http.generated.ts"
+TARGET = ROOT / "packages/frontend/src/api/workspace/http.generated.ts"
 
 
 def render() -> str:
@@ -27,7 +27,7 @@ def render() -> str:
         "",
     ]
     return subprocess.run(
-        [str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"), "--stdin-filepath", str(TARGET)],
+        [str(ROOT / "packages/frontend/node_modules/.bin/prettier"), "--stdin-filepath", str(TARGET)],
         input="\n".join(lines),
         text=True,
         capture_output=True,

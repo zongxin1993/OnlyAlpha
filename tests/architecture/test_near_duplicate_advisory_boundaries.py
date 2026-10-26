@@ -76,7 +76,7 @@ def test_production_advisory_builder_reads_existing_owners_without_owning_source
 def test_advisory_index_is_disposable_and_has_only_the_d2_product_read_path() -> None:
     allowed = {
         ROOT / "src/onlyalpha/application/research_advisory.py",
-        ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py",
+        ROOT / "packages/backend/src/onlyalpha_http_server/main.py",
     }
     for root in (ROOT / "src", ROOT / "packages"):
         for path in root.rglob("*.py"):
@@ -111,9 +111,9 @@ def test_exact_read_to_act_and_research_command_do_not_import_advisory() -> None
 
 
 def test_retired_d2_http_route_has_no_current_serving_fallback() -> None:
-    route = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/research/advisory_routes.py"
+    route = ROOT / "packages/backend/src/onlyalpha_http_server/research/advisory_routes.py"
     assert not route.exists()
-    native = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    native = (ROOT / "packages/backend/src/transport/routes.rs").read_text()
     assert "/api/v2/research/advisory/near-duplicates" not in native
     assert "OnlyExperimentMemoryAdvisoryProjectionBuilder" not in native
     assert "OnlyResearchAdvisorySourceRefV1" not in native

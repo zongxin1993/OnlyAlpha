@@ -169,12 +169,12 @@ testpaths = [
     "plugs/onlyalpha-plugin-indicators/tests",
     "plugs/onlyalpha-plugin-operators/tests",
     "plugs/onlyalpha-plugin-targets/tests",
-    "packages/onlyalpha-http-server/tests",
+    "packages/backend/tests/transport",
     "packages/onlyalpha-gateway-protocol/tests",
     "packages/onlyalpha-calculation-worker/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
     "packages/onlyalpha-runtime-generation-manager/tests",
-    "packages/onlyalpha-product-runtime/tests",
+    "packages/backend/tests/application",
     "packages/onlyalpha-agent-orchestrator/tests",
 ]
 markers = [

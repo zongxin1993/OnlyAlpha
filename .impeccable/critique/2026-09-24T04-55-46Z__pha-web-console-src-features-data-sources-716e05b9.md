@@ -1,18 +1,18 @@
 ---
-target: 数据源配置与管理 (packages/onlyalpha-web-console/src/features/data/sources)
+target: 数据源配置与管理 (packages/frontend/src/features/data/sources)
 total_score: 28
 max_score: 40
 na_heuristics: 
 p0_count: 0
 p1_count: 2
-target_identity: "file:/Users/zongxin/workspace/OnlyAlpha/packages/onlyalpha-web-console/src/features/data/sources"
+target_identity: "file:/Users/zongxin/workspace/OnlyAlpha/packages/frontend/src/features/data/sources"
 timestamp: 2026-09-24T04-55-46Z
 slug: pha-web-console-src-features-data-sources-716e05b9
 closed: true
 ---
 ⚠️ DEGRADED: single-context (sub-agent tool exposed but task delivery failed — four spawns across two rounds returned "no task received"; Assessment A and B were run sequentially by the parent)
 
-Target: `packages/onlyalpha-web-console/src/features/data/sources/` — Data Source Configuration & Management (Workspace entry + quick Popover + manager Modal 已配置 / 添加数据源 / 数据源绑定 + contract-driven configuration view with Probe).
+Target: `packages/frontend/src/features/data/sources/` — Data Source Configuration & Management (Workspace entry + quick Popover + manager Modal 已配置 / 添加数据源 / 数据源绑定 + contract-driven configuration view with Probe).
 Mode: **Operate**.
 
 ## Design Health Score

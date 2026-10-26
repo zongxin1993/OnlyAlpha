@@ -16,7 +16,7 @@ from tests.architecture._product_authority_contract import load_authority_contra
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
+API_ROOT = ROOT / "packages/backend/src/onlyalpha_http_server"
 CONTRACT = load_authority_contract(ROOT / "docs/architecture/product_authority_contract.toml")
 
 PRIVILEGED_TRANSPORT_MODULES = (
@@ -64,7 +64,7 @@ def test_http_modules_are_classified_by_the_machine_readable_contract() -> None:
 
 def test_transport_modules_cannot_obtain_persistence_engine_runtime_or_strategy_mutation() -> None:
     for relative, imports in _api_core_crossings(API_ROOT).items():
-        repository_path = f"packages/onlyalpha-http-server/src/onlyalpha_http_server/{relative}"
+        repository_path = f"packages/backend/src/onlyalpha_http_server/{relative}"
         if CONTRACT.is_sensitive_path(repository_path) and CONTRACT.classify_path(repository_path).name == (
             "HTTP_TRANSPORT_ADAPTER"
         ):
@@ -86,7 +86,9 @@ def test_any_transport_filename_is_rejected_when_it_imports_privileged_authority
 
 def test_http_composition_root_does_not_construct_engine() -> None:
     assert not (API_ROOT / "main.py").exists()
-    for path in (ROOT / "packages/onlyalpha-http-server/rust").glob("*.rs"):
+    sources = tuple((ROOT / "packages/backend/src").rglob("*.rs"))
+    assert sources, "native backend boundary must scan actual sources"
+    for path in sources:
         source = path.read_text(encoding="utf-8")
         assert "OnlyEngine(" not in source
         assert "OnlyStrategyPromotionService(" not in source

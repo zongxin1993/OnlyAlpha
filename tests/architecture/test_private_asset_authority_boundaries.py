@@ -17,10 +17,10 @@ _GENERATION = Path(
 )
 _MIGRATION = Path("database/postgres/migrations/0029_private_factor_strategy_vocabulary.sql")
 _PRODUCT = Path("src/onlyalpha/application/product_boundary.py")
-_HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research/run_schema.py")
-_HTTP_MAIN = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py")
+_HTTP = Path("packages/backend/src/onlyalpha_http_server/research/run_schema.py")
+_HTTP_MAIN = Path("packages/backend/src/onlyalpha_http_server/main.py")
 _PRODUCT_PROJECTION = Path("src/onlyalpha/application/private_asset_product.py")
-_PRODUCT_HTTP = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/private_assets.py")
+_PRODUCT_HTTP = Path("packages/backend/src/onlyalpha_http_server/private_assets.py")
 _PRODUCT_STORE = Path("src/onlyalpha/persistence/postgres/private_asset_product_store.py")
 
 
@@ -206,7 +206,7 @@ def test_exact_product_read_has_no_current_latest_or_legacy_fallback() -> None:
     assert "source_text" not in _PRODUCT_STORE.read_text(encoding="utf-8")
     assert "definition" not in _PRODUCT_STORE.read_text(encoding="utf-8")
     assert not _PRODUCT_HTTP.exists()
-    native = Path("packages/onlyalpha-http-server/rust/host_observations.rs").read_text()
+    native = Path("packages/backend/src/transport/host_observations.rs").read_text()
     assert ".factor_revision(" in native
     exact = native[native.index(".factor_revision(") : native.index(".await?", native.index(".factor_revision("))]
     assert "current_registry" not in exact

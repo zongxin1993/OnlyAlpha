@@ -12,7 +12,7 @@ pytestmark = pytest.mark.architecture
 ROOT = Path(__file__).parents[2]
 CORE_CONTRACT = ROOT / "src/onlyalpha/plugin/integration.py"
 CATALOG = ROOT / "src/onlyalpha/application/integration_type_catalog.py"
-HTTP_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/integration_types"
+HTTP_ROOT = ROOT / "packages/backend/src/onlyalpha_http_server/integration_types"
 
 
 def test_integration_contract_and_catalog_remain_provider_neutral_and_reuse_registries() -> None:
@@ -34,13 +34,13 @@ def test_integration_http_depends_on_application_contract_not_concrete_plugins()
     forbidden = {"onlyalpha_plugin_binance", "onlyalpha_plugin_miniqmt", "onlyalpha_plugin_tushare"}
 
     assert not tuple(HTTP_ROOT.rglob("*.py"))
-    source = (ROOT / "packages/onlyalpha-http-server/rust/integration_types.rs").read_text()
+    source = (ROOT / "packages/backend/src/transport/integration_types.rs").read_text()
     assert not any(name in source for name in forbidden)
     assert "integration_catalog::AuthoringCatalog" in source
 
 
 def test_integration_l1_adds_no_environment_or_database_authority() -> None:
-    scoped = (CORE_CONTRACT, CATALOG, ROOT / "packages/onlyalpha-http-server/rust/integration_types.rs")
+    scoped = (CORE_CONTRACT, CATALOG, ROOT / "packages/backend/src/transport/integration_types.rs")
     forbidden = ("os.getenv", "os.environ", "product_credential", "integration_revision", "integration_draft")
 
     for path in scoped:

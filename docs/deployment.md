@@ -282,7 +282,7 @@ agent-provider-fixture (deterministic OpenAI-compatible provider)
       writes agent-control-token / agent-product-token / agent-runtime-token and
       agent/model-profile.json under the user-data volume, and prints a summary
       document that contains no secret values
-  → api: onlyalpha-http-server is started with --agent-runtime-token-file, which mounts
+  → api: onlyalpha-backend is started with --agent-runtime-token-file, which mounts
       the /internal/v1/agent-provider-runtime router (the runtime authority)
   → agent: onlyalpha-agent serve --model-configuration-mode INTEGRATION_REVISION calls
       compose_from_integration → admit_new against that authority at startup, before the

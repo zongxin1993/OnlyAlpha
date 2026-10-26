@@ -6,6 +6,7 @@ import functools
 import hashlib
 import json
 import os
+import platform
 import subprocess
 import sys
 import tomllib
@@ -35,12 +36,14 @@ def native_executable(*, release: bool = True) -> Path:
         "build",
         "--frozen",
         "--offline",
+        "--target",
+        {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()],
         "-j",
         "1",
         "-p",
-        "onlyalpha-http-server",
+        "onlyalpha-backend",
         "--bin",
-        "onlyalpha-http-server",
+        "onlyalpha-backend",
         "--message-format=json",
     ]
     if release:
@@ -62,7 +65,7 @@ def native_executable(*, release: bool = True) -> Path:
         for line in built.stdout.splitlines()
         if (item := json.loads(line)).get("reason") == "compiler-artifact"
         and item.get("executable") is not None
-        and item["target"]["name"] == "onlyalpha-http-server"
+        and item["target"]["name"] == "onlyalpha-backend"
     }
     if len(executables) != 1:
         raise ValueError("NATIVE_CONTRACT_EXECUTABLE_UNPROVABLE")

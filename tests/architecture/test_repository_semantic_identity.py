@@ -61,7 +61,7 @@ IDENTIFIER_TOKEN = re.compile(
 MIGRATION = re.compile(r"^\d{4}_(?P<suffix>.+)\.sql$")
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.I)
 CONTENT_SCAN_EXCLUSIONS = {"tests/architecture/test_repository_semantic_identity.py"}
-IGNORED_RUNTIME_ARTIFACTS = {"packages/onlyalpha-web-console/.impeccable/live/server.json"}
+IGNORED_RUNTIME_ARTIFACTS = {"packages/frontend/.impeccable/live/server.json"}
 GENERATED_DIRECTORY_NAMES = {
     ".git",
     ".hypothesis",
@@ -235,7 +235,7 @@ def test_semantic_identity_allowlists_are_explicit_and_narrow() -> None:
 
 
 def test_ignored_runtime_artifact_is_not_a_semantic_project_input(tmp_path: Path) -> None:
-    artifact = tmp_path / "packages/onlyalpha-web-console/.impeccable/live/server.json"
+    artifact = tmp_path / "packages/frontend/.impeccable/live/server.json"
     artifact.parent.mkdir(parents=True)
     artifact.write_text('{"token":"phase-1"}', encoding="utf-8")
 

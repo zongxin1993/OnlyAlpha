@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 FIXTURE = ROOT / "test-data/web/chart-studies/query.json"
 NUMERIC_CASES = FIXTURE.with_name("numeric-cases.json")
-SUPPORT = ROOT / "packages/onlyalpha-product-runtime/tests/support"
+SUPPORT = ROOT / "packages/backend/tests/application/support"
 
 
 def _inline(value: Any) -> str:
@@ -115,8 +115,9 @@ def _produce() -> tuple[str, str]:
         "market_data_pipeline",
         "gateway_protocol",
         "calculation_bridge",
-        "product_runtime",
+        "backend",
         "plugin_binance",
+        "plugin_tushare",
     )
     try:
         manifest = _isolated_modules(ROOT, root / "closure", modules)
@@ -129,7 +130,7 @@ def _produce() -> tuple[str, str]:
             + "\n}\n"
         )
         dependencies: dict[str, Any] = {}
-        for module in ("product_runtime", "plugin_binance"):
+        for module in ("backend", "plugin_binance"):
             data = tomllib.loads((ROOT / module_path(module) / "Cargo.toml").read_text())
             for name, value in data["dependencies"].items():
                 value = dict(value)

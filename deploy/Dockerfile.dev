@@ -9,9 +9,7 @@ FROM rust-tools AS rust-manifests
 WORKDIR /rust-source
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
-COPY packages/onlyalpha-http-server/Cargo.toml ./packages/onlyalpha-http-server/Cargo.toml
-COPY packages/onlyalpha-http-server/rust/ ./packages/onlyalpha-http-server/rust/
-COPY packages/onlyalpha-product-runtime/ ./packages/onlyalpha-product-runtime/
+COPY packages/backend/ ./packages/backend/
 COPY plugs/onlyalpha-plugin-binance/Cargo.toml ./plugs/onlyalpha-plugin-binance/Cargo.toml
 COPY plugs/onlyalpha-plugin-binance/rust/ ./plugs/onlyalpha-plugin-binance/rust/
 COPY plugs/onlyalpha-plugin-tushare/Cargo.toml ./plugs/onlyalpha-plugin-tushare/Cargo.toml
@@ -105,10 +103,10 @@ RUN rm -f \
 USER onlyalpha
 
 FROM node:24-bookworm-slim AS web
-WORKDIR /workspace/packages/onlyalpha-web-console
-COPY packages/onlyalpha-web-console/package.json packages/onlyalpha-web-console/package-lock.json ./
+WORKDIR /workspace/packages/frontend
+COPY packages/frontend/package.json packages/frontend/package-lock.json ./
 RUN npm ci
-COPY packages/onlyalpha-web-console/ ./
+COPY packages/frontend/ ./
 COPY test-data/web/catalog-navigation/ /workspace/test-data/web/catalog-navigation/
 COPY test-data/web/chart-studies/ /workspace/test-data/web/chart-studies/
 EXPOSE 5173
@@ -125,23 +123,23 @@ FROM test AS browser-test
 USER root
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 COPY --from=web /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=web --chown=onlyalpha:onlyalpha /workspace/packages/onlyalpha-web-console/node_modules /workspace/packages/onlyalpha-web-console/node_modules
+COPY --from=web --chown=onlyalpha:onlyalpha /workspace/packages/frontend/node_modules /workspace/packages/frontend/node_modules
 COPY --from=playwright /ms-playwright /ms-playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
-    && node packages/onlyalpha-web-console/node_modules/playwright/cli.js install-deps chromium
+    && node packages/frontend/node_modules/playwright/cli.js install-deps chromium
 # Source-only edits reuse this tool image; changed build/dependency inputs require
 # an explicit rebuild, not an implicit uv/npm update in the validation container.
-RUN mkdir -p /workspace/packages/onlyalpha-web-console/node_modules/.vite \
-    /workspace/packages/onlyalpha-web-console/node_modules/.vite-temp
+RUN mkdir -p /workspace/packages/frontend/node_modules/.vite \
+    /workspace/packages/frontend/node_modules/.vite-temp
 RUN python -c "import json; from pathlib import Path; from scripts.dev_verification import environment_inputs; Path('/opt/onlyalpha-dev-environment.json').write_text(json.dumps(environment_inputs(Path('/workspace')), sort_keys=True))"
 USER onlyalpha
 
 # The maintained backend artifact; no Python service or business module is copied.
 FROM rust-dependencies AS native-service
-RUN cargo build --locked --offline --release --package onlyalpha-http-server --bin onlyalpha-http-server
+RUN cargo build --locked --offline --release --package onlyalpha-backend --bin onlyalpha-backend
 
 FROM web AS web-assets
 RUN NODE_ENV=production VITE_ONLYALPHA_LOCAL_SESSION=true npm run build
@@ -164,11 +162,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ONLYALPHA_NATIVE_SOURCE_TRUST=/etc/ssl/certs/ca-certificates.crt
 RUN useradd --create-home --uid 10001 onlyalpha \
     && install -d -o onlyalpha -g onlyalpha /var/lib/onlyalpha
-COPY --from=native-service /rust-source/target/release/onlyalpha-http-server /usr/local/bin/onlyalpha-http-server
+COPY --from=native-service /rust-source/target/release/onlyalpha-backend /usr/local/bin/onlyalpha-backend
 COPY --from=algorithm-installation /opt/onlyalpha/algorithms /opt/onlyalpha/algorithms
 COPY --from=algorithm-installation /opt/onlyalpha/algorithm-artifact.sha256 /opt/onlyalpha/algorithm-artifact.sha256
 COPY --from=algorithm-installation /opt/onlyalpha/wheels /opt/onlyalpha/wheels
-COPY --from=web-assets /workspace/packages/onlyalpha-web-console/dist /opt/onlyalpha/web
+COPY --from=web-assets /workspace/packages/frontend/dist /opt/onlyalpha/web
 COPY database/postgres/migrations /opt/onlyalpha/schema
 USER onlyalpha
 # Exercise the final filesystem as its actual unprivileged runtime user.
@@ -194,8 +192,8 @@ for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_serve
 for name in ("onlyalpha", "onlyalpha-calculation-worker", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
 for flag in ("--export-openapi", "--export-websocket"):
-    result = subprocess.run(["/usr/local/bin/onlyalpha-http-server", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
+    result = subprocess.run(["/usr/local/bin/onlyalpha-backend", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
     assert isinstance(json.loads(result.stdout), dict), flag
 PY_RUNTIME_SMOKE
-ENTRYPOINT ["/usr/local/bin/onlyalpha-http-server"]
+ENTRYPOINT ["/usr/local/bin/onlyalpha-backend"]
 CMD ["--user-data-root", "/var/lib/onlyalpha"]

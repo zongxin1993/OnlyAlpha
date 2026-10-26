@@ -51,7 +51,7 @@ def test_internal_predicates_are_not_exposed_by_public_authoring_descriptors() -
 
 
 def test_definition_http_is_explicitly_deferred_and_cannot_execute_resolution() -> None:
-    api = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
+    api = Path("packages/backend/src/onlyalpha_http_server")
     assert not tuple(api.rglob("*.py"))
     native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
     operation = native["paths"]["/api/v2/research/definitions/resolve"]["post"]

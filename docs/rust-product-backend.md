@@ -46,7 +46,12 @@ The paragraphs below describe existing source locations for navigation until the
 
 `crates/onlyalpha-metadata-json/` owns the shared pure metadata identity codec. `crates/onlyalpha-integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
 
-`packages/onlyalpha-product-runtime/` contains transport-neutral Rust Product Application/worker composition and owning PostgreSQL adapters. It depends on canonical Rust libraries and explicit plugin/algorithm boundaries; it has no Product HTTP server or ingress dependency. Its owning ClickHouse persistence uses an explicitly bounded HTTP client. `packages/onlyalpha-http-server/` owns the native HTTP/WebSocket adapter and startup composition. Concrete provider/market/Broker implementations remain under `plugs/`. Library modules, process boundaries and storage owners remain separate even when linked into one node.
+`packages/backend/src/application/` owns transport-neutral Product Commands/Queries and composition;
+`persistence/` owns Product PostgreSQL/ClickHouse adapters; `security/` owns credentials and ingress policy;
+`transport/` owns HTTP/WebSocket adapters and `bootstrap/` owns configuration and startup. These are internal modules
+of the single `onlyalpha-backend` product, not separate release packages. Transport uses owning Application/session
+operations rather than bypassing command/receipt or source authorization boundaries. Concrete provider/market/Broker
+implementations remain under `plugs/`. Shipping Web sources are in `packages/frontend/`.
 
 ## Permanent verification obligations
 

@@ -241,7 +241,7 @@ def test_quality_dependency_audit_uses_every_authoritative_lock() -> None:
     scan_args = scan_with.get("scan-args")
     assert isinstance(scan_args, str)
     assert "--lockfile=uv.lock" in scan_args
-    assert "--lockfile=packages/onlyalpha-web-console/package-lock.json" in scan_args
+    assert "--lockfile=packages/frontend/package-lock.json" in scan_args
     assert all("continue-on-error" not in step for step in steps)
 
 

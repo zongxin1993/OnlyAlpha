@@ -93,13 +93,13 @@ def build(directory: Path) -> dict[str, Any]:
         raise ValueError("NATIVE_BUILD_FROZEN_INPUT_REQUIRED")
     directory.mkdir(parents=True)
     (directory / "bin").mkdir()
-    shutil.copy2(native_executable(), directory / "bin/onlyalpha-http-server")
+    shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
     artifact = install(directory / "wheels", directory / "algorithms")
     (directory / "algorithm-artifact.sha256").write_text(artifact + "\n")
     with (directory / "web-build.log").open("w") as log:
         result = subprocess.run(
             ["npm", "run", "build", "--", "--outDir", str(directory / "web"), "--emptyOutDir"],
-            cwd=ROOT / "packages/onlyalpha-web-console",
+            cwd=ROOT / "packages/frontend",
             env=web_environment(dict(os.environ)),
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -108,7 +108,7 @@ def build(directory: Path) -> dict[str, Any]:
     shutil.copytree(ROOT / "database/postgres/migrations", directory / "schema")
     if source_inputs(ROOT) != inputs:
         raise ValueError("NATIVE_BUILD_SOURCE_CHANGED")
-    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    version = tomllib.loads((ROOT / "packages/backend/Cargo.toml").read_text())["package"]["version"]
     manifest = {
         "schema_version": 1,
         "version": version,

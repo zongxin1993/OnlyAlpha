@@ -90,8 +90,8 @@ manifests. Backend and Rust plugins have explicit versions; libraries inherit th
 are projections of backend, Python/Rust plugin metadata share that plugin's authority, and internal dependencies pin their
 actual target distribution version. Fixture versions remain independent. No version is advanced merely by this cutover.
 
-Before directory relocation, backend authority is `packages/onlyalpha-http-server/Cargo.toml`, frontend authority is
-`packages/onlyalpha-web-console/package.json`; the transport-neutral Product component derives the backend version. Move these
+Before directory relocation, backend authority is `packages/backend/Cargo.toml`, frontend authority is
+`packages/frontend/package.json`; the transport-neutral Product component derives the backend version. Move these
 paths and their consumers atomically in the Product-package phase, without empty packages or another version ledger.
 
 PR selection uses explicit labels such as `release:frontend:patch` or `release:plugin-binance:minor`. No label means no release;

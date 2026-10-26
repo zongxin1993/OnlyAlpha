@@ -46,9 +46,7 @@ def test_protocol_package_is_independent_of_core_product_and_api_packages() -> N
     package = ROOT / "packages/onlyalpha-gateway-protocol"
     metadata = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = metadata["project"]["dependencies"]
-    assert all(
-        not item.startswith(("onlyalpha==", "onlyalpha-http-server", "onlyalpha-client")) for item in dependencies
-    )
+    assert all(not item.startswith(("onlyalpha==", "onlyalpha-backend", "onlyalpha-client")) for item in dependencies)
     forbidden = ("onlyalpha", "onlyalpha_http_server", "onlyalpha_client")
     offenders = {
         str(path.relative_to(ROOT)): sorted(
@@ -80,7 +78,7 @@ def test_test_gateway_is_fixture_infrastructure_not_product_authority() -> None:
 
 @pytest.mark.architecture
 def test_product_api_and_external_client_do_not_bypass_kernel_to_gateway_rpc() -> None:
-    roots = (ROOT / "packages/onlyalpha-http-server/src",)
+    roots = (ROOT / "packages/backend/src",)
     forbidden = ("grpc", "onlyalpha_gateway_protocol")
     assert {
         str(path.relative_to(ROOT))

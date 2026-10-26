@@ -54,11 +54,11 @@ def test_lifecycle_has_no_public_arbitrary_state_writer() -> None:
 
 
 def test_api_startup_owns_host_and_only_read_only_schema_verification() -> None:
-    native = ROOT / "packages/onlyalpha-http-server/rust"
+    native = ROOT / "packages/backend/src"
     source = "".join(((native / "main.rs").read_text(encoding="utf-8")).split())
-    startup = "".join(((native / "workstation_startup.rs").read_text(encoding="utf-8")).split())
-    storage = "".join(((native / "startup.rs").read_text(encoding="utf-8")).split())
-    assert not (ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py").exists()
+    startup = "".join(((native / "bootstrap/workstation_startup.rs").read_text(encoding="utf-8")).split())
+    storage = "".join(((native / "bootstrap/startup.rs").read_text(encoding="utf-8")).split())
+    assert not (ROOT / "packages/backend/src/onlyalpha_http_server/main.py").exists()
     assert "Running::open(config,&shutdown)" in source
     assert source.index("Running::open(config,&shutdown)") < source.index("running.serve(")
     assert "inputs.verify(" in startup

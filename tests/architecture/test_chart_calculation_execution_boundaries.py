@@ -47,7 +47,7 @@ def test_chart_projection_has_no_mutation_or_provider_implementation_authority()
 
 
 def test_transport_and_legacy_worker_do_not_wire_numeric_chart_port():
-    paths = list((ROOT / "packages/onlyalpha-http-server/src").rglob("*.py"))
+    paths = list((ROOT / "packages/backend/src").rglob("*.py"))
     paths += list((ROOT / "src/onlyalpha/research/execution").rglob("*.py"))
     paths += [ROOT / "src/onlyalpha/research/worker_main.py"]
     for path in paths:

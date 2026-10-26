@@ -497,7 +497,7 @@ def inside() -> int:
     )
     if manifest["build_environment"] != {"NODE_ENV": "production", "VITE_ONLYALPHA_LOCAL_SESSION": "true"}:
         raise ValueError("DEV_NATIVE_WEB_BUILD_INVALID")
-    executable = str(artifact / "bin/onlyalpha-http-server")
+    executable = str(artifact / "bin/onlyalpha-backend")
     os.execve(executable, [executable, "--user-data-root", "/var/lib/onlyalpha"], environment)
     raise AssertionError("exec returned")
 

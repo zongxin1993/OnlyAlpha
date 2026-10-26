@@ -55,7 +55,7 @@ def test_product_command_identity_does_not_enter_semantic_fingerprint_modules() 
 
 def test_production_kernel_composes_guard_and_strategy_recovery() -> None:
     source = "".join(
-        ((ROOT / "packages/onlyalpha-http-server/rust/workstation_startup.rs").read_text(encoding="utf-8")).split()
+        ((ROOT / "packages/backend/src/bootstrap/workstation_startup.rs").read_text(encoding="utf-8")).split()
     )
     assert source.count("AuthoritySession::acquire(") == 1
     assert "frozen.inventory(&mutwriter,WORK)" in source

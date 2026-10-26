@@ -22,8 +22,8 @@ from tests.architecture.test_product_surface_boundaries import (
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_SOURCE = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
-WEB_SOURCE = ROOT / "packages/onlyalpha-web-console/src"
+API_SOURCE = ROOT / "packages/backend/src/onlyalpha_http_server"
+WEB_SOURCE = ROOT / "packages/frontend/src"
 
 
 @pytest.mark.parametrize(
@@ -139,7 +139,7 @@ def test_web_has_no_core_or_local_fallback_capability() -> None:
 def test_http_route_modules_own_no_raw_mutation_capability() -> None:
     assert not _route_modules()
     assert not tuple(API_SOURCE.rglob("*.py"))
-    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    source = (ROOT / "packages/backend/src/transport/routes.rs").read_text()
     assert "host::Host" in source and "host.dispatch(request).await" in source
     for forbidden in (
         "onlyalpha_kernel",
@@ -202,9 +202,9 @@ def test_standalone_artifact_compatibility_product_surface_is_absent() -> None:
 
 def test_composition_root_retains_real_kernel_wiring_without_route_ownership() -> None:
     assert not (API_SOURCE / "main.py").exists()
-    native = ROOT / "packages/onlyalpha-http-server/rust"
+    native = ROOT / "packages/backend/src"
     main = "".join(((native / "main.rs").read_text(encoding="utf-8")).split())
-    startup = "".join(((native / "workstation_startup.rs").read_text(encoding="utf-8")).split())
+    startup = "".join(((native / "bootstrap/workstation_startup.rs").read_text(encoding="utf-8")).split())
     assert main.count("Running::open(config,&shutdown)") == 1
     assert startup.count("AuthoritySession::acquire(") == 1
     assert "inputs.verify(" in startup

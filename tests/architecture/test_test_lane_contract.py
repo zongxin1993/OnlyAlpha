@@ -20,11 +20,11 @@ pytestmark = pytest.mark.architecture
 
 
 def test_research_http_lanes_are_db_free_and_postgres_lane_owns_real_http_flow() -> None:
-    path = "packages/onlyalpha-http-server/tests/test_native_integration_queries.py"
+    path = "packages/backend/tests/transport/test_native_integration_queries.py"
     for name in (OnlyTestLane.RESEARCH_COMMAND, OnlyTestLane.RESEARCH_QUERY):
         lane = LANES[name]
         assert lane.expression == "not external and not postgres"
-        assert "packages/onlyalpha-http-server/tests" in lane.paths
+        assert "packages/backend/tests/transport" in lane.paths
     postgres = LANES[OnlyTestLane.RESEARCH_POSTGRES]
     assert postgres.paths.count(path) == 1
     assert postgres.expression == "postgres or architecture"
@@ -487,11 +487,11 @@ def test_research_query_lane_owns_core_api_architecture_and_strict_coverage() ->
     assert lane.paths == (
         "tests/research/query",
         "tests/architecture/test_research_query_boundaries.py",
-        "packages/onlyalpha-http-server/tests",
+        "packages/backend/tests/transport",
     )
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/query"' in source
-    assert '"packages/onlyalpha-http-server/src/onlyalpha_http_server"' not in source
+    assert '"packages/backend/src/onlyalpha_http_server"' not in source
     assert '"research-query-coverage"' in source
     assert "Research Query branch coverage must be at least 90%" in source
     assert "Research Query line coverage must be at least 95%" in source
@@ -502,7 +502,7 @@ def test_research_command_lane_owns_application_http_and_architecture_contract()
     assert lane.paths == (
         "tests/research/command",
         "tests/architecture/test_research_command_boundaries.py",
-        "packages/onlyalpha-http-server/tests",
+        "packages/backend/tests/transport",
     )
     source = Path("scripts/test_suite.py").read_text()
     assert '"src/onlyalpha/research/command"' in source

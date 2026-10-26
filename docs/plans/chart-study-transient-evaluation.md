@@ -89,14 +89,14 @@ restart protected services, introduce a second topology or alter markers/quality
 |---|---|---|
 | A0 documents | Constitution checker; docs-only selector; directly related architecture/governance tests via canonical runner | No new test implementation or full Runtime lane required; read-only links/source/boundary review |
 | Calculation/Indicator implementation or adapter | `python scripts/test_suite.py calculation`, `research-calculation`; plugin tests in `plugs/onlyalpha-plugin-indicators/tests/` | Extend test_research_characterization.py/test_research_readiness.py; new Application Query tests under `tests/application/` |
-| Product boundary/DTO | `tests/architecture/test_market_data_http_contract_boundary.py`, test_calculation_plugin_boundaries.py, test_research_calculation_readiness_boundaries.py; HTTP component tests under `packages/onlyalpha-http-server/tests/` | New transient API/query negative tests there, owning OpenAPI snapshot/governance and generated client updated atomically |
+| Product boundary/DTO | `tests/architecture/test_market_data_http_contract_boundary.py`, test_calculation_plugin_boundaries.py, test_research_calculation_readiness_boundaries.py; HTTP component tests under `packages/backend/tests/transport/` | New transient API/query negative tests there, owning OpenAPI snapshot/governance and generated client updated atomically |
 | Web client/config/projection | `python scripts/test_suite.py web-static`, `web-unit`, `web-build`, `web-e2e` | Extend ChartStudies/WorkspacePage/studySeriesProjection/PriceChart tests; production adapter and user flow tests are new |
 | Real HTTP/PG/CH/browser vertical slice | `deploy/run-web-e2e.sh` (existing isolated web-e2e profile in canonical Compose topology, used by quality.yml web-product-e2e); `e2e-compose/` browser tests | New closed-data Study path and exact zero-scientific-write inventory using seeded isolated services; controlled fixture renderer is not replacement |
 | Actual persistence/read permissions/revision boundary | `python scripts/test_suite.py research-postgres` only when relevant; nearest owning Market Data tests under `tests/market_data/` / `tests/research/postgres/` as appropriate | Targeted PG/CH zero-write/revision tests, not full PG per color edit |
 | W6 operational/installed/recovery | Existing `research-execution`, `research-run`, `research-runtime`, `research-postgres` lanes and exact installed-publication tests on independently authorized W6 branch | B2 terminal/native/recovery/release tests, no mock substitute for real PostgreSQL/installed execution |
 
 OpenAPI authority remains `contracts/product-api/v2/openapi.json`, generated web types currently
-`packages/onlyalpha-web-console/src/api/research/generated.ts` via `npm run api:generate`. A1 must not create a competing schema or
+`packages/frontend/src/api/research/generated.ts` via `npm run api:generate`. A1 must not create a competing schema or
 hand-written permissive network type. Root tests own Core/Application; HTTP/Web/plugin-specific tests stay in component directories.
 All proposed new fixtures co-locate with their owning tests; shared vectors belong in `test-data/` with discoverability/generator guards.
 

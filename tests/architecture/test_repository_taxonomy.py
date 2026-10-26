@@ -24,7 +24,10 @@ FORBIDDEN = {
 
 def test_plugin_and_component_directories_follow_taxonomy() -> None:
     assert all(path.name and PLUGIN_NAME.fullmatch(path.name) for path in (ROOT / "plugs").iterdir())
-    assert all(path.name and COMPONENT_NAME.fullmatch(path.name) for path in (ROOT / "packages").iterdir())
+    assert all(
+        path.name in {"backend", "frontend"} or COMPONENT_NAME.fullmatch(path.name)
+        for path in (ROOT / "packages").iterdir()
+    )
     assert not any((ROOT / relative).exists() for relative in FORBIDDEN)
     assert not (ROOT / "apps").exists()
 
@@ -34,8 +37,8 @@ def test_distribution_metadata_matches_repository_identity() -> None:
         for project in parent.glob("*/pyproject.toml"):
             metadata = tomllib.loads(project.read_text(encoding="utf-8"))
             assert metadata["project"]["name"] == project.parent.name
-    native = tomllib.loads((ROOT / "packages/onlyalpha-http-server/Cargo.toml").read_text(encoding="utf-8"))
-    assert native["package"]["name"] == "onlyalpha-http-server"
+    native = tomllib.loads((ROOT / "packages/backend/Cargo.toml").read_text(encoding="utf-8"))
+    assert native["package"]["name"] == "onlyalpha-backend"
 
 
 def test_core_does_not_import_concrete_plugin_namespaces() -> None:

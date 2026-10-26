@@ -1,0 +1,158 @@
+[package]
+name = "onlyalpha-backend"
+version = "0.11.1"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
+onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
+onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
+onlyalpha-calculation-bridge = { path = "../../crates/onlyalpha-calculation-bridge" }
+onlyalpha-plugin-binance = { path = "../../plugs/onlyalpha-plugin-binance" }
+onlyalpha-plugin-tushare = { path = "../../plugs/onlyalpha-plugin-tushare" }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
+tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }
+# Maintained URI grammar and safe descriptor-relative filesystem operations.
+http = { version = "=1.5.0", default-features = false, features = ["std"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["fs", "process", "std"] }
+serde = { version = "=1.0.229", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["arbitrary_precision", "raw_value", "std"] }
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"]}
+subtle = { version = "=2.6.1", default-features = false }
+# OS entropy for the node-local Human session; never canonical trading identity.
+getrandom = { version = "=0.4.3", default-features = false }
+# Wipe the owned protected startup key/config read buffer on every exit.
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+# Native REST transport consumers; no HTTP2, WS or TLS on this adapter.
+axum = { version = "=0.8.9", default-features = false, features = ["json"] }
+hyper = { version = "=1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "service"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
+percent-encoding = { version = "=2.3.2", default-features = false, features = ["std"] }
+
+httparse = { version = "=1.10.1", default-features = false, features = ["std"] }
+
+# One code-first route/DTO declaration drives actual serving and pure OpenAPI export.
+utoipa = { version = "=6.0.0", default-features = false, features = ["macros"] }
+utoipa-axum = { version = "=0.3.0", default-features = false }
+onlyalpha-calculation = { path = "../../crates/onlyalpha-kernel/calculation" }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["alloc"] }
+aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+hkdf = { version = "=0.13.0", default-features = false }
+hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
+onlyalpha-strategy = { path = "../../crates/onlyalpha-kernel/strategy" }
+
+[dev-dependencies]
+hyper = { version = "=1.12.0", default-features = false, features = ["http1", "client"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["test-util"] }
+
+[[example]]
+name = "integration-http-probe"
+path = "tests/transport/support/integration_http_probe.rs"
+
+[[example]]
+name = "command-postgres-probe"
+path = "tests/application/support/postgres_probe.rs"
+[[bin]]
+name = "onlyalpha-backend"
+path = "src/main.rs"
+[[test]]
+name = "application_command"
+path = "tests/application/command.rs"
+
+[[test]]
+name = "application_credentials"
+path = "tests/application/credentials.rs"
+
+[[test]]
+name = "application_deployment"
+path = "tests/application/deployment.rs"
+
+[[test]]
+name = "application_frozen_strategy"
+path = "tests/application/frozen_strategy.rs"
+
+[[test]]
+name = "application_integration_catalog"
+path = "tests/application/integration_catalog.rs"
+
+[[test]]
+name = "application_integration_commands"
+path = "tests/application/integration_commands.rs"
+
+[[test]]
+name = "application_integration_configuration"
+path = "tests/application/integration_configuration.rs"
+
+[[test]]
+name = "application_integration_resolver"
+path = "tests/application/integration_resolver.rs"
+
+[[test]]
+name = "application_market_data_storage"
+path = "tests/application/market_data_storage.rs"
+
+[[test]]
+name = "application_market_data_wal"
+path = "tests/application/market_data_wal.rs"
+
+[[test]]
+name = "application_source_access"
+path = "tests/application/source_access.rs"
+
+[[test]]
+name = "application_watchlists"
+path = "tests/application/watchlists.rs"
+
+[[test]]
+name = "transport_configuration"
+path = "tests/transport/configuration.rs"
+
+[[test]]
+name = "transport_deployment"
+path = "tests/transport/deployment.rs"
+
+[[test]]
+name = "transport_developer_ingress"
+path = "tests/transport/developer_ingress.rs"
+
+[[test]]
+name = "transport_human_access"
+path = "tests/transport/human_access.rs"
+
+[[test]]
+name = "transport_ingress"
+path = "tests/transport/ingress.rs"
+
+[[test]]
+name = "transport_integration_types"
+path = "tests/transport/integration_types.rs"
+
+[[test]]
+name = "transport_node"
+path = "tests/transport/node.rs"
+
+[[test]]
+name = "transport_schema"
+path = "tests/transport/schema.rs"
+
+[[test]]
+name = "transport_startup"
+path = "tests/transport/startup.rs"
+
+[[test]]
+name = "transport_web_assets"
+path = "tests/transport/web_assets.rs"

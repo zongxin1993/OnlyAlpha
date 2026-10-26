@@ -73,7 +73,7 @@ def test_governance_has_immutable_git_baseline_and_no_breaking_bypass() -> None:
 
 
 def test_generated_web_client_has_only_canonical_openapi_source() -> None:
-    package = (ROOT / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
+    package = (ROOT / "packages/frontend/package.json").read_text(encoding="utf-8")
     web_suite = (ROOT / "scripts/web_suite.py").read_text(encoding="utf-8")
     assert package.count("../../contracts/product-api/v2/openapi.json") == 1
     assert "check_generated_client" in web_suite

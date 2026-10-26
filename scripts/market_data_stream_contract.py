@@ -14,7 +14,7 @@ from scripts.native_http_contract import exported, schema_document
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/product-api/v2/market-data-stream.schema.json"
-WEB = ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.generated.ts"
+WEB = ROOT / "packages/frontend/src/api/marketData/stream.generated.ts"
 
 
 def _expression(schema: dict[str, Any]) -> str:
@@ -188,7 +188,7 @@ def render() -> tuple[str, str]:
         "",
     ]
     web = subprocess.run(
-        [str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"), "--stdin-filepath", str(WEB)],
+        [str(ROOT / "packages/frontend/node_modules/.bin/prettier"), "--stdin-filepath", str(WEB)],
         input="\n".join(lines),
         text=True,
         capture_output=True,

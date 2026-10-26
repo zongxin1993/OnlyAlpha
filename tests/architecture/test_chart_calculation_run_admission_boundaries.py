@@ -35,7 +35,7 @@ def test_chart_run_handoff_cannot_execute_or_publish(relative: str) -> None:
 
 
 def test_transport_cannot_wire_internal_chart_run_handoff() -> None:
-    for path in (ROOT / "packages/onlyalpha-http-server/src").rglob("*.py"):
+    for path in (ROOT / "packages/backend/src").rglob("*.py"):
         _assert_boundary(
             path,
             (

@@ -13,7 +13,7 @@ from scripts.native_workstation_build import verify_artifacts, web_environment
 
 def _artifact(root: Path) -> dict[str, str]:
     (root / "bin").mkdir()
-    (root / "bin/onlyalpha-http-server").write_bytes(b"original executable")
+    (root / "bin/onlyalpha-backend").write_bytes(b"original executable")
     inputs = {"pyproject.toml": "a" * 64}
     manifest = {
         "schema_version": 1,
@@ -22,7 +22,7 @@ def _artifact(root: Path) -> dict[str, str]:
         "source_inputs": inputs,
         "build_environment": {"NODE_ENV": "production", "VITE_ONLYALPHA_LOCAL_SESSION": "true"},
         "algorithm_artifact": "b" * 64,
-        "files": {"bin/onlyalpha-http-server": hashlib.sha256(b"original executable").hexdigest()},
+        "files": {"bin/onlyalpha-backend": hashlib.sha256(b"original executable").hexdigest()},
     }
     (root / "manifest.json").write_text(json.dumps(manifest))
     return inputs
@@ -34,7 +34,7 @@ def test_native_artifact_keeps_original_frozen_source_and_absolute_installation(
     for wrong_inputs, version in (({"pyproject.toml": "c" * 64}, "0.11.0"), (inputs, "0.10.21")):
         with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
             verify_artifacts(tmp_path, wrong_inputs, version)
-    (tmp_path / "bin/onlyalpha-http-server").write_bytes(b"replaced executable")
+    (tmp_path / "bin/onlyalpha-backend").write_bytes(b"replaced executable")
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
         verify_artifacts(tmp_path, inputs, "0.11.0")
 
@@ -51,7 +51,7 @@ def test_native_artifact_rejects_paths_outside_its_original_resource_root(tmp_pa
 
 def test_native_artifact_rejects_symlink_substitution_and_unrecorded_payload(tmp_path: Path) -> None:
     inputs = _artifact(tmp_path)
-    original = tmp_path / "bin/onlyalpha-http-server"
+    original = tmp_path / "bin/onlyalpha-backend"
     original.rename(tmp_path / "original")
     original.symlink_to(tmp_path / "original")
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):

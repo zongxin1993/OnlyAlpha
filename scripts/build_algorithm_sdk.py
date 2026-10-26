@@ -52,7 +52,7 @@ def distribution_version(distribution: str) -> str:
     if distribution.startswith("onlyalpha-plugin-"):
         path = ROOT / "plugs" / distribution / "pyproject.toml"
         return str(tomllib.loads(path.read_text())["project"]["version"])
-    path = ROOT / "packages/onlyalpha-http-server/Cargo.toml"
+    path = ROOT / "packages/backend/Cargo.toml"
     return str(tomllib.loads(path.read_text())["package"]["version"])
 
 

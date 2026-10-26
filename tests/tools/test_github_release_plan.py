@@ -17,10 +17,10 @@ def commit(root: Path, version: str, frontend: str = "0.9.0") -> str:
         '[project]\nname="onlyalpha"\nversion="0.7.0"\n[tool.uv.workspace]\nmembers=[]\n'
     )
     (root / "Cargo.toml").write_text(f'[workspace]\nmembers=[]\n[workspace.package]\nversion="{version}"\n')
-    backend = root / "packages/onlyalpha-http-server/Cargo.toml"
+    backend = root / "packages/backend/Cargo.toml"
     backend.parent.mkdir(parents=True, exist_ok=True)
-    backend.write_text('[package]\nname="onlyalpha-http-server"\nversion="0.7.0"\n')
-    web = root / "packages/onlyalpha-web-console/package.json"
+    backend.write_text('[package]\nname="onlyalpha-backend"\nversion="0.7.0"\n')
+    web = root / "packages/frontend/package.json"
     web.parent.mkdir(parents=True, exist_ok=True)
     web.write_text('{"version":"' + frontend + '"}')
     git(root, "add", ".")
@@ -55,6 +55,36 @@ def test_all_version_changes_are_bound_to_their_exact_commits(repository: Path) 
         {"unit": "libs", "previous_version": "0.9.13", "version": "0.10.0", "tag": "libs-v0.10.0", "sha": minor},
     ]
     assert plan_releases(repository, after, after) == []
+
+
+def test_product_directory_cutover_preserves_exact_historical_versions(repository: Path) -> None:
+    commit(repository, "0.9.12")
+    for current, original in (("backend", "onlyalpha-http-server"), ("frontend", "onlyalpha-web-console")):
+        git(repository, "mv", f"packages/{current}", f"packages/{original}")
+    git(
+        repository,
+        "-c",
+        "user.name=Release test",
+        "-c",
+        "user.email=release@example.invalid",
+        "commit",
+        "-m",
+        "original product paths",
+    )
+    before = git(repository, "rev-parse", "HEAD")
+    for current, original in (("backend", "onlyalpha-http-server"), ("frontend", "onlyalpha-web-console")):
+        git(repository, "mv", f"packages/{original}", f"packages/{current}")
+    git(
+        repository,
+        "-c",
+        "user.name=Release test",
+        "-c",
+        "user.email=release@example.invalid",
+        "commit",
+        "-m",
+        "product package cutover",
+    )
+    assert plan_releases(repository, before, git(repository, "rev-parse", "HEAD")) == []
 
 
 @pytest.mark.parametrize("version", ["0.9.11", "0.9.15", "00.9.13", "0.9.13rc1"])

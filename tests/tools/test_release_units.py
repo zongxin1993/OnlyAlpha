@@ -21,14 +21,14 @@ def graph(tmp_path: Path) -> Path:
         tmp_path,
         "Cargo.toml",
         """[workspace]
-members = ["crates/domain", "packages/onlyalpha-http-server", "plugs/onlyalpha-plugin-test"]
+members = ["crates/domain", "packages/backend", "plugs/onlyalpha-plugin-test"]
 [workspace.package]
 version = "0.4.0"
 """,
     )
     for directory, name, version in (
         ("crates/domain", "onlyalpha-domain", "version.workspace = true"),
-        ("packages/onlyalpha-http-server", "onlyalpha-http-server", 'version = "0.7.0"'),
+        ("packages/backend", "onlyalpha-backend", 'version = "0.7.0"'),
         ("plugs/onlyalpha-plugin-test", "onlyalpha-plugin-test", 'version = "0.2.0"'),
     ):
         write(tmp_path, directory + "/Cargo.toml", f'[package]\nname = "{name}"\n{version}\n')
@@ -40,7 +40,7 @@ version = "0.4.0"
 name = "onlyalpha-domain"
 version = "0.4.0"
 [[package]]
-name = "onlyalpha-http-server"
+name = "onlyalpha-backend"
 version = "0.7.0"
 [[package]]
 name = "onlyalpha-plugin-test"
@@ -70,7 +70,7 @@ dependencies = ["onlyalpha==0.7.0"]
     for name in ("package.json", "package-lock.json"):
         write(
             tmp_path,
-            "packages/onlyalpha-web-console/" + name,
+            "packages/frontend/" + name,
             json.dumps({"version": "0.9.0", "packages": {"": {"version": "0.9.0"}}}),
         )
     return tmp_path
@@ -87,10 +87,7 @@ def test_frontend_selection_preserves_all_other_units(graph: Path) -> None:
     for path, content in before.items():
         if path.name not in {"package.json", "package-lock.json"}:
             assert (graph / path).read_bytes() == content
-    assert (
-        json.loads((graph / "packages/onlyalpha-web-console/package-lock.json").read_text())["packages"][""]["version"]
-        == "0.9.1"
-    )
+    assert json.loads((graph / "packages/frontend/package-lock.json").read_text())["packages"][""]["version"] == "0.9.1"
 
 
 def test_plugin_selection_updates_only_plugin_identity_and_incoming_pins(graph: Path) -> None:
@@ -124,7 +121,7 @@ def test_missing_unit_never_falls_back_to_global_rewrite(graph: Path) -> None:
 
 @pytest.mark.parametrize("table", ["{ workspace = false }", "{ other = true }", "{ workspace = 1 }"])
 def test_invalid_inherited_version_never_substitutes_library_version(graph: Path, table: str) -> None:
-    path = graph / "packages/onlyalpha-http-server/Cargo.toml"
-    path.write_text('[package]\nname="onlyalpha-http-server"\nversion=' + table + "\n")
+    path = graph / "packages/backend/Cargo.toml"
+    path.write_text('[package]\nname="onlyalpha-backend"\nversion=' + table + "\n")
     with pytest.raises(release.VersionSyncError):
         release.load_release_units(graph)

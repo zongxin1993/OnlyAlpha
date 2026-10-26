@@ -17,7 +17,7 @@ from tests.architecture._product_authority_contract import load_authority_contra
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API_ROOT = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
+API_ROOT = ROOT / "packages/backend/src/onlyalpha_http_server"
 RESEARCH_EXECUTION_ROOT = ROOT / "src/onlyalpha/research/execution"
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
@@ -102,7 +102,7 @@ def _assert_no_forbidden_capability(
 
 def test_api_routes_do_not_own_semantic_or_infrastructure_writers() -> None:
     assert not tuple(API_ROOT.rglob("*.py"))
-    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    source = (ROOT / "packages/backend/src/transport/routes.rs").read_text()
     assert "host::Host" in source and "host.dispatch(request).await" in source
     for forbidden in ("onlyalpha_kernel", "onlyalpha_predicates", "tokio_postgres", "AuthoritySession", "OnlyEngine"):
         assert forbidden not in source

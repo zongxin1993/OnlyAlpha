@@ -1,19 +1,10 @@
-"""Installed infrastructure SPI implementation for formal work generation binding."""
+"""Exact calculation-context loader retained for isolated reference conformance."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-
-from .registry import OnlyRuntimeGenerationRegistry
-
-
-def runtime_generation_work_authority(root: Path) -> OnlyRuntimeGenerationRegistry:
-    return OnlyRuntimeGenerationRegistry(root)
-
-
-__all__ = ["runtime_generation_work_authority"]
 
 
 def calculation_generation_context(generation: str) -> OnlyCalculationRegistry:

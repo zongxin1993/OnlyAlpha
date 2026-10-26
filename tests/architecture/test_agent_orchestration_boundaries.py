@@ -226,9 +226,9 @@ def test_d_node_and_semantic_bundle_are_closed_and_have_no_run_until_complete_lo
 
 
 def test_d_public_gateway_cannot_import_or_write_agent_authorities() -> None:
-    path = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/agent_gateway.py"
+    path = ROOT / "packages/backend/src/onlyalpha_http_server/agent_gateway.py"
     assert not path.exists()
-    native = (ROOT / "packages/onlyalpha-http-server/rust/human_access.rs").read_text()
+    native = (ROOT / "packages/backend/src/security/human_access.rs").read_text()
     assert '"/api/v2/agent"' in native
     assert "Err(Error::Forbidden)" in native
     for forbidden in ("commit_session_manifest", "commit_research_brief", "OnlyAgentSessionReducerV1"):
@@ -256,10 +256,10 @@ def test_retired_compose_agent_cannot_mount_agent_roots_or_publish_internal_acce
             source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
             assert source not in {"agent-state", "agent-locks"}, name
     assert compose["networks"]["database"]["internal"] is True
-    native = (ROOT / "packages/onlyalpha-http-server/rust/human_access.rs").read_text()
+    native = (ROOT / "packages/backend/src/security/human_access.rs").read_text()
     assert '"/internal"' in native and '"/api/v2/agent"' in native
     assert "Err(Error::Forbidden)" in native
-    web_root = ROOT / "packages/onlyalpha-web-console/src"
+    web_root = ROOT / "packages/frontend/src"
     assert "/internal/v1/" not in "\n".join(path.read_text(encoding="utf-8") for path in web_root.rglob("*.ts"))
 
 
@@ -792,8 +792,8 @@ def test_search_http_projection_is_retired_and_search_semantics_do_not_reverse_d
     search_core = ROOT / "src/onlyalpha/research/search"
     for path in search_core.rglob("*.py"):
         assert "onlyalpha_http_server" not in path.read_text(encoding="utf-8"), path
-    search_http = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/search"
+    search_http = ROOT / "packages/backend/src/onlyalpha_http_server/search"
     assert not tuple(search_http.rglob("*.py"))
-    native = (ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text()
-    assert "Some(crate::routes::Operation::Deferred)" in native
+    native = (ROOT / "packages/backend/src/transport/host.rs").read_text()
+    assert "Some(crate::transport::routes::Operation::Deferred)" in native
     assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in native

@@ -19,7 +19,7 @@ def test_worker_and_protocol_build_as_declared_closures(tmp_path: Path) -> None:
 
 
 def test_infrastructure_rejects_hidden_source_and_build_inputs(tmp_path: Path) -> None:
-    root = check.isolated_http_server(check.ROOT, tmp_path / "source").parent
+    root = check.isolated_backend(check.ROOT, tmp_path / "source").parent
     for component in ("onlyalpha-runtime-persistence", "onlyalpha-backtest"):
         source = check.ROOT / "crates" / component
         destination = root / "crates" / component

@@ -1,4 +1,4 @@
-"""Actual sealed Generation, native journal and owning result integration."""
+"""Reference conformance: actual sealed Generation/native journal, not Shipping acceptance."""
 
 from __future__ import annotations
 
@@ -238,6 +238,14 @@ def test_exact_sealed_generation_executes_factor_and_recovers_same_rust_run(tmp_
         run_id=old.run_id, specification=spec, admission_resolution=resolution, queued_at=old.queued_at
     )
     generation = build_native_backtest_generation(tmp_path / "generation", executable)
+    from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore
+
+    distributions = {
+        item.distribution_name
+        for item in OnlyLocalImmutableArtifactStore(generation.authority.root / "artifacts").manifests()
+    }
+    assert "onlyalpha-runtime-generation-manager" in distributions
+    assert not {"onlyalpha-http-server", "onlyalpha-agent-orchestrator"}.intersection(distributions)
     generation.authority.bind_new_work_exact(
         run.run_id.value,
         generation.fingerprint,

@@ -9,7 +9,7 @@ import pytest
 pytestmark = pytest.mark.architecture
 
 ROOT = Path(__file__).parents[2]
-API = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
+API = ROOT / "packages/backend/src/onlyalpha_http_server"
 RUN_ROUTES = API / "research/run_routes.py"
 APP = API / "app.py"
 MAIN = API / "main.py"
@@ -36,14 +36,14 @@ def test_canonical_run_http_is_explicitly_deferred_without_direct_execution() ->
     ]
     assert operations
     assert all(set(operation["responses"]) == {"501"} for operation in operations)
-    source = (ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text()
+    source = (ROOT / "packages/backend/src/transport/host.rs").read_text()
     assert "OnlyResearchCommandService" not in source
     assert "OnlyResearchRunQueryService" not in source
 
 
 def test_product_app_cannot_receive_legacy_direct_run_services() -> None:
     assert not APP.exists()
-    source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
+    source = (ROOT / "packages/backend/src/transport/routes.rs").read_text()
     assert "State<Arc<Host>>" in source
     assert "OnlyResearchCommandService" not in source
     assert "OnlyResearchRunQueryService" not in source
@@ -51,9 +51,9 @@ def test_product_app_cannot_receive_legacy_direct_run_services() -> None:
 
 def test_one_main_composition_uses_same_started_host_and_forbids_multi_worker() -> None:
     assert not MAIN.exists()
-    source = "".join(((ROOT / "packages/onlyalpha-http-server/rust/main.rs").read_text(encoding="utf-8")).split())
+    source = "".join(((ROOT / "packages/backend/src/main.rs").read_text(encoding="utf-8")).split())
     startup = "".join(
-        ((ROOT / "packages/onlyalpha-http-server/rust/workstation_startup.rs").read_text(encoding="utf-8")).split()
+        ((ROOT / "packages/backend/src/bootstrap/workstation_startup.rs").read_text(encoding="utf-8")).split()
     )
     assert source.count("Running::open(config,&shutdown)") == 1
     assert source.index("Running::open(config,&shutdown)") < source.index("running.serve(")
@@ -65,9 +65,9 @@ def test_one_main_composition_uses_same_started_host_and_forbids_multi_worker() 
 
 
 def test_no_dispatch_failure_fallback_or_direct_mutation_call_exists() -> None:
-    source = "".join((ROOT / "packages/onlyalpha-http-server/rust/host.rs").read_text().split())
-    deferred = source.index("Some(crate::routes::Operation::Deferred)")
-    implemented = source.index("Some(crate::routes::Operation::Implemented)", deferred)
+    source = "".join((ROOT / "packages/backend/src/transport/host.rs").read_text().split())
+    deferred = source.index("Some(crate::transport::routes::Operation::Deferred)")
+    implemented = source.index("Some(crate::transport::routes::Operation::Implemented)", deferred)
     assert '"PRODUCT_CAPABILITY_NOT_IMPLEMENTED"' in source[deferred:implemented]
     assert "returnErr(" in source[deferred:implemented]
     assert ".submit_research_run(" not in source

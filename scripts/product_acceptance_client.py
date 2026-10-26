@@ -149,7 +149,7 @@ def _require_applied_funding(result: Mapping[str, Any]) -> None:
 
 
 def run() -> dict[str, str]:
-    client = ProductHttpClient(os.environ.get("ONLYALPHA_PRODUCT_API_URL", "http://onlyalpha-http-server:8000"))
+    client = ProductHttpClient(os.environ.get("ONLYALPHA_PRODUCT_API_URL", "http://onlyalpha-backend:8000"))
     timeout_seconds = float(os.environ.get("ONLYALPHA_ACCEPTANCE_TIMEOUT_SECONDS", "120"))
     resume_run_id = os.environ.get("ONLYALPHA_ACCEPTANCE_RESUME_BACKTEST_RUN_ID")
     if resume_run_id:

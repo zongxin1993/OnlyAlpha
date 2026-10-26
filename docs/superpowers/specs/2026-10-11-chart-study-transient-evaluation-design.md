@@ -41,9 +41,9 @@ source evidence; “OPEN/Draft at inspection” is not the current PR status or 
   bounded window, reads owning range facts/revision evidence, checks complete coverage and projects closed Bars. Lines 563 and
   599–647 distinguish read-only DB-first Query from acquisition. Incomplete coverage yields no numeric Bars here; it must not be
   represented as a computed Study with missing input silently removed.
-- `packages/onlyalpha-http-server/src/onlyalpha_http_server/market_data/routes.py:71–110`: GET bars delegates to that service;
+- `packages/backend/src/onlyalpha_http_server/market_data/routes.py:71–110`: GET bars delegates to that service;
   POST acquisitions separately calls `acquire_bars`. The route performs no Indicator evaluation.
-- `packages/onlyalpha-web-console/src/features/workspace/useMarketDataChart.ts:187–243,332–406,423–480`: real Query feeds the
+- `packages/frontend/src/features/workspace/useMarketDataChart.ts:187–243,332–406,423–480`: real Query feeds the
   admitted Bar ledger, history generation fences and a separate stream. `openMarketDataStream` supplies closed/preview observations
   under exact source/semantic checks. Lines 245–330 and 389–400 also show that the **existing chart loader** can explicitly issue
   acquisition Commands for gaps. The proposed Study Query must not reuse that acquisition loop as an implicit side effect;
@@ -54,7 +54,7 @@ source evidence; “OPEN/Draft at inspection” is not the current PR status or 
 
 ### P1 Missing W3 Product Query/Adapter
 
-- `packages/onlyalpha-web-console/src/features/workspace/ChartStudies.tsx:190–209`: confirmation constructs a display instance
+- `packages/frontend/src/features/workspace/ChartStudies.tsx:190–209`: confirmation constructs a display instance
   and `connectionState: "CONFIGURED_NOT_EXECUTED"`; it does not request values.
 - `.../features/workspace/WorkspacePage.tsx:398–411`: the actual `PriceChart` use-site supplies instances, selected ID,
   incarnation, Bars/context and history callback, but **no `studyEvidence`**.
@@ -404,13 +404,13 @@ rules satisfy ADR 0138's caller/Source proof requirement; they do not waive it.
 
 Source observations at master `3793eeb8c7a9f1ddfc905c972500a4cfe2b86e77`:
 
-- `packages/onlyalpha-http-server/src/onlyalpha_http_server/app.py` constructs FastAPI and includes the Market Data router
+- `packages/backend/src/onlyalpha_http_server/app.py` constructs FastAPI and includes the Market Data router
   without a demonstrated Product-user authentication dependency or unified caller middleware.
 - `.../market_data/routes.py` delegates directly to the Product service. Its Integration reference is a Source locator,
   not caller identity or a subject entitlement. Candidate 401/403 DTOs do not supply either proof.
 - `.../agent_provider_runtime.py` authenticates a bearer credential only for its internal Agent runtime authority; that secret
   and its scope are not a human Chart session or a Source permission and must not be reused for W3.
-- `packages/onlyalpha-web-console/vite.config.ts` proxies same-origin `/api` to the configured HTTP target. It authenticates
+- `packages/frontend/vite.config.ts` proxies same-origin `/api` to the configured HTTP target. It authenticates
   no caller and asserts no Source entitlement. Same-origin/loopback routing does not establish a protected local application.
 - The canonical Compose topology supplies internal Agent tokens, not a proved human Chart subject or subject-to-Source mapping.
   No reviewed external authenticating proxy configuration is supplied by these files. This is missing protection evidence,

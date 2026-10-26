@@ -154,6 +154,6 @@ def test_release_runs_each_canonical_lane_exactly_once() -> None:
 
 
 def test_product_runtime_postgres_tests_are_discovered_in_the_owning_canonical_lane() -> None:
-    path = "packages/onlyalpha-product-runtime/tests"
+    path = "packages/backend/tests/application"
     assert path in WORKSPACE_TESTS
     assert path in LANES[OnlyTestLane.RESEARCH_POSTGRES].paths

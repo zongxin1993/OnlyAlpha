@@ -48,7 +48,7 @@ def test_migration_authority_surface_does_not_masquerade_as_verifier() -> None:
 
 def test_worker_and_api_construct_only_schema_verifier() -> None:
     worker = (ROOT / "src/onlyalpha/research/worker_main.py").read_text(encoding="utf-8")
-    api = "".join(((ROOT / "packages/onlyalpha-http-server/rust/startup.rs").read_text(encoding="utf-8")).split())
+    api = "".join(((ROOT / "packages/backend/src/bootstrap/startup.rs").read_text(encoding="utf-8")).split())
     assert "OnlyPostgresSchemaVerifier(" in worker
     assert ".inspect(client,max_rows)" in api
     assert "schema::Verdict::Compatible" in api
@@ -76,7 +76,7 @@ def test_authoring_worker_has_only_exact_research_scheduler_and_worker_construct
 def test_kernel_host_and_product_dispatchers_have_exact_composition_sites() -> None:
     lifecycle = next(item for item in CONTRACT.constructors.values() if item.capability == "C17")
     command = next(item for item in CONTRACT.constructors.values() if item.capability == "C18")
-    production_path = "packages/onlyalpha-http-server/src/onlyalpha_http_server/main.py"
+    production_path = "packages/backend/src/onlyalpha_http_server/main.py"
     tooling_path = "scripts/openapi_contract.py"
     assert CONSTRUCTOR_SITES[lifecycle.id] == set()
     assert not (ROOT / production_path).exists()

@@ -1,31 +1,29 @@
 # OnlyAlpha 工作区结构
 
-仓库 taxonomy 是稳定的物理边界：
+目录职责遵守 [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) 和
+[Repository architecture](repository-product-architecture.md)。目录位置不代表能力已经完成迁移或验收。
 
 ```text
 OnlyAlpha/
-├── src/onlyalpha/                  OnlyAlpha 稳定 Kernel、domain、application、runtime、ports 与 Plugin SPI
-├── plugs/                          通过 Plugin SPI discovery/registry 装配的官方 concrete plugins
-│   └── onlyalpha-plugin-<NAME>/
-├── packages/                       非 Plugin 的独立构建、版本、部署或复用组件
-│   ├── onlyalpha-web-console/
-│   ├── onlyalpha-http-server/
-│   └── onlyalpha-gateway-protocol/
-├── contracts/                      版本化 Product / infrastructure contracts
-├── tests/                          fixtures、scenario、conformance 与 correctness proof
-├── deploy/                         infrastructure configuration
-└── scripts/                        engineering and operator tooling
+├── crates/
+│   ├── onlyalpha-kernel/          按职责独立构建的 Rust Kernel libraries
+│   └── onlyalpha-*/               非 Kernel 的共享 Rust libraries
+├── packages/
+│   ├── backend/                  onlyalpha-backend：Application、存储、安全、Transport 与启动
+│   ├── frontend/                 onlyalpha-frontend：Shipping Web UI
+│   └── onlyalpha-*/               迁移期间仍有消费者的 Python 工具、协议与执行资源
+├── src/onlyalpha/                 待逐模块退役的 Python 实现及必要算法 SDK 源码
+├── plugs/onlyalpha-plugin-*/      concrete Provider、Market、Broker 与算法插件
+├── contracts/                    版本化 Product 与跨进程协议
+├── tests/                        独立向量、scenario、conformance 与 correctness proof
+├── deploy/                       部署与生命周期配置
+└── scripts/                      工程与 operator 工具
 ```
 
-唯一归属判定流程：
+归属按职责判断：市场或 Provider 差异进入 Plugin/Adapter/Gateway；市场无关的交易语义进入对应 Kernel
+library；可复用基础设施进入非 Kernel library；产品业务、存储、接口与进程组合进入 backend 内部模块；
+正常人机交互进入 frontend。不得为每个 worker、源文件或假设中的扩展点创建独立包。
 
-1. 通过 OnlyAlpha Plugin SPI 被 discovery + registry + capability 动态装配？是 → `plugs/onlyalpha-plugin-<NAME>/`。
-2. 否则，是否需要独立构建、版本、部署或作为独立工程组件复用？是 → `packages/onlyalpha-<FUNC>-<NAME>/`。
-3. 否则，是否属于稳定、市场无关的 canonical semantics 或 application/runtime infrastructure？是 → `src/onlyalpha/`。
-4. 否或不确定时，先作 architecture decision，不凭目录感觉归类。
-
-Plugin 使用 lower-kebab-case 的 `onlyalpha-plugin-<NAME>`；组件使用
-`onlyalpha-<FUNC>-<NAME>`。`apps/` 与 `packages/provider|market|api|protocol|factor|indicator|target|fake`
-等 category-first wrapper 不属于当前结构。Web 是 Product API 的人机交互组件，HTTP server 是可替换 transport component，
-Gateway protocol 是 infrastructure contract；它们都不是 Kernel Plugin。OpenAPI Product Contract 始终由根目录
-`contracts/` 治理。
+backend 与 frontend 是独立发行的产品包；Rust libraries 统一版本，插件独立版本。保留中的 Python 包不是
+额外 worker 产品发行线。它们的资源归并与实现删除必须按实际消费者、admission 和恢复边界逐项完成，不能
+通过移动目录宣称完成 Rust 迁移。OpenAPI 等正式 Contract 仍由根目录 `contracts/` 治理。

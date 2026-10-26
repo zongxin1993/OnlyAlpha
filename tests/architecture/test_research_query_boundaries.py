@@ -70,7 +70,7 @@ def test_producer_authorities_and_core_do_not_reverse_depend_on_query_or_api() -
 
 
 def test_retired_research_transport_cannot_read_artifacts_or_own_wire_schema() -> None:
-    adapter_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server/research")
+    adapter_root = Path("packages/backend/src/onlyalpha_http_server/research")
     assert not tuple(adapter_root.rglob("*.py"))
     native = json.loads(Path("contracts/product-api/v2/openapi.json").read_text())
     operations = [
@@ -84,12 +84,11 @@ def test_retired_research_transport_cannot_read_artifacts_or_own_wire_schema() -
 
 
 def test_retired_research_server_constructs_no_artifact_profile_reader() -> None:
-    api_root = Path("packages/onlyalpha-http-server/src/onlyalpha_http_server")
+    api_root = Path("packages/backend/src/onlyalpha_http_server")
     assert not tuple(api_root.rglob("*.py"))
-    assert not any(
-        "OnlyResearchArtifactProfileReader" in path.read_text()
-        for path in Path("packages/onlyalpha-http-server/rust").glob("*.rs")
-    )
+    sources = tuple(Path("packages/backend/src").rglob("*.rs"))
+    assert sources, "native backend boundary must scan actual sources"
+    assert not any("OnlyResearchArtifactProfileReader" in path.read_text() for path in sources)
 
 
 def test_query_defines_no_durable_authority_catalog_or_semantic_calculation() -> None:

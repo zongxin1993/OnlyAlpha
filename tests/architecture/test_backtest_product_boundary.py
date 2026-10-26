@@ -21,7 +21,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_http_backtest_transport_cannot_import_or_invoke_engine() -> None:
-    root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/backtest"
+    root = ROOT / "packages/backend/src/onlyalpha_http_server/backtest"
     for path in root.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         assert not any(name.startswith("onlyalpha.engine") for name in _imports(path))

@@ -66,8 +66,8 @@ command names, REVISION/UNKNOWN states) stay in English. No other visual, voice,
 - `README.md` — product architecture, lifecycle, Research and trading-core description.
 - `PROJECT_CONSTITUTION.md` — durable product purpose and non-negotiable boundaries.
 - `docs/architecture.md` and `docs/adr/` — architecture and accepted local design decisions.
-- `packages/onlyalpha-http-server/` — Product API transport.
-- `packages/onlyalpha-web-console/` — Web console.
+- `packages/backend/` — Product API transport.
+- `packages/frontend/` — Web console.
 
 ## Product Principles
 

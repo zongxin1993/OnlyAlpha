@@ -59,11 +59,9 @@ def test_transport_market_data_vocabularies_match_domain() -> None:
     assert set(price) == {item.value for item in OnlyPriceType}
     assert schema["properties"]["price_type"] == {"$ref": "#/components/schemas/OnlyPriceType"}
 
-    web = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/model.ts").read_text(encoding="utf-8")
-    http = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/http.generated.ts").read_text(encoding="utf-8")
-    stream = (ROOT / "packages/onlyalpha-web-console/src/api/marketData/stream.generated.ts").read_text(
-        encoding="utf-8"
-    )
+    web = (ROOT / "packages/frontend/src/api/marketData/model.ts").read_text(encoding="utf-8")
+    http = (ROOT / "packages/frontend/src/api/marketData/http.generated.ts").read_text(encoding="utf-8")
+    stream = (ROOT / "packages/frontend/src/api/marketData/stream.generated.ts").read_text(encoding="utf-8")
 
     def vocabulary(text: str, field: str) -> set[str]:
         bindings = re.findall(rf"\b{field}:\s*(z\.(?:enum|literal)\([^)]*\)|[A-Za-z_]\w*)", text)

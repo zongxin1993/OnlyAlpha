@@ -43,7 +43,7 @@ def test_web_is_an_http_client_and_cannot_import_kernel_mutation_capabilities() 
         "OnlyPostgres",
     )
     import_pattern = re.compile(r"(?:from\s+|import\s*\()(?P<quote>['\"])(?P<module>[^'\"]+)(?P=quote)")
-    for path in sorted((ROOT / "packages/onlyalpha-web-console/src").rglob("*")):
+    for path in sorted((ROOT / "packages/frontend/src").rglob("*")):
         if path.suffix not in {".ts", ".tsx"}:
             continue
         source = path.read_text(encoding="utf-8")

@@ -166,7 +166,7 @@ def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transp
         for path in _python_files(ROOT / "plugs")
         if imported_modules_for_path(path, ROOT) & plugin_forbidden
     }
-    route_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server/integrations"
+    route_root = ROOT / "packages/backend/src/onlyalpha_http_server/integrations"
     route_forbidden = {
         "onlyalpha.persistence.postgres.integration_store",
         "onlyalpha.persistence.postgres.integration_product_store",
@@ -183,10 +183,8 @@ def test_plugins_do_not_import_integration_authority_and_http_routes_stay_transp
 
 
 def test_integration_http_has_only_declared_probe_and_no_delete_or_master_key_creation_authority() -> None:
-    http_root = ROOT / "packages/onlyalpha-http-server/src/onlyalpha_http_server"
-    main_source = "".join(
-        ((ROOT / "packages/onlyalpha-http-server/rust/startup.rs").read_text(encoding="utf-8")).split()
-    )
+    http_root = ROOT / "packages/backend/src/onlyalpha_http_server"
+    main_source = "".join(((ROOT / "packages/backend/src/bootstrap/startup.rs").read_text(encoding="utf-8")).split())
 
     assert not tuple(http_root.rglob("*.py"))
     native = json.loads((ROOT / "contracts/product-api/v2/openapi.json").read_text())
@@ -248,7 +246,7 @@ def test_only_the_composition_root_assembles_persistence_backed_resolvers() -> N
 
 
 def test_web_integration_workspace_is_provider_neutral_and_secret_storage_free() -> None:
-    web_root = ROOT / "packages/onlyalpha-web-console/src"
+    web_root = ROOT / "packages/frontend/src"
     roots = (web_root / "api/integrations", web_root / "features/data/sources")
     sources = {
         str(path.relative_to(ROOT)): path.read_text(encoding="utf-8").lower()

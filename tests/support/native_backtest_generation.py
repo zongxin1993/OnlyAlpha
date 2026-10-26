@@ -1,11 +1,10 @@
-"""Real offline wheel closure and native artifact for Backtest integration tests."""
+"""Offline reference-conformance closure; never a Shipping Product installation."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import platform
-import runpy
 import shutil
 import subprocess
 import sys
@@ -86,7 +85,7 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
             projects[canonicalize_name(tomllib.loads(path.read_text())["project"]["name"])] = project
     selected: set[str] = set()
     pending = [
-        "onlyalpha-http-server",
+        "onlyalpha-runtime-generation-manager",
         "onlyalpha-test-factor-provider",
         "onlyalpha-calculation-worker",
         "psycopg-binary",
@@ -102,15 +101,22 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
             requirement = Requirement(raw)
             if requirement.marker is None or requirement.marker.evaluate({"extra": ""}):
                 pending.append(requirement.name)
-    # The Orchestrator hook writes build provenance. Preserve the frozen source
-    # read-only and stage only that project, carrying its verified provenance.
-    agent = "onlyalpha-agent-orchestrator"
-    staged = root / "build-source" / agent
-    shutil.copytree(projects[agent], staged, ignore=shutil.ignore_patterns("build", "__pycache__", "*.egg-info"))
-    helper = runpy.run_path(str(projects[agent] / "provenance_build.py"))
-    provenance = helper["resolve_build_provenance_bytes"](projects[agent])
-    helper["write_build_provenance"](staged / "src/onlyalpha_agent_orchestrator/_build_provenance.json", provenance)
-    projects[agent] = staged
+    # The reference test exercises the real sealed registry and native journal.
+    # Its private installation advertises only the exact verified calculation
+    # context. No maintained distribution re-enables a Python business service,
+    # and this technical fixture is not Product/UI acceptance evidence.
+    manager = "onlyalpha-runtime-generation-manager"
+    staged = root / "build-source" / manager
+    shutil.copytree(projects[manager], staged, ignore=shutil.ignore_patterns("build", "__pycache__", "*.egg-info"))
+    staged_manifest = staged / "pyproject.toml"
+    # Only this disposable copy is writable; the canonical frozen source stays read-only.
+    staged_manifest.chmod(staged_manifest.stat().st_mode | 0o200)
+    with staged_manifest.open("a") as manifest:
+        manifest.write(
+            '\n[project.entry-points."onlyalpha.calculation_generation_context"]\n'
+            'reference-context = "onlyalpha_runtime_generation_manager.entrypoint:calculation_generation_context"\n'
+        )
+    projects[manager] = staged
     wheels = {
         name: build_wheel(projects[name], root / "wheels" / name)
         if name in projects

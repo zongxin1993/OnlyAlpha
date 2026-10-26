@@ -21,8 +21,8 @@ TEST_DISTRIBUTION_PATHS = (
     Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml"),
     Path("test-data/runtime_factor_provider/pyproject.toml"),
 )
-WEB_PACKAGE_PATH = Path("packages/onlyalpha-web-console/package.json")
-WEB_LOCK_PATH = Path("packages/onlyalpha-web-console/package-lock.json")
+WEB_PACKAGE_PATH = Path("packages/frontend/package.json")
+WEB_LOCK_PATH = Path("packages/frontend/package-lock.json")
 QUANT_ASSET_PROVIDER_PATHS = (
     Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/provider.py"),
     Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"),
@@ -196,8 +196,8 @@ def _requirement_pin_error(requirement: Requirement, *, version: Version) -> str
     return None
 
 
-BACKEND_MANIFEST = Path("packages/onlyalpha-http-server/Cargo.toml")
-BACKEND_RUST_COMPONENTS = {"onlyalpha-http-server", "onlyalpha-product-runtime"}
+BACKEND_MANIFEST = Path("packages/backend/Cargo.toml")
+BACKEND_RUST_COMPONENTS = {"onlyalpha-backend"}
 
 
 def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
@@ -225,6 +225,20 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
     def raw(path: Path) -> str:
         if revision is None:
             return (root / path).read_text(encoding="utf-8")
+        # Read the authority present in this exact historical tree. This is Git
+        # publication history, never an installed-runtime compatibility path.
+        original = {
+            BACKEND_MANIFEST: Path("packages/onlyalpha-http-server/Cargo.toml"),
+            WEB_PACKAGE_PATH: Path("packages/onlyalpha-web-console/package.json"),
+        }.get(path)
+        if original is not None:
+            candidates = subprocess.check_output(
+                ["git", "-C", str(root), "ls-tree", "-r", "--name-only", revision, "--", str(path), str(original)],
+                text=True,
+            ).splitlines()
+            if len(candidates) != 1:
+                raise VersionSyncError("historical release metadata authority is missing or ambiguous")
+            path = Path(candidates[0])
         return subprocess.check_output(["git", "-C", str(root), "show", f"{revision}:{path.as_posix()}"], text=True)
 
     try:

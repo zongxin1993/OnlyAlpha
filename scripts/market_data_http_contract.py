@@ -13,10 +13,10 @@ from scripts.market_data_stream_contract import _definitions, _expression
 from scripts.native_http_contract import exported, schema_document
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "packages/onlyalpha-web-console/src/api/marketData/http.generated.ts"
-CHART_WEB = ROOT / "packages/onlyalpha-web-console/src/api/chartStudies/http.generated.ts"
-ERROR_WEB = ROOT / "packages/onlyalpha-web-console/src/api/errors.generated.ts"
-TEMPORARY_WEB = ROOT / "packages/onlyalpha-web-console/src/api/marketData/temporary.generated.ts"
+WEB = ROOT / "packages/frontend/src/api/marketData/http.generated.ts"
+CHART_WEB = ROOT / "packages/frontend/src/api/chartStudies/http.generated.ts"
+ERROR_WEB = ROOT / "packages/frontend/src/api/errors.generated.ts"
+TEMPORARY_WEB = ROOT / "packages/frontend/src/api/marketData/temporary.generated.ts"
 
 
 def render() -> str:
@@ -43,7 +43,7 @@ def render() -> str:
         "",
     ]
     return subprocess.run(
-        [str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"), "--stdin-filepath", str(WEB)],
+        [str(ROOT / "packages/frontend/node_modules/.bin/prettier"), "--stdin-filepath", str(WEB)],
         input="\n".join(lines),
         text=True,
         capture_output=True,
@@ -66,7 +66,7 @@ def render_temporary() -> str:
     ]
     return subprocess.run(
         [
-            str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"),
+            str(ROOT / "packages/frontend/node_modules/.bin/prettier"),
             "--stdin-filepath",
             str(TEMPORARY_WEB),
         ],
@@ -110,7 +110,7 @@ def render_chart() -> str:
             f"export type {name} = z.infer<typeof {name}Schema>;",
         ]
     return subprocess.run(
-        [str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"), "--stdin-filepath", str(CHART_WEB)],
+        [str(ROOT / "packages/frontend/node_modules/.bin/prettier"), "--stdin-filepath", str(CHART_WEB)],
         input="\n".join(lines) + "\n",
         text=True,
         capture_output=True,
@@ -125,7 +125,7 @@ def render_errors() -> str:
         lines.append(f"const {name}Schema = {_expression(schema)};")
     lines.append(f"export const nativeErrorSchema = {_expression(document)};")
     return subprocess.run(
-        [str(ROOT / "packages/onlyalpha-web-console/node_modules/.bin/prettier"), "--stdin-filepath", str(ERROR_WEB)],
+        [str(ROOT / "packages/frontend/node_modules/.bin/prettier"), "--stdin-filepath", str(ERROR_WEB)],
         input="\n".join(lines),
         text=True,
         capture_output=True,
