@@ -140,21 +140,57 @@ pub mod spot_source;
 /// Pure market-identity witness for reading immutable original Source history.
 /// This validates the ORIGINAL declaration/value kinds; it neither constructs
 /// a current Resource nor qualifies an old descriptor for new provider work.
-pub fn spot_history_identity(descriptor:&Descriptor, configuration:&RawValue)->Result<onlyalpha_integration_contract::source::MarketIdentity, Error>{
-    if descriptor.id().value()!="binance.spot.market_data" || descriptor.category()!=Category::DataSource {return Err(Error::Type);}
-    let fields=metadata::object_fields(configuration.get()).map_err(configuration_error)?;
-    for (name,value) in &fields {
-        let field=descriptor.fields().iter().find(|f|f.id()==name).ok_or(Error::Configuration)?;
-        if field.secret() || !field.accepts(value){return Err(Error::Configuration);}
+pub fn spot_history_identity(
+    descriptor: &Descriptor,
+    configuration: &RawValue,
+) -> Result<onlyalpha_integration_contract::source::MarketIdentity, Error> {
+    if descriptor.id().value() != "binance.spot.market_data"
+        || descriptor.category() != Category::DataSource
+    {
+        return Err(Error::Type);
     }
-    if descriptor.fields().iter().any(|f|f.required()&&!f.secret()&&!fields.contains_key(f.id())){return Err(Error::Configuration);}
-    let environment=fields.get("environment").map(|v|string(v)).transpose()?.ok_or(Error::Configuration)?;
-    let profile=fields.get("endpoint_profile").map(|v|string(v)).transpose()?.ok_or(Error::Configuration)?;
-    let source=match(environment.as_str(),profile.as_str()){
-        ("GLOBAL","PUBLIC_MARKET_DATA"|"STANDARD"|"GCP"|"API1"|"API2"|"API3"|"API4")=>"binance.spot.market_data.live",
-        ("US","DEFAULT")=>"binance.spot.market_data.us",
-        ("SPOT_TESTNET","DEFAULT"|"GCP")=>"binance.spot.market_data.spot_testnet",
-        _=>return Err(Error::Configuration),
+    let fields = metadata::object_fields(configuration.get()).map_err(configuration_error)?;
+    for (name, value) in &fields {
+        let field = descriptor
+            .fields()
+            .iter()
+            .find(|f| f.id() == name)
+            .ok_or(Error::Configuration)?;
+        if field.secret() || !field.accepts(value) {
+            return Err(Error::Configuration);
+        }
+    }
+    if descriptor
+        .fields()
+        .iter()
+        .any(|f| f.required() && !f.secret() && !fields.contains_key(f.id()))
+    {
+        return Err(Error::Configuration);
+    }
+    let environment = fields
+        .get("environment")
+        .map(|v| string(v))
+        .transpose()?
+        .ok_or(Error::Configuration)?;
+    let profile = fields
+        .get("endpoint_profile")
+        .map(|v| string(v))
+        .transpose()?
+        .ok_or(Error::Configuration)?;
+    let source = match (environment.as_str(), profile.as_str()) {
+        (
+            "GLOBAL",
+            "PUBLIC_MARKET_DATA" | "STANDARD" | "GCP" | "API1" | "API2" | "API3" | "API4",
+        ) => "binance.spot.market_data.live",
+        ("US", "DEFAULT") => "binance.spot.market_data.us",
+        ("SPOT_TESTNET", "DEFAULT" | "GCP") => "binance.spot.market_data.spot_testnet",
+        _ => return Err(Error::Configuration),
     };
-    Ok(onlyalpha_integration_contract::source::MarketIdentity{provider:"binance".into(),venue:"BINANCE".into(),market:"SPOT".into(),environment,source_id:source.into()})
+    Ok(onlyalpha_integration_contract::source::MarketIdentity {
+        provider: "binance".into(),
+        venue: "BINANCE".into(),
+        market: "SPOT".into(),
+        environment,
+        source_id: source.into(),
+    })
 }

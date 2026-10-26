@@ -16,7 +16,7 @@ import onlyalpha_plugin_indicators
 import onlyalpha_plugin_operators
 from google._upb import _message
 
-import onlyalpha
+from onlyalpha import __file__ as onlyalpha_file
 from onlyalpha.calculation.decimal_execution import only_decimal_execution_semantic_dependency
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -36,7 +36,7 @@ from onlyalpha.calculation.implementation import (
 def manifest() -> OnlyCalculationImplementationManifest:
     resources = []
     for label, root in (
-        ("core", Path(onlyalpha.__file__).parent),
+        ("core", Path(onlyalpha_file).parent),
         ("plugin", Path(onlyalpha_plugin_indicators.__file__).parent),
         ("operators", Path(onlyalpha_plugin_operators.__file__).parent),
         ("protocol", Path(onlyalpha_gateway_protocol.__file__).parent),

@@ -6,7 +6,8 @@ module.exports = async function publish({ github, context, core, plan }) {
             !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(
                 item.version,
             ) ||
-            item.tag !== `v${item.version}` ||
+            !/^(libs|backend|frontend|plugin-[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(item.unit) ||
+            item.tag !== `${item.unit}-v${item.version}` ||
             !/^[0-9a-f]{40}$/.test(item.sha) ||
             item.sha === "0".repeat(40)
         ) {
@@ -63,8 +64,8 @@ module.exports = async function publish({ github, context, core, plan }) {
                         ...repo,
                         tag_name: item.tag,
                         target_commitish: item.sha,
-                        name: `OnlyAlpha ${item.version}`,
-                        body: `OnlyAlpha ${item.previous_version} → ${item.version}`,
+                        name: `OnlyAlpha ${item.unit} ${item.version}`,
+                        body: `OnlyAlpha ${item.unit}: ${item.previous_version} → ${item.version}`,
                         generate_release_notes: true,
                         draft: false,
                         prerelease: false,

@@ -6,22 +6,26 @@
 ## Repository taxonomy and protocol boundary
 
 ```text
-Web / Agent
-    ↓ Product API (versioned OpenAPI contract in contracts/)
-onlyalpha-http-server (replaceable HTTP component)
-    ↓ Application Command / Query
-src/onlyalpha (stateful Kernel and canonical semantics)
-    ↓ stable Plugin SPI / ports
-plugs/onlyalpha-plugin-* (concrete plugins)
-    ↓
-External market / provider / broker
+Web (packages/frontend) / Agent (backend-owned formal API client)
+    ↓ versioned Product API (contracts/)
+Backend transport → Application Commands/Queries (packages/backend)
+    ↓ explicit library ports and canonical semantics
+Reusable Rust libraries (crates/; Kernel and Infrastructure remain distinct)
+Concrete plugins (plugs/) → public Plugin SPI / library ports
+Backend assembles concrete implementations; libraries do not import plugins.
 ```
 
-`packages/` contains independently buildable non-plugin components such as the Web console,
-HTTP server and Gateway protocol. Web is not a Plugin and the HTTP server is not the Kernel.
-The Kernel remains transport-neutral and concrete-plugin-free; its internal deterministic
-trading chain uses direct typed calls. Gateway protocol is an infrastructure/data-plane
-contract, while OpenAPI is the Product control-plane contract. Plugins never own Core Authority.
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) and
+[Repository/product architecture](repository-product-architecture.md) define the target: one repository/workspace,
+reusable Rust libraries with one version, independent backend/frontend product versions, independently versioned plugins.
+Only the two product packages belong under `packages/`; workers are backend roles/modules, not additional product packages.
+Gateway bindings are a reusable library; canonical protocol sources remain in `contracts/`. Web and HTTP are not Kernel.
+The direct typed deterministic trading chain and sole fact Authorities remain unchanged.
+
+This is the target layout, not a statement that current package paths have moved. Detailed source maps below may name existing
+`onlyalpha-http-server`, `onlyalpha-product-runtime`, worker packages and Python source; migrate those consumers atomically
+under the [repository work program](repository-migration-work-program.md). Do not treat an old package path as a permanent
+independent deployment or maintain Python business merely because it is still named in a source map.
 
 Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定；多市场
 拓扑与异构生命周期由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 决定；目标 Live
@@ -178,7 +182,7 @@ Result 和 Artifact final verification；失败或取消留下的 upstream facts
 
 The owner-approved long-term implementation target is a Rust Trading Kernel with Python-oriented indicators/factors and language-appropriate market plugins, as defined in [ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md). Initial Rust construction targets Linux in the existing single dev Compose environment. Current Python implementation remains implementation truth until each corresponding slice is migrated and validated. Temporary Python/Rust comparison never creates a second official writer; final retirement preserves exact historical artifacts and durable facts. The [migration work program](rust-kernel-migration-work-program.md) defines construction order, not completion or latency certification.
 
-The Rust implementation of market-independent Core semantics lives in `crates/onlyalpha-kernel/core/`, under the root Cargo workspace.
+Canonical Rust modules live under `crates/onlyalpha-kernel/`. The current `core/` contains only Predicate semantics and targets `predicates/` / `onlyalpha-predicates` under ADR 0142; it is not the whole Kernel.
 It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
 [Boolean Predicate corpus](predicate-semantics.md) and [integer reference/literal comparison vectors](integer-predicate-semantics.md), the [Boolean/string equality corpus](scalar-equality-semantics.md) and [finite Decimal reference/literal comparisons](decimal-predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
 Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
@@ -189,7 +193,7 @@ under `crates/onlyalpha-kernel/domain/`; Kernel consumers may depend on Domain, 
 Infrastructure adapters or concrete plugins. Internal primitive steps are not whole-module completion or Runtime admission.
 
 
-All modules under `src/onlyalpha/` are within migration assessment, not a blanket Rust rewrite commitment. Python and Rust align
+All modules under `src/onlyalpha/` are within responsibility assessment. ADR 0141 selects Rust backend business and ADR 0142 selects its organization; Python algorithm APIs/helpers remain only where required. Python and Rust align
 by domain/module responsibility and dependency direction, with language-native file/type organization. Align incrementally with
 real migration consumers; do not create empty parallel trees or move correct Python code only for symmetry. Application and
 Infrastructure migration remain separate from canonical Kernel ownership; Python-oriented algorithms and language-appropriate
@@ -635,16 +639,14 @@ forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not Asset/Draft
 
 ADR 0116 closes the execution side of candidate provenance. For a future DB-native private Revision, an Authoring Execution Generation
 binds the exact Revision/source content, candidate executable content, Candidate Provider and complete Catalog generation to one
-process-lifetime Calculation composition. The independent
-`packages/onlyalpha-authoring-execution-worker/` component verifies that generation before it may register presence or claim work. Normal
+process-lifetime Calculation composition. The authoring execution role (currently `packages/onlyalpha-authoring-execution-worker/`, targeting backend modules under ADR 0142) verifies that generation before it may register presence or claim work. Normal
 Research Workers claim only unbound Runs; an authoring Worker claims only Runs bound to its exact generation fingerprint, with the filter
 inside the existing transactional Attempt authority. Git/path/artifact loading remains outside Core, active Runs are never rebound, and
 Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
 LIVE authorization remain separate authorities.
 
 ADR 0117 closes the admitted distribution-to-runtime boundary. A locator-independent Distribution Artifact manifest binds exact wheel
-bytes, source revision, Provider content, asset inventory, implementation fingerprints and tested Core execution identity. The independent
-`packages/onlyalpha-runtime-generation-manager/` component verifies a content-addressed artifact set, installs it into a clean isolated
+bytes, source revision, Provider content, asset inventory, implementation fingerprints and tested Core execution identity. The Generation manager (currently `packages/onlyalpha-runtime-generation-manager/`, targeting backend modules under ADR 0142) verifies a content-addressed artifact set, installs it into a clean isolated
 environment and recomputes installed Provider, Catalog and implementation closure, including Core-owned built-in implementations, before
 producing an immutable RuntimeGeneration. The resulting immutable RuntimeGeneration Validation Evidence is the only proof accepted for a
 `PREPARING → READY` transition. A validated environment carries a non-identity operational seal; a formal Worker must verify that seal,
@@ -669,6 +671,9 @@ and Backtest admission/claim paths. The runtime-generation-manager supplies the 
 not import that infrastructure implementation. Formal admission binds the existing Product Run ID before durable queue acceptance, while
 claim predicates select only IDs bound to the process generation and execution rechecks the same immutable binding. Run stores remain the
 Run lifecycle Authorities and never become a second RuntimeGeneration-binding store.
+The generic Application binding port contains only Generation/work-binding operations. Backtest execution and result validation
+belong to its Backtest-specific port in `onlyalpha.backtest.runtime_generation`; they are not imported by generic Research
+consumers. The lifecycle-only Backtest composition supplies a rejecting executor, never a Python Engine fallback.
 If a Worker is started without both RuntimeGeneration arguments, it enters an explicit lifecycle-only no-claim composition: health,
 presence and shutdown remain operable, but the authority returns no eligible work and all bind/require operations fail closed. Supplying
 only one argument is invalid; formal claim capability always requires the pair and successful hosted-generation verification.
@@ -699,7 +704,7 @@ OBV and Stochastic retain explicit financial inputs and do not create a second F
 Human → Web
 Agent / Automation → canonical versioned Product API
 → HTTPS / JSON
-→ onlyalpha-http-server
+→ backend HTTP/WebSocket transport (current onlyalpha-http-server)
 → Product Command / Query
 → Stateful Kernel / Application authority
 ```

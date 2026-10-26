@@ -40,7 +40,7 @@ def main() -> int:
                 "cargo",
                 "build",
                 "-p",
-                "onlyalpha-calculation-worker",
+                "onlyalpha-calculation-bridge",
                 "--bin",
                 "calculation-bridge-check",
                 "--frozen",

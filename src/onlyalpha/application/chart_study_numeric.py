@@ -15,10 +15,7 @@ from typing import cast
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from onlyalpha.application.chart_study_input import OnlyChartStudyClosedHistoryInput
-from onlyalpha.application.chart_study_manifest import (
-    only_chart_study_invocation_dependency,
-    only_chart_study_invocation_manifest,
-)
+from onlyalpha.application.chart_study_manifest import only_chart_study_invocation_manifest
 from onlyalpha.application.market_data_stream import OnlyChartStudyPreviewInput
 from onlyalpha.calculation.chart_decimal import (
     OnlyChartNumericBindingVerifier,
@@ -541,7 +538,6 @@ def _require_chart_registration(
     required = {
         only_decimal_execution_semantic_dependency(),
         only_chart_study_numeric_dependency(),
-        only_chart_study_invocation_dependency(),
         only_python_stdlib_semantic_dependency("decimal"),
         only_distribution_semantic_dependency("pyarrow"),
     }

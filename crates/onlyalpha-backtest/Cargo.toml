@@ -1,0 +1,27 @@
+[package]
+name = "onlyalpha-backtest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+[lib]
+path = "rust/lib.rs"
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-runtime-persistence = { path = "../onlyalpha-runtime-persistence" }
+onlyalpha-calculation-bridge = { path = "../onlyalpha-calculation-bridge" }
+onlyalpha-clock = { path = "../onlyalpha-kernel/clock" }
+onlyalpha-domain = { path = "../onlyalpha-kernel/domain" }
+onlyalpha-execution = { path = "../onlyalpha-kernel/execution" }
+onlyalpha-strategy = { path = "../onlyalpha-kernel/strategy" }
+onlyalpha-market-data-pipeline = { path = "../onlyalpha-kernel/market_data/pipeline" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+
+[dev-dependencies]
+onlyalpha-calculation = { path = "../onlyalpha-kernel/calculation" }
+
+[[bin]]
+name = "onlyalpha-backtest-runtime"
+path = "rust/main.rs"

@@ -79,7 +79,7 @@ def test_delivery_isolated_closure(tmp_path: Path) -> None:
     }
     assert (root / "test-data/market-data-delivery/routing-v1.jsonl").is_file()
     for path in (
-        "crates/onlyalpha-kernel/core",
+        "crates/onlyalpha-kernel/predicates",
         "crates/onlyalpha-kernel/clock",
         "crates/onlyalpha-kernel/event",
         "src/onlyalpha",

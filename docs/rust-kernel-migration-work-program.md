@@ -5,16 +5,31 @@ It specifies construction order, deliverables and the behavior each unit must pr
 ledger, certification report or second acceptance Authority. Every implementation unit still needs its in-context Task Contract
 and AGENTS.md impact-aware validation. No Rust implementation or QMT removal is claimed by publishing this program.
 
+## Repository alignment and mandatory Python cleanup
+
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) and the
+[repository work program](repository-migration-work-program.md) own the target placement/release sequence. Retain twenty Kernel
+crates, rename current `core/` to `predicates/` and package `onlyalpha-kernel` to `onlyalpha-predicates`; other libraries leave
+`packages/`, while backend business/worker roles converge inside the backend product package. Existing paths in responsibility
+maps below describe current source, not a requirement to preserve obsolete package boundaries.
+
+For every selected complete module, assess removal of its Python implementation and actual runtime/SDK/build/test consumers.
+Once the Rust replacement and affected semantic, admission, Product, failure/recovery and applicable history gates pass,
+remove the obsolete Python implementation, exports, dependencies and comparison-only wiring atomically. Keep independent
+vectors, fault/replay assertions, required exact historical artifacts/readers and the minimal legitimate algorithm SDK.
+An unmigrated admitted caller blocks that module's deletion, not unrelated work. R8 is the aggregate final retirement gate;
+it does not require indefinite retention of safely replaceable modules. No source deletion is authorized by this plan alone.
+
 ## Responsibility assessment and incremental alignment
 
 Use all of `src/onlyalpha/` as the assessment boundary under ADR 0139 section 1.1. This broadens assessment, not the definition of
-Trading Kernel or the authorization to rewrite the entire backend. For each selected slice:
+Trading Kernel. ADR 0141 separately selects the Rust backend target; neither program authorizes an unbounded rewrite task. For each selected slice:
 
 1. Identify its canonical Contract and actual callers; separate stable semantics, Python algorithm authoring, plugin differences,
    application orchestration and Infrastructure. A Python package may contain more than one responsibility.
 2. Record the Python/Rust module correspondence in its owning design/development document. Reuse existing semantic Contracts and
    `test-data/` vectors; do not create per-language specifications or a second progress/acceptance registry.
-3. Keep `src/onlyalpha/` and `crates/onlyalpha-kernel/core/src/` as their respective source roots for the canonical library. Align names,
+3. Retain needed Python reference paths until eligible retirement; use `crates/onlyalpha-kernel/` functional modules with the ADR 0142 Predicate rename. Align names,
    responsibilities and dependency direction only where the module exists. Preserve component/plugin placement for other roles.
 4. Reuse sound paths; restructure only for a demonstrated boundary need in the selected slice. If paths change, update direct
    consumers, exact implementation manifests/fingerprints, tests and build inputs together; preserve historical exact artifacts.
@@ -24,12 +39,12 @@ Trading Kernel or the authorization to rewrite the entire backend. For each sele
 Correct Python code does not need structural relocation before Rust migration. Audit the selected Python slice, freeze its
 semantic Contract, implement it at the appropriate Rust boundary, and compare both against independent expectations. Retain
 Python paths while they are comparison implementations; change Python only for demonstrated correctness, safety or comparison
-validity needs. Retirement still follows R8 and preserves required artifacts/history; this policy does not retire Python-authored
+validity needs. Eligible module retirement follows ADR 0142 consumer/admission gates, with R8 as aggregate closure, and preserves required artifacts/history; this policy does not retire Python-authored
 indicators/factors or language-appropriate plugins. See the [time responsibility map](rust-kernel-development.md#time-responsibility-map)
 for a concrete cross-package correspondence.
 
 Stable application/Infrastructure capabilities need their own bounded consumer and migration proof before Rust implementation;
-this program does not schedule a backend-wide rewrite. Algorithm authoring and market/plugin boundaries remain as defined in
+ADR 0141 and `rust-product-backend.md` schedule backend capabilities in their owning dependency order. Algorithm authoring and market/plugin boundaries remain as defined in
 ADR 0139. Begin navigation from the [Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map), without
 moving existing files solely to make the map visually symmetric.
 
@@ -158,7 +173,7 @@ module's correctness/recovery gates.
 ## R2 — Linux toolchain plus the first canonical Rust module
 
 **Modification map:** introduce a root `Cargo.toml` workspace, committed `Cargo.lock`, `rust-toolchain.toml` and a narrowly scoped
-`crates/onlyalpha-kernel/core/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
+`crates/onlyalpha-kernel/predicates/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
 `deploy/docker-compose.dev.yml`'s existing fixed dev services, and the canonical verification selectors as needed; do not add a
 second Compose file/project or install dependencies from the network during a test.
 
@@ -235,11 +250,11 @@ UNKNOWN-submit and risk-reduction paths. No new LIVE activation authority is gra
 fail-closed execution, exact audit chain and normal operator UI. Missing real-target evidence remains unavailable, never a mock PASS.
 LIVE activation, strategy changes and material risk require the existing explicit human operations even after all technical gates.
 
-## R8 — Retire the maintained Python Kernel
+## R8 — Aggregate retirement of the maintained Python Kernel
 
 **Inputs:** affected Rust semantic/product/recovery evidence, module coverage and owner-authorized release/activation decision.
 
-**Deliverable:** new formal work uses the Rust Kernel only; current Python Kernel source and obsolete dual-comparison wiring leave
+**Deliverable:** verify eligible per-module deletions performed during preceding migration deliveries and retire remaining admitted Python Kernel consumers. New formal work uses the Rust Kernel only; current Python Kernel source and obsolete dual-comparison wiring leave
 the maintained product after affected consumers migrate atomically. Python indicators/factors and appropriate plugins remain.
 Permanent language-neutral vectors, Contracts and replay tests continue to protect Rust evolution.
 

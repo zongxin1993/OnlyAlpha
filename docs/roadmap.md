@@ -140,6 +140,18 @@ Indicators/factors remain Python-oriented; plugins choose language by SDK/platfo
 K-line/indicator latency are independent workstreams. Initial Linux-only Rust scope does not remove existing non-QMT Python
 platform checks or certify Windows/macOS Rust. The program records no task completion, quality status or next-task authority.
 
+## Repository/product organization and Python retirement
+
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) selects one repository, unified-version reusable Rust
+libraries, independently versioned backend/frontend products and independently versioned plugins. The
+[repository architecture](repository-product-architecture.md) owns placement, module/process boundaries and exact dependencies;
+the [repository work program](repository-migration-work-program.md) sequences release rules, library relocation/Predicate rename,
+product package and process/Python packaging, formal composition, then remaining native capabilities.
+
+Every eligible migrated capability includes obsolete Python implementation/consumer removal, preserving minimal algorithm
+APIs, independent vectors and exact historical artifacts/readers. R8 remains the final aggregate Kernel retirement gate.
+Repository reorganization is not proof of native capability, Python retirement, Product acceptance or LIVE readiness.
+
 ## Roadmap constraints
 
 - Roadmap 不授权修改 Constitution、Architecture 或 public Contract。

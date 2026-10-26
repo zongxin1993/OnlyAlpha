@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from onlyalpha.application.chart_study_manifest import only_chart_study_invocation_dependency
 from onlyalpha.calculation.decimal_execution import only_decimal_execution_semantic_dependency
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -191,7 +190,6 @@ def registrations() -> tuple[OnlyCalculationBackendRegistration, ...]:
                     (
                         only_decimal_execution_semantic_dependency(),
                         only_chart_study_numeric_dependency(),
-                        only_chart_study_invocation_dependency(),
                     )
                     if backend is OnlyCalculationBackendKind.RESEARCH
                     else ()

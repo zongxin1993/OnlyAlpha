@@ -134,7 +134,7 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
             "cargo",
             "test",
             "-p",
-            "onlyalpha-backtest-driver",
+            "onlyalpha-backtest",
             "--test",
             "trading",
             "--no-run",

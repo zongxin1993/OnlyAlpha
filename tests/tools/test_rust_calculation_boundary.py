@@ -13,6 +13,7 @@ def test_calculation_source_guard_rejects_effects_and_reverse_imports(tmp_path: 
         "use std::time::SystemTime;",
         "use onlyalpha_runtime::Runtime;",
         "use onlyalpha_kernel::Predicate;",
+        "use onlyalpha_predicates::Predicate;",
         "use onlyalpha_indicator::Sma;",
         'include!("elsewhere.rs");',
         "use std::fs::File;",
@@ -29,7 +30,7 @@ def test_calculation_can_build_without_other_kernel_modules(tmp_path: Path) -> N
     root = manifest.parent
     assert (root / "crates/onlyalpha-kernel/calculation/Cargo.toml").exists()
     assert not (root / "crates/onlyalpha-kernel/domain").exists()
-    assert not (root / "crates/onlyalpha-kernel/core").exists()
+    assert not (root / "crates/onlyalpha-kernel/predicates").exists()
     assert (root / "test-data/calculation/definitions-v1.jsonl").exists()
 
 

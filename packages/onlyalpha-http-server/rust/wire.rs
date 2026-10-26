@@ -3102,7 +3102,7 @@ pub enum TemporaryChartStudyBatchItemDto {
     Evaluated {
         #[schema(minimum = 0, maximum = 3)]
         request_index: u8,
-        evaluation: TemporaryChartStudyEvaluateDto,
+        evaluation: Box<TemporaryChartStudyEvaluateDto>,
     },
     #[serde(rename = "REJECTED")]
     Rejected {

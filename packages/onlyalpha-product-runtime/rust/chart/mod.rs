@@ -9,7 +9,7 @@ use crate::{
     source_access::{Permission, Session},
 };
 use onlyalpha_calculation::product::{Definition, TypeDeclaration};
-use onlyalpha_calculation_worker::{Cancellation, ChartInstallation, ProcessState, Worker};
+use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, ProcessState, Worker};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarSemantic};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -27,7 +27,7 @@ pub enum Error {
     InputChanged,
     Capacity,
     Market(market_product::Error),
-    Worker(onlyalpha_calculation_worker::WorkerError),
+    Worker(onlyalpha_calculation_bridge::WorkerError),
 }
 impl Error {
     pub fn code(&self) -> &'static str {
@@ -58,8 +58,8 @@ impl From<crate::source_access::Error> for Error {
         Self::Market(market_product::Error::Forbidden)
     }
 }
-impl From<onlyalpha_calculation_worker::WorkerError> for Error {
-    fn from(e: onlyalpha_calculation_worker::WorkerError) -> Self {
+impl From<onlyalpha_calculation_bridge::WorkerError> for Error {
+    fn from(e: onlyalpha_calculation_bridge::WorkerError) -> Self {
         Self::Worker(e)
     }
 }
@@ -289,7 +289,7 @@ impl ChartQuery {
             .as_array()
             .filter(|r| !r.is_empty() && r.len() <= 64)
             .ok_or(Error::Unavailable)?;
-        let provider = json!({"schema_version":1,"provider_id":"onlyalpha.indicator.library","provider_version":"17","kind":"INDICATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-plugin-indicators","distribution_version":self.installation.distribution_version()?}});
+        let provider = json!({"schema_version":1,"provider_id":"onlyalpha.indicator.library","provider_version":"18","kind":"INDICATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-plugin-indicators","distribution_version":self.installation.installed_distribution_version("onlyalpha-plugin-indicators")?}});
         let content = fp(
             &json!({"provider_manifest":provider,"installed_algorithm_artifact":observed["artifact_fingerprint"],"installation":self.installation.artifact_fingerprint(),"registrations":rows}),
         )?;
@@ -975,7 +975,7 @@ impl ChartFence {
 impl PreparedChart {
     /// Move into an owned blocking task. Dropping an HTTP future cannot release its
     /// capacity while the actual child remains unjoined; Drop is only best effort.
-    pub fn cancellation(&self) -> Result<onlyalpha_calculation_worker::Cancellation> {
+    pub fn cancellation(&self) -> Result<onlyalpha_calculation_bridge::Cancellation> {
         Ok(self.composition.worker.cancellation()?)
     }
     pub fn execute(mut self) -> Result<ChartResult> {

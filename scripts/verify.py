@@ -181,6 +181,11 @@ IMPACT_RULES = (
         (
             "crates/onlyalpha-kernel/",
             "test-data/predicate/",
+            "test-data/domain/",
+            "test-data/market-data-state/",
+            "test-data/market-data-construction/",
+            "test-data/market-data-delivery/",
+            "tests/tools/test_rust_",
             "test-data/market-data-pipeline/",
             "test-data/strategy/",
             "test-data/calculation/",
@@ -194,12 +199,13 @@ IMPACT_RULES = (
             "test-data/fee/",
             "test-data/settlement/",
             "test-data/margin/",
+            "crates/onlyalpha-calculation-bridge/",
             "packages/onlyalpha-calculation-worker/",
-            "packages/onlyalpha-runtime-persistence/",
-            "packages/onlyalpha-backtest-driver/",
+            "crates/onlyalpha-runtime-persistence/",
+            "crates/onlyalpha-backtest/",
             "packages/onlyalpha-product-runtime/",
-            "packages/onlyalpha-metadata-json/",
-            "packages/onlyalpha-integration-contract/",
+            "crates/onlyalpha-metadata-json/",
+            "crates/onlyalpha-integration-contract/",
             "plugs/onlyalpha-plugin-binance/Cargo.toml",
             "plugs/onlyalpha-plugin-binance/rust/",
             "plugs/onlyalpha-plugin-binance/tests/authoring.rs",
@@ -235,7 +241,7 @@ IMPACT_RULES = (
             "packages/onlyalpha-http-server/tests/support/integration_http_probe.rs",
             "packages/onlyalpha-http-server/Cargo.toml",
             "scripts/backtest_replay_check.py",
-            "packages/onlyalpha-gateway-protocol/rust/",
+            "crates/onlyalpha-gateway-protocol/rust/",
             "contracts/gateway/v1/",
         ),
         (
@@ -249,13 +255,13 @@ IMPACT_RULES = (
             "scripts/settlement_reference_check.py",
             "scripts/margin_reference_check.py",
             "scripts/calculation_worker_check.py",
-            "packages/onlyalpha-gateway-protocol/Cargo.toml",
+            "crates/onlyalpha-gateway-protocol/Cargo.toml",
             "scripts/gateway_protocol.py",
         ),
-        (OnlyTestLane.CALCULATION,),
-        (OnlyReleaseCheck.RUST_KERNEL,),
+        (),
+        (OnlyReleaseCheck.STATIC, OnlyReleaseCheck.RUST_KERNEL),
         VerificationEscalation.COMPONENT,
-        "Rust Kernel semantics require locked offline debug/release checks and shared Python vectors",
+        "Local Rust validation selects changed owners and direct consumers; full gates require explicit invocation",
     ),
     VerificationImpactRule(
         "quality-infrastructure",
@@ -367,9 +373,9 @@ IMPACT_RULES = (
             "packages/onlyalpha-product-runtime/rust/credentials.rs",
             "packages/onlyalpha-product-runtime/rust/credential_postgres.rs",
             "packages/onlyalpha-product-runtime/rust/integration_configuration.rs",
-            "packages/onlyalpha-metadata-json/rust/lib.rs",
-            "packages/onlyalpha-integration-contract/rust/lib.rs",
-            "packages/onlyalpha-integration-contract/rust/authoring.rs",
+            "crates/onlyalpha-metadata-json/rust/lib.rs",
+            "crates/onlyalpha-integration-contract/rust/lib.rs",
+            "crates/onlyalpha-integration-contract/rust/authoring.rs",
             "packages/onlyalpha-product-runtime/tests/test_integration_postgres.py",
             "packages/onlyalpha-product-runtime/tests/test_integration_commands_postgres.py",
             "packages/onlyalpha-product-runtime/tests/test_integration_draft_postgres.py",
@@ -794,6 +800,16 @@ def plan_for_change_set(change_set: VerificationChangeSet) -> VerificationPlan:
     for changed in change_set.changed_paths:
         for path in changed.impact_paths():
             matched = tuple(rule for rule in IMPACT_RULES if rule.matches(path))
+            if any(rule.name == "rust-kernel" for rule in matched) and (
+                path.endswith((".rs", "/Cargo.toml")) or path.startswith("test-data/")
+            ):
+                # The Rust owner/consumer graph replaces legacy broad fixture or
+                # Python-provider scopes for these exact native inputs.
+                matched = tuple(
+                    rule
+                    for rule in matched
+                    if rule.name not in {"shared-test-infrastructure", "binance-spot", "tushare-provider"}
+                )
             if not matched:
                 matched = (_unknown_rule(path),)
             for rule in matched:
@@ -974,8 +990,65 @@ def _git_bytes(*args: str) -> bytes:
 
 
 def verification_commands(plan: VerificationPlan) -> list[tuple[str, tuple[str, ...]]]:
+    if (
+        plan.impact.escalation >= VerificationEscalation.BROAD
+        or bool({OnlyTestLane.CORE_FULL, OnlyTestLane.FAST, OnlyTestLane.INTEGRATION}.intersection(plan.impact.lanes))
+        or OnlyReleaseCheck.BUILD in plan.impact.checks
+        or {OnlyReleaseCheck.WEB_UNIT, OnlyReleaseCheck.WEB_BUILD, OnlyReleaseCheck.WEB_E2E}.issubset(
+            plan.impact.checks
+        )
+        or any(
+            reason.rule == "manual-impact-review-required"
+            or reason.path in {"pyproject.toml", "uv.lock", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"}
+            for reason in plan.impact.reasons
+        )
+    ):
+        unbounded = ", ".join(sorted({reason.path for reason in plan.impact.reasons}))
+        raise ValueError(
+            "LOCAL_IMPACT_REVIEW_REQUIRED: bounded automatic checks unavailable for "
+            + unbounded
+            + "; select affected module checks explicitly through the canonical dev entry"
+        )
     commands: list[tuple[str, tuple[str, ...]]] = []
     for check in plan.impact.checks:
+        if check is OnlyReleaseCheck.RUST_KERNEL:
+            from scripts.rust_kernel_check import affected_packages
+
+            paths = tuple(sorted({reason.path for reason in plan.impact.reasons if reason.rule == "rust-kernel"}))
+            try:
+                packages = affected_packages(ROOT, paths)
+            except ValueError as exc:
+                raise ValueError(f"LOCAL_IMPACT_REVIEW_REQUIRED: {exc}") from exc
+            arguments = tuple(flag for package in packages for flag in ("--package", package))
+            commands.append(
+                (
+                    "check:rust-selected",
+                    ("uv", "run", "python", "scripts/rust_kernel_check.py", *(arguments or ("--source-check",))),
+                )
+            )
+            tool_tests: set[str] = set()
+            for path in paths:
+                if path.startswith("tests/tools/") and path.endswith(".py") and (ROOT / path).is_file():
+                    tool_tests.add(path)
+                if path.startswith("scripts/"):
+                    stem = Path(path).stem
+                    script_tests = {
+                        str(test.relative_to(ROOT)) for test in (ROOT / "tests/tools").glob(f"test_{stem}*.py")
+                    }
+                    if stem.endswith("_reference_check"):
+                        test = f"tests/tools/test_rust_{stem.removesuffix('_reference_check')}_boundary.py"
+                        if (ROOT / test).is_file():
+                            script_tests.add(test)
+                    if not script_tests:
+                        raise ValueError(
+                            f"LOCAL_IMPACT_REVIEW_REQUIRED: owning tool/protocol tests are unmapped for {path}"
+                        )
+                    tool_tests.update(script_tests)
+            if tool_tests:
+                commands.append(
+                    ("check:rust-tools", ("uv", "run", "python", "-m", "pytest", "-q", *sorted(tool_tests)))
+                )
+            continue
         if check is not OnlyReleaseCheck.BUILD:
             if (
                 check is OnlyReleaseCheck.STATIC
@@ -1126,7 +1199,11 @@ def main() -> int:
     if args.command == "plan":
         _print_plan(plan)
         return 0
-    return run_plan(plan, verbose=args.verbose)
+    try:
+        return run_plan(plan, verbose=args.verbose)
+    except ValueError as exc:
+        print(f"PLAN_ERROR: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

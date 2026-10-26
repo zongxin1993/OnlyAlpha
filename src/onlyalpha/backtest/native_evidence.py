@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset.codec import only_table_to_bars
 from onlyalpha.research.dataset.ports import OnlyVerifiedResearchDataset
@@ -15,6 +14,7 @@ from .dataset_source import only_backtest_dataset_source_fingerprint
 from .errors import OnlyBacktestError, OnlyBacktestIntegrityError, OnlyBacktestProofUnavailableError
 from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .model import OnlyBacktestRun
+from .runtime_generation import OnlyBacktestRuntimeGenerationWorkAuthority
 
 if TYPE_CHECKING:
     from onlyalpha.backtest.admission import OnlyBacktestDatasetBindingReader
@@ -27,7 +27,7 @@ def only_verify_native_backtest_evidence(
     run: OnlyBacktestRun,
     manifest: OnlyBacktestEvidenceManifest,
     evidence: OnlyBacktestEvidenceStore,
-    authority: OnlyRuntimeGenerationWorkAuthority | None,
+    authority: OnlyBacktestRuntimeGenerationWorkAuthority | None,
     *,
     dataset: OnlyVerifiedResearchDataset | None = None,
     plans: OnlyBacktestEnginePlanBuilder | None = None,

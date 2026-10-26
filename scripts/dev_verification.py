@@ -56,7 +56,7 @@ def environment_inputs(root: Path) -> dict[str, str]:
     paths = [root / name for name in ("pyproject.toml", "uv.lock", "deploy/Dockerfile.dev")]
     paths += [root / WEB / name for name in ("package.json", "package-lock.json")]
     paths += [root / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml") if (root / name).is_file()]
-    paths += sorted((root / "crates/onlyalpha-kernel").rglob("Cargo.toml"))
+    paths += sorted((root / "crates").rglob("Cargo.toml"))
     paths += sorted((root / "packages").glob("*/Cargo.toml"))
     paths += sorted((root / "plugs").glob("*/Cargo.toml"))
     for directory in ("packages", "plugs"):

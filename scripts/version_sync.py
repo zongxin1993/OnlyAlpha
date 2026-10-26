@@ -17,40 +17,6 @@ from packaging.version import InvalidVersion, Version
 from tomlkit import dumps, parse
 
 ROOT = Path(__file__).resolve().parents[1]
-RUST_MODULES = frozenset(
-    {
-        "onlyalpha-domain",
-        "onlyalpha-metadata-json",
-        "onlyalpha-integration-contract",
-        "onlyalpha-http-server",
-        "onlyalpha-product-runtime",
-        "onlyalpha-plugin-binance",
-        "onlyalpha-plugin-tushare",
-        "onlyalpha-calculation",
-        "onlyalpha-gateway-protocol",
-        "onlyalpha-calculation-worker",
-        "onlyalpha-runtime-persistence",
-        "onlyalpha-backtest-driver",
-        "onlyalpha-kernel",
-        "onlyalpha-clock",
-        "onlyalpha-event",
-        "onlyalpha-market-data-state",
-        "onlyalpha-market-data-construction",
-        "onlyalpha-market-data-delivery",
-        "onlyalpha-market-data-pipeline",
-        "onlyalpha-strategy",
-        "onlyalpha-order",
-        "onlyalpha-position",
-        "onlyalpha-account",
-        "onlyalpha-strategy-ledger",
-        "onlyalpha-risk",
-        "onlyalpha-execution",
-        "onlyalpha-broker",
-        "onlyalpha-fee",
-        "onlyalpha-settlement",
-        "onlyalpha-margin",
-    }
-)
 TEST_DISTRIBUTION_PATHS = (
     Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml"),
     Path("test-data/runtime_factor_provider/pyproject.toml"),
@@ -66,7 +32,7 @@ _DISTRIBUTION_VERSION = re.compile(
 )
 
 
-class VersionSyncError(RuntimeError):
+class VersionSyncError(ValueError):
     """Raised when the workspace release graph is invalid or inconsistent."""
 
 
@@ -230,24 +196,75 @@ def _requirement_pin_error(requirement: Requirement, *, version: Version) -> str
     return None
 
 
-def _internal_edge_errors(
-    distribution: WorkspaceDistribution,
-    *,
-    formal_index: Mapping[str, WorkspaceDistribution],
-    version: Version,
-) -> list[str]:
-    errors: list[str] = []
-    for requirement in (*distribution.dependencies, *distribution.optional_dependencies):
-        dependency_name = canonicalize_name(requirement.name)
-        if dependency_name not in formal_index:
-            continue
-        actual = _requirement_pin_error(requirement, version=version)
-        if actual is not None:
-            errors.append(
-                f"{distribution.path}: internal dependency {requirement.name!r}; "
-                f"expected '=={version}'; found {actual!r}"
-            )
-    return errors
+BACKEND_MANIFEST = Path("packages/onlyalpha-http-server/Cargo.toml")
+BACKEND_RUST_COMPONENTS = {"onlyalpha-http-server", "onlyalpha-product-runtime"}
+
+
+def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
+    workspace = read_document(root / "Cargo.toml")["workspace"]
+    result = []
+    for member in workspace["members"]:
+        path = root / str(member) / "Cargo.toml"
+        document = read_document(path)
+        name = document["package"]["name"]
+        unit = (
+            "plugin-" + name.removeprefix("onlyalpha-plugin-")
+            if Path(member).parts[0] == "plugs"
+            else "backend"
+            if name in BACKEND_RUST_COMPONENTS
+            else "libs"
+        )
+        result.append((path, document, unit))
+    names = [document["package"]["name"] for _, document, _ in result]
+    if len(names) != len(set(names)):
+        raise VersionSyncError("duplicate Rust workspace package")
+    return result
+
+
+def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[str, str]:
+    def raw(path: Path) -> str:
+        if revision is None:
+            return (root / path).read_text(encoding="utf-8")
+        return subprocess.check_output(["git", "-C", str(root), "show", f"{revision}:{path.as_posix()}"], text=True)
+
+    try:
+        cargo = tomllib.loads(raw(Path("Cargo.toml")))
+        library_version = cargo["workspace"]["package"]["version"]
+
+        def resolved_version(value: Any) -> str:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict) and set(value) == {"workspace"} and value["workspace"] is True:
+                return str(library_version)
+            raise VersionSyncError("invalid workspace version inheritance")
+
+        backend = tomllib.loads(raw(BACKEND_MANIFEST))["package"]["version"]
+        # Exact historical metadata may inherit the old workspace version. Current
+        # check_versions requires an independent backend authority after cutover.
+        units = {"libs": library_version, "backend": resolved_version(backend)}
+        units["frontend"] = json.loads(raw(WEB_PACKAGE_PATH))["version"]
+        for member in cargo["workspace"]["members"]:
+            if Path(member).parts[0] == "plugs":
+                package = tomllib.loads(raw(Path(member) / "Cargo.toml"))["package"]
+                value = package["version"]
+                units["plugin-" + package["name"].removeprefix("onlyalpha-plugin-")] = resolved_version(value)
+        python = tomllib.loads(raw(Path("pyproject.toml")))
+        for member in python["tool"]["uv"]["workspace"]["members"]:
+            if Path(member).parts[0] == "plugs":
+                package = tomllib.loads(raw(Path(member) / "pyproject.toml"))["project"]
+                unit = "plugin-" + package["name"].removeprefix("onlyalpha-plugin-")
+                units.setdefault(unit, package["version"])
+        for version in units.values():
+            next_release_version(version)
+        return dict(sorted(units.items()))
+    except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError) as error:
+        raise VersionSyncError("cannot establish exact release-unit metadata") from error
+
+
+def _python_unit(distribution: WorkspaceDistribution, root: Path) -> str:
+    if distribution.path.relative_to(root).parts[0] == "plugs":
+        return "plugin-" + distribution.name.removeprefix("onlyalpha-plugin-")
+    return "backend"
 
 
 def workspace_graph_errors(
@@ -255,273 +272,173 @@ def workspace_graph_errors(
     *,
     test_distribution_paths: Sequence[Path] = TEST_DISTRIBUTION_PATHS,
 ) -> list[str]:
+    units = load_release_units(root)
     distributions = load_workspace_distributions(root)
     formal_index = distribution_index(distributions)
-    release_version = distributions[0].version
     errors: list[str] = []
-
     for distribution in distributions:
-        if distribution.version != release_version:
-            errors.append(
-                f"{distribution.path}: distribution {distribution.name!r}; "
-                f"expected version {str(release_version)!r}; found {str(distribution.version)!r}"
-            )
-        errors.extend(
-            _internal_edge_errors(
-                distribution,
-                formal_index=formal_index,
-                version=release_version,
-            )
-        )
-
-    for distribution in load_test_distributions(root, test_distribution_paths):
-        errors.extend(
-            _internal_edge_errors(
-                distribution,
-                formal_index=formal_index,
-                version=release_version,
-            )
-        )
-    for relative_path in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
-        path = root / relative_path
-        if not path.is_file():
-            errors.append(f"{path}: missing Web version authority")
-            continue
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            errors.append(f"{path}: invalid JSON: {exc}")
-            continue
-        version = document.get("version")
-        if version != str(release_version):
-            errors.append(f"{path}: expected version {str(release_version)!r}; found {version!r}")
-        if relative_path == WEB_LOCK_PATH:
-            root_package = document.get("packages", {}).get("", {})
-            if root_package.get("version") != str(release_version):
-                errors.append(
-                    f"{path}: root package expected version {str(release_version)!r}; "
-                    f"found {root_package.get('version')!r}"
-                )
-    for relative_path in QUANT_ASSET_PROVIDER_PATHS:
-        path = root / relative_path
-        if not path.is_file():
-            continue
-        matches = tuple(_DISTRIBUTION_VERSION.finditer(path.read_text(encoding="utf-8")))
-        if len(matches) != 1:
-            errors.append(f"{path}: expected exactly one quant asset distribution_version")
-        elif matches[0].group("version") != str(release_version):
-            errors.append(
-                f"{path}: quant asset distribution_version expected {str(release_version)!r}; "
-                f"found {matches[0].group('version')!r}"
-            )
-    if (root / "Cargo.toml").is_file() or (root / "Cargo.lock").is_file():
-        try:
-            cargo = tomllib.loads((root / "Cargo.toml").read_text())
-            lock = tomllib.loads((root / "Cargo.lock").read_text())
-            packages = [item for item in lock["package"] if item["name"] in RUST_MODULES]
-            if (
-                cargo["workspace"]["package"]["version"] != str(release_version)
-                or len(packages) != len(RUST_MODULES)
-                or {item["name"] for item in packages} != RUST_MODULES
-                or any(item["version"] != str(release_version) for item in packages)
-            ):
-                errors.append("Rust workspace/lock release version differs from pyproject.toml")
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            errors.append(f"Rust workspace/lock metadata is invalid: {exc}")
+        expected = units[_python_unit(distribution, root)]
+        if str(distribution.version) != expected:
+            errors.append(f"{distribution.path}: expected version {expected!r}; found {str(distribution.version)!r}")
+    for distribution in (*distributions, *load_test_distributions(root, test_distribution_paths)):
+        for requirement in (*distribution.dependencies, *distribution.optional_dependencies):
+            dependency = formal_index.get(canonicalize_name(requirement.name))
+            if dependency is not None:
+                actual = _requirement_pin_error(requirement, version=dependency.version)
+                if actual is not None:
+                    errors.append(
+                        f"{distribution.path}: internal dependency {requirement.name!r}; expected '=={dependency.version}'; found {actual!r}"
+                    )
+    frontend = units["frontend"]
+    try:
+        lock = json.loads((root / WEB_LOCK_PATH).read_text())
+        if lock["version"] != frontend or lock["packages"][""]["version"] != frontend:
+            errors.append("Web lock version differs from frontend")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append(f"invalid Web lock: {error}")
+    for relative in QUANT_ASSET_PROVIDER_PATHS:
+        path = root / relative
+        if path.exists():
+            matches = tuple(_DISTRIBUTION_VERSION.finditer(path.read_text()))
+            plugin = formal_index.get(canonicalize_name(relative.parts[1]))
+            if plugin is None or len(matches) != 1 or matches[0]["version"] != str(plugin.version):
+                errors.append(f"{relative}: quant asset distribution provenance mismatch")
+    try:
+        lock = tomllib.loads((root / "Cargo.lock").read_text())
+        for path, document, unit in _rust_members(root):
+            package = document["package"]
+            value = package["version"]
+            if unit != "libs" and not isinstance(value, str):
+                errors.append(f"{path}: {unit} must have an independent version")
+            actual = units["libs"] if isinstance(value, Mapping) and value.get("workspace") is True else value
+            if actual != units[unit]:
+                errors.append(f"{path}: expected {unit} version {units[unit]}")
+            records = [p for p in lock["package"] if p["name"] == package["name"] and "source" not in p]
+            if len(records) != 1 or records[0]["version"] != actual:
+                errors.append(f"Rust lock mismatch: {package['name']}")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append(f"invalid Rust lock/metadata: {error}")
     return errors
 
 
-def check_versions(
-    root: Path = ROOT,
-    *,
-    test_distribution_paths: Sequence[Path] = TEST_DISTRIBUTION_PATHS,
-) -> None:
+def check_versions(root: Path = ROOT, *, test_distribution_paths: Sequence[Path] = TEST_DISTRIBUTION_PATHS) -> None:
     errors = workspace_graph_errors(root, test_distribution_paths=test_distribution_paths)
     if errors:
-        message = "\n".join(f"- {error}" for error in errors)
-        raise VersionSyncError(f"workspace release graph integrity failed:\n{message}")
-
-    release_version = load_workspace_distributions(root)[0].version
-    print(f"Workspace release graph is consistent at {release_version}")
+        raise VersionSyncError("workspace release graph integrity failed:\n" + "\n".join(errors))
+    print("Release units consistent: " + json.dumps(load_release_units(root), sort_keys=True))
 
 
 def rewrite_internal_requirement(
-    raw_requirement: str,
-    *,
-    formal_distribution_names: frozenset[str],
-    version: str,
+    raw_requirement: str, *, formal_distribution_names: frozenset[str], version: str
 ) -> str:
-    try:
-        requirement = Requirement(raw_requirement)
-    except InvalidRequirement as exc:
-        raise VersionSyncError(f"invalid requirement {raw_requirement!r}: {exc}") from exc
+    requirement = Requirement(raw_requirement)
     if canonicalize_name(requirement.name) not in formal_distribution_names:
         return raw_requirement
-
     extras = f"[{','.join(sorted(requirement.extras))}]" if requirement.extras else ""
     marker = f"; {requirement.marker}" if requirement.marker is not None else ""
     return f"{requirement.name}{extras}=={version}{marker}"
 
 
-def _rewrite_project_requirements(
-    project: Any,
-    *,
-    formal_distribution_names: frozenset[str],
-    version: str,
+def rewrite_unit(
+    root: Path, unit: str, version: str, *, test_distribution_paths: Sequence[Path] = TEST_DISTRIBUTION_PATHS
 ) -> None:
-    dependencies = project.get("dependencies")
-    if dependencies is not None:
-        for index, raw_requirement in enumerate(dependencies):
-            dependencies[index] = rewrite_internal_requirement(
-                str(raw_requirement),
-                formal_distribution_names=formal_distribution_names,
-                version=version,
-            )
-
-    optional_table = project.get("optional-dependencies", {})
-    for dependencies in optional_table.values():
-        for index, raw_requirement in enumerate(dependencies):
-            dependencies[index] = rewrite_internal_requirement(
-                str(raw_requirement),
-                formal_distribution_names=formal_distribution_names,
-                version=version,
-            )
-
-
-def _normalized_version(version: str) -> str:
-    try:
-        normalized = str(Version(version))
-    except InvalidVersion as exc:
-        raise VersionSyncError(f"invalid version: {version}") from exc
-    if normalized != version:
-        raise VersionSyncError(f"version must already be normalized: {version!r} -> {normalized!r}")
-    return normalized
-
-
-def rewrite_workspace(
-    root: Path,
-    version: str,
-    *,
-    test_distribution_paths: Sequence[Path] = TEST_DISTRIBUTION_PATHS,
-) -> None:
-    normalized = _normalized_version(version)
+    units = load_release_units(root)
+    if unit not in units:
+        raise VersionSyncError(f"unknown release unit: {unit}")
+    next_release_version(version)
+    check_versions(root, test_distribution_paths=test_distribution_paths)
+    documents: dict[Path, Any] = {}
     distributions = load_workspace_distributions(root)
-    load_test_distributions(root, test_distribution_paths)
-    formal_names = frozenset(distribution.canonical_name for distribution in distributions)
-
-    documents: list[tuple[Path, Any]] = []
-    for distribution in distributions:
+    changed_names = frozenset(d.canonical_name for d in distributions if _python_unit(d, root) == unit)
+    for distribution in (*distributions, *load_test_distributions(root, test_distribution_paths)):
         document = read_document(distribution.path)
-        project = _project_table(document, path=distribution.path)
-        project["version"] = normalized
-        _rewrite_project_requirements(
-            project,
-            formal_distribution_names=formal_names,
-            version=normalized,
-        )
-        documents.append((distribution.path, document))
-
-    for relative_path in test_distribution_paths:
-        path = root / relative_path
-        document = read_document(path)
-        project = _project_table(document, path=path)
-        _rewrite_project_requirements(
-            project,
-            formal_distribution_names=formal_names,
-            version=normalized,
-        )
-        documents.append((path, document))
-
-    web_documents: list[tuple[Path, dict[str, Any]]] = []
-    for relative_path in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
-        path = root / relative_path
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            raise VersionSyncError(f"invalid Web version document {path}: {exc}") from exc
-        document["version"] = normalized
-        if relative_path == WEB_LOCK_PATH:
-            document["packages"][""]["version"] = normalized
-        web_documents.append((path, document))
-
-    provider_documents: list[tuple[Path, str]] = []
-    for relative_path in QUANT_ASSET_PROVIDER_PATHS:
-        path = root / relative_path
-        if not path.is_file():
-            continue
-        source = path.read_text(encoding="utf-8")
-        if len(tuple(_DISTRIBUTION_VERSION.finditer(source))) != 1:
-            raise VersionSyncError(f"{path}: expected exactly one quant asset distribution_version")
-        provider_documents.append(
-            (
-                path,
-                _DISTRIBUTION_VERSION.sub(
-                    lambda match: f'{match.group("prefix")}"{normalized}"{match.group("suffix")}',
-                    source,
-                ),
-            )
-        )
-
-    if (root / "Cargo.toml").is_file() or (root / "Cargo.lock").is_file():
-        cargo = read_document(root / "Cargo.toml")
+        project = document["project"]
+        if distribution.canonical_name in changed_names:
+            project["version"] = version
+        groups = [project.get("dependencies", [])] + list(project.get("optional-dependencies", {}).values())
+        for dependencies in groups:
+            for index, value in enumerate(dependencies):
+                dependencies[index] = rewrite_internal_requirement(
+                    str(value), formal_distribution_names=changed_names, version=version
+                )
+        if dumps(document) != distribution.path.read_text():
+            documents[distribution.path] = document
+    changed_rust = {}
+    for path, document, owner in _rust_members(root):
+        if owner == unit:
+            package = document["package"]
+            changed_rust[package["name"]] = units[unit]
+            if unit != "libs":
+                package["version"] = version
+                documents[path] = document
+            elif isinstance(package["version"], str):
+                package["version"] = version
+                documents[path] = document
+    if unit == "libs":
+        document = read_document(root / "Cargo.toml")
+        document["workspace"]["package"]["version"] = version
+        documents[root / "Cargo.toml"] = document
+    if changed_rust:
         lock = read_document(root / "Cargo.lock")
-        cargo["workspace"]["package"]["version"] = normalized
-        packages = [item for item in lock["package"] if item["name"] in RUST_MODULES]
-        if len(packages) != len(RUST_MODULES) or {item["name"] for item in packages} != RUST_MODULES:
-            raise VersionSyncError("Rust lock must contain each canonical module exactly once")
-        for package in packages:
-            package["version"] = normalized
-        documents += [(root / "Cargo.toml", cargo), (root / "Cargo.lock", lock)]
-    for path, document in documents:
+        for package in lock["package"]:
+            if package["name"] in changed_rust and "source" not in package:
+                package["version"] = version
+            for index, dependency in enumerate(package.get("dependencies", [])):
+                for name, old in changed_rust.items():
+                    if dependency == f"{name} {old}":
+                        package["dependencies"][index] = f"{name} {version}"
+        documents[root / "Cargo.lock"] = lock
+    providers = []
+    for relative in QUANT_ASSET_PROVIDER_PATHS:
+        path = root / relative
+        if path.exists() and canonicalize_name(relative.parts[1]) in changed_names:
+            providers.append(
+                (
+                    path,
+                    _DISTRIBUTION_VERSION.sub(lambda m: m["prefix"] + f'"{version}"' + m["suffix"], path.read_text()),
+                )
+            )
+    web = []
+    if unit == "frontend":
+        for relative in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
+            path = root / relative
+            document = json.loads(path.read_text())
+            document["version"] = version
+            if relative == WEB_LOCK_PATH:
+                document["packages"][""]["version"] = version
+            web.append((path, document))
+    for path, document in documents.items():
         write_document(path, document)
-    for path, document in web_documents:
-        path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
-    for path, source in provider_documents:
-        path.write_text(source, encoding="utf-8")
-
-
-def set_versions(version: str, root: Path = ROOT) -> None:
-    rewrite_workspace(root, version)
-    try:
-        subprocess.run(
-            ["uv", "lock", "--python", "3.12"],
-            cwd=root,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise VersionSyncError(f"uv lock failed with exit code {exc.returncode}") from exc
-    check_versions(root)
+    for path, source in providers:
+        path.write_text(source)
+    for path, document in web:
+        path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n")
 
 
 def next_release_version(version: str, level: str = "patch") -> str:
-    """Release counters are not API, Provider or semantic compatibility versions."""
     if (
         not isinstance(version, str)
         or re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version) is None
     ):
         raise VersionSyncError(f"release version must be canonical X.Y.Z: {version!r}")
-    major, minor, patch = (int(part) for part in version.split("."))
+    major, minor, patch = map(int, version.split("."))
     if level == "patch":
         return f"{major}.{minor}.{patch + 1}"
     if level == "minor":
         return f"{major}.{minor + 1}.0"
     if level == "major":
         return f"{major + 1}.0.0"
-    raise VersionSyncError(f"unknown release level: {level!r}")
+    raise VersionSyncError(f"unknown release level: {level}")
 
 
 def check_release_transition(base: str, candidate: str, level: str = "patch") -> str:
     expected = next_release_version(base, level)
     if candidate != expected:
-        raise VersionSyncError(
-            f"{level} release requires {base} -> {expected}; found {candidate!r}; "
-            "refresh against the current main branch and synchronize the complete release graph"
-        )
+        raise VersionSyncError(f"{level} release requires {base} -> {expected}; found {candidate!r}")
     return f"OnlyAlpha release: {base} -> {candidate} ({level})"
 
 
-def release_level_from_context(context: Mapping[str, Any]) -> str:
-    """Interpret read-only GitHub observations, not PR text as Owner authority."""
+def release_selections_from_context(context: Mapping[str, Any]) -> dict[str, str]:
     events = context["events"]
     ids = [event["id"] for event in events]
     if any(type(value) is not int or value <= 0 for value in ids) or ids != sorted(set(ids)):
@@ -529,15 +446,9 @@ def release_level_from_context(context: Mapping[str, Any]) -> str:
     labels = context["pull_request"]["labels"]
     if context["pull_request"].get("merged") is True:
         merge_sha = context["pull_request"]["merge_commit_sha"]
-        cuts = [
-            index
-            for index, event in enumerate(events)
-            if event["event"] == "merged" and event["commit_id"] == merge_sha
-        ]
+        cuts = [i for i, event in enumerate(events) if event["event"] == "merged" and event["commit_id"] == merge_sha]
         if len(cuts) != 1:
-            raise VersionSyncError(
-                "historical release selection unavailable: exact merge event is missing or ambiguous"
-            )
+            raise VersionSyncError("historical release selection unavailable: exact merge event missing or ambiguous")
         events = events[: cuts[0]]
         active: set[str] = set()
         for event in events:
@@ -548,123 +459,126 @@ def release_level_from_context(context: Mapping[str, Any]) -> str:
                 else:
                     active.discard(name)
         labels = [{"name": name} for name in active]
-    selected: set[str] = set()
+    selections = {}
     for label in labels:
         name = label["name"]
         if not isinstance(name, str):
             raise VersionSyncError("invalid release label")
-        if name.startswith("release:"):
-            selected.add(name)
-    if not selected:
-        return "patch"
-    if len(selected) != 1 or not selected <= {"release:patch", "release:minor", "release:major"}:
-        raise VersionSyncError("conflicting or unknown release labels")
-    level = next(iter(selected)).split(":", 1)[1]
-    if level == "patch":
-        return level
-    owner = context["repository"]["owner"]
-    if owner["type"] != "User":
-        raise VersionSyncError("minor/major requires an explicitly governed human repository Owner")
-    label_events = [event for event in events if event.get("label", {}).get("name") in selected]
-    owner_label = bool(label_events) and (
-        label_events[-1]["event"] == "labeled" and label_events[-1]["actor"]["login"] == owner["login"]
-    )
-    if not owner_label:
-        raise VersionSyncError("minor/major requires an explicit Owner action on the selected release label")
-    return level
+        if not name.startswith("release:"):
+            continue
+        match = re.fullmatch(
+            r"release:(libs|backend|frontend|plugin-[a-z0-9]+(?:-[a-z0-9]+)*):(patch|minor|major)", name
+        )
+        if match is None or match[1] in selections:
+            raise VersionSyncError("conflicting or unknown release labels")
+        unit, level = match.groups()
+        if level != "patch":
+            owner = context["repository"]["owner"]
+            if owner["type"] != "User":
+                raise VersionSyncError("minor/major requires a governed human repository Owner")
+            occurrences = [event for event in events if event.get("label", {}).get("name") == name]
+            if (
+                not occurrences
+                or occurrences[-1]["event"] != "labeled"
+                or occurrences[-1]["actor"]["login"] != owner["login"]
+            ):
+                raise VersionSyncError("minor/major requires an explicit Owner action on the selected release label")
+        selections[unit] = level
+    return selections
 
 
-def read_git_release_transition(base_ref: str, root: Path = ROOT) -> tuple[str, str]:
-    try:
-        revision = subprocess.check_output(
-            ["git", "rev-parse", "--verify", "--end-of-options", f"{base_ref}^{{commit}}"],
-            cwd=root,
-            text=True,
-        ).strip()
-        raw = subprocess.check_output(["git", "show", f"{revision}:pyproject.toml"], cwd=root, text=True)
-        base = tomllib.loads(raw)["project"]["version"]
-    except (subprocess.CalledProcessError, KeyError, tomllib.TOMLDecodeError) as exc:
-        raise VersionSyncError("cannot establish the main-branch release version") from exc
-    path = root / "pyproject.toml"
-    candidate = _required_project_text(_project_table(read_document(path), path=path), "version", path=path)
-    next_release_version(base)
-    next_release_version(candidate)
-    return base, candidate
+def read_git_release_transition(base_ref: str, root: Path = ROOT) -> tuple[dict[str, str], dict[str, str]]:
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{base_ref}^{{commit}}"], cwd=root, text=True
+    ).strip()
+    return load_release_units(root, revision), load_release_units(root)
 
 
-def check_transition_from_git(base_ref: str, level: str, root: Path = ROOT) -> str:
-    base, candidate = read_git_release_transition(base_ref, root)
-    check_versions(root)
-    return check_release_transition(base, candidate, level)
+def validate_transitions(
+    base: Mapping[str, str], candidate: Mapping[str, str], selections: Mapping[str, str]
+) -> list[str]:
+    if base.keys() != candidate.keys():
+        raise VersionSyncError("release-unit inventory changed; explicit inventory migration is required")
+    changed = {unit for unit in base if base[unit] != candidate[unit]}
+    if changed != selections.keys():
+        raise VersionSyncError(
+            f"selected units must equal changed units: changed={sorted(changed)}, selected={sorted(selections)}"
+        )
+    return [
+        f"{unit}: " + check_release_transition(base[unit], candidate[unit], selections[unit])
+        for unit in sorted(changed)
+    ]
 
 
 def write_release_notice(notice: str, summary_file: Path | None) -> None:
     print(notice)
     if summary_file is not None:
-        with summary_file.open("a", encoding="utf-8") as stream:
-            stream.write(f"## {notice}\n\nRelease numbering only; not product acceptance or deployment permission.\n")
+        with summary_file.open("a") as stream:
+            stream.write(notice + "\n")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("check", help="check workspace release graph integrity")
-    set_parser = subparsers.add_parser("set", help="set the version of the complete release graph")
-    set_parser.add_argument("version")
-    next_parser = subparsers.add_parser("next", help="suggest a version without modifying files")
-    next_parser.add_argument("--level", choices=("patch", "minor", "major"), default="patch")
-    transition_parser = subparsers.add_parser("check-transition", help="check one PR's main-branch release increment")
-    transition_parser.add_argument("--base-ref", required=True)
-    transition_parser.add_argument("--level", choices=("patch", "minor", "major"), default="patch")
-    transition_parser.add_argument("--summary-file", type=Path)
-    level_parser = subparsers.add_parser("release-level", help="resolve level from read-only GitHub PR observations")
-    level_parser.add_argument("--context-file", type=Path, required=True)
-    report_parser = subparsers.add_parser(
-        "report-merge", help="always report actual Git numbers before historical validation"
-    )
-    report_parser.add_argument("--context-file", type=Path)
-    report_parser.add_argument("--summary-file", type=Path)
-    report_parser.add_argument("--notice-only", action="store_true")
+    subparsers.add_parser("check")
+    for name in ("set", "next"):
+        child = subparsers.add_parser(name)
+        child.add_argument("--unit", required=True)
+        if name == "set":
+            child.add_argument("version")
+        else:
+            child.add_argument("--level", choices=("patch", "minor", "major"), default="patch")
+    for name in ("check-transition", "report-merge"):
+        child = subparsers.add_parser(name)
+        child.add_argument("--context-file", type=Path)
+        child.add_argument("--summary-file", type=Path)
+        if name == "check-transition":
+            child.add_argument("--base-ref", required=True)
+        else:
+            child.add_argument("--notice-only", action="store_true")
+    child = subparsers.add_parser("release-selection")
+    child.add_argument("--context-file", type=Path, required=True)
     args = parser.parse_args()
-
     try:
         if args.command == "check":
             check_versions()
         elif args.command == "set":
-            set_versions(args.version)
+            rewrite_unit(ROOT, args.unit, args.version)
+            subprocess.run(["uv", "lock", "--python", "3.12"], cwd=ROOT, check=True)
+            check_versions()
         elif args.command == "next":
-            current = str(load_workspace_distributions(ROOT)[0].version)
-            print(next_release_version(current, args.level))
-        elif args.command == "check-transition":
-            notice = check_transition_from_git(args.base_ref, args.level)
-            write_release_notice(notice, args.summary_file)
-        elif args.command in {"release-level", "report-merge"}:
-            if args.command == "report-merge":
-                base, candidate = read_git_release_transition("HEAD^", ROOT)
-                write_release_notice(f"OnlyAlpha merged release: {base} -> {candidate}", args.summary_file)
-                if args.notice_only:
-                    return 0
-                if args.context_file is None:
-                    raise VersionSyncError("historical merge validation requires GitHub context")
-            try:
-                context = json.loads(args.context_file.read_text(encoding="utf-8"))
-                level = release_level_from_context(context)
-            except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
-                raise VersionSyncError("incomplete or invalid GitHub release-selection proof") from exc
-            if args.command == "release-level":
-                print(level)
-            else:
-                if context["pull_request"].get("merged") is not True:
-                    raise VersionSyncError("historical reporting requires a merged PR")
-                actual_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-                if actual_sha != context["pull_request"]["merge_commit_sha"]:
-                    raise VersionSyncError("historical release proof belongs to a different merge")
-                check_versions(ROOT)
-                print(check_release_transition(base, candidate, level))
+            print(next_release_version(load_release_units()[args.unit], args.level))
         else:
-            parser.error(f"unsupported command: {args.command}")
-    except VersionSyncError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+            if args.command == "release-selection":
+                print(
+                    json.dumps(
+                        release_selections_from_context(json.loads(args.context_file.read_text())), sort_keys=True
+                    )
+                )
+                return 0
+            base, candidate = read_git_release_transition(
+                args.base_ref if args.command == "check-transition" else "HEAD^"
+            )
+            actual = {unit: [base[unit], candidate[unit]] for unit in base if base[unit] != candidate[unit]}
+            write_release_notice("Actual release transitions: " + json.dumps(actual, sort_keys=True), args.summary_file)
+            if args.command == "report-merge" and args.notice_only:
+                return 0
+            context: Mapping[str, Any] = (
+                json.loads(args.context_file.read_text())
+                if args.context_file
+                else {"pull_request": {"labels": []}, "events": []}
+            )
+            if args.command == "report-merge":
+                sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+                if context["pull_request"].get("merged") is not True or sha != context["pull_request"].get(
+                    "merge_commit_sha"
+                ):
+                    raise VersionSyncError("historical proof belongs to a different merge")
+            check_versions()
+            for notice in validate_transitions(base, candidate, release_selections_from_context(context)):
+                write_release_notice(notice, args.summary_file)
+    except (VersionSyncError, OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as error:
+        print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 

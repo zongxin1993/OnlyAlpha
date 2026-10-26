@@ -104,7 +104,7 @@ def test_api_routes_do_not_own_semantic_or_infrastructure_writers() -> None:
     assert not tuple(API_ROOT.rglob("*.py"))
     source = (ROOT / "packages/onlyalpha-http-server/rust/routes.rs").read_text()
     assert "host::Host" in source and "host.dispatch(request).await" in source
-    for forbidden in ("onlyalpha_kernel", "tokio_postgres", "AuthoritySession", "OnlyEngine"):
+    for forbidden in ("onlyalpha_kernel", "onlyalpha_predicates", "tokio_postgres", "AuthoritySession", "OnlyEngine"):
         assert forbidden not in source
 
 

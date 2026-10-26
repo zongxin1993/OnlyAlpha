@@ -11,7 +11,6 @@ from onlyalpha.calculation.definition import (
 )
 from onlyalpha.calculation.implementation import (
     OnlyCalculationImplementationManifest,
-    OnlyCalculationSemanticDependency,
     only_chart_study_numeric_dependency,
     only_python_implementation_manifest,
 )
@@ -49,10 +48,4 @@ def only_chart_study_invocation_manifest() -> OnlyCalculationImplementationManif
             "research/calculation/readiness.py",
         ),
         semantic_dependencies=(only_decimal_execution_semantic_dependency(), only_chart_study_numeric_dependency()),
-    )
-
-
-def only_chart_study_invocation_dependency() -> OnlyCalculationSemanticDependency:
-    return OnlyCalculationSemanticDependency(
-        "onlyalpha.chart-study.invocation", "2", only_chart_study_invocation_manifest().implementation_fingerprint
     )

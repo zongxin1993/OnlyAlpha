@@ -6,13 +6,12 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
-
 from .admission import OnlyBacktestAdmissionService
 from .creation_query import OnlyBacktestCreationQuery
 from .errors import OnlyBacktestArtifactNotFoundError, OnlyBacktestIntegrityError, OnlyBacktestStateConflictError
 from .evidence import OnlyBacktestEvidenceManifest, OnlyBacktestEvidenceStore
 from .model import OnlyBacktestRun, OnlyBacktestRunId, OnlyBacktestRunState
+from .runtime_generation import OnlyBacktestRuntimeGenerationWorkAuthority
 
 
 class _RunReader(Protocol):
@@ -33,7 +32,7 @@ class OnlyBacktestQueryService:
         runs: _RunReader,
         evidence: OnlyBacktestEvidenceStore,
         creation: OnlyBacktestCreationQuery | None = None,
-        runtime_generations: OnlyRuntimeGenerationWorkAuthority | None = None,
+        runtime_generations: OnlyBacktestRuntimeGenerationWorkAuthority | None = None,
         admission: OnlyBacktestAdmissionService | None = None,
     ) -> None:
         self._runs = runs

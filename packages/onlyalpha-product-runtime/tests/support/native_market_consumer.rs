@@ -55,7 +55,7 @@ fn chart_query() -> ChartQuery {
         std::path::PathBuf::from(std::env::var("ONLYALPHA_NATIVE_CHART_INSTALLATION").unwrap());
     let artifact = std::env::var("ONLYALPHA_NATIVE_CHART_ARTIFACT").unwrap();
     ChartQuery::new(
-        onlyalpha_calculation_worker::ChartInstallation::open(&root, &artifact).unwrap(),
+        onlyalpha_calculation_bridge::ChartInstallation::open(&root, &artifact).unwrap(),
     )
     .unwrap()
 }
@@ -120,7 +120,7 @@ fn installation_mutations() {
     let root =
         std::path::PathBuf::from(std::env::var("ONLYALPHA_NATIVE_CHART_INSTALLATION").unwrap());
     let artifact = std::env::var("ONLYALPHA_NATIVE_CHART_ARTIFACT").unwrap();
-    let open = || onlyalpha_calculation_worker::ChartInstallation::open(&root, &artifact);
+    let open = || onlyalpha_calculation_bridge::ChartInstallation::open(&root, &artifact);
     open().unwrap();
     let manifest = root.join("algorithm-installation.json");
     let bytes = fs::read(&manifest).unwrap();
@@ -1428,7 +1428,7 @@ async fn native_source_application() {
     cancellation.cancel().unwrap();
     assert_eq!(
         cancellation.state(),
-        onlyalpha_calculation_worker::ProcessState::Joined
+        onlyalpha_calculation_bridge::ProcessState::Joined
     );
     query.capabilities(&source_session).unwrap(); // Actual cancel wait released capacity.
 
@@ -1439,7 +1439,7 @@ async fn native_source_application() {
     let second_cancellation = second_pending.cancellation().unwrap();
     assert_eq!(
         second_cancellation.state(),
-        onlyalpha_calculation_worker::ProcessState::Running
+        onlyalpha_calculation_bridge::ProcessState::Running
     );
     second_cancellation.cancel().unwrap();
     assert!(second_pending.execute().is_err());
@@ -1462,7 +1462,7 @@ async fn native_source_application() {
     drop(dropped);
     assert_eq!(
         control.state(),
-        onlyalpha_calculation_worker::ProcessState::Joined
+        onlyalpha_calculation_bridge::ProcessState::Joined
     );
     query.capabilities(&source_session).unwrap();
     let closing = chart_query();
@@ -1484,7 +1484,7 @@ async fn native_source_application() {
     drop(closing);
     assert_eq!(
         control.state(),
-        onlyalpha_calculation_worker::ProcessState::Joined
+        onlyalpha_calculation_bridge::ProcessState::Joined
     );
     assert!(prepared.execute().is_err());
     let mut invalid = chart_request(&original, &caps["capabilities"][0], None);

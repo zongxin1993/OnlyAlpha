@@ -1,5 +1,7 @@
 # Rust Product backend construction
 
+Organization and release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md), [repository architecture](repository-product-architecture.md) and [work program](repository-migration-work-program.md) select one backend package with internal business/worker modules, one frontend package and reusable versioned libraries. The capability dependency order below remains; source navigation is not migration status.
+
 ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicator execution. The Constitution and existing owning Contracts define semantics. A library build does not admit a Product writer or certify a migrated Web flow.
 
 ## Dependency map
@@ -11,7 +13,7 @@ ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicat
 5. **Research and private assets:** DB-native Factor authoring and stable Python API validation, Calculation catalog/Definition resolution, immutable Dataset, Research Run/Attempt fencing/cancel/recovery, outputs/statistics/artifacts, Qualification and Search/Agent API clients. Python workers own algorithms only; Rust owns admission, scheduling, stores and publication.
 6. **Strategy and Runtime Generation:** exact frozen Strategy source/identity, promotion, artifacts/distributions, builds/installation, binding/draining/new-work activation, historical exact readers and worker lifecycle. Preserve ADR 0117 and existing Python-authored Factor assets.
 7. **Trading Product composition:** existing Rust Kernel/Replay Driver plus native Product Backtest admission/worker/reconciliation/result reads and SIM/LIVE continuous drivers. Preserve shared semantics, UNKNOWN, cancellation, risk reduction, durable history and explicit human LIVE authority.
-8. **Maintained Python backend retirement:** remove each replaced implementation's full current caller/build/deployment closure. Extract only the minimal Python algorithm SDK/worker closure. Validate the whole existing Web workflow set without Python business services, then complete applicable migration/upgrade and milestone gates.
+8. **Aggregate maintained Python backend retirement:** verify the whole remaining consumer closure after eligible per-capability removal. Each earlier capability already includes removal of its replaced Python implementation and current caller/build/deployment closure when its owning gates permit; do not postpone all cleanup to this last step. Extract only the minimal Python algorithm SDK/worker closure. Validate the whole existing Web workflow set without Python business services, then complete applicable migration/upgrade and milestone gates.
 
 Each complete capability carries its own Task Contract, independent expected behavior, fault/structural mutation tests, affected canonical lanes and bounded independent review. These dependencies do not waive current behavior, authorize placeholder implementations or grant a fallback path. The admitted Product Slice determines which API operations are available during the migration. Operations outside that slice are explicitly unimplemented in both the native API and Shipping Web; no capability is called migrated until its Rust owner actually serves the normal Product flow.
 
@@ -34,7 +36,15 @@ upgrades, without old-version execution or schema fallbacks.
 
 ## Placement
 
-`packages/onlyalpha-metadata-json/` owns the shared pure metadata identity codec. `packages/onlyalpha-integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
+The target follows [repository architecture](repository-product-architecture.md): shared metadata/Integration contracts,
+protocol bindings, Trading persistence, algorithm bridge and backtest driver are reusable libraries under `crates/`.
+Product business and storage, HTTP/security/startup, Generation/Agent and worker composition are modules in `packages/backend`;
+Shipping Web is `packages/frontend`. Preserve transport → Application → owning library/store direction inside the package.
+Python contains only the minimal admitted algorithm runtime/SDK; moving old business source there is not migration.
+
+The paragraphs below describe existing source locations for navigation until their atomic migration, not target independent packages.
+
+`crates/onlyalpha-metadata-json/` owns the shared pure metadata identity codec. `crates/onlyalpha-integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
 
 `packages/onlyalpha-product-runtime/` contains transport-neutral Rust Product Application/worker composition and owning PostgreSQL adapters. It depends on canonical Rust libraries and explicit plugin/algorithm boundaries; it has no Product HTTP server or ingress dependency. Its owning ClickHouse persistence uses an explicitly bounded HTTP client. `packages/onlyalpha-http-server/` owns the native HTTP/WebSocket adapter and startup composition. Concrete provider/market/Broker implementations remain under `plugs/`. Library modules, process boundaries and storage owners remain separate even when linked into one node.
 

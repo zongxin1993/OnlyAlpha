@@ -9,7 +9,7 @@ def test_pipeline_has_only_its_declared_semantic_closure(tmp_path: Path) -> None
     assert (root / "crates/onlyalpha-kernel/market_data/pipeline/Cargo.toml").is_file()
     assert (root / "crates/onlyalpha-kernel/calculation/Cargo.toml").is_file()
     assert not (root / "packages").exists()
-    assert not (root / "crates/onlyalpha-kernel/core").exists()
+    assert not (root / "crates/onlyalpha-kernel/predicates").exists()
 
 
 def test_pipeline_rejects_effects_and_reverse_dependencies(tmp_path: Path) -> None:
@@ -19,7 +19,9 @@ def test_pipeline_rejects_effects_and_reverse_dependencies(tmp_path: Path) -> No
     source.parent.mkdir(parents=True)
     for content in (
         "use onlyalpha_calculation_worker::Worker;",
+        "use onlyalpha_calculation_bridge::Worker;",
         "use onlyalpha_kernel::Runtime;",
+        "use onlyalpha_predicates::Predicate;",
         "use std::time::Instant;",
         'include!("../../core/src/lib.rs");',
     ):

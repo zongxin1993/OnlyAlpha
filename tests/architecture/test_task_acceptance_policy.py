@@ -101,10 +101,15 @@ def test_quality_infrastructure_is_high_risk_but_bounded() -> None:
 
 def test_runtime_history_retention_is_separate_from_dev_data_reset() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "普通启动、停机重启、工程升级、重建镜像和替换容器均保留历史数据" in agents
-    assert "清空 dev 数据并重新初始化" in agents
-    assert "不得用清库、重建空数据或旧版本 fallback" in agents
+    assert "均为可丢弃开发数据，不属于兼容性、迁移或升级保留目标" in agents
+    assert "必须成套清理并重新初始化，禁止只删 user-data 后重绑未清理的数据库" in agents
+    assert "普通启动不隐式清库，不因每轮验证自动重建" in agents
+    assert "数据已重置，不能称为历史迁移成功" in agents
+    assert "当前版本新产生的数据仍须满足 exact identity、引用完整性、持久化和正常停机重启" in agents
+    assert "可丢弃旧开发数据不授权绕过当前运行的 Authority 或 UNKNOWN" in agents
+    assert "正式部署默认保护历史数据" in agents
     assert "开发期的清空许可不能扩展到正式部署" in agents
+    assert "缺失或不匹配的历史、密钥、namespace 必须 fail closed，不能静默采用新存储" in agents
     assert "fresh reader/process restart、真实服务停机重启、格式迁移和真实部署升级" in agents
 
 

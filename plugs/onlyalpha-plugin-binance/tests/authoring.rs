@@ -9,7 +9,7 @@ use onlyalpha_plugin_binance::{spot_authoring, usdm_authoring};
 fn compiled_declarations_bind_current_native_chart_contract() {
     assert_eq!(
         spot_authoring(WORK).unwrap().descriptor().fingerprint(),
-        "d986660056044a4bdcd2f8c895def75ead38637e0709e152b82168a216bdf0ee"
+        "203dd5f3add8460b57c6c8411b12e98c0c134b0ebb8f4a66d11e6bb48765f83f"
     );
     assert_eq!(
         usdm_authoring(WORK).unwrap().descriptor().fingerprint(),

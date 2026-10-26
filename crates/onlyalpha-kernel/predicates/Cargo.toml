@@ -1,0 +1,11 @@
+[package]
+name = "onlyalpha-predicates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# No third-party dependencies: the admitted Predicate slices use std only.

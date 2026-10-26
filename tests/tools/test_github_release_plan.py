@@ -12,9 +12,18 @@ def git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
 
-def commit(root: Path, version: str) -> str:
-    (root / "pyproject.toml").write_text(f'[project]\nname = "onlyalpha"\nversion = "{version}"\n')
-    git(root, "add", "pyproject.toml")
+def commit(root: Path, version: str, frontend: str = "0.9.0") -> str:
+    (root / "pyproject.toml").write_text(
+        '[project]\nname="onlyalpha"\nversion="0.7.0"\n[tool.uv.workspace]\nmembers=[]\n'
+    )
+    (root / "Cargo.toml").write_text(f'[workspace]\nmembers=[]\n[workspace.package]\nversion="{version}"\n')
+    backend = root / "packages/onlyalpha-http-server/Cargo.toml"
+    backend.parent.mkdir(parents=True, exist_ok=True)
+    backend.write_text('[package]\nname="onlyalpha-http-server"\nversion="0.7.0"\n')
+    web = root / "packages/onlyalpha-web-console/package.json"
+    web.parent.mkdir(parents=True, exist_ok=True)
+    web.write_text('{"version":"' + frontend + '"}')
+    git(root, "add", ".")
     git(
         root,
         "-c",
@@ -42,8 +51,8 @@ def test_all_version_changes_are_bound_to_their_exact_commits(repository: Path) 
     minor = commit(repository, "0.10.0")
     after = commit(repository, "0.10.0")
     assert plan_releases(repository, before, after) == [
-        {"previous_version": "0.9.12", "version": "0.9.13", "tag": "v0.9.13", "sha": patch},
-        {"previous_version": "0.9.13", "version": "0.10.0", "tag": "v0.10.0", "sha": minor},
+        {"unit": "libs", "previous_version": "0.9.12", "version": "0.9.13", "tag": "libs-v0.9.13", "sha": patch},
+        {"unit": "libs", "previous_version": "0.9.13", "version": "0.10.0", "tag": "libs-v0.10.0", "sha": minor},
     ]
     assert plan_releases(repository, after, after) == []
 
@@ -109,7 +118,7 @@ def test_merge_publishes_the_mainline_occurrence(repository: Path) -> None:
 
 
 def test_release_workflow_limits_write_access_to_trusted_master_push() -> None:
-    import yaml
+    import yaml  # type: ignore[import-untyped]  # The installed PyYAML has no bundled stubs.
 
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.load((root / ".github/workflows/github-release.yml").read_text(), Loader=yaml.BaseLoader)
@@ -124,3 +133,11 @@ def test_release_workflow_limits_write_access_to_trusted_master_push() -> None:
     assert checkout["with"]["ref"] == "${{ github.event.after }}"
     assert checkout["with"]["persist-credentials"] == "false"
     assert checkout["with"]["fetch-depth"] == "0"
+
+
+def test_frontend_release_does_not_publish_unchanged_libraries(repository: Path) -> None:
+    before = commit(repository, "0.9.12")
+    after = commit(repository, "0.9.12", "0.9.1")
+    assert plan_releases(repository, before, after) == [
+        {"unit": "frontend", "previous_version": "0.9.0", "version": "0.9.1", "tag": "frontend-v0.9.1", "sha": after}
+    ]

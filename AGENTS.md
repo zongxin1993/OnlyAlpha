@@ -376,7 +376,10 @@ Rust 是选定迁移范围内最终唯一维护的 Kernel 实现。Rust 的模�
 全部一致、弱化断言或照搬 Bug。未决数值、身份、历史或 Authority 设计仍阻塞依赖它的移植。
 
 迁移期间当前获准的 Python Runtime 不因“参考实现”称呼而丧失其正式执行 Authority；Rust 验证也不自动获得正式写入权。
-完成逐模块验证与既有 R8 退役门槛后，删除被替代的 Python Kernel 实现，不承诺永久维护双内核。保留必要的 exact artifacts、
+按 ADR 0142，每个已迁移模块都必须审计并在实际 caller、admission、Product、recovery 与适用历史门槛满足后，成套删除
+被替代的 Python 实现及 imports/exports、dependencies、entry points、build/deployment 和 obsolete comparison wiring。
+仍被正式 Python caller 或算法 SDK 使用时，先迁移消费者或提取最小合法 SDK；不能因 Rust crate 存在就删除，也不能把
+可安全清理的模块无限推迟到最后。R8 是最终聚合退役门槛，不承诺永久双内核。保留必要的 exact artifacts、
 immutable facts 和历史恢复能力；不得提前删除现行实现、绕过 admission 或自动 fallback。Python 指标、因子、研究编写和
 适合 Python 的插件不属于 Kernel 退役的当然删除范围。
 
@@ -403,8 +406,14 @@ immutable facts 和历史恢复能力；不得提前删除现行实现、绕过 
 2. affected Ruff `check`；
 3. affected Ruff `format --check`；
 4. 涉及 Python 类型或 API 时，对 affected scope 执行 mypy；
-5. 触碰已有 subsystem 时，执行最近的 affected canonical lane；
+5. 复用 canonical lane 中覆盖受影响模块的测试和正式执行方式；lane 粒度过大时选择其受影响测试集，不自动执行整个 lane；
 6. 若触碰 architecture / contract / boundary，检查 Constitution consistency。
+
+本地日常开发必须按“修改了什么模块，就验证什么模块”执行，只增加有真实调用、依赖或 Contract 变化证据的直接受影响消费者。
+禁止每轮本地开发自动执行完整测试流程；“阶段验收”“高风险”或工具只有粗粒度 lane 均不能作为自动扩大到全仓的理由。
+Rust 默认选择受影响 package 的单一开发 profile；双 profile、全 workspace、全部 crate 隔离闭包和跨实现全量比较，仅在
+当前修改确实需要对应证明时选择相关模块，或在明确要求的发布 / Major Milestone / CI 全量门禁执行。
+已有通过结果在对应源码、依赖和配置未受后续修改影响时复用；只重跑新修改真实影响的检查。
 
 随后只按真实 Impact Scope 增量扩展。不得因为“更保险”自动执行全仓测试、完整 Layered Quality、CodeQL、全 build matrix 或全量 coverage。
 
@@ -657,24 +666,27 @@ Contract 的明确变更决策。仅记录本规则不授权范围外全仓删�
 
 认证授权、secret handling、外部输入、网络协议、SQL/persistence、命令执行、文件系统、Web security、Broker/LIVE 外部接口等修改按真实风险增加专项 security 验证。
 
-### 7.1 开发期发行版本与组件兼容性
+### 7.1 发行单元与组件兼容性
 
-开发期每个合并到主分支 `master` 的 PR（含文档、依赖和 revert）必须在该 PR 内，基于最新主分支版本完成一次升版：
-默认 `X.Y.Z → X.Y.(Z+1)`；Owner 明确认可阶段性产品目标并选择 `release:minor` 时，改为
-`X.Y.Z → X.(Y+1).0`，不再叠加 patch；`release:major` 必须单独取得 Owner 决策，变为 `(X+1).0.0`。
-PR 创建、追加 commit、验证、关闭但未合并均不升版；并行 PR 必须在前一 PR 合并后重新对齐，不得重复使用版本。
-合并前检查 release transition，合并后提示旧版本 → 新版本；不得通过自动 post-merge commit、自动合并或回写状态文件实现。
+按 Owner 确认的 ADR 0142，目标是三条主要独立 SemVer 发行线：Rust libraries 统一版本，backend 和 frontend 各自版本；
+插件按各自 distribution 独立版本。只为本次选择发行的变更单元升版，不因普通 PR、纯文档或无关单元变化强制全仓升版。
+正式 tag 使用 `libs-vX.Y.Z`、`backend-vX.Y.Z`、`frontend-vX.Y.Z` 及无歧义的插件名 tag；已发布版本/tag/内容不可覆盖。
+每个发行单元只有一个机器可读 metadata Authority，不创建第二份版本台账；目标 metadata 归属见 `docs/release-versioning.md`。
 
-根 `pyproject.toml` 是唯一发行号 Authority，复用 `scripts/version_sync.py` 同步现有 workspace、内部 exact dependencies、
-Web metadata/lock、Provider distribution provenance 与 `uv.lock`。不要创建第二份版本台账。发行号只描述集成版本，
-不代表阶段验收 PASS、兼容性认证、部署许可或 LIVE Authority。
+发行规则的机械保护必须由当前源码与实际执行证明，不能仅凭文档宣称已实现。`scripts/version_sync.py`、metadata、locks、
+transition checks、publisher、tests 与 workflows 必须成套演进；不混用全局同步与独立发行规则，不关闭有效保护。
+目标目录搬迁前使用当前 HTTP manifest / Web package metadata 作为 backend / frontend Authority，搬迁时原子更新消费者。
+具体 CLI 与路径映射见 `docs/release-versioning.md`；文档或迁移计划本身不授权升版、tag、merge、push 或发布。
 
-`0.y.z` 期间发行号不承诺 patch 内无 breaking change；仍按 ADR 0130 执行 contract 分类、breaking detection 和仓内
-consumer 原子迁移。进入稳定发行须有明确 Owner support/compatibility 决策，此后兼容性变化按 SemVer 决定级别。
-Product API major/fingerprint、Plugin SPI、Provider/content、Calculation semantic version、Private Asset Revision、
-schema/checkpoint、Catalog/Runtime Generation 和 image content identity 均保持各自 owning Authority；不得随发行号
-自动升版、放宽 admission、重绑定已有工作或猜测混合版本可兼容。升级/回滚保留既有 migration、replay、integrity、
-authentication 与 fail-closed 要求。操作说明见 `docs/release-versioning.md`。
+开发可用 workspace path；正式 backend 发行必须验证选定 libraries/插件的实际 source closure 与不可变发行内容一致，
+并绑定 lockfile、工具链、features、target、相关非 secret 构建输入及实际 artifact。版本断言与 Cargo.lock 不代替源码校验。
+默认 frontend/backend 组合必须有真实验收证据；不同版本只承诺明确验证的 API-compatible 组合，不承诺任意混用，
+不为已淘汰开发版本增加 shim、fallback 或滚动升级保证。SemVer 级别遵循实际声明的支持边界与 ADR 0130 breaking 分类；
+初始开发阶段不免除 canonical identity、fact integrity、authentication 和 recovery 要求。
+
+Product API、Plugin SPI、Provider/content、Calculation semantic version、Private Asset Revision、schema/checkpoint、
+Catalog/Runtime Generation 和 image content identity 均保持各自 owning Authority；不得随发行号自动升版、放宽 admission、
+重绑定工作或猜测兼容。发行、部署、Generation activation 与人工 LIVE authorization 分离。操作说明见 `docs/release-versioning.md`。
 
 ---
 

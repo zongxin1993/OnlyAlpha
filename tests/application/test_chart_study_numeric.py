@@ -34,14 +34,17 @@ from onlyalpha.application.chart_study_numeric import (
     _require_chart_registration,
 )
 from onlyalpha.calculation.chart_decimal import only_chart_study_effective_numeric, only_chart_study_numeric_binding
-from onlyalpha.calculation.decimal_execution import only_decimal_context
+from onlyalpha.calculation.decimal_execution import only_decimal_context, only_decimal_execution_semantic_dependency
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
     OnlyCalculationDataType,
     OnlyCalculationReference,
     OnlyNumericDefinition,
 )
-from onlyalpha.calculation.implementation import OnlyCalculationImplementationResource
+from onlyalpha.calculation.implementation import (
+    OnlyCalculationImplementationResource,
+    only_chart_study_numeric_dependency,
+)
 from onlyalpha.quant_assets.catalog import (
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
@@ -281,7 +284,37 @@ def test_input_bound_and_chunked_decimal_are_valid_without_scientific_dependency
     assert set(vars(invocation)) == {"_registry", "_catalog", "_slot", "_admissions", "_fingerprints"}
 
 
-@pytest.mark.parametrize("mutation", ("dependency", "old_manifest", "resource_hash", "missing_resource"))
+def test_plugin_algorithm_and_owning_invocation_provenance_are_bound_separately():
+    invocation, _, _ = composition()
+    admission = invocation.admission_for("onlyalpha.indicator.sma", "1")
+    dependencies = admission.registration.implementation_manifest.semantic_dependencies
+    assert only_decimal_execution_semantic_dependency() in dependencies
+    assert only_chart_study_numeric_dependency() in dependencies
+    assert not any(item.dependency_id == "onlyalpha.chart-study.invocation" for item in dependencies)
+    manifest = admission.invocation_manifest
+    assert admission.payload()["invocation"] == manifest.to_dict()
+    assert any(item.relative_path == "application/chart_study_numeric.py" for item in manifest.resources)
+    changed = replace(manifest, resources=tuple(replace(item, byte_sha256="a" * 64) for item in manifest.resources))
+    assert replace(admission, invocation_manifest=changed).fingerprint != admission.fingerprint
+
+
+def test_owning_invocation_code_mutation_cannot_execute_under_admitted_provenance(monkeypatch):
+    invocation, _, _ = composition()
+    calls = []
+
+    def counterfeit(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("unadmitted invocation executed")
+
+    monkeypatch.setattr(OnlyChartStudyInvocation, "_execute_numeric", counterfeit)
+    with pytest.raises(ValueError, match="CHART_STUDY_IMPLEMENTATION_UNAVAILABLE"):
+        invoke(invocation, values("1"))
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "mutation", ("dependency", "numeric_dependency", "old_manifest", "resource_hash", "missing_resource")
+)
 def test_manifest_or_readiness_proof_mutation_is_unavailable(mutation):
     provider = quant_asset_provider()
     registration = next(item for item in provider.calculation_registrations if item.readiness_contract_versions)
@@ -294,6 +327,13 @@ def test_manifest_or_readiness_proof_mutation_is_unavailable(mutation):
                 if item.dependency_id == "onlyalpha.decimal.execution"
                 else item
                 for item in manifest.semantic_dependencies
+            ),
+        )
+    elif mutation == "numeric_dependency":
+        manifest = replace(
+            manifest,
+            semantic_dependencies=tuple(
+                item for item in manifest.semantic_dependencies if item != only_chart_study_numeric_dependency()
             ),
         )
     elif mutation == "old_manifest":
@@ -318,7 +358,7 @@ def test_manifest_or_readiness_proof_mutation_is_unavailable(mutation):
     )
     expected = (
         "CHART_STUDY_DEPENDENCY_UNAVAILABLE"
-        if mutation in {"dependency", "old_manifest"}
+        if mutation in {"dependency", "numeric_dependency", "old_manifest"}
         else "CHART_STUDY_.*UNAVAILABLE"
     )
     with pytest.raises(ValueError, match=expected):

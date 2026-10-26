@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -39,14 +40,22 @@ def test_one_v2_canonical_contract_policy_and_one_bounded_pre_freeze_authorizati
         "schema_version": 1,
     }
     forbidden = {"baseline.json", "accepted.json", "accepted-openapi.json", "previous.json"}
-    assert not any(path.name in forbidden for path in ROOT.rglob("*.json"))
+    repository_json = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.json"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert not any(Path(path).name in forbidden for path in repository_json)
 
 
-def test_fastapi_app_remains_authoring_authority_and_wrapper_has_no_duplicate_logic() -> None:
+def test_native_app_remains_authoring_authority_and_wrapper_has_no_duplicate_logic() -> None:
     source = GOVERNANCE.read_text(encoding="utf-8")
     wrapper = WRAPPER.read_text(encoding="utf-8")
-    assert "create_product_app" in source
-    assert "app.openapi()" in source
+    assert "from scripts.native_http_contract import exported" in source
+    assert 'return exported("openapi")' in source
+    assert "create_product_app" not in source
     assert "json.dumps(" in source
     assert "governance_main(argv)" in wrapper
     assert "create_product_app" not in wrapper

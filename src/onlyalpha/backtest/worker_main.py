@@ -11,15 +11,16 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from threading import Event
 
-from onlyalpha.application.runtime_generation import (
-    OnlyNoClaimRuntimeGenerationWorkAuthority,
-    OnlyRuntimeGenerationWorkAuthority,
-)
 from onlyalpha.application.stop_controller import (
     OnlyApplicationShutdownReason,
     OnlyApplicationStopController,
 )
 from onlyalpha.application.strategy_product import OnlyStrategyQueryService
+from onlyalpha.backtest.runtime_generation import (
+    OnlyBacktestRuntimeGenerationWorkAuthority,
+    OnlyNoClaimBacktestRuntimeGenerationWorkAuthority,
+    only_require_backtest_runtime_generation_work_authority,
+)
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.data.factory import OnlyDataSourceFactoryRegistry
@@ -100,11 +101,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (args.runtime_generation_authority_root is None) != (args.runtime_generation_fingerprint is None):
         parser.error("RuntimeGeneration authority root and fingerprint must be supplied together")
     process_generation_fingerprint = args.runtime_generation_fingerprint or "0" * 64
-    runtime_generations: OnlyRuntimeGenerationWorkAuthority
+    runtime_generations: OnlyBacktestRuntimeGenerationWorkAuthority
     if args.runtime_generation_authority_root is None:
-        runtime_generations = OnlyNoClaimRuntimeGenerationWorkAuthority()
+        runtime_generations = OnlyNoClaimBacktestRuntimeGenerationWorkAuthority()
     else:
-        runtime_generations = only_load_runtime_generation_work_authority(args.runtime_generation_authority_root)
+        runtime_generations = only_require_backtest_runtime_generation_work_authority(
+            only_load_runtime_generation_work_authority(args.runtime_generation_authority_root)
+        )
         runtime_generations.verify_hosted_generation(process_generation_fingerprint)
     catalog = only_load_backtest_deployment_catalog(tuple(args.backtest_product_config))
     data_sources = OnlyDataSourceFactoryRegistry()

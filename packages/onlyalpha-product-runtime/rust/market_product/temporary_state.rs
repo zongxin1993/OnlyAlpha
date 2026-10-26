@@ -91,6 +91,36 @@ impl TemporaryFence {
         }
     }
 }
+/// A single page subscription's lifetime, independent of its shared closed cache.
+pub(super) struct TemporarySubscription {
+    active: std::sync::atomic::AtomicBool,
+    wake: tokio::sync::Notify,
+}
+impl Default for TemporarySubscription {
+    fn default() -> Self {
+        Self {
+            active: std::sync::atomic::AtomicBool::new(true),
+            wake: tokio::sync::Notify::new(),
+        }
+    }
+}
+impl TemporarySubscription {
+    pub(super) fn is_active(&self) -> bool {
+        self.active.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub(super) fn cancel(&self) {
+        self.active
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.wake.notify_waiters();
+    }
+    pub(super) async fn closed(&self) {
+        let wake = self.wake.notified();
+        if self.is_active() {
+            wake.await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,35 +157,5 @@ mod tests {
         assert!(state.invalidate().is_err());
         assert!(last.check().is_err());
         assert!(state.reset().is_err());
-    }
-}
-
-/// A single page subscription's lifetime, independent of its shared closed cache.
-pub(super) struct TemporarySubscription {
-    active: std::sync::atomic::AtomicBool,
-    wake: tokio::sync::Notify,
-}
-impl Default for TemporarySubscription {
-    fn default() -> Self {
-        Self {
-            active: std::sync::atomic::AtomicBool::new(true),
-            wake: tokio::sync::Notify::new(),
-        }
-    }
-}
-impl TemporarySubscription {
-    pub(super) fn is_active(&self) -> bool {
-        self.active.load(std::sync::atomic::Ordering::Acquire)
-    }
-    pub(super) fn cancel(&self) {
-        self.active
-            .store(false, std::sync::atomic::Ordering::Release);
-        self.wake.notify_waiters();
-    }
-    pub(super) async fn closed(&self) {
-        let wake = self.wake.notified();
-        if self.is_active() {
-            wake.await;
-        }
     }
 }

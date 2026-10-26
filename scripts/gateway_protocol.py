@@ -213,7 +213,7 @@ def check_rust(*, write_projection: bool = False) -> str:
     candidate, temporary = _generate_temporary()
     try:
         projected = rust_projection(candidate / PROTO_PACKAGE_ROOT / "descriptor.pb", candidate / "rust")
-        destination = ROOT / "packages/onlyalpha-gateway-protocol/rust/generated.rs"
+        destination = ROOT / "crates/onlyalpha-gateway-protocol/rust/generated.rs"
         if write_projection:
             shutil.copyfile(projected, destination)
         if projected.read_bytes() != destination.read_bytes():

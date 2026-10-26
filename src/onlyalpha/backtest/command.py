@@ -16,11 +16,11 @@ from onlyalpha.application.product_command_receipt import (
     OnlyProductCommandReceipt,
     only_product_command_fingerprint,
 )
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 
 from .admission import OnlyBacktestAdmissionService
 from .errors import OnlyBacktestError, OnlyBacktestErrorPhase
 from .model import OnlyBacktestRun, OnlyBacktestRunId, OnlyBacktestSpecification
+from .runtime_generation import OnlyBacktestRuntimeGenerationWorkAuthority
 
 
 class OnlyBacktestSubmissionDisposition(StrEnum):
@@ -59,7 +59,7 @@ class OnlyBacktestCommandService:
         admission: OnlyBacktestAdmissionService,
         store: OnlyBacktestCommandStore,
         now_utc: Callable[[], datetime],
-        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        runtime_generations: OnlyBacktestRuntimeGenerationWorkAuthority,
     ) -> None:
         self._admission = admission
         self._store = store

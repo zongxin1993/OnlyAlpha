@@ -243,19 +243,17 @@ impl PreparedTemporaryBatch {
                 None => {
                     json!({"status":"REJECTED", "request_index":index, "error":"CHART_STUDY_REQUEST_INVALID"})
                 }
-                Some(calculation) => match calculation.evaluate(
-                    &mut self.composition,
-                    ChartInputKind::Temporary,
-                    &window,
-                    None,
-                    complete,
-                    self.end,
-                ) {
-                    Ok(evaluation) => {
-                        json!({"status":"EVALUATED", "request_index":index, "evaluation":evaluation})
-                    }
-                    Err(error) => return Err(error),
-                },
+                Some(calculation) => {
+                    let evaluation = calculation.evaluate(
+                        &mut self.composition,
+                        ChartInputKind::Temporary,
+                        &window,
+                        None,
+                        complete,
+                        self.end,
+                    )?;
+                    json!({"status":"EVALUATED", "request_index":index, "evaluation":evaluation})
+                }
             };
             history.check()?;
             results.push(outcome);

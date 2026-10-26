@@ -23,7 +23,7 @@ Interfaces: CalculationState owns cursor; snapshot returns CalculationSnapshot; 
 
 ## 2. Real worker consumer and recovery
 
-Update `packages/onlyalpha-calculation-worker/rust/client.rs` to own CalculationState, expose snapshots and cancellation, pair state/worker checkpoint in schema2 bundle; retain native wire checkpoint. Extend bridge_check.rs for actual warming/ready/degraded/stale, process-wide UNKNOWN, nested bundle rejection and restart continuation. Watch the old checkpoint/snapshot behavior fail before implementation, then run targeted Rust/process bridge checks.
+Update `crates/onlyalpha-calculation-bridge/rust/client.rs` to own CalculationState, expose snapshots and cancellation, pair state/worker checkpoint in schema2 bundle; retain native wire checkpoint. Extend bridge_check.rs for actual warming/ready/degraded/stale, process-wide UNKNOWN, nested bundle rejection and restart continuation. Watch the old checkpoint/snapshot behavior fail before implementation, then run targeted Rust/process bridge checks.
 
 ## 3. Canonical integration and publication
 

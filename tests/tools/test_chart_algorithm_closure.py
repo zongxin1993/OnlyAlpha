@@ -171,11 +171,15 @@ print(json.dumps({'families':len(expected),'isolation':'enforced'}))
 def test_sdk_wheel_release_comes_from_frozen_source(tmp_path, monkeypatch):
     import importlib.metadata
     import zipfile
+
     from scripts import build_algorithm_sdk as builder
 
     source = tmp_path / "source"
     source.mkdir()
-    (source / "pyproject.toml").write_text('[project]\nversion = "0.11.0"\n')
+    (source / "pyproject.toml").write_text('[project]\nversion = "9.9.9"\n')
+    backend = source / "packages/onlyalpha-http-server/Cargo.toml"
+    backend.parent.mkdir(parents=True)
+    backend.write_text('[package]\nversion = "0.11.0"\n')
     monkeypatch.setattr(builder, "ROOT", source)
     monkeypatch.setattr(importlib.metadata, "version", lambda _: "0.10.21")
     path = builder.wheel(tmp_path, "onlyalpha-calculation-worker", {}, ("onlyalpha", "protobuf"))
@@ -185,3 +189,23 @@ def test_sdk_wheel_release_comes_from_frozen_source(tmp_path, monkeypatch):
     assert "Requires-Dist: onlyalpha==0.11.0\n" in metadata
     assert "Requires-Dist: protobuf\n" in metadata
     assert "0.10.21" not in metadata
+
+
+def test_algorithm_plugin_wheel_keeps_its_own_version(tmp_path, monkeypatch):
+    import zipfile
+
+    from scripts import build_algorithm_sdk as builder
+
+    source = tmp_path / "source"
+    backend = source / "packages/onlyalpha-http-server/Cargo.toml"
+    backend.parent.mkdir(parents=True)
+    backend.write_text('[package]\nversion = "0.7.0"\n')
+    plugin = source / "plugs/onlyalpha-plugin-indicators/pyproject.toml"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text('[project]\nversion = "0.2.0"\n')
+    monkeypatch.setattr(builder, "ROOT", source)
+    path = builder.wheel(tmp_path, "onlyalpha-plugin-indicators", {}, ("onlyalpha",))
+    with zipfile.ZipFile(path) as archive:
+        metadata = archive.read("onlyalpha_plugin_indicators-0.2.0.dist-info/METADATA").decode()
+    assert "Version: 0.2.0\n" in metadata
+    assert "Requires-Dist: onlyalpha==0.7.0\n" in metadata

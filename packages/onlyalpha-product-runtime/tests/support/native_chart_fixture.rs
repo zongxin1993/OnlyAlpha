@@ -489,7 +489,7 @@ async fn verify_two_owned_chart_workers(
     common: &Value,
     calculations: &[Value; 4],
 ) {
-    use onlyalpha_calculation_worker::ProcessState;
+    use onlyalpha_calculation_bridge::ProcessState;
     let query = chart_query();
     let expected = query.capabilities(session).unwrap();
     let mut request = common.clone();

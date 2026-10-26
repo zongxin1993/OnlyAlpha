@@ -67,7 +67,12 @@ def test_only_provider_diagnostics_remain_as_python_entrypoints() -> None:
         "onlyalpha-agent",
     }.isdisjoint(entry_points)
     assert "onlyalpha-miniqmt" not in entry_points
-    assert not (ROOT / "plugs/onlyalpha-plugin-miniqmt").exists()
+    retired = ROOT / "plugs/onlyalpha-plugin-miniqmt"
+    assert not [
+        path
+        for path in retired.rglob("*")
+        if path.is_file() and not {"__pycache__", ".mypy_cache"}.intersection(path.relative_to(retired).parts)
+    ]
     assert entry_points["onlyalpha-tushare"] == "onlyalpha_plugin_tushare.doctor:main"
 
 

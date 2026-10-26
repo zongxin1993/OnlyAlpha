@@ -120,10 +120,10 @@ def test_financial_indicator_catalog_contracts_are_explicit() -> None:
     assert all(item.implementation_manifest is not None for item in actual)
     provider = quant_asset_provider()
     assert provider.manifest.provider_id == "onlyalpha.indicator.library"
-    assert provider.manifest.provider_version == "17"
-    # Provider content binds exact invocation/registration bytes and the 0.10.21 distribution identity.
-    # The numerical Calculation semantics and provider semantic version remain fixed.
-    assert provider.content_fingerprint == "9aa29ee3dc2c06a6c1a0859a47016cf66a45480f4944773d851d54787df77be7"
+    assert provider.manifest.provider_version == "18"
+    # Provider content binds algorithm/registration bytes and the exact distribution identity.
+    # Application invocation provenance is independently bound by Chart admission.
+    assert provider.content_fingerprint == "3b682ca0a99b3dc0c41056a7dbcc00fc1091602ef197bd53fc8df94f6159e327"
     assert provider.content_fingerprint == quant_asset_provider().content_fingerprint
     financial = tuple(item for item in actual if item.type_definition in FINANCIAL_TYPES)
     assert all(

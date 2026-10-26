@@ -72,7 +72,7 @@ def test_construction_isolated_closure(tmp_path: Path) -> None:
     assert local == {"onlyalpha-domain", "onlyalpha-market-data-construction"}
     assert (root / "test-data/market-data-construction/operations-v1.jsonl").is_file()
     for path in (
-        "crates/onlyalpha-kernel/core",
+        "crates/onlyalpha-kernel/predicates",
         "crates/onlyalpha-kernel/clock",
         "crates/onlyalpha-kernel/event",
         "src/onlyalpha",

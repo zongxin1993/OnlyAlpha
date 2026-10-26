@@ -1,5 +1,7 @@
 # ADR 0117: Immutable Distribution Runtime Generation and New-Work Activation
 
+> Component-placement supersession: [ADR 0142](0142-library-product-boundaries-and-independent-releases.md) places the Generation manager in backend modules and the minimal Python base environment in backend release artifacts. The existing sole ledger/binding Authority, exact artifacts, activation/draining and historical-resolution rules below remain unchanged. The old package path is not the final layout.
+
 - Status: Accepted
 - Date: 2026-09-05
 - Decision maker: repository owner through the B2.4 implementation authorization

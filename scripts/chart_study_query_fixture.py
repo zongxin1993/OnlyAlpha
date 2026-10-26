@@ -114,7 +114,7 @@ def _produce() -> tuple[str, str]:
         "market_data_delivery",
         "market_data_pipeline",
         "gateway_protocol",
-        "calculation_worker",
+        "calculation_bridge",
         "product_runtime",
         "plugin_binance",
     )

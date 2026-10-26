@@ -1,6 +1,6 @@
 [package]
 name = "onlyalpha-plugin-binance"
-version.workspace = true
+version = "0.11.1"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -12,8 +12,8 @@ workspace = true
 [dependencies]
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
-onlyalpha-integration-contract = { path = "../../packages/onlyalpha-integration-contract" }
-onlyalpha-metadata-json = { path = "../../packages/onlyalpha-metadata-json" }
+onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
+onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }
 http = { version = "=1.5.0", default-features = false, features = ["std"] }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -33,6 +34,66 @@ def build_commands(target: str) -> list[list[str]]:
             for profile in ([], ["--release"])
         ],
     ]
+
+
+def targeted_build_commands(target: str, packages: tuple[str, ...]) -> list[list[str]]:
+    if not packages:
+        raise ValueError("RUST_IMPACT_REVIEW_REQUIRED: empty package selection")
+    selected = [flag for package in packages for flag in ("-p", package)]
+    base = [*selected, "--frozen", "--offline", "--target", target, "-j1"]
+    return [
+        ["cargo", "fmt", *selected, "--", "--check"],
+        ["cargo", "clippy", *base, "--all-targets", "--", "-D", "warnings"],
+        ["cargo", "test", *base, "--", "--test-threads=1"],
+    ]
+
+
+def _workspace_packages(root: Path) -> dict[str, tuple[Path, dict[str, Any]]]:
+    members = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["members"]
+    return {
+        manifest["package"]["name"]: (Path(member), manifest)
+        for member in members
+        for manifest in (tomllib.loads((root / member / "Cargo.toml").read_text()),)
+    }
+
+
+def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
+    """Select changed owners and their direct declared Cargo consumers only."""
+    packages = _workspace_packages(root)
+    owners: set[str] = set()
+    for path in paths:
+        if path.startswith(("scripts/", "tests/tools/")):
+            continue
+        matches = {name for name, (directory, _) in packages.items() if Path(path).is_relative_to(directory)}
+        if matches and not (
+            path.endswith(".rs")
+            or Path(path).name == "Cargo.toml"
+            or any(path in resources.values() for resources in _INFRASTRUCTURE_RESOURCES.values())
+        ):
+            raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: owning non-Rust tests are unmapped for {path}")
+        if path.startswith("test-data/"):
+            area = path.split("/")[1]
+            directory = module_path("predicates" if area == "predicate" else area.replace("-", "_"))
+            matches.update(name for name, (member, _) in packages.items() if member == directory)
+            for owner, resources in _INFRASTRUCTURE_RESOURCES.items():
+                if path in resources.values():
+                    matches.update(name for name, (member, _) in packages.items() if Path(owner).is_relative_to(member))
+        if path.startswith("contracts/gateway/"):
+            matches.add("onlyalpha-gateway-protocol")
+        if path == "tests/support/frozen_strategy.py":
+            matches.update(("onlyalpha-product-runtime", "onlyalpha-http-server"))
+        if not matches:
+            raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: {path}; supply reviewed --package selections explicitly")
+        owners.update(matches)
+    consumers = set()
+    for name, (_, manifest) in packages.items():
+        for section in (manifest, *manifest.get("target", {}).values()):
+            for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+                for alias, config in section.get(kind, {}).items():
+                    dependency = config.get("package", alias) if isinstance(config, dict) else alias
+                    if dependency in owners:
+                        consumers.add(name)
+    return tuple(sorted(owners | consumers))
 
 
 def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict[str, str]:
@@ -133,10 +194,10 @@ POSITION_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 ACCOUNT_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 
 WORKER_DEPENDENCIES = {
-    "onlyalpha-strategy": {"path": "../../crates/onlyalpha-kernel/strategy"},
-    "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
-    "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
-    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
+    "onlyalpha-strategy": {"path": "../onlyalpha-kernel/strategy"},
+    "onlyalpha-market-data-pipeline": {"path": "../onlyalpha-kernel/market_data/pipeline"},
+    "onlyalpha-calculation": {"path": "../onlyalpha-kernel/calculation"},
+    "onlyalpha-domain": {"path": "../onlyalpha-kernel/domain"},
     "onlyalpha-gateway-protocol": {"path": "../onlyalpha-gateway-protocol"},
     "prost": {"version": "=0.14.4"},
     "sha2": DOMAIN_DEPENDENCIES["sha2"],
@@ -162,15 +223,15 @@ EXECUTION_DEPENDENCIES = {
 
 
 RUNTIME_PERSISTENCE_DEPENDENCIES = {
-    "onlyalpha-execution": {"path": "../../crates/onlyalpha-kernel/execution"},
+    "onlyalpha-execution": {"path": "../onlyalpha-kernel/execution"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
     "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
 }
 BACKTEST_DRIVER_DEPENDENCIES = {
     "onlyalpha-runtime-persistence": {"path": "../onlyalpha-runtime-persistence"},
-    "onlyalpha-calculation-worker": {"path": "../onlyalpha-calculation-worker"},
+    "onlyalpha-calculation-bridge": {"path": "../onlyalpha-calculation-bridge"},
     **{
-        name: {"path": "../../crates/onlyalpha-kernel/" + directory}
+        name: {"path": "../onlyalpha-kernel/" + directory}
         for name, directory in {
             "onlyalpha-clock": "clock",
             "onlyalpha-domain": "domain",
@@ -181,11 +242,11 @@ BACKTEST_DRIVER_DEPENDENCIES = {
     },
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
-BACKTEST_DRIVER_TEST_DEPENDENCIES = {"onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"}}
+BACKTEST_DRIVER_TEST_DEPENDENCIES = {"onlyalpha-calculation": {"path": "../onlyalpha-kernel/calculation"}}
 
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
-    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-    "onlyalpha-risk": {"path": "../../crates/onlyalpha-kernel/risk"},
+    "onlyalpha-domain": {"path": "../onlyalpha-kernel/domain"},
+    "onlyalpha-risk": {"path": "../onlyalpha-kernel/risk"},
     "bigdecimal": DOMAIN_DEPENDENCIES["bigdecimal"],
 }
 
@@ -197,8 +258,8 @@ METADATA_JSON_DEPENDENCIES = {
 }
 INTEGRATION_CONTRACT_DEPENDENCIES = {
     "bigdecimal": {"default-features": False, "features": ["std"], "version": "=0.4.11"},
-    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-    "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
+    "onlyalpha-domain": {"path": "../onlyalpha-kernel/domain"},
+    "onlyalpha-market-data-construction": {"path": "../onlyalpha-kernel/market_data/construction"},
     "onlyalpha-metadata-json": {"path": "../onlyalpha-metadata-json"},
     "serde": {"default-features": False, "features": ["std"], "version": "=1.0.229"},
     "serde_json": {
@@ -210,8 +271,8 @@ INTEGRATION_CONTRACT_DEPENDENCIES = {
 
 
 SOURCE_AUTHORING_DEPENDENCIES = {
-    "onlyalpha-integration-contract": {"path": "../../packages/onlyalpha-integration-contract"},
-    "onlyalpha-metadata-json": {"path": "../../packages/onlyalpha-metadata-json"},
+    "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
+    "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
     "serde_json": METADATA_JSON_DEPENDENCIES["serde_json"],
 }
 BINANCE_DEPENDENCIES = {
@@ -220,9 +281,9 @@ BINANCE_DEPENDENCIES = {
     "futures-util": {"default-features": False, "features": ["sink", "std"], "version": "=0.3.34"},
     "http": {"default-features": False, "features": ["std"], "version": "=1.5.0"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-    "onlyalpha-integration-contract": {"path": "../../packages/onlyalpha-integration-contract"},
+    "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
-    "onlyalpha-metadata-json": {"path": "../../packages/onlyalpha-metadata-json"},
+    "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
     "reqwest": {"default-features": False, "features": ["rustls"], "version": "=0.13.5"},
     "rustls": {"default-features": False, "features": ["std", "tls12", "aws_lc_rs"], "version": "=0.23.46"},
     "serde_json": {
@@ -239,16 +300,16 @@ BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
 
 PRODUCT_RUNTIME_DEPENDENCIES = {
     "onlyalpha-calculation": {"path": "../../crates/onlyalpha-kernel/calculation"},
-    "onlyalpha-calculation-worker": {"path": "../onlyalpha-calculation-worker"},
+    "onlyalpha-calculation-bridge": {"path": "../../crates/onlyalpha-calculation-bridge"},
     "aes-gcm": {"default-features": False, "features": ["aes", "alloc", "zeroize"], "version": "=0.11.1"},
     "base64": {"default-features": False, "features": ["alloc"], "version": "=0.23.1"},
     "getrandom": {"default-features": False, "version": "=0.4.3"},
     "hkdf": {"default-features": False, "version": "=0.13.0"},
     "hmac": {"default-features": False, "features": ["zeroize"], "version": "=0.13.0"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-    "onlyalpha-integration-contract": {"path": "../onlyalpha-integration-contract"},
+    "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
-    "onlyalpha-metadata-json": {"path": "../onlyalpha-metadata-json"},
+    "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
     "onlyalpha-strategy": {"path": "../../crates/onlyalpha-kernel/strategy"},
     "reqwest": {"default-features": False, "features": ["rustls"], "version": "=0.13.5"},
     "rustix": {"default-features": False, "features": ["std", "fs", "process"], "version": "=1.1.5"},
@@ -272,7 +333,7 @@ HTTP_SERVER_DEPENDENCIES = {
     "zeroize": {"version": "=1.9.1", "default-features": False, "features": ["alloc"]},
     "httparse": {"version": "=1.10.1", "default-features": False, "features": ["std"]},
     "onlyalpha-product-runtime": {"path": "../onlyalpha-product-runtime"},
-    "onlyalpha-integration-contract": {"path": "../onlyalpha-integration-contract"},
+    "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
     "http": {"version": "=1.5.0", "default-features": False, "features": ["std"]},
     "rustix": {"version": "=1.1.5", "default-features": False, "features": ["std", "fs", "process"]},
     "serde": {"version": "=1.0.229", "default-features": False, "features": ["std", "derive"]},
@@ -294,18 +355,20 @@ HTTP_SERVER_DEPENDENCIES = {
     "percent-encoding": {"version": "=2.3.2", "default-features": False, "features": ["std"]},
     "getrandom": {"version": "=0.4.3", "default-features": False},
 }
-HTTP_SERVER_DEPENDENCIES.update({
-    "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
-    "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
-    "onlyalpha-metadata-json": {"path": "../onlyalpha-metadata-json"},
-    "onlyalpha-calculation-worker": {"path": "../onlyalpha-calculation-worker"},
-    "onlyalpha-plugin-binance": {"path": "../../plugs/onlyalpha-plugin-binance"},
-    "onlyalpha-plugin-tushare": {"path": "../../plugs/onlyalpha-plugin-tushare"},
-    "futures-util": {"version": "=0.3.34", "default-features": False, "features": ["sink", "std"]},
-    "tokio-tungstenite": {"version": "=0.30.0", "default-features": False, "features": ["handshake"]},
-    "utoipa": {"version": "=6.0.0", "default-features": False, "features": ["macros"]},
-    "utoipa-axum": {"version": "=0.3.0", "default-features": False},
-})
+HTTP_SERVER_DEPENDENCIES.update(
+    {
+        "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
+        "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
+        "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
+        "onlyalpha-calculation-bridge": {"path": "../../crates/onlyalpha-calculation-bridge"},
+        "onlyalpha-plugin-binance": {"path": "../../plugs/onlyalpha-plugin-binance"},
+        "onlyalpha-plugin-tushare": {"path": "../../plugs/onlyalpha-plugin-tushare"},
+        "futures-util": {"version": "=0.3.34", "default-features": False, "features": ["sink", "std"]},
+        "tokio-tungstenite": {"version": "=0.30.0", "default-features": False, "features": ["handshake"]},
+        "utoipa": {"version": "=6.0.0", "default-features": False, "features": ["macros"]},
+        "utoipa-axum": {"version": "=0.3.0", "default-features": False},
+    }
+)
 HTTP_SERVER_TEST_DEPENDENCIES = {
     "hyper": {"version": "=1.12.0", "default-features": False, "features": ["http1", "client"]},
     "tokio": {"version": "=1.54.1", "default-features": False, "features": ["test-util"]},
@@ -318,15 +381,15 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-plugin-tushare": "plugs/onlyalpha-plugin-tushare",
         "onlyalpha-domain": "crates/onlyalpha-kernel/domain",
         "onlyalpha-calculation": "crates/onlyalpha-kernel/calculation",
-        "onlyalpha-gateway-protocol": "packages/onlyalpha-gateway-protocol",
-        "onlyalpha-calculation-worker": "packages/onlyalpha-calculation-worker",
-        "onlyalpha-runtime-persistence": "packages/onlyalpha-runtime-persistence",
-        "onlyalpha-backtest-driver": "packages/onlyalpha-backtest-driver",
+        "onlyalpha-gateway-protocol": "crates/onlyalpha-gateway-protocol",
+        "onlyalpha-calculation-bridge": "crates/onlyalpha-calculation-bridge",
+        "onlyalpha-runtime-persistence": "crates/onlyalpha-runtime-persistence",
+        "onlyalpha-backtest": "crates/onlyalpha-backtest",
         "onlyalpha-product-runtime": "packages/onlyalpha-product-runtime",
-        "onlyalpha-metadata-json": "packages/onlyalpha-metadata-json",
-        "onlyalpha-integration-contract": "packages/onlyalpha-integration-contract",
+        "onlyalpha-metadata-json": "crates/onlyalpha-metadata-json",
+        "onlyalpha-integration-contract": "crates/onlyalpha-integration-contract",
         "onlyalpha-http-server": "packages/onlyalpha-http-server",
-        "onlyalpha-kernel": "crates/onlyalpha-kernel/core",
+        "onlyalpha-predicates": "crates/onlyalpha-kernel/predicates",
         "onlyalpha-clock": "crates/onlyalpha-kernel/clock",
         "onlyalpha-event": "crates/onlyalpha-kernel/event",
         "onlyalpha-strategy": "crates/onlyalpha-kernel/strategy",
@@ -354,7 +417,7 @@ def validate_workspace(root: Path) -> None:
     registry = sorted((item for item in packages if "source" in item), key=lambda item: (item["name"], item["version"]))
     if len(local) != len(expected) or {item["name"] for item in local} != expected:
         raise ValueError("RUST_KERNEL_DEPENDENCY_REVIEW_REQUIRED")
-    driver = tomllib.loads((root / modules["onlyalpha-backtest-driver"] / "Cargo.toml").read_text())
+    driver = tomllib.loads((root / modules["onlyalpha-backtest"] / "Cargo.toml").read_text())
     if registry and (
         driver.get("dependencies") != BACKTEST_DRIVER_DEPENDENCIES
         or driver.get("dev-dependencies") != BACKTEST_DRIVER_TEST_DEPENDENCIES
@@ -410,7 +473,7 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config == DOMAIN_DEPENDENCIES.get(alias)
                     ) or (
-                        name == "onlyalpha-kernel"
+                        name == "onlyalpha-predicates"
                         and dependency == "onlyalpha-domain"
                         and config == {"path": "../domain"}
                     )
@@ -457,7 +520,7 @@ def validate_workspace(root: Path) -> None:
                         and config == CALCULATION_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
-                        name in {"onlyalpha-gateway-protocol", "onlyalpha-calculation-worker"}
+                        name in {"onlyalpha-gateway-protocol", "onlyalpha-calculation-bridge"}
                         and section is manifest
                         and kind == "dependencies"
                         and alias == dependency
@@ -537,7 +600,7 @@ def validate_workspace(root: Path) -> None:
                         ).get(alias)
                     )
                     admitted = admitted or (
-                        name == "onlyalpha-backtest-driver"
+                        name == "onlyalpha-backtest"
                         and section is manifest
                         and kind in {"dependencies", "dev-dependencies"}
                         and alias == dependency
@@ -691,7 +754,7 @@ def validate_workspace(root: Path) -> None:
 
         for component, dependencies in (
             ("onlyalpha-gateway-protocol", PROTOCOL_DEPENDENCIES),
-            ("onlyalpha-calculation-worker", WORKER_DEPENDENCIES),
+            ("onlyalpha-calculation-bridge", WORKER_DEPENDENCIES),
         ):
             component_manifest = tomllib.loads((root / modules[component] / "Cargo.toml").read_text())
             if component_manifest.get("dependencies") != dependencies:
@@ -719,7 +782,7 @@ _PURE_INPUT_PATTERN = r"\b(?:SystemTime|Instant|UNIX_EPOCH|Condvar|thread|sleep|
 
 
 def _hidden_rust_input(text: str) -> bool:
-    return bool(re.search(r"#\s*\[\s*(?:path\s*=|cfg_attr\b)|\b(?:include|env|option_env)\s*!", text))
+    return bool(re.search(r"#\s*\[\s*(?:path\s*=|cfg_attr\b)|\b(?:include|env|option_env)\s*!(?!=)", text))
 
 
 def validate_domain_sources(root: Path) -> None:
@@ -861,7 +924,7 @@ def validate_construction_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/market_data/construction/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?:clock|event|market_data_state|kernel|core|runtime|indicator|factor|calculation|provider|storage)\b",
+            r"\bonlyalpha_(?:clock|event|market_data_state|kernel|core|predicates|runtime|indicator|factor|calculation|provider|storage)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -874,7 +937,7 @@ def validate_delivery_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/market_data/delivery/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|strategy|indicator|factor|calculation|provider|storage)\b",
+            r"\bonlyalpha_(?:clock|event|kernel|core|predicates|runtime|cluster|strategy|indicator|factor|calculation|provider|storage)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -887,7 +950,7 @@ def validate_pipeline_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/market_data/pipeline/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|strategy|indicator|factor|provider|storage|calculation_worker|gateway_protocol)\b",
+            r"\bonlyalpha_(?:clock|event|kernel|core|predicates|runtime|cluster|strategy|indicator|factor|provider|storage|calculation_worker|calculation_bridge|gateway_protocol)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -905,7 +968,7 @@ def validate_strategy_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/strategy/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?:clock|event|kernel|core|runtime|cluster|provider|storage|calculation_worker|gateway_protocol|market_data_pipeline|market_data_state|market_data_delivery)\b",
+            r"\bonlyalpha_(?:clock|event|kernel|core|predicates|runtime|cluster|provider|storage|calculation_worker|calculation_bridge|gateway_protocol|market_data_pipeline|market_data_state|market_data_delivery)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -1040,24 +1103,86 @@ def validate_calculation_sources(root: Path) -> None:
     for path in (root / "crates/onlyalpha-kernel/calculation/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
         if re.search(
-            r"\bonlyalpha_(?:clock|event|kernel|core|domain|runtime|cluster|strategy|indicator|factor|market_data|provider|storage)\b",
+            r"\bonlyalpha_(?:clock|event|kernel|core|predicates|domain|runtime|cluster|strategy|indicator|factor|market_data|provider|storage)\b",
             code,
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
 
+# Exact compile-time resources, owned by their consuming source. These paths are
+# also materialized in isolated builds and covered by source_inputs hashing.
+_INFRASTRUCTURE_RESOURCES = {
+    "packages/onlyalpha-product-runtime/rust/chart/admission_tests.rs": {
+        "admission-vector.json": "packages/onlyalpha-product-runtime/rust/chart/admission-vector.json",
+        "admission-definition.json": "packages/onlyalpha-product-runtime/rust/chart/admission-definition.json",
+    },
+    "packages/onlyalpha-product-runtime/rust/market_product/temporary_tests.rs": {
+        "../../../../test-data/domain/instrument-records-v2.jsonl": "test-data/domain/instrument-records-v2.jsonl",
+    },
+}
+_INFRASTRUCTURE_SOURCE_MODULES = {
+    "plugs/onlyalpha-plugin-binance/rust/spot_source.rs": {
+        "spot_temporary.rs": "plugs/onlyalpha-plugin-binance/rust/spot_temporary.rs",
+    },
+    "packages/onlyalpha-product-runtime/rust/market_product/temporary.rs": {
+        "temporary_tests.rs": "packages/onlyalpha-product-runtime/rust/market_product/temporary_tests.rs",
+    },
+    "packages/onlyalpha-product-runtime/rust/market_product/queries.rs": {
+        "temporary_reference_tests.rs": "packages/onlyalpha-product-runtime/rust/market_product/temporary_reference_tests.rs",
+    },
+}
+_CARGO_VERSION_SOURCES = {
+    "crates/onlyalpha-backtest/rust/main.rs",
+    "packages/onlyalpha-http-server/rust/main.rs",
+    "packages/onlyalpha-http-server/rust/workstation_startup.rs",
+}
+
+
+def _declared_source_file(root: Path, relative: str) -> Path:
+    path = root / relative
+    if not path.is_file() or any((root / part).is_symlink() for part in (Path(relative), *Path(relative).parents)):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    return path
+
+
+def _without_declared_infrastructure_inputs(root: Path, path: Path) -> str:
+    text = path.read_text()
+    relative = path.relative_to(root).as_posix()
+    if relative in _CARGO_VERSION_SOURCES:
+        # Cargo derives this value from the fingerprinted manifest.
+        _declared_source_file(root, str(path.parent.parent.relative_to(root) / "Cargo.toml"))
+        text = re.sub(r'\benv\s*!\s*\(\s*"CARGO_PKG_VERSION"\s*\)', '"declared-package-version"', text)
+    for argument, resource in _INFRASTRUCTURE_RESOURCES.get(relative, {}).items():
+        pattern = r'\binclude_str\s*!\s*\(\s*"' + re.escape(argument) + r'"\s*\)'
+        if re.search(pattern, text):
+            declared = _declared_source_file(root, resource)
+            if (path.parent / argument).resolve() != declared.resolve():
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+            text = re.sub(pattern, '"declared-resource"', text)
+    for argument, resource in _INFRASTRUCTURE_SOURCE_MODULES.get(relative, {}).items():
+        pattern = r'#\s*\[\s*path\s*=\s*"' + re.escape(argument) + r'"\s*\]'
+        if re.search(pattern, text):
+            _declared_source_file(root, resource)
+            text = re.sub(pattern, "", text)
+    return text
+
+
 def validate_infrastructure_sources(root: Path) -> None:
     for component in (
         "onlyalpha-gateway-protocol",
-        "onlyalpha-calculation-worker",
+        "onlyalpha-calculation-bridge",
         "onlyalpha-runtime-persistence",
-        "onlyalpha-backtest-driver",
+        "onlyalpha-backtest",
         "onlyalpha-product-runtime",
         "onlyalpha-metadata-json",
         "onlyalpha-integration-contract",
         "onlyalpha-http-server",
     ):
-        area = root / "packages" / component
+        area = (
+            root
+            / ("packages" if component in {"onlyalpha-product-runtime", "onlyalpha-http-server"} else "crates")
+            / component
+        )
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (
             (area / "build.rs").exists()
@@ -1070,7 +1195,7 @@ def validate_infrastructure_sources(root: Path) -> None:
             if component
             in {
                 "onlyalpha-runtime-persistence",
-                "onlyalpha-backtest-driver",
+                "onlyalpha-backtest",
                 "onlyalpha-product-runtime",
                 "onlyalpha-metadata-json",
                 "onlyalpha-integration-contract",
@@ -1079,15 +1204,8 @@ def validate_infrastructure_sources(root: Path) -> None:
             else area
         )
         for path in sources.rglob("*.rs"):
-            text = path.read_text()
-            if component == "onlyalpha-backtest-driver" and path == sources / "main.rs":
-                # This value is already a pinned input in Cargo.toml/Cargo.lock.
-                text = text.replace('env!("CARGO_PKG_VERSION")', '"declared-package-version"')
-            if (
-                path.is_symlink()
-                or _hidden_rust_input(text)
-                or re.search(r"\binclude_(?:str|bytes)\s*!", path.read_text())
-            ):
+            text = _without_declared_infrastructure_inputs(root, path)
+            if path.is_symlink() or _hidden_rust_input(text) or re.search(r"\binclude_(?:str|bytes)\s*!", text):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
             if component in {"onlyalpha-metadata-json", "onlyalpha-integration-contract"} and re.search(
                 _PURE_INPUT_PATTERN, re.sub(r"(?m)^\s*//.*$", "", text)
@@ -1104,7 +1222,7 @@ def validate_infrastructure_sources(root: Path) -> None:
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         for path in (area / "rust").rglob("*.rs"):
-            text = path.read_text()
+            text = _without_declared_infrastructure_inputs(root, path)
             if (
                 path.is_symlink()
                 or _hidden_rust_input(text)
@@ -1113,7 +1231,8 @@ def validate_infrastructure_sources(root: Path) -> None:
                     (
                         r"\b(?:SystemTime|UNIX_EPOCH|File|Command)\b|\bstd\s*::\s*(?:fs|process|env)\b|\buse\s+std\s*::\s*\{[^;]*\b(?:fs|process|env)\b"
                         if component == "onlyalpha-plugin-binance"
-                        and path in {area / "rust/spot_rest.rs", area / "rust/spot_source.rs"}
+                        and path
+                        in {area / "rust/spot_rest.rs", area / "rust/spot_source.rs", area / "rust/spot_temporary.rs"}
                         else _PURE_INPUT_PATTERN
                     ),
                     re.sub(r"(?m)^\s*//.*$", "", text),
@@ -1129,17 +1248,17 @@ def module_directory(module: str) -> str:
 def module_path(module: str) -> Path:
     if module in {"plugin_binance", "plugin_tushare"}:
         return Path("plugs") / ("onlyalpha-" + module.replace("_", "-"))
+    if module in {"product_runtime", "http_server"}:
+        return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
     if module in {
         "gateway_protocol",
-        "calculation_worker",
+        "calculation_bridge",
         "runtime_persistence",
-        "backtest_driver",
-        "product_runtime",
+        "backtest",
         "metadata_json",
         "integration_contract",
-        "http_server",
     }:
-        return Path("packages") / ("onlyalpha-" + module.replace("_", "-"))
+        return Path("crates") / ("onlyalpha-" + module.replace("_", "-"))
     return Path("crates/onlyalpha-kernel") / module_directory(module)
 
 
@@ -1161,12 +1280,12 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
                 shutil.copyfile(test, area / "tests" / test.name)
         else:
             shutil.copytree(root / relative, destination / relative)
-        data = Path("test-data") / module.replace("_", "-")
+        data = Path("test-data") / ("predicate" if module == "predicates" else module.replace("_", "-"))
         if module not in {
             "gateway_protocol",
-            "calculation_worker",
+            "calculation_bridge",
             "runtime_persistence",
-            "backtest_driver",
+            "backtest",
             "product_runtime",
             "metadata_json",
             "integration_contract",
@@ -1175,6 +1294,20 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "plugin_tushare",
         }:
             shutil.copytree(root / data, destination / data)
+    for source, resources in (_INFRASTRUCTURE_RESOURCES | _INFRASTRUCTURE_SOURCE_MODULES).items():
+        if any(Path(source).is_relative_to(module_path(module)) for module in modules):
+            _declared_source_file(root, source)
+            for resource in resources.values():
+                original = _declared_source_file(root, resource)
+                copied = destination / resource
+                if any((destination / parent).is_symlink() for parent in Path(resource).parents):
+                    raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+                if copied.exists() or copied.is_symlink():
+                    if _declared_source_file(destination, resource).read_bytes() != original.read_bytes():
+                        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+                else:
+                    copied.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(original, copied)
     members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
         r"(?ms)^members\s*=\s*\[[^\]]*\]",
@@ -1341,7 +1474,7 @@ def isolated_product_runtime(root: Path, destination: Path) -> Path:
             "market_data_delivery",
             "market_data_pipeline",
             "gateway_protocol",
-            "calculation_worker",
+            "calculation_bridge",
             "product_runtime",
         ),
     )
@@ -1364,11 +1497,17 @@ def isolated_http_server(root: Path, destination: Path) -> Path:
             "market_data_delivery",
             "market_data_pipeline",
             "gateway_protocol",
-            "calculation_worker",
+            "calculation_bridge",
             "product_runtime",
             "http_server",
+            "plugin_binance",
+            "plugin_tushare",
         ),
     )
+
+
+def isolated_predicates(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("predicates",))
 
 
 def isolated_domain(root: Path, destination: Path) -> Path:
@@ -1472,7 +1611,7 @@ def isolated_runtime_persistence(root: Path, destination: Path) -> Path:
     )
 
 
-def isolated_backtest_driver(root: Path, destination: Path) -> Path:
+def isolated_backtest(root: Path, destination: Path) -> Path:
     return _isolated_modules(
         root,
         destination,
@@ -1497,8 +1636,8 @@ def isolated_backtest_driver(root: Path, destination: Path) -> Path:
             "market_data_pipeline",
             "strategy",
             "gateway_protocol",
-            "calculation_worker",
-            "backtest_driver",
+            "calculation_bridge",
+            "backtest",
         ),
     )
 
@@ -1534,7 +1673,7 @@ def isolated_pipeline(root: Path, destination: Path) -> Path:
     )
 
 
-def isolated_calculation_worker(root: Path, destination: Path) -> Path:
+def isolated_calculation_bridge(root: Path, destination: Path) -> Path:
     return _isolated_modules(
         root,
         destination,
@@ -1547,7 +1686,7 @@ def isolated_calculation_worker(root: Path, destination: Path) -> Path:
             "market_data_pipeline",
             "strategy",
             "gateway_protocol",
-            "calculation_worker",
+            "calculation_bridge",
         ),
     )
 
@@ -1960,11 +2099,47 @@ def check_risk_reference(root: Path, env: dict[str, str], target: str) -> None:
     _check_component_reference(root, env, target, "risk", compare_native_outputs)
 
 
-def main() -> int:
+def validate_sources(root: Path) -> None:
+    validate_workspace(root)
+    validate_domain_sources(root)
+    validate_clock_sources(root)
+    validate_event_sources(root)
+    validate_market_data_state_sources(root)
+    validate_construction_sources(root)
+    validate_delivery_sources(root)
+    validate_calculation_sources(root)
+    validate_pipeline_sources(root)
+    validate_strategy_sources(root)
+    validate_order_sources(root)
+    validate_position_sources(root)
+    validate_account_sources(root)
+    validate_strategy_ledger_sources(root)
+    validate_risk_sources(root)
+    validate_execution_sources(root)
+    validate_broker_sources(root)
+    validate_fee_sources(root)
+    validate_settlement_sources(root)
+    validate_margin_sources(root)
+    validate_infrastructure_sources(root)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--package", action="append", default=[])
+    selection.add_argument("--source-check", action="store_true")
     artifacts = ROOT / "test-results/rust-kernel"
     artifacts.mkdir(parents=True, exist_ok=True)
     receipt = artifacts / "last-run.json"
     receipt.unlink(missing_ok=True)
+    args = parser.parse_args(argv)
+    if args.source_check:
+        validate_sources(ROOT)
+        print("RUST_SOURCE_INPUT_GUARDS: PASS", flush=True)
+        return 0
+    packages = tuple(sorted(set(args.package)))
+    if packages and not set(packages).issubset(_workspace_packages(ROOT)):
+        raise ValueError("RUST_IMPACT_REVIEW_REQUIRED: unknown --package selection")
     if sys.platform != "linux":
         raise ValueError("RUST_KERNEL_LINUX_REQUIRED: use the canonical dev container")
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
@@ -1974,28 +2149,23 @@ def main() -> int:
     compiler = subprocess.check_output(["rustc", "--version", "--verbose"], cwd=ROOT, env=env, text=True)
     if f"release: {channel}\n" not in compiler or f"host: {target}\n" not in compiler:
         raise ValueError("RUST_KERNEL_TOOLCHAIN_MISMATCH")
-    validate_workspace(ROOT)
-    validate_domain_sources(ROOT)
-    validate_clock_sources(ROOT)
-    validate_event_sources(ROOT)
-    validate_market_data_state_sources(ROOT)
-    validate_construction_sources(ROOT)
-    validate_delivery_sources(ROOT)
-    validate_calculation_sources(ROOT)
-    validate_pipeline_sources(ROOT)
-    validate_strategy_sources(ROOT)
-    validate_order_sources(ROOT)
-    validate_position_sources(ROOT)
-    validate_account_sources(ROOT)
-    validate_strategy_ledger_sources(ROOT)
-    validate_risk_sources(ROOT)
-    validate_execution_sources(ROOT)
-    validate_broker_sources(ROOT)
-    validate_fee_sources(ROOT)
-    validate_settlement_sources(ROOT)
-    validate_margin_sources(ROOT)
-    validate_infrastructure_sources(ROOT)
+    validate_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
+    if packages:
+        # Only the selected backtest driver's trading tests consume REPLAY_*.
+        # Strategy/worker changes select that direct consumer via Cargo metadata.
+        if "onlyalpha-backtest" in packages:
+            from scripts.backtest_replay_check import replay_environment
+
+            env.update(replay_environment(ROOT, artifacts / "backtest-replay"))
+        before = source_inputs(ROOT)
+        for command in targeted_build_commands(target, packages):
+            print("CHECK", " ".join(command), flush=True)
+            subprocess.run(command, cwd=ROOT, env=env, check=True)
+        if before != source_inputs(ROOT):
+            raise ValueError("RUST_KERNEL_SOURCE_CHANGED")
+        print("RUST_SELECTED_PACKAGES: PASS " + ", ".join(packages), flush=True)
+        return 0
     from scripts.backtest_replay_check import replay_environment
 
     env.update(replay_environment(ROOT, artifacts / "backtest-replay"))
@@ -2018,12 +2188,13 @@ def main() -> int:
         print("CHECK", " ".join(command), flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
     for name, materialize in (
+        ("predicates", isolated_predicates),
         ("account", isolated_account),
         ("strategy-ledger", isolated_strategy_ledger),
         ("risk", isolated_risk),
         ("execution", isolated_execution),
         ("runtime-persistence", isolated_runtime_persistence),
-        ("backtest-driver", isolated_backtest_driver),
+        ("backtest", isolated_backtest),
         ("metadata-json", isolated_metadata_json),
         ("integration-contract", isolated_integration_contract),
         ("plugin-binance", isolated_plugin_binance),
@@ -2039,7 +2210,7 @@ def main() -> int:
         ("strategy", isolated_strategy),
         ("calculation", isolated_calculation),
         ("gateway-protocol", isolated_gateway_protocol),
-        ("calculation-worker", isolated_calculation_worker),
+        ("calculation-bridge", isolated_calculation_bridge),
         ("market-data-pipeline", isolated_pipeline),
         ("domain", isolated_domain),
         ("clock", isolated_clock),
@@ -2066,6 +2237,20 @@ def main() -> int:
                     target,
                     "-j1",
                     *profile,
+                    *(
+                        [
+                            "--lib",
+                            *[
+                                flag
+                                for vector in sorted(
+                                    (manifest.parent / module_path("predicates") / "tests").glob("*_vectors.rs")
+                                )
+                                for flag in ("--test", vector.stem)
+                            ],
+                        ]
+                        if name == "predicates"
+                        else []
+                    ),
                     "--",
                     "--test-threads=1",
                 ]
@@ -2096,7 +2281,7 @@ def main() -> int:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     binaries = {
-        profile: digest(artifacts / "target" / target / profile / "libonlyalpha_kernel.rlib")
+        profile: digest(artifacts / "target" / target / profile / "libonlyalpha_predicates.rlib")
         for profile in ("debug", "release")
     }
     binaries.update(
@@ -2115,9 +2300,7 @@ def main() -> int:
     )
     binaries.update(
         {
-            f"{profile}_backtest_driver": digest(
-                artifacts / "target" / target / profile / "libonlyalpha_backtest_driver.rlib"
-            )
+            f"{profile}_backtest_driver": digest(artifacts / "target" / target / profile / "libonlyalpha_backtest.rlib")
             for profile in ("debug", "release")
         }
     )

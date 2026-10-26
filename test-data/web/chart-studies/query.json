@@ -4,7 +4,7 @@
     "capability_projection": {
       "authority": "DISPLAY_ONLY",
       "backend": "RESEARCH",
-      "catalog_generation_fingerprint": "183b0a0562841defab6296c65095a450c20fcfd8d6c6b785d476145cb6a8a07d",
+      "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
       "descriptor": {
         "execution_shape": "TIME_SERIES",
         "factor_kind": null,
@@ -172,18 +172,18 @@
           "type_id": "onlyalpha.chart-study.invocation"
         },
         "entrypoint_identity": "onlyalpha_product_runtime.chart:ChartQuery",
-        "implementation_bundle_fingerprint": "d2b7c03b892f9ec74eba5dfcefd50b55ea15d921f59ce561e05cd8e542d4709a",
-        "implementation_fingerprint": "1cee46f854ba93ec0fb5b7d046835b76c5d7cc5887756bbe1b4d527325435ae7",
+        "implementation_bundle_fingerprint": "016e4d99d810f60a45020d5818a1739cbfac351a0bb8f72c71385ec25dac633a",
+        "implementation_fingerprint": "9e42031d3d61efb978d893afadab2773c9b36f311f0398b729d052b3032f73b8",
         "resources": [
           {
-            "byte_sha256": "307dd25c2f35229919e3ed2d4735c14123af29573ad25b91d8e5e6b489b0d21f",
+            "byte_sha256": "f348857211fc355200b2e2952ca38bb13d56972135d7a5a87dd1efb308ccbdc6",
             "relative_path": "native-product-executable"
           }
         ],
         "schema_version": 1,
         "semantic_dependencies": [
           {
-            "artifact_fingerprint": "251963aa44fc976a1513b18704c1f8934d90ad3f3675e398a10e059115e173ed",
+            "artifact_fingerprint": "71b7217175392886d1f2083cdd6eff0f28f87f38fc8381d2ac2fd9de87a76ad7",
             "dependency_id": "onlyalpha.algorithm-installation",
             "semantic_version": "1"
           }
@@ -245,11 +245,11 @@
           }
         ]
       },
-      "provider_content_fingerprint": "1dcc6b46805b8e6df32858a641743e4a1013957d29f79c7bc72238f3461fce1b",
+      "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
       "provider_manifest": {
         "kind": "INDICATOR",
         "provider_id": "onlyalpha.indicator.library",
-        "provider_version": "17",
+        "provider_version": "18",
         "schema_version": 1,
         "source": {
           "distribution_name": "onlyalpha-plugin-indicators",
@@ -265,8 +265,8 @@
       "source_kind": "CHART_STUDY_TRANSIENT",
       "supported_shape": "TIME_SERIES/BAR_FIELDS"
     },
-    "capability_projection_fingerprint": "6020dc4e41684db8dc5b541b52ab543a3b15c594faf3e981086888a8cb3d7d43",
-    "catalog_generation_fingerprint": "183b0a0562841defab6296c65095a450c20fcfd8d6c6b785d476145cb6a8a07d",
+    "capability_projection_fingerprint": "e9370ee331755ab92c80b7a6ad363e0f496182a3534747f97de280c84ab0ad46",
+    "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
     "descriptor": {
       "execution_shape": "TIME_SERIES",
       "factor_kind": null,
@@ -337,7 +337,7 @@
     "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
     "execution_shape": "TIME_SERIES",
     "implementation_fingerprint": "9f791bf630d0a8ffaca73b4f5cbf7885d3f509fb928a92a64c3a4ce46447ec4d",
-    "invocation_implementation_fingerprint": "1cee46f854ba93ec0fb5b7d046835b76c5d7cc5887756bbe1b4d527325435ae7",
+    "invocation_implementation_fingerprint": "9e42031d3d61efb978d893afadab2773c9b36f311f0398b729d052b3032f73b8",
     "kind": "INDICATOR",
     "limits": {
       "max_concurrent_invocations": 2,
@@ -395,9 +395,9 @@
         }
       ]
     },
-    "provider_content_fingerprint": "1dcc6b46805b8e6df32858a641743e4a1013957d29f79c7bc72238f3461fce1b",
+    "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
     "provider_id": "onlyalpha.indicator.library",
-    "provider_version": "17",
+    "provider_version": "18",
     "readiness_contract_version": 1,
     "semantic_version": "1",
     "type_id": "onlyalpha.indicator.sma"
@@ -418,12 +418,12 @@
     },
     "calculation": {
       "backend": "RESEARCH",
-      "capability_projection_fingerprint": "6020dc4e41684db8dc5b541b52ab543a3b15c594faf3e981086888a8cb3d7d43",
-      "catalog_generation_fingerprint": "183b0a0562841defab6296c65095a450c20fcfd8d6c6b785d476145cb6a8a07d",
+      "capability_projection_fingerprint": "e9370ee331755ab92c80b7a6ad363e0f496182a3534747f97de280c84ab0ad46",
+      "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
       "definition_fingerprint": "f21db1be2434426ef9fbf6e7ae806268bb866cf3bae005db4950891685e8d49e",
       "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
       "implementation_fingerprint": "9f791bf630d0a8ffaca73b4f5cbf7885d3f509fb928a92a64c3a4ce46447ec4d",
-      "invocation_implementation_fingerprint": "1cee46f854ba93ec0fb5b7d046835b76c5d7cc5887756bbe1b4d527325435ae7",
+      "invocation_implementation_fingerprint": "9e42031d3d61efb978d893afadab2773c9b36f311f0398b729d052b3032f73b8",
       "kind": "INDICATOR",
       "normalized_definition": {
         "extensions": {},
@@ -532,9 +532,9 @@
           "unit": "PRICE"
         }
       ],
-      "provider_content_fingerprint": "1dcc6b46805b8e6df32858a641743e4a1013957d29f79c7bc72238f3461fce1b",
+      "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
       "provider_id": "onlyalpha.indicator.library",
-      "provider_version": "17",
+      "provider_version": "18",
       "semantic_version": "1",
       "type_id": "onlyalpha.indicator.sma"
     },
@@ -554,7 +554,7 @@
       "before_ns": "1767225600000000000",
       "calendar_fingerprint": "c39cb3a385e4db470757403c8eb03b380dc80953c404269b4fb5f5df4cfce828",
       "derived_projection_fingerprint": null,
-      "history_projection_fingerprint": "860f81503b4e9c8817c3d340727a2e4e31538a2a885a33afee19afd0a74d3d83",
+      "history_projection_fingerprint": "b96bd295508f2ee51304cd4b79ed4288419d7f54dca52a92f326c9556d7bdbd3",
       "initialization": "FINITE_WINDOW_START",
       "resolution_mode": "PROVIDER_NATIVE",
       "resolution_plan_fingerprint": "b0b80484ebe1c74ff94f90ee173107ff5741766f7d2221332c1a7b8326ef714c",
@@ -566,29 +566,29 @@
         {
           "covered_end_ns": "1766030400000000000",
           "covered_start_ns": "1765425600000000000",
-          "manifest_fingerprint": "cda30148746dbd1c5d2589951fe0241f3db4fce0d4410fa564e3b30674f7f05e",
-          "manifest_id": "manifest:cda30148746dbd1c5d2589951fe0241f3db4fce0d4410fa564e3b30674f7f05e",
-          "revision_fingerprint": "f0830e9c5479bf46a718a8ba4ced91ac3fffaa6eca28cfb09f2fb26a17e4b728",
-          "revision_id": "market-data-revision:f0830e9c5479bf46a718a8ba4ced91ac3fffaa6eca28cfb09f2fb26a17e4b728",
-          "seal_id": "seal:6ada7fbe82852a3be8aaab4e1378fb4b2caeb40b7adc6cfb82bedb1144630ddd"
+          "manifest_fingerprint": "93db285b1a2b9624ca48829113fd03a081eda73235494c18f010a19f9904d7b9",
+          "manifest_id": "manifest:93db285b1a2b9624ca48829113fd03a081eda73235494c18f010a19f9904d7b9",
+          "revision_fingerprint": "eaf67c8c7008621d9c334d4a8d10b62061753d4c0559839c3e0211dbc7a77b1c",
+          "revision_id": "market-data-revision:eaf67c8c7008621d9c334d4a8d10b62061753d4c0559839c3e0211dbc7a77b1c",
+          "seal_id": "seal:fc66d2b333b07eb8a970f94e76cb67644d31ebb2754cac347c8c245412f19466"
         },
         {
           "covered_end_ns": "1766635200000000000",
           "covered_start_ns": "1766030400000000000",
-          "manifest_fingerprint": "4acc034c22cbd672ca5e1f76ab3206f2cac28a8aad79af589008d3430190e54d",
-          "manifest_id": "manifest:4acc034c22cbd672ca5e1f76ab3206f2cac28a8aad79af589008d3430190e54d",
-          "revision_fingerprint": "5416bd92e287cf5ee401848dc630e7509516e62c479fbb73a01d76d029c0fa46",
-          "revision_id": "market-data-revision:5416bd92e287cf5ee401848dc630e7509516e62c479fbb73a01d76d029c0fa46",
-          "seal_id": "seal:2d01247bcaf1b790e468992afbda5a900bba352887c8fa202ac8f3b4d3c6c25b"
+          "manifest_fingerprint": "24a4dc6e0bfe1f87f06c9aefc31d8d2d82ffa0ad107d2c7a85b9bf0a18122449",
+          "manifest_id": "manifest:24a4dc6e0bfe1f87f06c9aefc31d8d2d82ffa0ad107d2c7a85b9bf0a18122449",
+          "revision_fingerprint": "2e290f3a87a3479a2ec217f4bc53e8d42c28419a3d23504b3306a1ff741cfcc5",
+          "revision_id": "market-data-revision:2e290f3a87a3479a2ec217f4bc53e8d42c28419a3d23504b3306a1ff741cfcc5",
+          "seal_id": "seal:e0ebcd6b16eaedcac5950936a8754315d487a91777e03925e6038b7708d79a69"
         },
         {
           "covered_end_ns": "1767225600000000000",
           "covered_start_ns": "1766635200000000000",
-          "manifest_fingerprint": "24c9620e2c98ca27d4c1c1128ac72f7ae37815d171f3fc20bc0f23a8baee34e7",
-          "manifest_id": "manifest:24c9620e2c98ca27d4c1c1128ac72f7ae37815d171f3fc20bc0f23a8baee34e7",
-          "revision_fingerprint": "e725b8f2e78c8292fae265ae9d4d10fe5d321c1ed523791fc4f3a32dd82457fa",
-          "revision_id": "market-data-revision:e725b8f2e78c8292fae265ae9d4d10fe5d321c1ed523791fc4f3a32dd82457fa",
-          "seal_id": "seal:da7ec9423a1162a65296c26a687dd3571d942f4e0b09a0efc50e398089c7d163"
+          "manifest_fingerprint": "84be312b747d389f993359fcb2b67e54e07930d82638a6ab695b8ac6a846f6e2",
+          "manifest_id": "manifest:84be312b747d389f993359fcb2b67e54e07930d82638a6ab695b8ac6a846f6e2",
+          "revision_fingerprint": "4cbcef0b5f8a79757758a37d44f9bedfdaf434d44577376c6116a80ef2c35c58",
+          "revision_id": "market-data-revision:4cbcef0b5f8a79757758a37d44f9bedfdaf434d44577376c6116a80ef2c35c58",
+          "seal_id": "seal:ca82b0febe0955cc2f69db35085863e424b30ab9aeae4d24136bc1c64f87d0e5"
         }
       ],
       "target_bar_count": 2000
@@ -36645,7 +36645,7 @@
     },
     "derived_projection_fingerprint": null,
     "display_symbol": "BTCUSDT",
-    "history_projection_fingerprint": "860f81503b4e9c8817c3d340727a2e4e31538a2a885a33afee19afd0a74d3d83",
+    "history_projection_fingerprint": "b96bd295508f2ee51304cd4b79ed4288419d7f54dca52a92f326c9556d7bdbd3",
     "instrument_id": "BTCUSDT.BINANCE",
     "market": "SPOT",
     "requested_bar_count": 2000,
@@ -36660,29 +36660,29 @@
       {
         "covered_end_ns": "1766030400000000000",
         "covered_start_ns": "1765425600000000000",
-        "manifest_fingerprint": "cda30148746dbd1c5d2589951fe0241f3db4fce0d4410fa564e3b30674f7f05e",
-        "manifest_id": "manifest:cda30148746dbd1c5d2589951fe0241f3db4fce0d4410fa564e3b30674f7f05e",
-        "revision_fingerprint": "f0830e9c5479bf46a718a8ba4ced91ac3fffaa6eca28cfb09f2fb26a17e4b728",
-        "revision_id": "market-data-revision:f0830e9c5479bf46a718a8ba4ced91ac3fffaa6eca28cfb09f2fb26a17e4b728",
-        "seal_id": "seal:6ada7fbe82852a3be8aaab4e1378fb4b2caeb40b7adc6cfb82bedb1144630ddd"
+        "manifest_fingerprint": "93db285b1a2b9624ca48829113fd03a081eda73235494c18f010a19f9904d7b9",
+        "manifest_id": "manifest:93db285b1a2b9624ca48829113fd03a081eda73235494c18f010a19f9904d7b9",
+        "revision_fingerprint": "eaf67c8c7008621d9c334d4a8d10b62061753d4c0559839c3e0211dbc7a77b1c",
+        "revision_id": "market-data-revision:eaf67c8c7008621d9c334d4a8d10b62061753d4c0559839c3e0211dbc7a77b1c",
+        "seal_id": "seal:fc66d2b333b07eb8a970f94e76cb67644d31ebb2754cac347c8c245412f19466"
       },
       {
         "covered_end_ns": "1766635200000000000",
         "covered_start_ns": "1766030400000000000",
-        "manifest_fingerprint": "4acc034c22cbd672ca5e1f76ab3206f2cac28a8aad79af589008d3430190e54d",
-        "manifest_id": "manifest:4acc034c22cbd672ca5e1f76ab3206f2cac28a8aad79af589008d3430190e54d",
-        "revision_fingerprint": "5416bd92e287cf5ee401848dc630e7509516e62c479fbb73a01d76d029c0fa46",
-        "revision_id": "market-data-revision:5416bd92e287cf5ee401848dc630e7509516e62c479fbb73a01d76d029c0fa46",
-        "seal_id": "seal:2d01247bcaf1b790e468992afbda5a900bba352887c8fa202ac8f3b4d3c6c25b"
+        "manifest_fingerprint": "24a4dc6e0bfe1f87f06c9aefc31d8d2d82ffa0ad107d2c7a85b9bf0a18122449",
+        "manifest_id": "manifest:24a4dc6e0bfe1f87f06c9aefc31d8d2d82ffa0ad107d2c7a85b9bf0a18122449",
+        "revision_fingerprint": "2e290f3a87a3479a2ec217f4bc53e8d42c28419a3d23504b3306a1ff741cfcc5",
+        "revision_id": "market-data-revision:2e290f3a87a3479a2ec217f4bc53e8d42c28419a3d23504b3306a1ff741cfcc5",
+        "seal_id": "seal:e0ebcd6b16eaedcac5950936a8754315d487a91777e03925e6038b7708d79a69"
       },
       {
         "covered_end_ns": "1767225600000000000",
         "covered_start_ns": "1766635200000000000",
-        "manifest_fingerprint": "24c9620e2c98ca27d4c1c1128ac72f7ae37815d171f3fc20bc0f23a8baee34e7",
-        "manifest_id": "manifest:24c9620e2c98ca27d4c1c1128ac72f7ae37815d171f3fc20bc0f23a8baee34e7",
-        "revision_fingerprint": "e725b8f2e78c8292fae265ae9d4d10fe5d321c1ed523791fc4f3a32dd82457fa",
-        "revision_id": "market-data-revision:e725b8f2e78c8292fae265ae9d4d10fe5d321c1ed523791fc4f3a32dd82457fa",
-        "seal_id": "seal:da7ec9423a1162a65296c26a687dd3571d942f4e0b09a0efc50e398089c7d163"
+        "manifest_fingerprint": "84be312b747d389f993359fcb2b67e54e07930d82638a6ab695b8ac6a846f6e2",
+        "manifest_id": "manifest:84be312b747d389f993359fcb2b67e54e07930d82638a6ab695b8ac6a846f6e2",
+        "revision_fingerprint": "4cbcef0b5f8a79757758a37d44f9bedfdaf434d44577376c6116a80ef2c35c58",
+        "revision_id": "market-data-revision:4cbcef0b5f8a79757758a37d44f9bedfdaf434d44577376c6116a80ef2c35c58",
+        "seal_id": "seal:ca82b0febe0955cc2f69db35085863e424b30ab9aeae4d24136bc1c64f87d0e5"
       }
     ],
     "schema_version": 1,

@@ -6,6 +6,8 @@
 - Related: PROJECT_CONSTITUTION.md; ADR 0057, 0067, 0099, 0101, 0106, 0117, 0130, 0135.
 - Implementation sequence: [Rust Kernel migration work program](../rust-kernel-migration-work-program.md).
 
+> [ADR 0142](0142-library-product-boundaries-and-independent-releases.md) supersedes the component placement, `core/` name and synchronized release organization below. Retain twenty Kernel crate boundaries, rename Predicate `core/` to `predicates/`, and include eligible Python implementation removal in each migrated capability delivery, with R8 as the aggregate final retirement gate. Current source paths below remain navigation until atomic migration; all semantic/history/admission gates remain.
+
 > ADR 0141 extends the owner-approved target to Rust Product/backend services while retaining isolated Python Factor/Indicator execution. Its explicit scope supersedes the backend-wide-rewrite rejection below; all constitutional and retirement safeguards remain.
 
 ## Context
@@ -55,7 +57,7 @@ factors and research authoring remain Python-oriented; market/provider/Broker im
 Mixed packages require responsibility-level classification rather than whole-directory translation. A generic fee accrual or
 reconciliation rule and a concrete market fee schedule must retain different owners even when related Python code shares an area.
 
-Keep Python source under `src/onlyalpha/` and the canonical Rust library under `crates/onlyalpha-kernel/core/src/`. Align domain names,
+Keep Python source under `src/onlyalpha/` and the canonical Rust library under `crates/onlyalpha-kernel/predicates/src/`. Align domain names,
 module responsibilities and dependency direction; do not require matching files, classes, types or directory depth. Follow each
 language's native organization. The existing Rust library is not a separately deployed component. Independently buildable,
 versioned/deployable non-plugin components continue to follow `packages/onlyalpha-<FUNC>-<NAME>/`; concrete Plugin SPI
@@ -92,7 +94,7 @@ Unresolved identity, numerical-policy, history or authority decisions block depe
 
 Major Rust functional modules use separate library crates when their independent build/test and dependency enforcement require
 that boundary. The owner-selected `crates/onlyalpha-kernel/` umbrella groups these crates: `domain/` owns package
-`onlyalpha-domain` and `core/` owns the existing package `onlyalpha-kernel`. The umbrella itself is not a Cargo package. The Domain library belongs at `crates/onlyalpha-kernel/domain/`, with language-native internal responsibility modules
+`onlyalpha-domain` and `predicates/` owns package `onlyalpha-predicates` under ADR 0142. The umbrella itself is not a Cargo package. The Domain library belongs at `crates/onlyalpha-kernel/domain/`, with language-native internal responsibility modules
 corresponding to Python Domain areas. It has no dependency on the Kernel orchestration library, Application, Runtime, database,
 Web, provider/Broker implementation or Python bridge. Higher-level consumers may depend on Domain through its public API.
 This explicitly extends the existing `crates/` placement exception for non-deployed canonical semantic libraries; independently

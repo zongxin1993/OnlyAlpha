@@ -1,6 +1,6 @@
 [package]
 name = "onlyalpha-http-server"
-version.workspace = true
+version = "0.11.1"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -15,14 +15,14 @@ workspace = true
 [dependencies]
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
-onlyalpha-metadata-json = { path = "../onlyalpha-metadata-json" }
-onlyalpha-calculation-worker = { path = "../onlyalpha-calculation-worker" }
+onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
+onlyalpha-calculation-bridge = { path = "../../crates/onlyalpha-calculation-bridge" }
 onlyalpha-plugin-binance = { path = "../../plugs/onlyalpha-plugin-binance" }
 onlyalpha-plugin-tushare = { path = "../../plugs/onlyalpha-plugin-tushare" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
 onlyalpha-product-runtime = { path = "../onlyalpha-product-runtime" }
-onlyalpha-integration-contract = { path = "../onlyalpha-integration-contract" }
+onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
 tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }
 # Maintained URI grammar and safe descriptor-relative filesystem operations.
 http = { version = "=1.5.0", default-features = false, features = ["std"] }

@@ -9,17 +9,9 @@ FROM rust-tools AS rust-manifests
 WORKDIR /rust-source
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
-COPY packages/onlyalpha-gateway-protocol/Cargo.toml ./packages/onlyalpha-gateway-protocol/Cargo.toml
-COPY packages/onlyalpha-gateway-protocol/rust/ ./packages/onlyalpha-gateway-protocol/rust/
-COPY packages/onlyalpha-calculation-worker/Cargo.toml ./packages/onlyalpha-calculation-worker/Cargo.toml
-COPY packages/onlyalpha-calculation-worker/rust/ ./packages/onlyalpha-calculation-worker/rust/
-COPY packages/onlyalpha-runtime-persistence/ ./packages/onlyalpha-runtime-persistence/
 COPY packages/onlyalpha-http-server/Cargo.toml ./packages/onlyalpha-http-server/Cargo.toml
 COPY packages/onlyalpha-http-server/rust/ ./packages/onlyalpha-http-server/rust/
 COPY packages/onlyalpha-product-runtime/ ./packages/onlyalpha-product-runtime/
-COPY packages/onlyalpha-metadata-json/ ./packages/onlyalpha-metadata-json/
-COPY packages/onlyalpha-integration-contract/ ./packages/onlyalpha-integration-contract/
-COPY packages/onlyalpha-backtest-driver/ ./packages/onlyalpha-backtest-driver/
 COPY plugs/onlyalpha-plugin-binance/Cargo.toml ./plugs/onlyalpha-plugin-binance/Cargo.toml
 COPY plugs/onlyalpha-plugin-binance/rust/ ./plugs/onlyalpha-plugin-binance/rust/
 COPY plugs/onlyalpha-plugin-tushare/Cargo.toml ./plugs/onlyalpha-plugin-tushare/Cargo.toml

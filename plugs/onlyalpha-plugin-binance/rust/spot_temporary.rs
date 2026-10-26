@@ -82,14 +82,13 @@ impl TemporaryBars {
                 deadline,
             )
             .await
-            .map_err(|error| {
-                if error == SourceError::Timeout {
+            .inspect_err(|error| {
+                if *error == SourceError::Timeout {
                     eprintln!(
                         "TEMPORARY_STREAM_TIMEOUT stage=connect total_ms={}",
                         started.elapsed().as_millis()
                     );
                 }
-                error
             })?;
         let mut buffered = RecoveryBuffer::default();
         // Pin cutover to an actual frame from the connected Provider socket.
@@ -132,14 +131,13 @@ impl TemporaryBars {
             tokio::pin!(history);
             loop {
                 tokio::select! {
-                    result=&mut history=>break result.map_err(|error| {
-                        if error == SourceError::Timeout {
+                    result=&mut history=>break result.inspect_err(|error| {
+                        if *error == SourceError::Timeout {
                             eprintln!(
                                 "TEMPORARY_STREAM_TIMEOUT stage=history total_ms={}",
                                 started.elapsed().as_millis()
                             );
                         }
-                        error
                     })?,
                     message=socket.next()=>{
                         let message=message.ok_or(SourceError::Unavailable)?.map_err(|_|SourceError::Unavailable)?;

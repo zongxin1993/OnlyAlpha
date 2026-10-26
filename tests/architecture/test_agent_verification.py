@@ -447,13 +447,13 @@ def test_planner_reuses_canonical_lane_objects_without_copying_lane_semantics() 
     assert "--cov" not in source
 
 
-def test_full_local_command_order_preserves_release_static_lanes_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(verify, "release_check_commands", lambda check: ((check.value,),))
-    plan = _plan("scripts/verify.py")
+def test_quality_infrastructure_does_not_automatically_run_full_local_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_full_check(check: OnlyReleaseCheck) -> None:
+        raise AssertionError(f"unexpected full check: {check}")
 
-    commands = verify.verification_commands(plan)
-
-    assert [gate for gate, _ in commands] == ["check:release-static", "lane:architecture"]
+    monkeypatch.setattr(verify, "release_check_commands", unexpected_full_check)
+    with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+        verify.verification_commands(_plan("scripts/verify.py"))
 
 
 def test_plan_is_stable_across_fresh_hash_seed_processes() -> None:
@@ -524,7 +524,7 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
-        "crates/onlyalpha-kernel/core/src/lib.rs",
+        "crates/onlyalpha-kernel/predicates/src/lib.rs",
         "test-data/market-data-pipeline/operations-v1.jsonl",
         "test-data/strategy/decisions-v2.jsonl",
         "test-data/order/domain-inputs.json",
@@ -535,8 +535,8 @@ def test_compact_failure_exposes_command_diagnostic_without_persisted_log(
         "test-data/execution/economics-v1.json",
         "test-data/broker/domain-inputs.json",
         "scripts/broker_reference_check.py",
-        "packages/onlyalpha-runtime-persistence/rust/store.rs",
-        "packages/onlyalpha-backtest-driver/rust/run.rs",
+        "crates/onlyalpha-runtime-persistence/rust/store.rs",
+        "crates/onlyalpha-backtest/rust/run.rs",
         "scripts/backtest_replay_check.py",
     ],
 )
@@ -550,7 +550,7 @@ def test_rust_changes_select_offline_kernel_checks(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "packages/onlyalpha-gateway-protocol/Cargo.toml",
+        "crates/onlyalpha-gateway-protocol/Cargo.toml",
         "contracts/gateway/v1/onlyalpha_gateway_protocol/v1/calculation.proto",
         "scripts/gateway_protocol.py",
     ],
@@ -558,7 +558,15 @@ def test_rust_changes_select_offline_kernel_checks(path: str) -> None:
 def test_gateway_wire_and_manifest_changes_select_rust_projection_consumers(path: str) -> None:
     plan = _plan(path)
     assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
-    assert OnlyTestLane.CALCULATION in plan.impact.lanes
+    assert OnlyTestLane.CALCULATION not in plan.impact.lanes
+    if path.startswith("scripts/"):
+        with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+            verify.verification_commands(plan)
+    else:
+        commands = verify.verification_commands(plan)
+        native = [command for gate, command in commands if gate == "check:rust-selected"]
+        assert "onlyalpha-gateway-protocol" in native[0]
+        assert "onlyalpha-calculation-bridge" in native[0]
 
 
 def test_product_rust_scope_selects_native_checks_and_only_persistence_changes_select_postgres() -> None:
@@ -598,7 +606,7 @@ def test_native_http_scope_selects_rust_checks_without_unrelated_postgres_lane(p
     [
         "packages/onlyalpha-product-runtime/rust/integration_catalog.rs",
         "packages/onlyalpha-product-runtime/rust/integration_resolver.rs",
-        "packages/onlyalpha-integration-contract/rust/authoring.rs",
+        "crates/onlyalpha-integration-contract/rust/authoring.rs",
         "packages/onlyalpha-product-runtime/tests/test_integration_authoring_postgres.py",
         "packages/onlyalpha-product-runtime/tests/support/integration.py",
         "tests/support/postgres_link.py",
@@ -693,3 +701,58 @@ def test_native_startup_storage_selects_owning_rust_and_postgres(path: str) -> N
 def test_product_calculation_oracle_selects_native_identity_checks() -> None:
     plan = _plan("test-data/calculation/product-readers-v1.jsonl")
     assert OnlyReleaseCheck.RUST_KERNEL in plan.impact.checks
+
+
+def test_local_fee_verification_is_bounded_and_does_not_run_full_gate() -> None:
+    plan = _plan("crates/onlyalpha-kernel/fee/src/lib.rs")
+    commands = verify.verification_commands(plan)
+    native = [command for gate, command in commands if gate == "check:rust-selected"]
+    assert len(native) == 1
+    assert native[0][-4:] == ("--package", "onlyalpha-execution", "--package", "onlyalpha-fee")
+    assert OnlyTestLane.CALCULATION not in plan.impact.lanes
+    assert not any("scripts/test_suite.py" in command for _, command in commands)
+
+
+def test_rust_tool_edits_run_guards_and_tool_tests_without_native_compilation() -> None:
+    commands = verify.verification_commands(_plan("scripts/rust_kernel_check.py"))
+    native = [command for gate, command in commands if gate == "check:rust-selected"]
+    assert len(native) == 1 and native[0][-1] == "--source-check"
+    assert any("tests/tools/test_rust_kernel_check.py" in command for _, command in commands)
+    assert not any("scripts/test_suite.py" in command for _, command in commands)
+
+
+@pytest.mark.parametrize("path", ("scripts/verify.py", "pyproject.toml", "tests/support/strategy.py"))
+def test_unbounded_local_scope_requires_impact_review_without_running_global_checks(path: str) -> None:
+    with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+        verify.verification_commands(_plan(path))
+
+
+def test_known_rust_fixture_and_plugin_paths_do_not_select_generic_full_lanes() -> None:
+    for path in ("test-data/fee/common-v1.json", "plugs/onlyalpha-plugin-binance/rust/spot_source.rs"):
+        plan = _plan(path)
+        commands = verify.verification_commands(plan)
+        assert plan.impact.escalation is VerificationEscalation.COMPONENT
+        assert not {OnlyTestLane.CORE_FULL, OnlyTestLane.FAST, OnlyTestLane.INTEGRATION}.intersection(plan.impact.lanes)
+        assert any(gate == "check:rust-selected" for gate, _ in commands)
+
+
+def test_coarse_legacy_full_core_lane_requires_bounded_manual_selection() -> None:
+    with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+        verify.verification_commands(_plan("plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance/factory.py"))
+
+
+def test_complete_local_web_workflow_requires_bounded_manual_selection() -> None:
+    with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+        verify.verification_commands(_plan("packages/onlyalpha-web-console/src/App.tsx"))
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker/artifact.py",
+        "scripts/gateway_protocol.py",
+    ),
+)
+def test_rust_scope_cannot_claim_unmapped_python_or_protocol_tool_proof(path: str) -> None:
+    with pytest.raises(ValueError, match="LOCAL_IMPACT_REVIEW_REQUIRED"):
+        verify.verification_commands(_plan(path))

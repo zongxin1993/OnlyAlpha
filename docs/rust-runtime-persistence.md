@@ -1,6 +1,6 @@
 # Rust Runtime Persistence / Recovery
 
-`packages/onlyalpha-runtime-persistence/` is an Infrastructure library implementing the existing Rust Execution `Store` Port and a bounded `Runtime` composition facade. It owns persistence/lifecycle, not trading economics. SQLite, filesystem paths and OS locks stay outside the Trading Kernel. `Runtime` is a library session name, not Product Runtime admission or permission to execute LIVE.
+`crates/onlyalpha-runtime-persistence/` is an Infrastructure library implementing the existing Rust Execution `Store` Port and a bounded `Runtime` composition facade. It owns persistence/lifecycle, not trading economics. SQLite, filesystem paths and OS locks stay outside the Trading Kernel. `Runtime` is a library session name, not Product Runtime admission or permission to execute LIVE.
 
 ## Identity and lifecycle
 

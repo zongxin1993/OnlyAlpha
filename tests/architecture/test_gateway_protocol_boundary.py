@@ -111,4 +111,4 @@ def test_gateway_v1_proto_authority_is_unique_and_provider_neutral() -> None:
 
 @pytest.mark.architecture
 def test_generated_gateway_projection_is_fresh() -> None:
-    assert gateway_protocol.check() == "bbe573c3cb4c102a6a8d7cc49d586b8300ddde41568f6a2aa0f214883058d26c"
+    assert gateway_protocol.check() == "8ce92be0a41f548556a8d9b04a7499fd879bca38b375dc6e47de314b91ff8bef"

@@ -150,6 +150,10 @@ does not solve this. The accompanying design §4 fixes a versioned resolution of
 precision from the unchanged Definition and the existing Core envelope `onlyalpha.decimal.execution@1`. It is an explicit
 execution input/binding, not a mutated Definition or a second Decimal policy. Admission requires actual implementation-manifest
 closure over this context policy and invocation code; the old manifest must never be reported as if it already carries that proof.
+The plugin implementation manifest owns its algorithm resources and canonical numeric dependencies only; it does not depend
+on Application invocation code. The owning Application admission separately verifies the exact invocation manifest's installed
+resources and binds both manifests in the capability fingerprint. Invocation changes invalidate that admission without making
+the plugin import Application or publish a second invocation authority.
 Any new Provider content/manifest requires a new Provider version, and any Definition/algorithm semantic change additionally
 requires a new Calculation semantic version. A1 must reject the current unproved binding until this separately authorized repair
 and hostile-context validation exist. No historical Research output under unspecified CONTEXT is claimed equivalent or rewritten.

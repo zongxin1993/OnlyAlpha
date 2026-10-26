@@ -11,7 +11,6 @@ from threading import Event, Thread
 from typing import Literal, Protocol
 
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeResolver
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.broker.factory import OnlyBrokerFactoryRegistry
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.config import OnlyClusterRunConfig
@@ -53,6 +52,7 @@ from .model import (
     OnlyBacktestRunState,
 )
 from .profiles import OnlyBacktestProfile, OnlyBacktestProfileRegistry
+from .runtime_generation import OnlyBacktestRuntimeGenerationWorkAuthority
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,7 +421,7 @@ class OnlyBacktestWorker:
         lease_control_factory: Callable[
             [OnlyBacktestExecutionStore, OnlyBacktestExecutionClaim, OnlyBacktestExecutionPolicy], _LeaseControl
         ] = _LeaseControl,
-        runtime_generations: OnlyRuntimeGenerationWorkAuthority,
+        runtime_generations: OnlyBacktestRuntimeGenerationWorkAuthority,
         process_generation_fingerprint: str,
         stop_requested: Callable[[], bool] | None = None,
     ) -> None:
@@ -601,7 +601,7 @@ class OnlyBacktestReconciler:
         self,
         store: OnlyBacktestExecutionStore,
         evidence: OnlyBacktestEvidenceStore,
-        runtime_generations: OnlyRuntimeGenerationWorkAuthority | None = None,
+        runtime_generations: OnlyBacktestRuntimeGenerationWorkAuthority | None = None,
         admission: OnlyBacktestAdmissionService | None = None,
     ) -> None:
         self._store = store

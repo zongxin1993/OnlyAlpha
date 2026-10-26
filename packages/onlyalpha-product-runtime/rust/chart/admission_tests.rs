@@ -8,6 +8,9 @@ impl Drop for Fixture {
             &self.0,
             &self.0.join("lib"),
             &self.0.join("lib/site-packages"),
+            &self
+                .0
+                .join("lib/site-packages/onlyalpha_plugin_indicators-0.2.0.dist-info"),
             &self.0.join("bin"),
         ] {
             let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o755));
@@ -20,6 +23,15 @@ fn fixture() -> (Fixture, ChartQuery, Value) {
     fs::create_dir(&root).unwrap();
     fs::create_dir_all(root.join("lib/site-packages")).unwrap();
     fs::create_dir(root.join("bin")).unwrap();
+    let info = "lib/site-packages/onlyalpha_plugin_indicators-0.2.0.dist-info";
+    fs::create_dir(root.join(info)).unwrap();
+    let metadata = b"Metadata-Version: 2.1\nName: onlyalpha-plugin-indicators\nVersion: 0.2.0\n";
+    fs::write(root.join(info).join("METADATA"), metadata).unwrap();
+    fs::set_permissions(
+        root.join(info).join("METADATA"),
+        fs::Permissions::from_mode(0o444),
+    )
+    .unwrap();
     for name in [
         "lib/site-packages/math.py",
         "bin/python",
@@ -40,7 +52,7 @@ fn fixture() -> (Fixture, ChartQuery, Value) {
             )
         })
         .collect();
-    let installation = json!({"schema_version":1,"kind":"ONLYALPHA_ALGORITHM_INSTALLATION","distribution_version":"1","environment_files":{"pyvenv.cfg":hash(b"pyvenv.cfg")},"runtime_files":runtime,"files":{"lib/site-packages/math.py":hash(b"lib/site-packages/math.py")},"interpreter_sha256":hash(b"bin/python")});
+    let installation = json!({"schema_version":1,"kind":"ONLYALPHA_ALGORITHM_INSTALLATION","distribution_version":"0.7.0","environment_files":{"pyvenv.cfg":hash(b"pyvenv.cfg")},"runtime_files":runtime,"files":{"lib/site-packages/math.py":hash(b"lib/site-packages/math.py"),"lib/site-packages/onlyalpha_plugin_indicators-0.2.0.dist-info/METADATA":hash(metadata)},"interpreter_sha256":hash(b"bin/python")});
     let bytes = installation.to_string();
     fs::write(root.join("algorithm-installation.json"), &bytes).unwrap();
     fs::set_permissions(
@@ -48,7 +60,7 @@ fn fixture() -> (Fixture, ChartQuery, Value) {
         fs::Permissions::from_mode(0o444),
     )
     .unwrap();
-    for name in ["lib/site-packages", "lib", "bin"] {
+    for name in ["lib/site-packages", "lib", "bin", info] {
         fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o555)).unwrap();
     }
     let query =
@@ -281,6 +293,23 @@ fn catalog_resolver_and_result_mutations_are_rejected_by_native_admission() {
             )
             .is_err(),
             "result case {case}"
+        );
+    }
+}
+
+#[test]
+fn provider_provenance_uses_installed_plugin_version_not_backend_version() {
+    let (_fixture, query, catalog) = fixture();
+    assert_eq!(query.installation.distribution_version().unwrap(), "0.7.0");
+    let entries = query.admit_catalog(&catalog).unwrap();
+    for entry in entries.values() {
+        assert_eq!(
+            entry.capability["capability_projection"]["provider_manifest"]["source"]["distribution_name"],
+            "onlyalpha-plugin-indicators"
+        );
+        assert_eq!(
+            entry.capability["capability_projection"]["provider_manifest"]["source"]["distribution_version"],
+            "0.2.0"
         );
     }
 }

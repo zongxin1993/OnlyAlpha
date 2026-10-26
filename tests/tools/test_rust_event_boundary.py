@@ -40,7 +40,7 @@ def test_event_isolated_closure_excludes_other_kernel_and_runtime(tmp_path: Path
         "crates/onlyalpha-kernel/event",
     }
     for forbidden in (
-        "crates/onlyalpha-kernel/core",
+        "crates/onlyalpha-kernel/predicates",
         "crates/onlyalpha-kernel/clock",
         "src/onlyalpha",
         "packages",

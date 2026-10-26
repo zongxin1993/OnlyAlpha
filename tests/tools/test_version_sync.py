@@ -1,657 +1,290 @@
 from __future__ import annotations
 
-import importlib.util
+import json
+import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 from packaging.requirements import Requirement
-from tomlkit import parse
+
+from scripts import version_sync as release
+from tests.tools.test_release_units import graph as graph
 
 
-def _load_version_sync() -> ModuleType:
-    path = Path(__file__).resolve().parents[2] / "scripts/version_sync.py"
-    spec = importlib.util.spec_from_file_location("onlyalpha_version_sync", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def check(root: Path) -> None:
+    release.check_versions(root, test_distribution_paths=())
 
 
-VERSION_SYNC = _load_version_sync()
-VersionSyncError = VERSION_SYNC.VersionSyncError
-check_versions = VERSION_SYNC.check_versions
-rewrite_internal_requirement = VERSION_SYNC.rewrite_internal_requirement
-rewrite_workspace = VERSION_SYNC.rewrite_workspace
-
-FIXTURE_PATH = Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml")
-
-
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def _workspace(
-    tmp_path: Path,
-    *,
-    a_name: str = "onlyalpha-market-a",
-    a_version: str = "0.3.7",
-    b_version: str = "0.3.7",
-    b_dependencies: tuple[str, ...] = ("onlyalpha==0.3.7", "onlyalpha-market-a==0.3.7", "pandas>=2"),
-    b_optional_dependencies: tuple[str, ...] = (),
-    fixture_version: str = "0.1.0",
-    fixture_dependency: str = "onlyalpha==0.3.7",
-) -> Path:
-    dependency_lines = ",\n    ".join(repr(value) for value in b_dependencies)
-    optional_section = ""
-    if b_optional_dependencies:
-        optional_lines = ",\n    ".join(repr(value) for value in b_optional_dependencies)
-        optional_section = f"\n[project.optional-dependencies]\nfeature = [\n    {optional_lines},\n]\n"
-
-    _write(
-        tmp_path / "pyproject.toml",
-        """[project]
-name = "onlyalpha"
-version = "0.3.7"
-dependencies = []
-
-[tool.uv.workspace]
-members = ["packages/a", "packages/b"]
-""",
-    )
-    _write(tmp_path / "README.md", "# Documentation without release metadata\n")
-    _write(
-        tmp_path / "packages/onlyalpha-web-console/package.json",
-        '{"name":"onlyalpha-web","private":true,"version":"0.3.7"}\n',
-    )
-    _write(
-        tmp_path / "packages/onlyalpha-web-console/package-lock.json",
-        '{"name":"onlyalpha-web","version":"0.3.7","packages":{"":{"version":"0.3.7"}}}\n',
-    )
-    _write(
-        tmp_path / "packages/a/pyproject.toml",
-        f"""[project]
-name = {a_name!r}
-version = {a_version!r}
-dependencies = ["onlyalpha==0.3.7"]
-""",
-    )
-    _write(
-        tmp_path / "packages/b/pyproject.toml",
-        f"""[project]
-name = "onlyalpha-plugin-b"
-version = {b_version!r}
-dependencies = [
-    {dependency_lines},
-]
-{optional_section}""",
-    )
-    _write(
-        tmp_path / FIXTURE_PATH,
-        f"""[project]
-name = "onlyalpha-test-plugin"
-version = {fixture_version!r}
-dependencies = [{fixture_dependency!r}]
-""",
-    )
-    _write(
-        tmp_path / "test-data/runtime_factor_provider/pyproject.toml",
-        '[project]\nname = "onlyalpha-test-factor-provider"\nversion = "0.9.9"\ndependencies = ["onlyalpha==0.3.7", "onlyalpha-market-a==0.3.7"]\n',
-    )
-    return tmp_path
-
-
-def _failure(tmp_path: Path) -> str:
-    with pytest.raises(VersionSyncError) as exc_info:
-        check_versions(tmp_path)
-    return str(exc_info.value)
-
-
-def test_valid_workspace_release_graph_passes(tmp_path: Path) -> None:
-    check_versions(_workspace(tmp_path))
-
-
-def test_readme_is_not_a_version_authority_and_may_be_absent(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    readme = root / "README.md"
-    readme.write_text("| Version | `stale-and-ignored` |\n", encoding="utf-8")
-    check_versions(root)
-    readme.unlink()
-    check_versions(root)
-
-
-def test_stale_internal_edge_fails(tmp_path: Path) -> None:
-    root = _workspace(
-        tmp_path,
-        b_dependencies=("onlyalpha==0.3.7", "onlyalpha-market-a==0.3.6"),
-    )
-    message = _failure(root)
-    assert "onlyalpha-market-a" in message
-    assert "expected '==0.3.7'" in message
-    assert "==0.3.6" in message
-
-
-def test_wrong_formal_distribution_version_fails(tmp_path: Path) -> None:
-    message = _failure(_workspace(tmp_path, a_version="0.3.6"))
-    assert "expected version '0.3.7'" in message
-    assert "found '0.3.6'" in message
-
-
-@pytest.mark.parametrize("dependency", ["onlyalpha-market-a>=0.3.7", "onlyalpha-market-a"])
-def test_non_exact_internal_dependency_fails(tmp_path: Path, dependency: str) -> None:
-    message = _failure(_workspace(tmp_path, b_dependencies=("onlyalpha==0.3.7", dependency)))
-    assert "internal dependency 'onlyalpha-market-a'" in message
-    assert "expected '==0.3.7'" in message
-
-
-def test_external_dependency_is_unchanged_and_valid(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, b_dependencies=("onlyalpha==0.3.7", "pandas>=2"))
-    check_versions(root)
-    rewrite_workspace(root, "0.3.8")
-    document = parse((root / "packages/b/pyproject.toml").read_text(encoding="utf-8"))
-    assert list(document["project"]["dependencies"]) == ["onlyalpha==0.3.8", "pandas>=2"]
-
-
-def test_dependency_groups_are_outside_release_graph(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    path = root / "packages/b/pyproject.toml"
-    path.write_text(
-        path.read_text(encoding="utf-8") + '\n[dependency-groups]\ndev = ["onlyalpha-market-a==0.1.0"]\n',
-        encoding="utf-8",
-    )
-
-    check_versions(root)
-    rewrite_workspace(root, "0.3.8")
-
-    document = parse(path.read_text(encoding="utf-8"))
-    assert list(document["dependency-groups"]["dev"]) == ["onlyalpha-market-a==0.1.0"]
-
-
-def test_stale_optional_internal_dependency_fails(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, b_optional_dependencies=("onlyalpha-market-a==0.3.6",))
-    message = _failure(root)
-    assert "onlyalpha-market-a" in message
-    assert "==0.3.6" in message
-
-
-def test_duplicate_canonical_distribution_name_fails(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, a_name="OnlyAlpha_Plugin_B")
-    message = _failure(root)
-    assert "duplicate canonical distribution name 'onlyalpha-plugin-b'" in message
-
-
-def test_missing_workspace_member_pyproject_fails(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    (root / "packages/a/pyproject.toml").unlink()
-    message = _failure(root)
-    assert "missing workspace member pyproject.toml" in message
-
-
-def test_invalid_requirement_fails(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, b_dependencies=("onlyalpha==0.3.7", "not a valid ???"))
-    message = _failure(root)
-    assert "invalid requirement" in message
+@pytest.mark.parametrize(("level", "expected"), [("patch", "0.9.10"), ("minor", "0.10.0"), ("major", "1.0.0")])
+def test_release_increment_resets_lower_components(level: str, expected: str) -> None:
+    assert release.next_release_version("0.9.9", level) == expected
+    assert expected in release.check_release_transition("0.9.9", expected, level)
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "expected"),
-    [
-        ("name", '""', "missing project.name"),
-        ("version", '"not-a-version"', "invalid project.version"),
-    ],
+    "version", ["0.9", "v0.9.10", "00.9.10", "0.09.10", "0.9.010", "0.9.10rc1", "0.9.10+build", "0.9.10\n"]
 )
-def test_invalid_distribution_identity_fails(
-    tmp_path: Path,
-    field: str,
-    value: str,
-    expected: str,
-) -> None:
-    root = _workspace(tmp_path)
-    path = root / "packages/a/pyproject.toml"
-    document = parse(path.read_text(encoding="utf-8"))
-    document["project"][field] = parse(f"value = {value}\n")["value"]
-    path.write_text(VERSION_SYNC.dumps(document), encoding="utf-8")
-    assert expected in _failure(root)
+def test_release_increment_refuses_noncanonical_numbers(version: str) -> None:
+    with pytest.raises(release.VersionSyncError, match="canonical X.Y.Z"):
+        release.next_release_version(version)
 
 
-def test_fixture_version_is_independent(tmp_path: Path) -> None:
-    check_versions(_workspace(tmp_path, fixture_version="99.4"))
+@pytest.mark.parametrize("version", ["0.9.9", "0.9.8", "0.9.11", "0.10.0"])
+def test_stale_skipped_or_unselected_increment_fails(version: str) -> None:
+    with pytest.raises(release.VersionSyncError):
+        release.check_release_transition("0.9.9", version)
 
 
-def test_stale_fixture_reference_to_formal_distribution_fails(tmp_path: Path) -> None:
-    root = _workspace(tmp_path, fixture_dependency="onlyalpha==0.3.6")
-    message = _failure(root)
-    assert str(FIXTURE_PATH) in message
-    assert "==0.3.6" in message
-
-
-def test_direct_url_internal_dependency_fails(tmp_path: Path) -> None:
-    root = _workspace(
-        tmp_path,
-        b_dependencies=("onlyalpha==0.3.7", "onlyalpha-market-a @ file:///tmp/market-a"),
+def test_rewrite_preserves_external_requirements_extras_and_markers() -> None:
+    raw = 'OnlyAlpha-Market-A[foo]>=0.3; python_version >= "3.12"'
+    value = release.rewrite_internal_requirement(
+        raw, formal_distribution_names=frozenset({"onlyalpha-market-a"}), version="0.4.0"
     )
-    message = _failure(root)
-    assert "direct URL" in message
-
-
-def test_rewrite_internal_requirement_preserves_extras_and_marker() -> None:
-    rewritten = rewrite_internal_requirement(
-        'OnlyAlpha-Market-A[foo]>=0.3; python_version >= "3.12"',
-        formal_distribution_names=frozenset({"onlyalpha-market-a"}),
-        version="0.3.8",
-    )
-    requirement = Requirement(rewritten)
-    assert requirement.name == "OnlyAlpha-Market-A"
-    assert requirement.extras == {"foo"}
-    assert str(requirement.specifier) == "==0.3.8"
+    requirement = Requirement(value)
+    assert requirement.extras == {"foo"} and str(requirement.specifier) == "==0.4.0"
     assert str(requirement.marker) == 'python_version >= "3.12"'
-
-
-def test_set_rewrites_complete_graph_and_preserves_external_dependencies(tmp_path: Path) -> None:
-    root = _workspace(
-        tmp_path,
-        b_optional_dependencies=('onlyalpha-market-a[feature]>=0.3; python_version >= "3.12"',),
-        fixture_version="7.9",
-    )
-
-    readme_before = (root / "README.md").read_text(encoding="utf-8")
-    rewrite_workspace(root, "0.3.8")
-    check_versions(root)
-
-    for relative_path in (Path("pyproject.toml"), Path("packages/a/pyproject.toml"), Path("packages/b/pyproject.toml")):
-        document = parse((root / relative_path).read_text(encoding="utf-8"))
-        assert document["project"]["version"] == "0.3.8"
-
-    b_document = parse((root / "packages/b/pyproject.toml").read_text(encoding="utf-8"))
-    assert "onlyalpha-market-a==0.3.8" in b_document["project"]["dependencies"]
-    assert "pandas>=2" in b_document["project"]["dependencies"]
-    optional = Requirement(str(b_document["project"]["optional-dependencies"]["feature"][0]))
-    assert optional.extras == {"feature"}
-    assert str(optional.specifier) == "==0.3.8"
-    assert optional.marker is not None
-
-    fixture = parse((root / FIXTURE_PATH).read_text(encoding="utf-8"))
-    assert fixture["project"]["version"] == "7.9"
-    assert list(fixture["project"]["dependencies"]) == ["onlyalpha==0.3.8"]
-    assert (root / "README.md").read_text(encoding="utf-8") == readme_before
-    web_package = (root / "packages/onlyalpha-web-console/package.json").read_text(encoding="utf-8")
-    web_lock = (root / "packages/onlyalpha-web-console/package-lock.json").read_text(encoding="utf-8")
-    assert '\n    "version": "0.3.8"' in web_package
-    assert '\n    "version": "0.3.8"' in web_lock
-    assert '\n  "version": "0.3.8"' not in web_package
-    assert '\n  "version": "0.3.8"' not in web_lock
-
-
-def test_quant_asset_provider_distribution_version_is_checked_and_rewritten(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    provider_path = root / VERSION_SYNC.QUANT_ASSET_PROVIDER_PATHS[0]
-    _write(
-        provider_path,
-        'manifest = Provider(\n    distribution_version="0.3.6",\n)\n',
-    )
-
-    message = _failure(root)
-    assert "quant asset distribution_version expected '0.3.7'" in message
-
-    rewrite_workspace(root, "0.3.8")
-    check_versions(root)
-    assert 'distribution_version="0.3.8"' in provider_path.read_text(encoding="utf-8")
-
-
-def test_set_versions_locks_then_checks_complete_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = _workspace(tmp_path)
-    calls: list[tuple[list[str], Path, bool]] = []
-
-    def fake_run(command: list[str], *, cwd: Path, check: bool) -> None:
-        calls.append((command, cwd, check))
-
-    monkeypatch.setattr(VERSION_SYNC.subprocess, "run", fake_run)
-    VERSION_SYNC.set_versions("0.3.8", root)
-
-    assert calls == [(["uv", "lock", "--python", "3.12"], root, True)]
-    check_versions(root)
-
-
-@pytest.mark.parametrize(
-    ("base", "level", "expected"),
-    [
-        ("0.9.9", "patch", "0.9.10"),
-        ("0.9.10", "minor", "0.10.0"),
-        ("0.10.7", "major", "1.0.0"),
-        ("1.2.3", "patch", "1.2.4"),
-        ("1.2.3", "minor", "1.3.0"),
-        ("1.2.3", "major", "2.0.0"),
-    ],
-)
-def test_release_increment_resets_lower_components(base: str, level: str, expected: str) -> None:
-    assert VERSION_SYNC.next_release_version(base, level) == expected
     assert (
-        VERSION_SYNC.check_release_transition(base, expected, level)
-        == f"OnlyAlpha release: {base} -> {expected} ({level})"
+        release.rewrite_internal_requirement("pandas>=2", formal_distribution_names=frozenset(), version="0.4.0")
+        == "pandas>=2"
     )
 
 
 @pytest.mark.parametrize(
-    "base", ["0.9", "v0.9.10", "00.9.10", "0.09.10", "0.9.010", "0.9.10rc1", "0.9.10+build", "0.9.10\n"]
+    "dependency", ["onlyalpha>=0.7", "onlyalpha", "onlyalpha==0.6.0", "onlyalpha @ file:///tmp/onlyalpha"]
 )
-def test_release_increment_refuses_noncanonical_number(base: str) -> None:
-    with pytest.raises(VersionSyncError, match="canonical X.Y.Z"):
-        VERSION_SYNC.next_release_version(base)
+def test_internal_edges_pin_the_target_version(graph: Path, dependency: str) -> None:
+    p = graph / "plugs/onlyalpha-plugin-test/pyproject.toml"
+    p.write_text(p.read_text().replace("onlyalpha==0.7.0", dependency))
+    with pytest.raises(release.VersionSyncError, match="internal dependency"):
+        check(graph)
 
 
-@pytest.mark.parametrize("candidate", ["0.9.10", "0.9.9", "0.9.12", "0.10.0", "0.9.11rc1"])
-def test_release_transition_refuses_stale_skipped_or_unselected_numbers(candidate: str) -> None:
-    with pytest.raises(VersionSyncError, match="requires 0.9.10 -> 0.9.11"):
-        VERSION_SYNC.check_release_transition("0.9.10", candidate)
+def test_optional_internal_edge_is_checked(graph: Path) -> None:
+    p = graph / "pyproject.toml"
+    p.write_text(p.read_text() + '\n[project.optional-dependencies]\nx = ["onlyalpha-plugin-test==0.1.0"]\n')
+    with pytest.raises(release.VersionSyncError, match="internal dependency"):
+        check(graph)
 
 
-def test_unknown_release_level_is_not_an_increment() -> None:
-    with pytest.raises(VersionSyncError, match="unknown release level"):
-        VERSION_SYNC.next_release_version("0.9.10", "force")
+def test_missing_manifest_and_lock_are_refused(graph: Path) -> None:
+    (graph / "Cargo.lock").unlink()
+    with pytest.raises(release.VersionSyncError, match="lock"):
+        check(graph)
+    (graph / "plugs/onlyalpha-plugin-test/pyproject.toml").unlink()
+    with pytest.raises(release.VersionSyncError):
+        check(graph)
 
 
-def _release_context(level: str = "minor") -> dict[str, Any]:
-    return {
-        "repository": {"owner": {"login": "owner", "type": "User"}},
-        "pull_request": {"labels": [{"name": f"release:{level}"}], "head": {"sha": "current"}},
-        "events": [{"id": 1, "event": "labeled", "label": {"name": f"release:{level}"}, "actor": {"login": "owner"}}],
-        "reviews": [],
+def test_mixed_language_plugin_has_one_version_authority(graph: Path) -> None:
+    p = graph / "plugs/onlyalpha-plugin-test/pyproject.toml"
+    p.write_text(p.read_text().replace('version = "0.2.0"', 'version = "0.2.1"'))
+    with pytest.raises(release.VersionSyncError, match="expected version"):
+        check(graph)
+
+
+def test_fixture_version_stays_independent_but_incoming_edge_changes(graph: Path) -> None:
+    fixture = Path("test-data/fixture/pyproject.toml")
+    path = graph / fixture
+    path.parent.mkdir(parents=True)
+    path.write_text('[project]\nname="fixture"\nversion="99.4"\ndependencies=["onlyalpha==0.7.0"]\n')
+    release.rewrite_unit(graph, "backend", "0.7.1", test_distribution_paths=(fixture,))
+    release.check_versions(graph, test_distribution_paths=(fixture,))
+    text = path.read_text()
+    assert 'version="99.4"' in text and "onlyalpha==0.7.1" in text
+
+
+def test_lib_bump_does_not_bump_backend_or_plugin(graph: Path) -> None:
+    release.rewrite_unit(graph, "libs", "0.4.1", test_distribution_paths=())
+    check(graph)
+    assert release.load_release_units(graph) == {
+        "libs": "0.4.1",
+        "backend": "0.7.0",
+        "frontend": "0.9.0",
+        "plugin-test": "0.2.0",
     }
 
 
-@pytest.mark.parametrize("level", ["minor", "major", "patch"])
-def test_release_level_accepts_explicit_owner_selection(level: str) -> None:
-    assert VERSION_SYNC.release_level_from_context(_release_context(level)) == level
+def context(level: str = "minor") -> dict[str, Any]:
+    label = f"release:frontend:{level}"
+    return {
+        "repository": {"owner": {"type": "User", "login": "owner"}},
+        "pull_request": {"labels": [{"name": label}]},
+        "events": [{"id": 1, "event": "labeled", "label": {"name": label}, "actor": {"login": "owner"}}],
+    }
 
 
-def test_release_level_defaults_to_patch_without_labels() -> None:
-    assert VERSION_SYNC.release_level_from_context({"pull_request": {"labels": []}, "events": []}) == "patch"
+@pytest.mark.parametrize("level", ["patch", "minor", "major"])
+def test_owner_can_select_each_unit_level(level: str) -> None:
+    assert release.release_selections_from_context(context(level)) == {"frontend": level}
 
 
-def test_non_owner_label_does_not_authorize_minor() -> None:
-    context = _release_context()
-    context["events"][0]["actor"]["login"] = "other"
-    with pytest.raises(VersionSyncError, match="explicit Owner action"):
-        VERSION_SYNC.release_level_from_context(context)
+@pytest.mark.parametrize("condition", ["non-owner", "generic-approval", "organization", "readded"])
+def test_minor_requires_the_actual_owner_label_action(condition: str) -> None:
+    value = context()
+    if condition == "organization":
+        value["repository"]["owner"]["type"] = "Organization"
+    elif condition == "readded":
+        value["events"] += [
+            {"id": 2, "event": "unlabeled", "label": {"name": "release:frontend:minor"}, "actor": {"login": "other"}},
+            {"id": 3, "event": "labeled", "label": {"name": "release:frontend:minor"}, "actor": {"login": "other"}},
+        ]
+    else:
+        value["events"][0]["actor"]["login"] = "other"
+        value["reviews"] = [{"user": {"login": "owner"}, "state": "APPROVED"}]
+    with pytest.raises(release.VersionSyncError):
+        release.release_selections_from_context(value)
 
 
 @pytest.mark.parametrize(
-    "state,head", [("DISMISSED", "current"), ("CHANGES_REQUESTED", "current"), ("APPROVED", "old")]
+    "label", ["release:patch", "release:unknown:patch", "release:frontend:force", "release:frontend:major"]
 )
-def test_missing_current_owner_approval_is_not_permission(state: str, head: str) -> None:
-    context = _release_context()
-    context["events"] = []
-    context["reviews"] = [{"user": {"login": "owner"}, "state": state, "commit_id": head}]
-    with pytest.raises(VersionSyncError, match="explicit Owner action"):
-        VERSION_SYNC.release_level_from_context(context)
+def test_unknown_or_conflicting_selection_fails(label: str) -> None:
+    value = context()
+    value["pull_request"]["labels"].append({"name": label})
+    with pytest.raises(release.VersionSyncError):
+        release.release_selections_from_context(value)
 
 
-@pytest.mark.parametrize("level", ["minor", "major"])
-def test_generic_owner_approval_does_not_authorize_exceptional_release(level: str) -> None:
-    context = _release_context(level)
-    context["events"][0]["actor"]["login"] = "other"
-    context["reviews"] = [{"user": {"login": "owner"}, "state": "APPROVED", "commit_id": "current"}]
-    with pytest.raises(VersionSyncError, match="explicit Owner action"):
-        VERSION_SYNC.release_level_from_context(context)
+def test_multiple_units_can_be_selected_independently() -> None:
+    value = context()
+    value["pull_request"]["labels"].append({"name": "release:backend:patch"})
+    assert release.release_selections_from_context(value) == {"frontend": "minor", "backend": "patch"}
 
 
-def test_removed_and_readded_label_does_not_inherit_owner_action() -> None:
-    context = _release_context()
-    context["events"] += [
-        {"id": 2, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "other"}},
-        {"id": 3, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "other"}},
+def test_merge_selection_uses_events_before_the_exact_merge() -> None:
+    value = context()
+    value["pull_request"].update(merged=True, merge_commit_sha="a" * 40, labels=[])
+    value["events"] += [
+        {"id": 2, "event": "merged", "commit_id": "a" * 40},
+        {"id": 3, "event": "unlabeled", "label": {"name": "release:frontend:minor"}, "actor": {"login": "other"}},
     ]
-    with pytest.raises(VersionSyncError, match="explicit Owner action"):
-        VERSION_SYNC.release_level_from_context(context)
+    assert release.release_selections_from_context(value) == {"frontend": "minor"}
+    value["events"] = value["events"][1:]
+    assert release.release_selections_from_context(value) == {}
 
 
-def test_conflicting_labels_and_organization_owner_fail_closed() -> None:
-    context = _release_context()
-    context["pull_request"]["labels"].append({"name": "release:major"})
-    with pytest.raises(VersionSyncError, match="conflicting"):
-        VERSION_SYNC.release_level_from_context(context)
-    context = _release_context()
-    context["repository"]["owner"]["type"] = "Organization"
-    with pytest.raises(VersionSyncError, match="human repository Owner"):
-        VERSION_SYNC.release_level_from_context(context)
+@pytest.mark.parametrize("condition", ["missing", "duplicate", "unordered"])
+def test_incomplete_history_cannot_authorize_a_merge(condition: str) -> None:
+    value = context()
+    value["pull_request"].update(merged=True, merge_commit_sha="a" * 40)
+    if condition != "missing":
+        value["events"].append({"id": 2, "event": "merged", "commit_id": "a" * 40})
+    if condition == "duplicate":
+        value["events"].append({"id": 3, "event": "merged", "commit_id": "a" * 40})
+    if condition == "unordered":
+        value["events"].reverse()
+    with pytest.raises(release.VersionSyncError):
+        release.release_selections_from_context(value)
 
 
-def test_git_transition_reads_exact_base_and_checks_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = _workspace(tmp_path)
-    calls: list[list[str]] = []
-
-    def observe(command: list[str], *, cwd: Path, text: bool) -> str:
-        assert cwd == root and text is True
-        calls.append(command)
-        return "a" * 40 + "\n" if command[1] == "rev-parse" else '[project]\nversion = "0.3.6"\n'
-
-    monkeypatch.setattr(VERSION_SYNC.subprocess, "check_output", observe)
-    assert (
-        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
-        == "OnlyAlpha release: 0.3.6 -> 0.3.7 (patch)"
-    )
-    assert calls == [
-        ["git", "rev-parse", "--verify", "--end-of-options", "origin/master^{commit}"],
-        ["git", "show", "a" * 40 + ":pyproject.toml"],
-    ]
-    rewrite_workspace(root, "0.3.8")
-    with pytest.raises(VersionSyncError, match="requires 0.3.6 -> 0.3.7"):
-        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
+def test_only_selected_changed_units_can_advance() -> None:
+    base = {"libs": "0.4.0", "frontend": "0.9.0"}
+    assert release.validate_transitions(base, base, {}) == []
+    for selected in ({}, {"libs": "patch"}, {"frontend": "minor"}):
+        with pytest.raises(release.VersionSyncError):
+            release.validate_transitions(base, {**base, "frontend": "0.9.1"}, selected)
+    assert release.validate_transitions(base, {**base, "frontend": "0.9.1"}, {"frontend": "patch"})
 
 
 def test_next_cli_is_read_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    graph: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = _workspace(tmp_path)
-    before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
-    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
-    monkeypatch.setattr(VERSION_SYNC.sys, "argv", ["version_sync.py", "next", "--level", "minor"])
-    assert VERSION_SYNC.main() == 0
-    assert capsys.readouterr().out == "0.4.0\n"
-    assert {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
+    monkeypatch.setattr(release, "ROOT", graph)
+    monkeypatch.setattr(sys, "argv", ["version_sync.py", "next", "--unit", "frontend", "--level", "minor"])
+    # The default root is bound at definition; resolve it explicitly for this CLI test.
+    original = release.load_release_units
+    monkeypatch.setattr(release, "load_release_units", lambda: original(graph))
+    before = (graph / "Cargo.toml").read_bytes()
+    assert release.main() == 0
+    assert capsys.readouterr().out.strip() == "0.10.0"
+    assert (graph / "Cargo.toml").read_bytes() == before
 
 
-def test_release_workflow_is_read_only_and_reports_exact_merge_transition() -> None:
-    path = Path(__file__).resolve().parents[2] / ".github/workflows/release-version.yml"
-    yaml = importlib.import_module("yaml")
-    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-    assert set(workflow["on"]) == {"pull_request"}
-    assert "closed" in workflow["on"]["pull_request"]["types"]
-    assert all(value == "read" for value in workflow["permissions"].values())
-    job = workflow["jobs"]["transition"]
-    assert "merged == true" in job["if"]
-    steps = job["steps"]
+def test_repository_release_graph_matches_actual_manifests() -> None:
+    release.check_versions()
+
+
+def test_workflow_checks_exact_head_base_context_and_permissions() -> None:
+    import yaml  # type: ignore[import-untyped]  # The installed PyYAML has no bundled stubs.
+
+    workflow = yaml.load((release.ROOT / ".github/workflows/release-version.yml").read_text(), Loader=yaml.BaseLoader)
+    assert workflow["permissions"] == {"contents": "read", "pull-requests": "read", "issues": "read"}
+    steps = workflow["jobs"]["transition"]["steps"]
     checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
-    assert "merge_commit_sha" in checkout["with"]["ref"]
-    assert "head.sha" in checkout["with"]["ref"]
     assert checkout["with"]["persist-credentials"] == "false"
-    scripts = "\n".join(step.get("run", "") for step in steps)
-    assert '--base-ref "$BASE_SHA"' in scripts
-    assert "git fetch" not in scripts
-    assert "report-merge" in scripts
-    notice_index = next(i for i, step in enumerate(steps) if "--notice-only" in step.get("run", ""))
-    history_index = next(i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/github-script@"))
-    assert notice_index < history_index
-    assert '--summary-file "$GITHUB_STEP_SUMMARY"' in scripts
-    assert not any(token in scripts for token in ("git push", "git commit", "git tag", "gh pr merge"))
+    script = "\n".join(str(step) for step in steps)
+    assert "github.paginate" in script and "BASE_SHA" in script and "release-context.json" in script
+    assert '--level "$LEVEL"' not in script
 
 
-def _merged_context() -> dict[str, Any]:
-    context = _release_context()
-    context["pull_request"].update({"merged": True, "merge_commit_sha": "merged"})
-    context["events"].append({"id": 2, "event": "merged", "commit_id": "merged"})
-    return context
-
-
-def test_merge_selection_uses_history_before_exact_occurrence_not_current_labels() -> None:
-    context = _merged_context()
-    context["pull_request"]["labels"] = []
-    context["events"].append(
-        {"id": 3, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}}
-    )
-    context["reviews"] = [{"state": "DISMISSED"}]
-    assert VERSION_SYNC.release_level_from_context(context) == "minor"
-
-
-def test_post_merge_owner_action_cannot_authorize_earlier_minor() -> None:
-    context = _merged_context()
-    context["events"][0]["actor"]["login"] = "other"
-    context["events"] += [
-        {"id": 3, "event": "unlabeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
-        {"id": 4, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
-    ]
-    with pytest.raises(VersionSyncError, match="explicit Owner action"):
-        VERSION_SYNC.release_level_from_context(context)
-
-
-def test_new_post_merge_label_does_not_change_ordinary_patch_selection() -> None:
-    context = _merged_context()
-    context["events"] = [
-        {"id": 1, "event": "merged", "commit_id": "merged"},
-        {"id": 2, "event": "labeled", "label": {"name": "release:minor"}, "actor": {"login": "owner"}},
-    ]
-    assert VERSION_SYNC.release_level_from_context(context) == "patch"
-
-
-@pytest.mark.parametrize("condition", ["missing", "different", "duplicate", "unordered"])
-def test_merge_selection_refuses_incomplete_or_ambiguous_occurrence(condition: str) -> None:
-    context = _merged_context()
-    if condition == "missing":
-        context["events"].pop()
-    elif condition == "different":
-        context["events"][-1]["commit_id"] = "different"
-    elif condition == "duplicate":
-        context["events"].append({"id": 3, "event": "merged", "commit_id": "merged"})
-    else:
-        context["events"].reverse()
-    with pytest.raises(VersionSyncError, match="historical release selection|event history"):
-        VERSION_SYNC.release_level_from_context(context)
-
-
-def test_git_transition_refuses_noncanonical_raw_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = _workspace(tmp_path)
-    path = root / "pyproject.toml"
-    path.write_text(path.read_text().replace('version = "0.3.7"', 'version = "0.3.007"'))
-    monkeypatch.setattr(
-        VERSION_SYNC.subprocess,
-        "check_output",
-        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
-    )
-    with pytest.raises(VersionSyncError, match="canonical X.Y.Z"):
-        VERSION_SYNC.check_transition_from_git("origin/master", "patch", root)
-
-
-def test_merge_report_retains_actual_notice_when_historical_proof_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_merge_report_keeps_actual_unit_notice_when_history_is_missing(
+    graph: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = _workspace(tmp_path)
-    summary = tmp_path / "summary.md"
+    value = context()
+    value["pull_request"].update(merged=True, merge_commit_sha="a" * 40)
     context_file = tmp_path / "context.json"
-    context = _merged_context()
-    context["events"].pop()
-    context_file.write_text(VERSION_SYNC.json.dumps(context))
-    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
+    context_file.write_text(json.dumps(value))
+    summary = tmp_path / "summary.md"
     monkeypatch.setattr(
-        VERSION_SYNC.subprocess,
-        "check_output",
-        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
-    )
-    monkeypatch.setattr(
-        VERSION_SYNC.sys,
+        sys,
         "argv",
         ["version_sync.py", "report-merge", "--context-file", str(context_file), "--summary-file", str(summary)],
     )
-    assert VERSION_SYNC.main() == 1
-    output = capsys.readouterr()
-    assert "OnlyAlpha merged release: 0.3.6 -> 0.3.7" in output.out
-    assert "historical release selection unavailable" in output.err
-    assert "0.3.6 -> 0.3.7" in summary.read_text()
+    monkeypatch.setattr(
+        release, "read_git_release_transition", lambda _: ({"frontend": "0.9.0"}, {"frontend": "0.10.0"})
+    )
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: "a" * 40)
+    monkeypatch.setattr(release, "check_versions", lambda: None)
+    assert release.main() == 1
+    assert "frontend" in summary.read_text() and "0.10.0" in summary.read_text()
+    assert "Actual release transitions" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("wrong_merge", [False, True])
-def test_merge_report_requires_exact_git_occurrence_for_historical_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], wrong_merge: bool
+def test_merge_report_rejects_context_for_a_different_exact_commit(
+    graph: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = _workspace(tmp_path)
-    context = _merged_context()
-    context["pull_request"]["merge_commit_sha"] = "other" if wrong_merge else "a" * 40
-    context["events"] = [{"id": 1, "event": "merged", "commit_id": context["pull_request"]["merge_commit_sha"]}]
+    value = context()
+    value["pull_request"].update(merged=True, merge_commit_sha="b" * 40)
+    value["events"].append({"id": 2, "event": "merged", "commit_id": "b" * 40})
     context_file = tmp_path / "context.json"
-    context_file.write_text(VERSION_SYNC.json.dumps(context))
-    monkeypatch.setattr(VERSION_SYNC, "ROOT", root)
+    context_file.write_text(json.dumps(value))
+    monkeypatch.setattr(sys, "argv", ["version_sync.py", "report-merge", "--context-file", str(context_file)])
     monkeypatch.setattr(
-        VERSION_SYNC.subprocess,
-        "check_output",
-        lambda command, **kwargs: "a" * 40 if command[1] == "rev-parse" else '[project]\nversion="0.3.6"\n',
+        release, "read_git_release_transition", lambda _: ({"frontend": "0.9.0"}, {"frontend": "0.10.0"})
     )
-    monkeypatch.setattr(
-        VERSION_SYNC.sys, "argv", ["version_sync.py", "report-merge", "--context-file", str(context_file)]
-    )
-    assert VERSION_SYNC.main() == (1 if wrong_merge else 0)
-    output = capsys.readouterr()
-    assert "OnlyAlpha merged release: 0.3.6 -> 0.3.7" in output.out
-    if wrong_merge:
-        assert "different merge" in output.err
-    else:
-        assert "0.3.6 -> 0.3.7 (patch)" in output.out
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: "a" * 40)
+    assert release.main() == 1
+    assert "different merge" in capsys.readouterr().err
 
 
-def test_runtime_factor_fixture_internal_dependencies_follow_release(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    rewrite_workspace(root, "0.3.8")
-    document = parse((root / "test-data/runtime_factor_provider/pyproject.toml").read_text())
-    assert document["project"]["version"] == "0.9.9"
-    assert document["project"]["dependencies"] == ["onlyalpha==0.3.8", "onlyalpha-market-a==0.3.8"]
-    check_versions(root)
+def test_readme_and_dependency_groups_do_not_become_version_authorities(graph: Path) -> None:
+    (graph / "README.md").write_text("release 99.99.99")
+    p = graph / "pyproject.toml"
+    p.write_text(p.read_text() + '\n[dependency-groups]\ndev=["onlyalpha==99.0.0"]\n')
+    release.rewrite_unit(graph, "backend", "0.7.1", test_distribution_paths=())
+    assert "onlyalpha==99.0.0" in p.read_text()
+    assert (graph / "README.md").read_text() == "release 99.99.99"
+    check(graph)
 
 
-def test_stale_runtime_factor_fixture_dependency_is_rejected(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    path = root / "test-data/runtime_factor_provider/pyproject.toml"
-    path.write_text(path.read_text().replace("onlyalpha==0.3.7", "onlyalpha==0.3.6"))
-    with pytest.raises(VersionSyncError, match="onlyalpha"):
-        check_versions(root)
+@pytest.mark.parametrize("field,value", [("name", ""), ("version", "not-a-version")])
+def test_invalid_distribution_identity_is_refused(graph: Path, field: str, value: str) -> None:
+    p = graph / "plugs/onlyalpha-plugin-test/pyproject.toml"
+    document = release.read_document(p)
+    document["project"][field] = value
+    release.write_document(p, document)
+    with pytest.raises(release.VersionSyncError):
+        check(graph)
 
 
-def test_rust_workspace_and_lock_follow_unique_release_authority(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.7"\n')
-    _write(
-        root / "Cargo.lock",
-        'version=4\n[[package]]\nname="onlyalpha-kernel"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-domain"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-backtest-driver"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-runtime-persistence"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-metadata-json"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-integration-contract"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-http-server"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-product-runtime"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-plugin-binance"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-plugin-tushare"\nversion="0.3.7"\n',
-    )
-    check_versions(root)
-    rewrite_workspace(root, "0.3.8")
-    assert parse((root / "Cargo.toml").read_text())["workspace"]["package"]["version"] == "0.3.8"
-    assert all(item["version"] == "0.3.8" for item in parse((root / "Cargo.lock").read_text())["package"])
-    check_versions(root)
-    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.6"\n')
-    assert "Rust" in _failure(root)
-
-
-def test_rust_release_check_refuses_missing_lock(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    _write(root / "Cargo.toml", '[workspace.package]\nversion="0.3.7"\n')
-    assert "Rust" in _failure(root)
-
-
-def test_rust_release_check_refuses_missing_manifest(tmp_path: Path) -> None:
-    root = _workspace(tmp_path)
-    _write(
-        root / "Cargo.lock",
-        'version=4\n[[package]]\nname="onlyalpha-kernel"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-domain"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-clock"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-event"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-state"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-construction"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-delivery"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-market-data-pipeline"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-execution"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-broker"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-fee"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-settlement"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-margin"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-risk"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-strategy-ledger"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-account"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-position"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-order"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-strategy"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-calculation"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-gateway-protocol"\nversion="0.3.7"\n[[package]]\nname="onlyalpha-calculation-worker"\nversion="0.3.7"\n',
-    )
-    assert "Rust" in _failure(root)
-
-
-def test_rust_release_inventory_matches_actual_workspace_members() -> None:
-    from scripts.version_sync import ROOT, RUST_MODULES, read_document
-
-    workspace = read_document(ROOT / "Cargo.toml")["workspace"]
-    names = {read_document(ROOT / member / "Cargo.toml")["package"]["name"] for member in workspace["members"]}
-    assert RUST_MODULES == names
+def test_duplicate_canonical_name_and_invalid_requirement_are_refused(graph: Path) -> None:
+    p = graph / "plugs/onlyalpha-plugin-test/pyproject.toml"
+    original = p.read_text()
+    p.write_text(original.replace('name = "onlyalpha-plugin-test"', 'name = "OnlyAlpha"'))
+    with pytest.raises(release.VersionSyncError, match="duplicate canonical"):
+        check(graph)
+    p.write_text(original.replace("onlyalpha==0.7.0", "invalid ???"))
+    with pytest.raises(release.VersionSyncError, match="invalid requirement"):
+        check(graph)

@@ -1,9 +1,15 @@
 # Linux Rust Kernel development
 
-The library in `crates/onlyalpha-kernel/core/` implements the six stateless Boolean/terminal primitives in
+> Organization follows [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md): twenty Kernel crates, including `predicates/` / `onlyalpha-predicates`, and reusable non-Kernel libraries under `crates/`. Product assembly and minimal Python resources follow the [repository work program](repository-migration-work-program.md). Each eligible migrated module includes Python source/consumer retirement; independent vectors and required historical artifacts remain.
+
+The library in `crates/onlyalpha-kernel/predicates/` implements the six stateless Boolean/terminal primitives in
 [Predicate semantics](predicate-semantics.md), the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md), eight [Boolean/string equality types](scalar-equality-semantics.md), and six reference plus six fixed-literal [finite Decimal comparisons](decimal-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
+
+Predicate isolation runs the library unit and independent vector tests from its own source/dependency closure. The diagnostic
+process/Generation integration remains separately exercised in the full workspace gate; it is Infrastructure evidence, not
+a prerequisite for the pure Predicate library build.
 
 ## Predicate responsibility map
 
@@ -12,13 +18,13 @@ repository root. They identify source owners and consumers, not a second semanti
 
 | Responsibility | Python location | Rust location / boundary |
 | --- | --- | --- |
-| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/core/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
+| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
-| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/core/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
+| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/predicates/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
 | Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
-| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/core/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
+| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/predicates/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
-| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/core/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
+| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/predicates/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
 
 The owning Contracts are [Boolean/terminal semantics](predicate-semantics.md), [integer reference/literal semantics](integer-predicate-semantics.md),
 [Boolean/string equality semantics](scalar-equality-semantics.md) and [isolated comparison](predicate-comparison.md). A matching
@@ -136,6 +142,10 @@ and logical name `onlyalpha_kernel-<normalized-version>-<target>.elf`. Targets a
 `x86_64-unknown-linux-gnu`. The logical target is identity metadata; it is not inferred from the current host or substituted.
 A native diagnostic cannot declare a tested Core execution fingerprint, Provider, asset or Calculation admission binding.
 
+The retained executable Distribution identity above is distinct from the current Cargo package `onlyalpha-predicates`;
+crate/path relocation does not rewrite retained artifact manifests or create a second diagnostic interface. Native build
+versions come from the library release authority in the root Cargo manifest, independently of the backend Python resource version.
+
 The existing manifest schema/byte digest remain the identity authorities. `native_target` is derived from the logical name and is
 not a second serialized field. Existing wheel manifests, fingerprints and `artifact.whl` store locations are unchanged. Native
 bytes use `artifact.elf` in the same content-addressed store; new files are created with non-executable permissions. Put/fetch verify exact
@@ -155,12 +165,12 @@ wheel is rewritten, no schema fallback is added, and no deployment of mixed read
 ## Kernel source organization
 
 `crates/onlyalpha-kernel/` is the organizational umbrella for the Trading Kernel's Rust libraries, not another Cargo package.
-The root Cargo workspace selects independent members inside it:
+The root Cargo workspace selects independent members inside it. The following is an existing source-map excerpt, not the complete target tree (see [target architecture](repository-product-architecture.md)):
 
 ```text
 crates/onlyalpha-kernel/
 ├── domain/  # package onlyalpha-domain: canonical Domain types and pure operations
-├── core/    # package onlyalpha-kernel: the existing Predicate semantic library
+├── predicates/    # package onlyalpha-predicates: Predicate semantic library
 ├── clock/   # package onlyalpha-clock: mutable Clock/Timer mechanics
 └── event/   # package onlyalpha-event: immutable envelopes and serial observation
 ```
@@ -471,7 +481,7 @@ Python `account/performance.py` is the classified reference for Account-owned ti
 
 ### Native persistence Infrastructure dependency closure
 
-The independently buildable `packages/onlyalpha-runtime-persistence/` consumes Execution from outside Kernel. The canonical Rust lane also builds/tests its complete isolated dependency closure in debug/release. Its [owning contract](rust-runtime-persistence.md) defines native persistence and process recovery without formal R5 activation.
+The independently buildable `crates/onlyalpha-runtime-persistence/` consumes Execution from outside Kernel. The canonical Rust lane also builds/tests its complete isolated dependency closure in debug/release. Its [owning contract](rust-runtime-persistence.md) defines native persistence and process recovery without formal R5 activation.
 
 The component pins `rusqlite=0.40.2` with only `bundled` and no default features; SQLite is a required persistence driver rather than Kernel logic. The lock includes `libsqlite3-sys=0.38.2`, the SQLite C amalgamation and C build tooling (`cc`, `find-msvc-tools`, `shlex`, `pkg-config`, `vcpkg`), plus fallible iterators and hash-map support. These are an explicit extension to the earlier pure-Rust dependency inventory above. `libsqlite3-sys` builds bundled C with the dev compiler; no loadable extension, runtime SQL compilation/download, binding generation or alternate system SQLite selection is enabled. Rust's standard `File::try_lock` supplies the lease without a lock crate. Direct features, full registry graph/checksums and build inputs remain bound by the canonical dependency guard; changes require renewed review. Upstream MIT/Apache license notices and SQLite public-domain provenance remain with their archives.
 

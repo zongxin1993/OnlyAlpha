@@ -37,7 +37,7 @@ jobs:
                   set -euo pipefail
                   uv lock --check
                   uv run --frozen python scripts/version_sync.py check
-                  python scripts/github_release_plan.py "$BEFORE_SHA" "$AFTER_SHA" \
+                  uv run --frozen python scripts/github_release_plan.py "$BEFORE_SHA" "$AFTER_SHA" \
                     > "$RUNNER_TEMP/onlyalpha-release-plan.json"
             - name: Publish exact version tags and Releases
               uses: actions/github-script@v8

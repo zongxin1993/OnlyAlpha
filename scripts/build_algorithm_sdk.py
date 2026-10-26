@@ -48,15 +48,23 @@ INDICATORS = (
 WORKER = ("codec.py", "type_declaration.py", "chart_worker.py", "chart_isolation.py")
 
 
+def distribution_version(distribution: str) -> str:
+    if distribution.startswith("onlyalpha-plugin-"):
+        path = ROOT / "plugs" / distribution / "pyproject.toml"
+        return str(tomllib.loads(path.read_text())["project"]["version"])
+    path = ROOT / "packages/onlyalpha-http-server/Cargo.toml"
+    return str(tomllib.loads(path.read_text())["package"]["version"])
+
+
 def wheel(output: Path, distribution: str, sources: dict[str, bytes], dependencies: tuple[str, ...]) -> Path:
-    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    version = distribution_version(distribution)
     name = distribution.replace("-", "_")
     info = f"{name}-{version}.dist-info"
     sources = dict(sources)
     sources[f"{info}/METADATA"] = (
         f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\nSummary: Exact minimal OnlyAlpha algorithm closure\n"
         + "".join(
-            f"Requires-Dist: {d}=={version}\n" if d.startswith("onlyalpha") else f"Requires-Dist: {d}\n"
+            f"Requires-Dist: {d}=={distribution_version(d)}\n" if d.startswith("onlyalpha") else f"Requires-Dist: {d}\n"
             for d in dependencies
         )
     ).encode()
@@ -194,7 +202,7 @@ def install(output: Path, destination: Path) -> str:
     manifest = {
         "schema_version": 1,
         "kind": "ONLYALPHA_ALGORITHM_INSTALLATION",
-        "distribution_version": tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"],
+        "distribution_version": distribution_version("onlyalpha"),
         "interpreter_sha256": hashlib.sha256((destination / "bin/python").read_bytes()).hexdigest(),
         "files": files,
         "environment_files": {"pyvenv.cfg": hashlib.sha256((destination / "pyvenv.cfg").read_bytes()).hexdigest()},

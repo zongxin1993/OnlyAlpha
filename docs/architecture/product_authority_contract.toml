@@ -883,6 +883,30 @@ actor = "A07"
 pattern = "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py"
 actor = "A23"
 
+[[actor_paths]]
+pattern = "src/onlyalpha/application/runtime_generation.py"
+actor = "A01"
+
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/runtime_generation.py"
+actor = "A20"
+
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/creation_query.py"
+actor = "A19"
+
+[[actor_paths]]
+pattern = "src/onlyalpha/backtest/native_evidence.py"
+actor = "A19"
+
+[[actor_paths]]
+pattern = "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/backtest_runtime.py"
+actor = "A21"
+
+[[actor_paths]]
+pattern = "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/registry.py"
+actor = "A20"
+
 [[bindings]]
 capability = "C01"
 symbols = ["onlyalpha.research.command.service.OnlyResearchCommandService", "onlyalpha.persistence.postgres.research_run_store.OnlyPostgresResearchRunStore", "onlyalpha.application.private_strategy_research.OnlyPrivateStrategyResearchApplicationService"]
@@ -948,7 +972,7 @@ capability = "C21"
 symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
 [[bindings]]
 capability = "C22"
-symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.backtest.worker.OnlyEngineBacktestRuntimeExecutor"]
+symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.backtest.worker.OnlyEngineBacktestRuntimeExecutor", "onlyalpha_runtime_generation_manager.backtest_runtime.OnlyGenerationBacktestExecutor"]
 [[bindings]]
 capability = "C23"
 symbols = ["onlyalpha.backtest.evidence.OnlyBacktestEvidenceStore"]

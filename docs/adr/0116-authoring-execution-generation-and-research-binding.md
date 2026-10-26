@@ -1,5 +1,7 @@
 # ADR 0116: Authoring Execution Generation and Research Binding
 
+> Component-placement supersession: [ADR 0142](0142-library-product-boundaries-and-independent-releases.md) moves authoring execution into backend modules/roles rather than a separately released worker package. Exact Generation verification, candidate binding, claim fencing and all semantic Authorities below remain unchanged. Existing paths remain source-navigation references until migration.
+
 - Status: Accepted
 - Date: 2026-09-04
 - Related: ADR 0075, 0086, 0088, 0090, 0108, 0110, 0111, 0112, 0115

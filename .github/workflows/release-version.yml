@@ -1,4 +1,4 @@
-name: Development Release Version
+name: Independent Release Units
 
 on:
   pull_request:
@@ -59,21 +59,13 @@ jobs:
               }
               core.exportVariable('BASE_SHA', branch.commit.sha);
             }
-      - name: Resolve one release level
+      - name: Validate release-unit graph, lock and selected increments
         if: github.event.pull_request.merged != true
-        id: selection
-        run: |
-          LEVEL=$(uv run --frozen python scripts/version_sync.py release-level --context-file release-context.json)
-          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
-      - name: Validate complete graph, lock and actual increment
-        if: github.event.pull_request.merged != true
-        env:
-          LEVEL: ${{ steps.selection.outputs.level }}
         run: |
           set -euo pipefail
           uv lock --check
           uv run --frozen python scripts/version_sync.py check-transition \
-            --base-ref "$BASE_SHA" --level "$LEVEL" --summary-file "$GITHUB_STEP_SUMMARY"
+            --base-ref "$BASE_SHA" --context-file release-context.json --summary-file "$GITHUB_STEP_SUMMARY"
       - name: Report actual merged release and validate merge-bound history
         if: github.event.pull_request.merged == true
         run: |

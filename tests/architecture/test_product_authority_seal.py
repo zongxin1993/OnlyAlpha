@@ -143,6 +143,7 @@ def test_http_route_modules_own_no_raw_mutation_capability() -> None:
     assert "host::Host" in source and "host.dispatch(request).await" in source
     for forbidden in (
         "onlyalpha_kernel",
+        "onlyalpha_predicates",
         "tokio_postgres",
         "AuthoritySession",
         "OnlyEngine",

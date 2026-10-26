@@ -1,5 +1,7 @@
 # ADR 0107: Repository Taxonomy and Plugin/Component Boundary
 
+> Placement/naming supersession: [ADR 0142](0142-library-product-boundaries-and-independent-releases.md) selects reusable libraries under `crates/`, only backend/frontend product packages under `packages/`, and independently versioned plugins under `plugs/`. The decisions below record the earlier layout; their protocol and Authority boundaries remain. Target paths are not current-source claims.
+
 - Status: Accepted
 - Date: 2026-09-02
 

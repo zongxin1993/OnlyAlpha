@@ -90,6 +90,7 @@ IDENTITY_ALLOWLIST = {
     "onlyalpha_p9_calculation_equivalence_v2": "historical calculation-equivalence authority identity",
     "a01": "product authority contract actor identity",
     "a03": "product authority contract actor identity",
+    "a04": "product authority contract actor identity",
     "a05": "product authority contract actor identity",
     "a07": "product authority contract actor identity",
     "a10": "product authority contract actor identity",
@@ -275,7 +276,8 @@ def test_repository_semantic_identity_gate_allows_process_docs_and_business_iden
     (tmp_path / "docs/tasks").mkdir(parents=True)
     (tmp_path / "packages/example/build").mkdir(parents=True)
     (tmp_path / "src/business.py").write_text(
-        "def _b64(value: bytes) -> str:\n    return value.hex()\n\nSYMBOL = 'CAB1'\nARCHITECTURE_ACTOR = 'A05'\n",
+        "def _b64(value: bytes) -> str:\n    return value.hex()\n\nSYMBOL = 'CAB1'\n"
+        "ARCHITECTURE_ACTOR = 'A05'\nRETIRED_ORCHESTRATOR_ACTOR = 'A04'\n",
         encoding="utf-8",
     )
     (tmp_path / "docs/tasks/PA-4_AUDIT.md").write_text("P9 closure task\n", encoding="utf-8")
@@ -284,13 +286,16 @@ def test_repository_semantic_identity_gate_allows_process_docs_and_business_iden
     assert semantic_identity_violations(tmp_path) == ()
 
 
-def test_repository_semantic_identity_allowlist_rejects_prefixed_or_suffixed_identity(tmp_path: Path) -> None:
+@pytest.mark.parametrize("identity", ("prefix-a0_golden_v1-suffix", "prefix-A04-suffix", "A04_task"))
+def test_repository_semantic_identity_allowlist_rejects_prefixed_or_suffixed_identity(
+    tmp_path: Path, identity: str
+) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src/business.py").write_text(
-        "CASE_ID = 'prefix-a0_golden_v1-suffix'\n",
+        f"CASE_ID = {identity!r}\n",
         encoding="utf-8",
     )
 
     violations = semantic_identity_violations(tmp_path)
 
-    assert any("prefix-a0_golden_v1-suffix" in item and "a0" in item for item in violations)
+    assert any(identity in item and "forbidden process token" in item for item in violations)

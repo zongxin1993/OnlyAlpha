@@ -258,6 +258,11 @@ def test_rust_kernel_is_required_and_uses_the_pinned_official_toolchain() -> Non
     assert "python scripts/test_suite.py rust-kernel" in commands
     dockerfile = (root / "deploy/Dockerfile.dev").read_text()
     assert f"FROM rust:{channel}-slim-bookworm@sha256:" in dockerfile
-    runtime, tools = dockerfile.split("FROM runtime AS test", 1)
+    reference = dockerfile.split(" AS reference-tools\n", 1)[1].split("\nFROM ", 1)[0]
+    tools = dockerfile.split("FROM reference-tools AS test\n", 1)[1].split("\nFROM ", 1)[0]
+    runtime_header = next(line for line in dockerfile.splitlines() if line.endswith(" AS runtime"))
+    assert runtime_header.startswith("FROM python:")
+    runtime = dockerfile.split(runtime_header + "\n", 1)[1].split("\nFROM ", 1)[0]
+    assert "COPY --from=rust-tools" not in reference
     assert "COPY --from=rust-tools" not in runtime
     assert "COPY --from=rust-tools" in tools

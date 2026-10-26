@@ -1,5 +1,7 @@
 # OnlyAlpha Web Product Architecture
 
+> Repository/release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) places Shipping Web in `packages/frontend` with its own version. Backend business and HTTP live in one backend product package; compatibility uses the formal API and verified combinations, not equal release numbers. Existing source paths in this document remain navigation until migration. Browser Authority and renderer rules are unchanged.
+
 > Forward productization note (ADR 0135): this document remains the detailed record of the P8.4 Research Studio architecture and its
 > reusable Research/authority constraints. It is **not** the permanent future navigation contract. New Web product work follows
 > `docs/web-product-development-mode.md`: a chart-centric, TradingView-referenced, product-driven vertical-slice workflow. Where the

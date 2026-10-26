@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from onlyalpha.application.runtime_generation import OnlyRuntimeGenerationWorkAuthority
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.research.dataset import (
     OnlyResearchDatasetDefinition,
@@ -26,6 +25,7 @@ from .model import (
     OnlyBacktestSpecification,
 )
 from .profiles import OnlyBacktestProfile
+from .runtime_generation import OnlyBacktestRuntimeGenerationWorkAuthority
 
 if TYPE_CHECKING:
     from .worker import OnlyBacktestEnginePlanBuilder
@@ -83,7 +83,7 @@ class OnlyBacktestAdmissionService:
         self._profiles = profiles
         self._kernel_semantics_version = kernel_semantics_version
 
-    def validate_runtime(self, run: OnlyBacktestRun, authority: OnlyRuntimeGenerationWorkAuthority) -> None:
+    def validate_runtime(self, run: OnlyBacktestRun, authority: OnlyBacktestRuntimeGenerationWorkAuthority) -> None:
         authority.validate_backtest_work(run, self._load_strategy(run.specification.strategy_fingerprint))
 
     def verify_evidence(
@@ -91,7 +91,7 @@ class OnlyBacktestAdmissionService:
         run: OnlyBacktestRun,
         manifest: OnlyBacktestEvidenceManifest,
         evidence: OnlyBacktestEvidenceStore,
-        authority: OnlyRuntimeGenerationWorkAuthority,
+        authority: OnlyBacktestRuntimeGenerationWorkAuthority,
     ) -> dict[str, Any]:
         from .native_evidence import only_verify_native_backtest_evidence
 

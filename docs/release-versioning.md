@@ -1,119 +1,132 @@
-# Development release numbering and compatibility
+# Release units and compatibility
 
-`AGENTS.md` owns the engineering rule. The root `pyproject.toml` is the sole release-number
-authority; `scripts/version_sync.py` maintains its existing complete workspace release graph.
-This document explains that rule, not a release-status ledger or an additional acceptance gate.
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) records the owner-selected release model;
+[repository architecture](repository-product-architecture.md) defines ownership. AGENTS.md governs execution/validation.
+This document explains release policy, not implementation status or a second version/acceptance ledger.
 
-## One main-branch PR, one increment
+## Independent metadata authorities
 
-During `0.y.z` active development, every PR merged to `master` (including documentation,
-dependency and revert PRs) carries exactly one increment relative to the **current** target:
+Keep one repository and root Cargo workspace; independent versions do not require independent repositories or a lock per worker.
 
-| Selection | Increment | Example | Decision |
-|---|---|---|---|
-| Default | patch + 1 | `0.9.9` → `0.9.10` | Ordinary merged PR |
-| `release:minor` | minor + 1, patch = 0 | `0.9.10` → `0.10.0` | Owner explicitly recognizes a bounded stage/product objective |
-| `release:major` | major + 1, minor/patch = 0 | `0.10.3` → `1.0.0` | Separate Owner decision, including explicit support/compatibility scope |
+| Release unit | Single version metadata authority after cutover | Tag |
+|---|---|---|
+| Reusable Rust libraries | Root `Cargo.toml` workspace package version, inherited by the selected library set | `libs-vX.Y.Z` |
+| Backend, all roles and bundled Python base resources | `packages/backend/Cargo.toml` package version, independent of workspace version | `backend-vX.Y.Z` |
+| Frontend | `packages/frontend/package.json`; lock root must match | `frontend-vX.Y.Z` |
+| Concrete plugin distribution | Its own package metadata; multi-language projections of one distribution derive from one selected authority | unambiguous `plugin-<name>-v<distribution-version>` |
 
-Minor replaces, rather than follows, that PR's patch increment. PR creation, review,
-additional commits, validation and closing without merge do not increment. A version
-does not certify a stage, freeze a contract, authorize deployment or confer LIVE authority.
-Major-zero numbering is an integration counter, **not** a claim that all patch changes
-are compatible bug fixes. After an explicitly approved stable `1.0.0` release, standard
-SemVer compatibility classification governs level selection in addition to one increment
-per merged PR; breaking supported contracts require major, compatible public additions minor.
+The selected reusable library set comprises the twenty Kernel crates and the six non-Kernel libraries in the architecture.
+Do not inherit the library version into backend or plugin manifests. Internal Python executor/SDK wheels derive their
+constituent version/provenance from backend; they are not independent worker product release lines. Independently distributed
+algorithm plugins retain their own distribution metadata. Fixtures keep their existing independent versions.
 
-Choose the version **inside the PR**, not in an automatic post-merge commit. Refresh the
-target before merging; if two PRs target the same number, the second must update its branch
-and graph after the first merges. Require up-to-date branches and the `Release transition`
-check in repository branch protection/merge controls. Workflow code alone cannot install
-those remote settings or eliminate the last check-to-merge race. Do not infer they exist.
+SemVer release lines use actual declared support/compatibility boundaries and ADR 0130 breaking-change classification. During
+`0.y.z`, classify all changes explicitly and do not pretend initial development means permanent patch compatibility. Major-zero
+breaking public changes advance minor rather than being hidden as patch; stable supported breaking changes require major,
+compatible public additions minor, compatible fixes patch. First versions for the new lines require checking actual published
+history; example version numbers in discussions do not assign them. Private asset/provider versions retain ADR 0115, including
+positive-integer semantic/provider identities and existing private distribution rules rather than forced SemVer conversion.
 
-The release workflow defaults to patch, rejects conflicting labels, and requires an explicit
-Owner action on the selected release label for minor/major. Generic code approval is not
-a stage-recognition or major/support decision and grants no exceptional level. Its repository
-Owner is the GitHub repository owner user; an organization-owned repository needs a separately
-approved human-owner policy, not a guessed team/maintainer fallback. The merged notification
-reports the actual merged commit versus its first parent (merge/squash), **before** validating
-selection. It reconstructs label state from fully paginated GitHub events strictly preceding
-the unique event for that exact merge, never from mutable current labels/reviews. Missing or
-ambiguous historical proof is an explicit failure, while the actual old → new notice is retained.
-It exposes invalid numbering instead of repairing history. For rebase merges the final commit must carry the complete version
-increment; use squash/merge unless that condition is deliberately maintained.
+Only selected changed release units advance. A source PR may change multiple units in one atomic commit; unrelated units and
+pure documentation changes do not force a release. An actual release requires explicit selection and authorized publication,
+not every mainline merge. Do not create a version registry duplicating package metadata or an automatic post-merge version commit.
+Tags, versions and artifact identities are immutable. Exact reruns may finish/reuse the same matching publication; conflicting
+content, tag targets, unknown boundaries or ambiguous existing publication fail closed without overwrite or tag movement.
 
-The check and merged notification print old → new in Actions logs and job summaries. The
-separate `Publish GitHub Release` workflow runs on trusted `master` pushes, including direct
-fast-forward pushes and PR merges. It reads the root release number from exact first-parent
-commits and publishes each valid version increment in that push as `vX.Y.Z`, with generated
-release notes. A push without a version change creates no Release. It rejects missing push
-boundaries, noncanonical numbers, downgrades and skipped increments.
+## Source and dependency locking
 
-Only the mainline publisher job has `contents: write`; PR validation remains read-only. Tags
-are bound to the actual mainline commit carrying each increment. Repeated runs verify and
-reuse an already published matching Release. Conflicting tags, drafts and prereleases fail
-closed; tags and Releases are never moved, replaced or edited. A tag created before a failed
-Release request is retained, allowing a later run to finish the same publication. Only a 404
-means absence; permission and transport errors remain failures. Concurrent creation conflicts
-are reconciled by reading and validating the exact existing object.
+Development uses local workspace paths and the committed Cargo/uv/npm locks. A matching path dependency version only checks
+metadata; a lockfile does not freeze local source bytes. Formal release construction must:
 
-This creates GitHub source Releases only. No bot commit, binary/package upload, deployment,
-PR comment or auto-merge is performed. The workflows must be on the main branch before their
-normal future events can run. Publication failure is visible in Actions; rerun that exact push
-workflow after resolving the cause rather than changing the tag or release number.
+1. Select exact released library/plugin source artifacts and their immutable content identity; verify all relevant source,
+   manifests, generated inputs, resources and build configuration in their dependency closures, excluding credentials.
+2. Verify the actual source used in the frozen build equals that selected content. Same version plus changed source is a failure.
+   A new library change requires a new selected library release before backend can formally claim it.
+3. Bind dependency locks/registry checksums, compiler/toolchain, target, profile, features and relevant non-secret configuration.
+   Preserve isolated package/dependency proofs and reject undesired feature/registry changes; no automatic latest resolution.
+4. Build/install from those exact inputs and record actual artifact bytes and provenance through existing artifact manifests.
+   Source-only tags are not proof of a correctly built binary/Python environment.
 
-```bash
-# Read-only suggestion. Run these through the canonical dev verification service locally.
-python scripts/version_sync.py next
-python scripts/version_sync.py next --level minor
-python scripts/version_sync.py check-transition --base-ref origin/master
+Start with immutable source bundles and content verification, without a private Cargo registry. Source/build provenance extends
+existing Distribution Artifact records where needed; it is not another work-binding or activation Authority. A path/registry URL
+is an operational locator, never semantic identity. Artifact retention/availability is independently required by bound history.
 
-# Only when the PR's version change is authorized, synchronize all metadata + uv.lock:
-python scripts/version_sync.py set 0.9.11
-python scripts/version_sync.py check
-uv lock --check
+Rust plugins initially compile into backend. Plugin publication alone changes no installed backend; adoption requires a rebuilt
+backend release with exact selected plugin content. No Rust dynamic ABI or module hot reload is promised. Python algorithm
+plugins/private executable Revisions may form new admitted environments without rebuilding an unchanged backend base. Changing
+bundled executor/SDK/interpreter/default resources changes the backend artifact and requires its new version.
+
+## Python base resources
+
+Backend delivery includes the target-platform interpreter/environment, minimal algorithm executor/authoring SDK, generated
+protocol bindings, exact dependency artifacts/hashes and licenses. Internal wheels are constituent artifacts. Package metadata,
+`scripts/build_algorithm_sdk.py` and deployment installation must describe the same actual closure; do not retain broad Python
+business/Core code merely to satisfy obsolete package declarations. Do not copy a host venv or resolve packages on startup.
+
+Private Factor/Strategy Draft/Revision remains DB-native under ADR 0129. Exact algorithm plugins and materialized Revisions enter
+isolated environments through existing artifact/Catalog/Generation admission. Keep base runtime and author code identities
+separate; changing a Factor does not require a backend release. Retain the original exact environment for already-bound work.
+
+## Compatibility and activation
+
+| Domain | Governing rule |
+|---|---|
+| Frontend/backend | Default tested pair; different versions allowed only for explicitly verified Product API combinations. Clear unsupported UI/startup feedback, no guessing or fallback. No arbitrary mixed-version or rolling-upgrade promise. |
+| Libraries/backend/plugins | Exact build selection plus public API/SPI/capability checks. Equal versions alone do not prove compatibility; independent versions alone do not prove incompatibility. |
+| Provider/Calculation/private assets | Existing semantic version, Provider content, implementation fingerprint, Catalog and StrategyRevision authorities; software releases do not rewrite them. |
+| Persistence/checkpoints | Owning schema, integrity and recovery contracts; apply supported history/upgrade gates. Disposable local dev data follows AGENTS.md, not a fabricated migration PASS. |
+| Runtime/deployment | Actual artifact/image content, source provenance and immutable Generation/work binding. Fixed `:dev` tags are convenience, not execution identity. |
+
+Release publication, deployment, Generation activation and LIVE authorization are separate. New-work activation/rollback uses
+the sole existing Generation ledger; running work is never rebound to the current pointer. Preserve exact history/readers,
+UNKNOWN and risk-reduction paths. A smaller version string does not prove a persistence downgrade safe. Do not introduce shims
+for retired development versions or new legacy loaders; actual supported contract obligations still apply.
+
+## Release tooling and current path mapping
+
+`version_sync.py` validates the independent release graph. It requires `--unit` for version mutation/suggestions; the old
+whole-repository `set` is removed. Units are `libs`, `backend`, `frontend` and `plugin-<name>`, discovered from actual workspace
+manifests. Backend and Rust plugins have explicit versions; libraries inherit the workspace version. Python backend resources
+are projections of backend, Python/Rust plugin metadata share that plugin's authority, and internal dependencies pin their
+actual target distribution version. Fixture versions remain independent. No version is advanced merely by this cutover.
+
+Before directory relocation, backend authority is `packages/onlyalpha-http-server/Cargo.toml`, frontend authority is
+`packages/onlyalpha-web-console/package.json`; the transport-neutral Product component derives the backend version. Move these
+paths and their consumers atomically in the Product-package phase, without empty packages or another version ledger.
+
+PR selection uses explicit labels such as `release:frontend:patch` or `release:plugin-binance:minor`. No label means no release;
+selected units must equal changed version units. Multiple units can select their own level. Minor/major retains explicit human
+Owner label-action proof; generic approval or a later post-merge label does not authorize an earlier transition. Validate exact
+current base/head and strictly ordered historical events before the exact merge. Actual transitions are reported even when
+historical authorization proof is unavailable. Unknown/conflicting labels and stale/skipped/downgraded versions fail closed.
+
+CLI interfaces (use the canonical dev verification entry for read-only formal checks):
+
+```text
+version_sync.py check
+version_sync.py next --unit frontend --level patch
+version_sync.py set --unit frontend X.Y.Z
+version_sync.py release-selection --context-file release-context.json
+version_sync.py check-transition --base-ref EXACT_BASE --context-file release-context.json
 ```
 
-The number in the last command is an example, not authorization to change this tree.
-Retain metadata/build checks and installed-distribution parity after a real bump.
-Local verification captures the existing `origin/master` commit, tree and ref into
-the frozen source inventory. `check-transition` reads that exact captured base;
-it does not fetch or substitute a later target. Refresh the local target explicitly
-before starting validation when a newer base is required.
+`set` edits the selected unit/projections and incoming dependency pins, then refreshes `uv.lock`; it is a source-edit operation,
+not a command to run against the read-only formal source cut. PR checks separately validate locks and graph. The trusted mainline
+publisher derives named source Releases from exact first-parent version changes; no change produces no Release. It preserves
+existing legacy `vX.Y.Z` tags/artifacts, does not publish them again under new names, and retains immutable tags, exact retry and
+partial-publication conflict protections. It does not upload executable artifacts, deploy or activate a Generation. Phase 6
+must still prove immutable dependency content, actual installed artifacts and claimed frontend/backend combinations.
 
-## Component and compatibility domains
+The minimal installation's base distribution version belongs to backend; Indicator Provider provenance must use the installed
+plugin's separately sealed distribution metadata. Never copy backend version into plugin source identity. Missing, duplicate,
+conflicting or changed installed metadata fails closed; startup still requires the base version to match the backend program.
 
-| Domain | Version/identity authority | Upgrade rule |
-|---|---|---|
-| Core, repository-owned Python components/plugins, Shipping Web | Root release number; existing workspace members and Web metadata are synchronized | Exact internal `==X.Y.Z` dependencies, Web lock root, Provider **distribution** provenance and `uv.lock` move together; coordinated build/rollout |
-| External plugins and private assets | Their own distribution/provider/asset authorities | Declare exact admitted SPI/API and content bindings; not silently rewritten by a public release bump |
-| Test distributions | Existing independent fixture versions | Formal workspace dependency references remain exact; fixture versions need not equal the release |
-| Product API | Canonical OpenAPI, API major, exact contract fingerprint and compatibility policy | ADR 0103/0130 detection and generated-client parity remain mandatory; release number is not API major |
-| Plugin SPI | Public Plugin API version and capability descriptors | Existing major/minor admission checks remain authoritative, not inferred from package release equality |
-| Provider / Calculation | Exact Provider version + content fingerprint; Calculation semantic version/backend/implementation | Changed content needs new Provider version; changed semantics also needs semantic version. Byte-identical repackaging changes distribution provenance only (ADR 0112) |
-| Private Factor / Strategy | Mutable Draft → immutable Revision; exact API/adapter, Provider, Catalog and StrategyRevision bindings | ADR 0115, 0129–0132; no Git/package requirement introduced by release numbering |
-| Schema / durable facts / checkpoints | Owning schema, migration and replay contracts | Explicit preconditions, atomicity, integrity and restart semantics; no automatic migration inferred from release comparison |
-| Runtime / deployment | Image content ID, source/build provenance, node/semantic-store identity, immutable generations | Fixed `:dev` tags are convenience only. Running work is never rebound by a release bump or Web HMR |
+Release-unit changes include manifests/locks, affected Provider distribution provenance, transition checks, release
+selection/notes, planner/publisher, workflows and tests as one coherent change. Preserve read-only PR validation and authorized
+mainline write access. Source changes and this documentation do not authorize a tag, merge, push or publication.
 
-Before upgrade: classify every affected public/persistent contract, inspect actual consumers,
-update current repository consumers atomically, and execute related contract/build/migration
-tests. `DEVELOPMENT_UNFROZEN` allows explicitly classified breaking changes, not silent
-identity drift, damaged durable facts, lost replay or weakened authentication. Frozen/supported
-contracts retain their actual obligations regardless of `0.y.z` numbering. Do not invent legacy
-loaders, mixed-version compatibility or rolling-upgrade guarantees without an accepted contract.
-
-Rollback uses the exact old artifacts and only a demonstrated compatible persistence state.
-Otherwise fail closed and retain facts/volumes for backup/forward-fix; a smaller version string
-does not make a destructive downgrade safe. Reverts are new patch PRs, not reused release IDs.
-
-## Engineering evidence
-
-[SemVer 2.0.0](https://semver.org/) distinguishes initial-development numbering from stable
-compatibility promises and forbids rewriting released content. OnlyAlpha retains exact
-content identities; it rejects using release ordering as Provider admission or fail-forward.
-[GitHub Actions security guidance](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
-documents script-injection and privileged untrusted-checkout failure patterns. The PR transition
-workflow uses read-only permissions, no secrets and no `pull_request_target`; the latest base
-is read via GitHub's authenticated branch API and its exact SHA is passed through an environment
-variable, without persisted Git credentials. Regressions cover invalid increments, stale/duplicate
-numbers, component drift and unknown release levels; branch protection remains an explicit
-remote prerequisite, not a local PASS claim.
+Validation covers selected-unit changes, untouched units, exact target pins and mixed-language projections, canonical version
+transitions, historical label/merge proof, immutable tag conflicts, partial retries and installed plugin provenance. Formal
+artifact/source-composition and API-pair proofs remain phase 6; source tags alone never establish them. Run relevant local checks
+through the single dev environment and retain results. The [work program](repository-migration-work-program.md) supplies
+sequence, not a second gate authority.

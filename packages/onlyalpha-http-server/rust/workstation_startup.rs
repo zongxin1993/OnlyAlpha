@@ -4,7 +4,7 @@ use crate::{
     startup::{Directory, StorageInputs, StorageRoots},
     transport::Transport,
 };
-use onlyalpha_calculation_worker::ChartInstallation;
+use onlyalpha_calculation_bridge::ChartInstallation;
 use onlyalpha_integration_contract::source::{Clock, SourceError, Trust};
 use onlyalpha_product_runtime::{
     authority_session::AuthoritySession,

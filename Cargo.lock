@@ -1185,11 +1185,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "onlyalpha-backtest-driver"
+name = "onlyalpha-backtest"
 version = "0.11.1"
 dependencies = [
  "onlyalpha-calculation",
- "onlyalpha-calculation-worker",
+ "onlyalpha-calculation-bridge",
  "onlyalpha-clock",
  "onlyalpha-domain",
  "onlyalpha-execution",
@@ -1219,7 +1219,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "onlyalpha-calculation-worker"
+name = "onlyalpha-calculation-bridge"
 version = "0.11.1"
 dependencies = [
  "onlyalpha-calculation",
@@ -1310,7 +1310,7 @@ dependencies = [
  "httparse",
  "hyper",
  "hyper-util",
- "onlyalpha-calculation-worker",
+ "onlyalpha-calculation-bridge",
  "onlyalpha-domain",
  "onlyalpha-integration-contract",
  "onlyalpha-market-data-construction",
@@ -1345,7 +1345,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "onlyalpha-kernel"
+name = "onlyalpha-predicates"
 version = "0.11.1"
 
 [[package]]
@@ -1473,7 +1473,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "onlyalpha-calculation",
- "onlyalpha-calculation-worker",
+ "onlyalpha-calculation-bridge",
  "onlyalpha-domain",
  "onlyalpha-integration-contract",
  "onlyalpha-market-data-construction",

@@ -876,9 +876,9 @@ def test_rust_toolchain_and_dependencies_bind_environment_but_source_does_not(tm
     rust.write_text('[toolchain]\nchannel="1.99.1"\n')
     lock = tmp_path / "Cargo.lock"
     lock.write_text("version=4\n")
-    manifest = tmp_path / "crates/onlyalpha-kernel/core/Cargo.toml"
+    manifest = tmp_path / "crates/onlyalpha-kernel/predicates/Cargo.toml"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text('[package]\nname="onlyalpha-kernel"\n')
+    manifest.write_text('[package]\nname="onlyalpha-predicates"\n')
     admitted = dev_verification.environment_inputs(tmp_path)
     source = manifest.parent / "src/lib.rs"
     source.parent.mkdir()
@@ -920,9 +920,9 @@ def test_nested_market_data_manifests_are_environment_inputs(tmp_path: Path) -> 
 
 def test_infrastructure_cargo_manifest_is_an_environment_input(tmp_path: Path) -> None:
     _environment(tmp_path)
-    manifest = tmp_path / "packages/onlyalpha-calculation-worker/Cargo.toml"
+    manifest = tmp_path / "crates/onlyalpha-calculation-bridge/Cargo.toml"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text('[package]\nname="onlyalpha-calculation-worker"\n')
+    manifest.write_text('[package]\nname="onlyalpha-calculation-bridge"\n')
     admitted = dev_verification.environment_inputs(tmp_path)
     manifest.write_text(manifest.read_text() + "# dependency change\n")
     assert dev_verification.environment_inputs(tmp_path) != admitted

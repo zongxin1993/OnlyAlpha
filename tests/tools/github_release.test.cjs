@@ -4,9 +4,10 @@ const publish = require("../../scripts/publish_github_release.cjs");
 
 const sha = "a".repeat(40);
 const item = {
+    unit: "frontend",
     previous_version: "0.9.12",
     version: "0.9.13",
-    tag: "v0.9.13",
+    tag: "frontend-v0.9.13",
     sha,
 };
 const missing = () => Object.assign(new Error("Not found"), { status: 404 });
