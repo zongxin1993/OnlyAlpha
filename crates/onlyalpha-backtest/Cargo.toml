@@ -18,10 +18,3 @@ onlyalpha-execution = { path = "../onlyalpha-kernel/execution" }
 onlyalpha-strategy = { path = "../onlyalpha-kernel/strategy" }
 onlyalpha-market-data-pipeline = { path = "../onlyalpha-kernel/market_data/pipeline" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
-
-[dev-dependencies]
-onlyalpha-calculation = { path = "../onlyalpha-kernel/calculation" }
-
-[[bin]]
-name = "onlyalpha-backtest-runtime"
-path = "rust/main.rs"

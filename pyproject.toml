@@ -54,6 +54,7 @@ dev = [
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-targets",
     "onlyalpha-gateway-protocol",
+    "onlyalpha-backend-algorithms",
     "onlyalpha-calculation-worker",
     "onlyalpha-authoring-execution-worker",
     "onlyalpha-runtime-generation-manager",
@@ -80,7 +81,8 @@ members = [
     "plugs/onlyalpha-plugin-indicators",
     "plugs/onlyalpha-plugin-operators",
     "plugs/onlyalpha-plugin-targets",
-    "packages/onlyalpha-gateway-protocol",
+    "packages/backend/python/gateway_protocol",
+    "packages/backend/python/algorithms",
     "packages/onlyalpha-calculation-worker",
     "packages/onlyalpha-authoring-execution-worker",
     "packages/onlyalpha-runtime-generation-manager",
@@ -108,9 +110,9 @@ line-length = 120
 target-version = "py312"
 indent-width = 4
 extend-exclude = [
-    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.py",
-    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.pyi",
-    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1/*_pb2_grpc.py",
+    "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.py",
+    "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol/v1/*_pb2.pyi",
+    "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol/v1/*_pb2_grpc.py",
 ]
 
 [tool.ruff.lint]
@@ -127,7 +129,8 @@ files = [
     "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
     "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators",
     "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
-    "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol",
+    "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol",
+    "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms",
     "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
     "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager",
@@ -148,6 +151,7 @@ onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
+onlyalpha-backend-algorithms = { workspace = true }
 onlyalpha-calculation-worker = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
 onlyalpha-runtime-generation-manager = { workspace = true }
@@ -170,7 +174,7 @@ testpaths = [
     "plugs/onlyalpha-plugin-operators/tests",
     "plugs/onlyalpha-plugin-targets/tests",
     "packages/backend/tests/transport",
-    "packages/onlyalpha-gateway-protocol/tests",
+    "packages/backend/python/gateway_protocol/tests",
     "packages/onlyalpha-calculation-worker/tests",
     "packages/onlyalpha-authoring-execution-worker/tests",
     "packages/onlyalpha-runtime-generation-manager/tests",

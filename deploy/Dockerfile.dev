@@ -180,7 +180,7 @@ from importlib.metadata import distribution, version
 from pathlib import Path
 
 import pyarrow
-import onlyalpha_calculation_worker.chart_worker
+import onlyalpha_backend_algorithms.chart_worker
 
 root = Path("/opt/onlyalpha/algorithms")
 manifest_bytes = (root / "algorithm-installation.json").read_bytes()
@@ -189,7 +189,7 @@ assert hashlib.sha256(manifest_bytes).hexdigest() == Path("/opt/onlyalpha/algori
 assert version("onlyalpha") == manifest["distribution_version"]
 for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
     assert importlib.util.find_spec(name) is None, name
-for name in ("onlyalpha", "onlyalpha-calculation-worker", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+for name in ("onlyalpha", "onlyalpha-backend-algorithms", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
 for flag in ("--export-openapi", "--export-websocket"):
     result = subprocess.run(["/usr/local/bin/onlyalpha-backend", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)

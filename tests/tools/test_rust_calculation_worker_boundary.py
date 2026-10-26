@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 import pytest
@@ -20,10 +19,6 @@ def test_worker_and_protocol_build_as_declared_closures(tmp_path: Path) -> None:
 
 def test_infrastructure_rejects_hidden_source_and_build_inputs(tmp_path: Path) -> None:
     root = check.isolated_backend(check.ROOT, tmp_path / "source").parent
-    for component in ("onlyalpha-runtime-persistence", "onlyalpha-backtest"):
-        source = check.ROOT / "crates" / component
-        destination = root / "crates" / component
-        shutil.copytree(source, destination)
     check.validate_infrastructure_sources(root)
     target = root / "crates/onlyalpha-calculation-bridge/rust/lib.rs"
     target.chmod(0o644)
@@ -32,6 +27,7 @@ def test_infrastructure_rejects_hidden_source_and_build_inputs(tmp_path: Path) -
         'include!("../../core.rs");',
         '#[path="/tmp/escape.rs"] mod escape;',
         'const X: &str = env!("CONFIG");',
+        "use std::process::Command;",
     ):
         target.write_text(code)
         with pytest.raises(ValueError, match="BOUNDARY"):
@@ -42,3 +38,13 @@ def test_infrastructure_rejects_hidden_source_and_build_inputs(tmp_path: Path) -
     manifest.write_text(manifest.read_text().replace('path = "rust/lib.rs"', 'path = "outside.rs"'))
     with pytest.raises(ValueError, match="BOUNDARY"):
         check.validate_infrastructure_sources(root)
+
+
+def test_reusable_bridge_has_no_native_process_or_interpreter_ownership() -> None:
+    sources = check.ROOT / "crates/onlyalpha-calculation-bridge/rust"
+    for path in sources.rglob("*.rs"):
+        source = path.read_text()
+        assert "Command::new" not in source, path
+        assert "std::process::Child" not in source, path
+        assert "Worker::spawn" not in source, path
+        assert "interpreter: PathBuf" not in source, path

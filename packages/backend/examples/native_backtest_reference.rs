@@ -1,6 +1,8 @@
-//! The admitted Application process. Kernel transitions remain direct typed calls.
+//! Reference-conformance composition, never a Shipping Product activation path.
+//! Kernel transitions remain direct typed calls.
+use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
 use onlyalpha_backtest::{Inputs, RunLoop, RunSpec, Trading};
-use onlyalpha_calculation_bridge::{StrategyNodes, StrategyPreparation, Worker, fingerprint};
+use onlyalpha_calculation_bridge::{StrategyNodes, StrategyPreparation, fingerprint};
 use onlyalpha_domain::{
     base::OnlyDomainModel, calendar::OnlyTradingCalendar, identifiers::OnlyInstrumentId,
     market::OnlyBarType,
@@ -73,8 +75,12 @@ fn create(plan: &Value, root: &Path, artifact: &str, initialize: bool) -> Result
     let source = text(plan, "source")?;
     let input = Inputs::from_record(&plan["inputs"])?;
     let original = &plan["strategy"];
-    let mut worker =
-        Worker::spawn_hosted(&python, generation.into(), worker_artifact.into(), DEADLINE)?;
+    let mut worker = AlgorithmProcess::spawn_hosted(
+        &python,
+        generation.into(),
+        worker_artifact.into(),
+        DEADLINE,
+    )?;
     let nodes = original["decision_graph"]["nodes"]
         .as_array()
         .ok_or("BACKTEST_GRAPH")?;
@@ -126,8 +132,13 @@ fn create(plan: &Value, root: &Path, artifact: &str, initialize: bool) -> Result
     let program = Program::new(revision, scope.clone(), generation, source, worker_artifact)?;
     let strategy = Executor::new(
         program.clone(),
-        StrategyNodes::new(python, program, requests, DEADLINE)
-            .map_err(|_| "BACKTEST_NODES_UNAVAILABLE")?,
+        StrategyNodes::new(
+            Arc::new(AlgorithmProcess::new(python)),
+            program,
+            requests,
+            DEADLINE,
+        )
+        .map_err(|_| "BACKTEST_NODES_UNAVAILABLE")?,
     )?;
     let calendar = Arc::new(OnlyTradingCalendar::from_record(&plan["calendar"])?);
     let semantic = strategy.program().revision().semantic().clone();

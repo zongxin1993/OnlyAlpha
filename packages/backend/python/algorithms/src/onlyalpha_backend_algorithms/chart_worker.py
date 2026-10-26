@@ -14,7 +14,7 @@ from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
 from onlyalpha_plugin_indicators.chart_factory import ChartFactory
 
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha_calculation_worker.chart_isolation import restrict
+from onlyalpha_backend_algorithms.chart_isolation import restrict
 
 MAX_FRAME = 8 * 1024 * 1024
 

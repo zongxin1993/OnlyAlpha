@@ -31,6 +31,8 @@ def test_worker_provenance_binds_loaded_native_codec_and_decimal_runtime():
 
     resources = {r.relative_path: r.byte_sha256 for r in manifest().resources}
     assert {
+        "core/algorithm/codec.py",
+        "core/algorithm/type_declaration.py",
         "runtime/decimal-native",
         "runtime/protobuf-native",
         "runtime/python-executable",

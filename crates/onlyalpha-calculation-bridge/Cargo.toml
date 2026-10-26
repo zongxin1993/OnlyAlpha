@@ -17,6 +17,3 @@ onlyalpha-gateway-protocol = { path = "../onlyalpha-gateway-protocol" }
 prost = { version = "=0.14.4" }
 sha2 = { version = "=0.11.1", default-features = false }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
-[[bin]]
-name = "calculation-bridge-check"
-path = "rust/bridge_check.rs"

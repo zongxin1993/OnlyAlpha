@@ -1314,14 +1314,13 @@ dependencies = [
 [[package]]
 name = "onlyalpha-backend"
 version = "0.11.1"
-dependencies = ["aes-gcm", "axum", "base64 0.23.1", "futures-util", "getrandom 0.4.3", "hkdf", "hmac", "http", "httparse", "hyper", "hyper-util", "onlyalpha-calculation", "onlyalpha-calculation-bridge", "onlyalpha-domain", "onlyalpha-integration-contract", "onlyalpha-market-data-construction", "onlyalpha-metadata-json", "onlyalpha-plugin-binance", "onlyalpha-plugin-tushare", "onlyalpha-strategy", "percent-encoding", "reqwest", "rustix", "serde", "serde_json", "sha2", "subtle", "tokio", "tokio-postgres", "tokio-tungstenite", "utoipa", "utoipa-axum", "zeroize"]
+dependencies = ["aes-gcm", "axum", "base64 0.23.1", "futures-util", "getrandom 0.4.3", "hkdf", "hmac", "http", "httparse", "hyper", "hyper-util", "onlyalpha-backtest", "onlyalpha-clock", "onlyalpha-calculation", "onlyalpha-calculation-bridge", "onlyalpha-domain", "onlyalpha-integration-contract", "onlyalpha-market-data-construction", "onlyalpha-market-data-pipeline", "onlyalpha-metadata-json", "onlyalpha-plugin-binance", "onlyalpha-plugin-tushare", "onlyalpha-runtime-persistence", "onlyalpha-strategy", "percent-encoding", "reqwest", "rustix", "serde", "serde_json", "sha2", "subtle", "tokio", "tokio-postgres", "tokio-tungstenite", "utoipa", "utoipa-axum", "zeroize"]
 
 
 [[package]]
 name = "onlyalpha-backtest"
 version = "0.11.1"
 dependencies = [
- "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",
  "onlyalpha-domain",

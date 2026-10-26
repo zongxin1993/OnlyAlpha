@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import cast
 
 import pyarrow as pa  # type: ignore[import-untyped]
-from onlyalpha_calculation_worker.type_declaration import type_declaration
 
 from onlyalpha.algorithm.batch import only_validate_research_output_readiness
+from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.chart_decimal import only_chart_study_numeric_binding
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -50,8 +50,8 @@ _RESOURCES = (
     "onlyalpha.calculation.chart_decimal",
     "onlyalpha.calculation.chart_study",
     "onlyalpha.algorithm.batch",
-    "onlyalpha_calculation_worker.codec",
-    "onlyalpha_calculation_worker.type_declaration",
+    "onlyalpha.algorithm.codec",
+    "onlyalpha.algorithm.type_declaration",
     "onlyalpha_plugin_indicators.definitions",
     "onlyalpha_plugin_indicators.chart",
     "onlyalpha_plugin_indicators.research",

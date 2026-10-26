@@ -1,11 +1,11 @@
 //! Registered node Infrastructure; all semantic state belongs to Strategy.
-use crate::{Worker, WorkerError, client::keys, process::MAX_FRAME};
+use crate::{Worker, WorkerConnector, WorkerError, client::keys, process::MAX_FRAME};
 use onlyalpha_calculation::{Definition, ExecutionBinding, product::TypeDeclaration};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarType};
 use onlyalpha_gateway_protocol::{CalculationNode, calculation_request::Operation};
 use onlyalpha_strategy::{NodeDescriptor, NodeFailure, NodePort, NodeRequest, Program};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 const PRODUCT_WORK: usize = 8 * MAX_FRAME;
 fn failure(e: WorkerError) -> NodeFailure {
     if matches!(e, WorkerError::Unknown(_)) {
@@ -27,7 +27,7 @@ fn exchange(worker: &mut Worker, request: Value, deadline: Duration) -> Result<V
 pub struct StrategyNodes {
     worker: Worker,
     program: Program,
-    interpreter: PathBuf,
+    connector: Arc<dyn WorkerConnector>,
     requests: BTreeMap<String, Value>,
     deadline: Duration,
 }
@@ -88,7 +88,7 @@ impl StrategyNodes {
         checked.or_else(|_| worker.poison("PRODUCT_RESOLUTION").map_err(failure))
     }
     pub fn new(
-        interpreter: PathBuf,
+        connector: Arc<dyn WorkerConnector>,
         program: Program,
         requests: BTreeMap<String, Value>,
         deadline: Duration,
@@ -98,22 +98,18 @@ impl StrategyNodes {
         {
             return Err(NodeFailure::Known);
         }
-        let spawn = if program.revision().is_product_materialization() {
-            Worker::spawn_hosted
-        } else {
-            Worker::spawn
-        };
-        let worker = spawn(
-            &interpreter,
-            program.generation().into(),
-            program.artifact().into(),
+        let worker = crate::process::connect_exact(
+            connector.as_ref(),
+            program.generation(),
+            program.artifact(),
+            program.revision().is_product_materialization(),
             deadline,
         )
         .map_err(failure)?;
         let mut p = Self {
             worker,
             program,
-            interpreter,
+            connector,
             requests,
             deadline,
         };
@@ -184,7 +180,7 @@ impl NodePort for StrategyNodes {
             }
         }
         let mut candidate = Self::new(
-            self.interpreter.clone(),
+            self.connector.clone(),
             self.program.clone(),
             self.requests.clone(),
             self.deadline,

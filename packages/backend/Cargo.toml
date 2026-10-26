@@ -56,6 +56,10 @@ hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
 onlyalpha-strategy = { path = "../../crates/onlyalpha-kernel/strategy" }
 
 [dev-dependencies]
+onlyalpha-runtime-persistence = { path = "../../crates/onlyalpha-runtime-persistence" }
+onlyalpha-clock = { path = "../../crates/onlyalpha-kernel/clock" }
+onlyalpha-backtest = { path = "../../crates/onlyalpha-backtest" }
+onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
 hyper = { version = "=1.12.0", default-features = false, features = ["http1", "client"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["test-util"] }
 
@@ -156,3 +160,15 @@ path = "tests/transport/startup.rs"
 [[test]]
 name = "transport_web_assets"
 path = "tests/transport/web_assets.rs"
+
+[[example]]
+name = "calculation-bridge-check"
+path = "examples/bridge_check/main.rs"
+
+[[example]]
+name = "native-backtest-reference"
+path = "examples/native_backtest_reference.rs"
+
+[[test]]
+name = "workers_trading"
+path = "tests/workers/trading.rs"

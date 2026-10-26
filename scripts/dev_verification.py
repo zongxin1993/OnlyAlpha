@@ -61,6 +61,7 @@ def environment_inputs(root: Path) -> dict[str, str]:
     paths += sorted((root / "plugs").glob("*/Cargo.toml"))
     for directory in ("packages", "plugs"):
         paths += sorted((root / directory).glob("*/pyproject.toml"))
+    paths += sorted((root / "packages/backend/python").glob("*/pyproject.toml"))
     paths += [
         root / name / "pyproject.toml"
         for name in (

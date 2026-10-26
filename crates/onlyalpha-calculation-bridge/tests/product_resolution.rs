@@ -1,3 +1,4 @@
+mod support;
 use onlyalpha_calculation::Definition;
 use onlyalpha_calculation_bridge::{StrategyNodes, Worker, WorkerError};
 use onlyalpha_gateway_protocol::{
@@ -67,7 +68,14 @@ fn peer_response(value: Value) -> (Worker, thread::JoinHandle<()>) {
         peer.write_all(&response).unwrap();
     });
     (
-        Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap(),
+        Worker::from_stream(
+            socket,
+            "a".repeat(64),
+            "b".repeat(64),
+            support::control(),
+            1024 * 1024,
+        )
+        .unwrap(),
         task,
     )
 }

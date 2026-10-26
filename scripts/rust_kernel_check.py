@@ -242,7 +242,7 @@ BACKTEST_DRIVER_DEPENDENCIES = {
     },
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
-BACKTEST_DRIVER_TEST_DEPENDENCIES = {"onlyalpha-calculation": {"path": "../onlyalpha-kernel/calculation"}}
+BACKTEST_DRIVER_TEST_DEPENDENCIES: dict[str, dict[str, str]] = {}
 
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
     "onlyalpha-domain": {"path": "../onlyalpha-kernel/domain"},
@@ -342,6 +342,10 @@ BACKEND_DEPENDENCIES = {
     "zeroize": {"default-features": False, "features": ["alloc"], "version": "=1.9.1"},
 }
 BACKEND_TEST_DEPENDENCIES = {
+    "onlyalpha-clock": {"path": "../../crates/onlyalpha-kernel/clock"},
+    "onlyalpha-runtime-persistence": {"path": "../../crates/onlyalpha-runtime-persistence"},
+    "onlyalpha-backtest": {"path": "../../crates/onlyalpha-backtest"},
+    "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
     "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
     "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
 }
@@ -391,7 +395,7 @@ def validate_workspace(root: Path) -> None:
     driver = tomllib.loads((root / modules["onlyalpha-backtest"] / "Cargo.toml").read_text())
     if registry and (
         driver.get("dependencies") != BACKTEST_DRIVER_DEPENDENCIES
-        or driver.get("dev-dependencies") != BACKTEST_DRIVER_TEST_DEPENDENCIES
+        or driver.get("dev-dependencies", {}) != BACKTEST_DRIVER_TEST_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     for name, dependencies, test_dependencies in (
@@ -1083,7 +1087,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
-    "crates/onlyalpha-backtest/rust/main.rs",
+    "packages/backend/examples/native_backtest_reference.rs",
     "packages/backend/src/main.rs",
     "packages/backend/src/bootstrap/workstation_startup.rs",
 }
@@ -1154,9 +1158,17 @@ def validate_infrastructure_sources(root: Path) -> None:
             }
             else area
         )
-        for path in sources.rglob("*.rs"):
+        paths = list(sources.rglob("*.rs"))
+        if component == "onlyalpha-backend":
+            paths.extend((area / "examples").rglob("*.rs"))
+        for path in paths:
             text = _without_declared_infrastructure_inputs(root, path)
             if path.is_symlink() or _hidden_rust_input(text) or re.search(r"\binclude_(?:str|bytes)\s*!", text):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+            if component == "onlyalpha-calculation-bridge" and re.search(
+                r"\b(?:Command|Child|Stdio|OwnedFd)\b|\binterpreter\s*:",
+                re.sub(r"(?m)^\s*//.*$", "", text),
+            ):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
             if component in {"onlyalpha-metadata-json", "onlyalpha-integration-contract"} and re.search(
                 _PURE_INPUT_PATTERN, re.sub(r"(?m)^\s*//.*$", "", text)
@@ -1422,6 +1434,19 @@ def isolated_backend(root: Path, destination: Path) -> Path:
             "gateway_protocol",
             "calculation_bridge",
             "backend",
+            "backtest",
+            "runtime_persistence",
+            "execution",
+            "clock",
+            "order",
+            "position",
+            "account",
+            "strategy_ledger",
+            "risk",
+            "broker",
+            "fee",
+            "settlement",
+            "margin",
             "plugin_binance",
             "plugin_tushare",
         ),
@@ -2074,9 +2099,9 @@ def main(argv: list[str] | None = None) -> int:
     validate_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     if packages:
-        # Only the selected backtest driver's trading tests consume REPLAY_*.
+        # Only backend-owned composition tests consume REPLAY_*.
         # Strategy/worker changes select that direct consumer via Cargo metadata.
-        if "onlyalpha-backtest" in packages:
+        if "onlyalpha-backend" in packages:
             from scripts.backtest_replay_check import replay_environment
 
             env.update(replay_environment(ROOT, artifacts / "backtest-replay"))

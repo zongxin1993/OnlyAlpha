@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -49,7 +50,7 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
 
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     target_dir = repository / "test-results/rust-kernel/target"
-    expected = target_dir / target / "release/onlyalpha-backtest-runtime"
+    expected = target_dir / target / "release/examples/native-backtest-reference"
     if executable != expected:
         raise ValueError("Native Backtest fixture must use the current canonical build output")
     env = compiler_environment(os.environ, target_dir)
@@ -66,9 +67,9 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
             target,
             "-j1",
             "-p",
-            "onlyalpha-backtest",
-            "--bin",
-            "onlyalpha-backtest-runtime",
+            "onlyalpha-backend",
+            "--example",
+            "native-backtest-reference",
         ],
         cwd=repository,
         env=env,
@@ -77,6 +78,7 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
     projects = {"onlyalpha": repository}
     for project in (
         *repository.glob("packages/*"),
+        *repository.glob("packages/backend/python/*"),
         *repository.glob("plugs/*"),
         repository / "test-data/runtime_factor_provider",
     ):
@@ -161,8 +163,16 @@ def build_native_backtest_generation(root: Path, executable: Path) -> NativeBack
     artifacts.extend(
         plain(name, OnlyDistributionArtifactRole.SUPPORT) for name in sorted(selected - provider_names - {"onlyalpha"})
     )
-    probe = __import__("json").loads(__import__("subprocess").check_output([str(executable), "--describe"], text=True))
+    probe = json.loads(subprocess.check_output([str(executable), "--describe"], text=True))
     content = executable.read_bytes()
+    assert probe["protocol"] == "onlyalpha.backtest.driver/1"
+    assert probe["artifact"] == hashlib.sha256(content).hexdigest()
+    assert (
+        probe["version"]
+        == tomllib.loads((repository / "packages/backend/Cargo.toml").read_text())["package"]["version"]
+    )
+    refused = subprocess.run([str(executable)], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    assert refused.returncode != 0 and refused.stdout == b""
     native = OnlyDistributionArtifactManifest(
         role=OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
         source_provenance_authority=OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,

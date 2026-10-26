@@ -1,7 +1,8 @@
 //! Technical comparison/benchmark command, never a business Runtime entry point.
+use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
 use onlyalpha_calculation::{InputPosition, ReadinessPlan, ReadinessRequirement, StateOutcome};
 use onlyalpha_calculation_bridge::{Checkpoint, fingerprint};
-use onlyalpha_calculation_bridge::{Client, Worker, WorkerError};
+use onlyalpha_calculation_bridge::{Client, WorkerError};
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     market::{OnlyBar, OnlyBarType},
@@ -72,7 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let bars = data(&base, 5)?;
     let bar_type = bars[0].bar_type();
     // Independent expected SMA3 values, not computed by either implementation under test.
-    let mut client = Client::new(Worker::spawn(
+    let mut client = Client::new(AlgorithmProcess::spawn(
         python,
         generation.clone(),
         artifact.clone(),
@@ -217,7 +218,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         first.outputs()
     );
     drop(client); // Kills/reaps the actual first process. New process restores exact state.
-    let mut restored = Client::new(Worker::spawn(
+    let mut restored = Client::new(AlgorithmProcess::spawn(
         python,
         generation.clone(),
         artifact.clone(),
@@ -242,13 +243,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(restored.capture("runtime/cluster/first", DEADLINE).is_err());
     drop(restored);
     assert!(matches!(
-        Worker::spawn(python, generation.clone(), "0".repeat(64), DEADLINE),
+        AlgorithmProcess::spawn(python, generation.clone(), "0".repeat(64), DEADLINE),
         Err(WorkerError::Unknown(_))
     ));
     let bars = data(&base, 2048)?;
     for size in [1, 64, 256] {
         let startup = Instant::now();
-        let mut client = Client::new(Worker::spawn(
+        let mut client = Client::new(AlgorithmProcess::spawn(
             python,
             generation.clone(),
             artifact.clone(),

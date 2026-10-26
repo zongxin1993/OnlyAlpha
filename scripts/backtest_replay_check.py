@@ -134,9 +134,9 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
             "cargo",
             "test",
             "-p",
-            "onlyalpha-backtest",
+            "onlyalpha-backend",
             "--test",
-            "trading",
+            "workers_trading",
             "--no-run",
             "--release",
             "--message-format=json",
@@ -157,7 +157,7 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
         for line in build.stdout.splitlines()
         if (row := json.loads(line)).get("reason") == "compiler-artifact"
         and row.get("executable")
-        and row["target"]["name"] == "trading"
+        and row["target"]["name"] == "workers_trading"
     )
     receipts = []
     counter = 0

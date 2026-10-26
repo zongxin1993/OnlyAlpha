@@ -1,8 +1,10 @@
-//! Managed Python calculation process Infrastructure. No official Runtime admission.
+//! Supplied algorithm transport and reusable calculation adapters. No official Runtime admission.
 mod client;
 mod process;
 pub use client::{Checkpoint, Client, Resolution, fingerprint};
-pub use process::{Cancellation, ProcessState, Result, Worker, WorkerError};
+pub use process::{
+    Cancellation, ProcessControl, ProcessState, Result, Worker, WorkerConnector, WorkerError,
+};
 
 mod pipeline_adapter;
 pub use pipeline_adapter::{PipelineCalculations, SmaRequest};

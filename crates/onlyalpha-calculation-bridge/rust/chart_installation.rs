@@ -1,5 +1,5 @@
 //! Actual sealed minimal Python installation, never a descriptor's assertion.
-use crate::{Result, Worker, WorkerError};
+use crate::{Result, WorkerError};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -237,14 +237,8 @@ impl ChartInstallation {
         }
         Ok(())
     }
-    pub fn spawn(&self, completion: Box<dyn Send>) -> Result<Worker> {
-        self.verify()?;
-        Worker::spawn_chart(
-            &self.root.join("bin/python"),
-            &self.root,
-            self.artifact.clone(),
-            completion,
-        )
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 }
 

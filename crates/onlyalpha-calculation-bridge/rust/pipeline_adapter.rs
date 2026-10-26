@@ -1,5 +1,5 @@
 //! Exact managed Python calculations for the canonical Pipeline port.
-use crate::{Checkpoint, Client, Worker, WorkerError};
+use crate::{Checkpoint, Client, WorkerConnector, WorkerError};
 use onlyalpha_calculation::CalculationSnapshot;
 use onlyalpha_domain::{
     identifiers::OnlyClusterId,
@@ -11,7 +11,6 @@ use onlyalpha_market_data_pipeline::{
 };
 use serde_json::{Value, json};
 use std::{
-    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -27,7 +26,7 @@ pub struct SmaRequest {
 }
 pub struct PipelineCalculations {
     client: Client,
-    interpreter: PathBuf,
+    connector: Arc<dyn WorkerConnector>,
     generation: String,
     artifact: String,
     owner: OnlyMarketDataStateScope,
@@ -46,7 +45,7 @@ fn failure(e: WorkerError) -> CalculationFailure {
 }
 impl PipelineCalculations {
     pub fn new(
-        interpreter: PathBuf,
+        connector: Arc<dyn WorkerConnector>,
         generation: String,
         artifact: String,
         owner: OnlyMarketDataStateScope,
@@ -59,8 +58,14 @@ impl PipelineCalculations {
         requests
             .sort_by_key(|r| calculation_scope(&owner, &r.cluster, &r.local).unwrap_or_default());
         let mut client = Client::new(
-            Worker::spawn(&interpreter, generation.clone(), artifact.clone(), deadline)
-                .map_err(failure)?,
+            crate::process::connect_exact(
+                connector.as_ref(),
+                &generation,
+                &artifact,
+                false,
+                deadline,
+            )
+            .map_err(failure)?,
         );
         let mut slots = vec![];
         for r in &requests {
@@ -87,7 +92,7 @@ impl PipelineCalculations {
         }
         Ok(Self {
             client,
-            interpreter,
+            connector,
             generation,
             artifact,
             owner,
@@ -166,7 +171,7 @@ impl CalculationPort for PipelineCalculations {
             }
         }
         let mut candidate = Self::new(
-            self.interpreter.clone(),
+            self.connector.clone(),
             self.generation.clone(),
             self.artifact.clone(),
             self.owner.clone(),

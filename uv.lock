@@ -12,6 +12,7 @@ members = [
     "onlyalpha",
     "onlyalpha-agent-orchestrator",
     "onlyalpha-authoring-execution-worker",
+    "onlyalpha-backend-algorithms",
     "onlyalpha-calculation-worker",
     "onlyalpha-gateway-protocol",
     "onlyalpha-plugin-binance",
@@ -932,6 +933,7 @@ dev = [
     { name = "mypy" },
     { name = "onlyalpha-agent-orchestrator" },
     { name = "onlyalpha-authoring-execution-worker" },
+    { name = "onlyalpha-backend-algorithms" },
     { name = "onlyalpha-calculation-worker" },
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators" },
@@ -997,8 +999,9 @@ dev = [
     { name = "mypy", specifier = ">=1.15" },
     { name = "onlyalpha-agent-orchestrator", editable = "packages/onlyalpha-agent-orchestrator" },
     { name = "onlyalpha-authoring-execution-worker", editable = "packages/onlyalpha-authoring-execution-worker" },
+    { name = "onlyalpha-backend-algorithms", editable = "packages/backend/python/algorithms" },
     { name = "onlyalpha-calculation-worker", editable = "packages/onlyalpha-calculation-worker" },
-    { name = "onlyalpha-gateway-protocol", editable = "packages/onlyalpha-gateway-protocol" },
+    { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
     { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
     { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
@@ -1048,6 +1051,23 @@ dependencies = [
 requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
+name = "onlyalpha-backend-algorithms"
+version = "0.11.1"
+source = { editable = "packages/backend/python/algorithms" }
+dependencies = [
+    { name = "onlyalpha" },
+    { name = "onlyalpha-gateway-protocol" },
+    { name = "onlyalpha-plugin-indicators" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "onlyalpha", editable = "." },
+    { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
+    { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
+]
+
+[[package]]
 name = "onlyalpha-calculation-worker"
 version = "0.11.1"
 source = { editable = "packages/onlyalpha-calculation-worker" }
@@ -1063,7 +1083,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-gateway-protocol", editable = "packages/onlyalpha-gateway-protocol" },
+    { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
     { name = "onlyalpha-plugin-broker-virtual", editable = "plugs/onlyalpha-plugin-broker-virtual" },
     { name = "onlyalpha-plugin-generic-t0-cash", editable = "plugs/onlyalpha-plugin-generic-t0-cash" },
     { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
@@ -1073,7 +1093,7 @@ requires-dist = [
 [[package]]
 name = "onlyalpha-gateway-protocol"
 version = "0.11.1"
-source = { editable = "packages/onlyalpha-gateway-protocol" }
+source = { editable = "packages/backend/python/gateway_protocol" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },

@@ -1,4 +1,5 @@
 //! Real worker composition proof; no formal Runtime/economic effects.
+use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
 use onlyalpha_calculation::{CalculationSnapshot, StateOutcome};
 use onlyalpha_calculation_bridge::{PipelineCalculations, SmaRequest, fingerprint};
 use onlyalpha_domain::{
@@ -151,7 +152,7 @@ fn setup(
         });
     }
     let port = PipelineCalculations::new(
-        python.to_owned(),
+        Arc::new(AlgorithmProcess::new(python.to_owned())),
         "a".repeat(64),
         worker_artifact.to_owned(),
         owner.clone(),

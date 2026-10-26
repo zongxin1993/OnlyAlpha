@@ -40,8 +40,8 @@ def main() -> int:
                 "cargo",
                 "build",
                 "-p",
-                "onlyalpha-calculation-bridge",
-                "--bin",
+                "onlyalpha-backend",
+                "--example",
                 "calculation-bridge-check",
                 "--frozen",
                 "--offline",
@@ -54,7 +54,7 @@ def main() -> int:
             env=env,
             check=True,
         )
-        executable = Path(env["CARGO_TARGET_DIR"]) / target / profile / "calculation-bridge-check"
+        executable = Path(env["CARGO_TARGET_DIR"]) / target / profile / "examples/calculation-bridge-check"
         print(
             "BRIDGE",
             profile,

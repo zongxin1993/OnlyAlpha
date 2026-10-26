@@ -264,7 +264,10 @@ impl ChartQuery {
         }
         active.retain(|c| c.state() != ProcessState::Joined);
         remaining(end)?;
-        let mut worker = self.installation.spawn(Box::new(permit))?;
+        let mut worker = crate::workers::algorithm::AlgorithmProcess::chart(
+            &self.installation,
+            Box::new(permit),
+        )?;
         active.push(worker.cancellation()?);
         drop(active);
         worker.handshake_chart(remaining(end)?)?;

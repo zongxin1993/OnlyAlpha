@@ -345,17 +345,18 @@ jobs:
         run: docker run --rm onlyalpha-runtime:ci --export-openapi > native-openapi.json
       - name: Check the installed algorithm boundary
         run: |
-          expected_version="$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          expected_version="$(python3 -c 'import tomllib;print(tomllib.load(open("packages/backend/Cargo.toml", "rb"))["package"]["version"])')"
           docker run --rm --env "EXPECTED_VERSION=$expected_version" --entrypoint /opt/onlyalpha/algorithms/bin/python onlyalpha-runtime:ci -I -c '
           import importlib.util
           import os
           from importlib.metadata import distribution, version
           import pyarrow
-          import onlyalpha_calculation_worker.chart_worker
+          import onlyalpha_backend_algorithms.chart_worker
           assert version("onlyalpha") == os.environ["EXPECTED_VERSION"]
+          assert version("onlyalpha-backend-algorithms") == os.environ["EXPECTED_VERSION"]
           for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
               assert importlib.util.find_spec(name) is None, name
-          for name in ("onlyalpha", "onlyalpha-calculation-worker", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+          for name in ("onlyalpha", "onlyalpha-backend-algorithms", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
               assert not distribution(name).entry_points, name
           '
 

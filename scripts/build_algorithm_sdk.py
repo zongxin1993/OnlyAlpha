@@ -36,6 +36,8 @@ SDK = (
     "algorithm/__init__.py",
     "algorithm/batch.py",
     "algorithm/private_factor.py",
+    "algorithm/codec.py",
+    "algorithm/type_declaration.py",
 )
 INDICATORS = (
     "definitions.py",
@@ -45,7 +47,7 @@ INDICATORS = (
     "financial_semantics.py",
     "chart_factory.py",
 )
-WORKER = ("codec.py", "type_declaration.py", "chart_worker.py", "chart_isolation.py")
+WORKER = ("chart_worker.py", "chart_isolation.py")
 
 
 def distribution_version(distribution: str) -> str:
@@ -107,26 +109,33 @@ def build(output: Path) -> list[Path]:
     }
     plugin["onlyalpha_plugin_indicators/__init__.py"] = b'"""Installed pure Indicator algorithms."""\n'
     worker = {
-        "onlyalpha_calculation_worker/" + name: (
-            ROOT / "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker" / name
+        "onlyalpha_backend_algorithms/" + name: (
+            ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms" / name
         ).read_bytes()
         for name in WORKER
     }
-    worker["onlyalpha_calculation_worker/__init__.py"] = b'"""Pure bounded algorithm process."""\n'
+    worker["onlyalpha_backend_algorithms/__init__.py"] = (
+        ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/__init__.py"
+    ).read_bytes()
     gateway = {"onlyalpha_gateway_protocol/__init__.py": b"", "onlyalpha_gateway_protocol/v1/__init__.py": b""}
     # This is the exact generated canonical projection, never a hand-written wire family.
     for name in ("calculation_pb2.py",):
         gateway["onlyalpha_gateway_protocol/v1/" + name] = (
-            ROOT / "packages/onlyalpha-gateway-protocol/src/onlyalpha_gateway_protocol/v1" / name
+            ROOT / "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol/v1" / name
         ).read_bytes()
     return [
         wheel(output, "onlyalpha", sdk, ()),
         wheel(output, "onlyalpha-plugin-indicators", plugin, ("onlyalpha", "pyarrow")),
         wheel(
             output,
-            "onlyalpha-calculation-worker",
+            "onlyalpha-backend-algorithms",
             worker,
-            ("onlyalpha", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol", "protobuf"),
+            tuple(
+                dependency.split("==")[0]
+                for dependency in tomllib.loads(
+                    (ROOT / "packages/backend/python/algorithms/pyproject.toml").read_text()
+                )["project"]["dependencies"]
+            ),
         ),
         wheel(output, "onlyalpha-gateway-protocol", gateway, ("protobuf",)),
     ]

@@ -14,6 +14,7 @@ from onlyalpha_plugin_indicators.registration import registrations as indicators
 from onlyalpha_plugin_operators.registration import registrations as operators
 from onlyalpha_plugin_operators.trading import OnlyOfficialTradingStatefulOperatorBackend
 
+from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.decimal_execution import only_decimal_context
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -51,7 +52,6 @@ from onlyalpha_calculation_worker.contracts import (
     scalar,
     sha,
 )
-from onlyalpha_calculation_worker.type_declaration import type_declaration
 
 
 @cache

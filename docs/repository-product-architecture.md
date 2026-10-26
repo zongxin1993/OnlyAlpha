@@ -35,7 +35,10 @@ packages/
       agent/                           Agent workflow and formal Product API client
       workers/                         task claim, supervision, shutdown and recovery
       bootstrap/                       explicit startup configuration and assembly
-    python/                            minimal algorithm runtime/SDK sources and resources
+    python/
+      algorithms/                      private bounded Python executor build constituent
+      gateway_protocol/                generated bindings and infrastructure client constituent
+    examples/                          technical conformance/diagnostics, not Product activation
     tests/
   frontend/                            Shipping Web UI
 plugs/                                 concrete Provider/Market/Broker/algorithm plugins
@@ -87,6 +90,11 @@ API/control remains responsive during bounded execution load. Execution workers 
 implementation/Generation. Agent may run separately for model/network latency and credential isolation. Python runs as an
 explicitly managed algorithm child; process isolation alone is not authentication, authorization or a security sandbox.
 Native process spawning/supervision belongs in backend; the reusable bridge accepts the supplied channel/lifecycle port.
+Checkpoint candidate reconstruction uses an explicit caller-supplied connector, not a hidden interpreter or spawn policy
+inside library adapters. Failed kill/wait retains the same child and capacity until a positive join; explicit drain recovers
+that owner without retrying work. Technical diagnostic/reference executables belong to backend examples and confer no formal
+Product admission. The historical native Backtest artifact family and wire contract remain distinct from the Cargo target name;
+new binaries bind their actual owning backend version and bytes, without rewriting old immutable artifacts.
 
 Cross-process interactions use explicit contracts and owning durable admission/claim APIs, not arbitrary DB integration.
 On crash, recover from existing durable facts/leases/reconciliation. Preserve cancellation, observation, UNKNOWN and risk

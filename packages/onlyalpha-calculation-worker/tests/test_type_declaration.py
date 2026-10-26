@@ -1,8 +1,8 @@
 from decimal import Decimal
 
 import pytest
-from onlyalpha_calculation_worker.type_declaration import type_declaration
 
+from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.definition import (
     OnlyCalculationDataType,
     OnlyCalculationKind,

@@ -4,9 +4,9 @@ from decimal import Decimal
 from itertools import chain
 from typing import cast
 
+from onlyalpha.algorithm.codec import MAX_FRAME, decode
 from onlyalpha.calculation.definition import OnlyCalculationTypeDefinition
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha_calculation_worker.codec import MAX_FRAME, decode
 
 
 def _scalar(value: object) -> dict[str, object]:

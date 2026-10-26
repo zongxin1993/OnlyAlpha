@@ -56,7 +56,7 @@ def _produce() -> tuple[str, str]:
     )
     from onlyalpha.persistence.postgres import only_assert_postgres_test_database
     from scripts.dev_verification import CUT_METADATA, source_inputs
-    from scripts.rust_kernel_check import _isolated_modules, compiler_environment, module_path, prepare_cargo_home
+    from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     inputs = source_inputs(ROOT)
@@ -102,25 +102,8 @@ def _produce() -> tuple[str, str]:
     environment = compiler_environment(os.environ, ROOT / "test-results/rust-kernel/target")
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
-    modules = (
-        "domain",
-        "calculation",
-        "market_data_construction",
-        "strategy",
-        "metadata_json",
-        "integration_contract",
-        "event",
-        "market_data_state",
-        "market_data_delivery",
-        "market_data_pipeline",
-        "gateway_protocol",
-        "calculation_bridge",
-        "backend",
-        "plugin_binance",
-        "plugin_tushare",
-    )
     try:
-        manifest = _isolated_modules(ROOT, root / "closure", modules)
+        manifest = isolated_backend(ROOT, root / "closure")
         consumer = manifest.parent / "native-consumer"
         consumer.mkdir()
         (consumer / "lib.rs").write_text(

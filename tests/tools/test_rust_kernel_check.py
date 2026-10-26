@@ -450,7 +450,8 @@ def test_native_application_descriptor_uses_only_declared_cargo_version(tmp_path
     from scripts.rust_kernel_check import validate_infrastructure_sources
 
     _infrastructure_source_tree(tmp_path)
-    main = tmp_path / "crates/onlyalpha-backtest/rust/main.rs"
+    main = tmp_path / "packages/backend/examples/native_backtest_reference.rs"
+    main.parent.mkdir(parents=True, exist_ok=True)
     main.write_text('const VERSION: &str = env!("CARGO_PKG_VERSION");')
     validate_infrastructure_sources(tmp_path)
     for text in ('const INPUT: &str = env!("UNDECLARED_INPUT");', 'const INPUT: &str = include_str!("extra.txt");'):
@@ -482,6 +483,19 @@ def test_product_application_isolation_has_only_domain_and_its_declared_registry
         "crates/onlyalpha-gateway-protocol",
         "crates/onlyalpha-calculation-bridge",
         "packages/backend",
+        "crates/onlyalpha-backtest",
+        "crates/onlyalpha-runtime-persistence",
+        "crates/onlyalpha-kernel/execution",
+        "crates/onlyalpha-kernel/clock",
+        "crates/onlyalpha-kernel/order",
+        "crates/onlyalpha-kernel/position",
+        "crates/onlyalpha-kernel/account",
+        "crates/onlyalpha-kernel/strategy_ledger",
+        "crates/onlyalpha-kernel/risk",
+        "crates/onlyalpha-kernel/broker",
+        "crates/onlyalpha-kernel/fee",
+        "crates/onlyalpha-kernel/settlement",
+        "crates/onlyalpha-kernel/margin",
         "plugs/onlyalpha-plugin-binance",
         "plugs/onlyalpha-plugin-tushare",
         "crates/onlyalpha-metadata-json",
@@ -502,11 +516,24 @@ def test_product_application_isolation_has_only_domain_and_its_declared_registry
         "onlyalpha-metadata-json",
         "onlyalpha-integration-contract",
         "onlyalpha-backend",
+        "onlyalpha-backtest",
+        "onlyalpha-runtime-persistence",
+        "onlyalpha-execution",
+        "onlyalpha-clock",
+        "onlyalpha-order",
+        "onlyalpha-position",
+        "onlyalpha-account",
+        "onlyalpha-strategy-ledger",
+        "onlyalpha-risk",
+        "onlyalpha-broker",
+        "onlyalpha-fee",
+        "onlyalpha-settlement",
+        "onlyalpha-margin",
         "onlyalpha-plugin-binance",
         "onlyalpha-plugin-tushare",
     }
     assert not (manifest.parent / "src/onlyalpha").exists()
-    assert not (manifest.parent / "crates/onlyalpha-backtest").exists()
+    assert not (manifest.parent / "crates/onlyalpha-kernel/predicates").exists()
 
 
 def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> None:
@@ -529,6 +556,19 @@ def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> N
         "crates/onlyalpha-metadata-json",
         "crates/onlyalpha-integration-contract",
         "packages/backend",
+        "crates/onlyalpha-backtest",
+        "crates/onlyalpha-runtime-persistence",
+        "crates/onlyalpha-kernel/execution",
+        "crates/onlyalpha-kernel/clock",
+        "crates/onlyalpha-kernel/order",
+        "crates/onlyalpha-kernel/position",
+        "crates/onlyalpha-kernel/account",
+        "crates/onlyalpha-kernel/strategy_ledger",
+        "crates/onlyalpha-kernel/risk",
+        "crates/onlyalpha-kernel/broker",
+        "crates/onlyalpha-kernel/fee",
+        "crates/onlyalpha-kernel/settlement",
+        "crates/onlyalpha-kernel/margin",
         "plugs/onlyalpha-plugin-binance",
         "plugs/onlyalpha-plugin-tushare",
     }
@@ -552,6 +592,19 @@ def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> N
         "onlyalpha-metadata-json",
         "onlyalpha-integration-contract",
         "onlyalpha-backend",
+        "onlyalpha-backtest",
+        "onlyalpha-runtime-persistence",
+        "onlyalpha-execution",
+        "onlyalpha-clock",
+        "onlyalpha-order",
+        "onlyalpha-position",
+        "onlyalpha-account",
+        "onlyalpha-strategy-ledger",
+        "onlyalpha-risk",
+        "onlyalpha-broker",
+        "onlyalpha-fee",
+        "onlyalpha-settlement",
+        "onlyalpha-margin",
         "onlyalpha-plugin-binance",
         "onlyalpha-plugin-tushare",
     }
@@ -1081,7 +1134,8 @@ def test_local_source_guard_removes_stale_full_gate_receipt(tmp_path: Path, monk
 
 
 @mark.parametrize(
-    "owner,needs_replay", (("fee", False), ("strategy", True), ("calculation_bridge", True), ("backtest", True))
+    "owner,needs_replay",
+    (("fee", False), ("strategy", True), ("calculation_bridge", True), ("backtest", True), ("backend", True)),
 )
 def test_local_package_mode_runs_only_default_profile_without_full_receipt(
     tmp_path: Path, monkeypatch: MonkeyPatch, owner: str, needs_replay: bool

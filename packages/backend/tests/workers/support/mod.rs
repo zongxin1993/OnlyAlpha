@@ -1,4 +1,5 @@
 //! Real registered producer and MarketData preparation comparison.
+use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
 use onlyalpha_calculation::Graph;
 use onlyalpha_calculation_bridge::{StrategyNodes, StrategyPreparation, Worker, fingerprint};
 use onlyalpha_domain::{
@@ -33,7 +34,8 @@ pub fn setup(
 ) -> Result<StrategyPreparation<StrategyNodes>, Box<dyn Error>> {
     let generation = "a".repeat(64);
     let source = "c".repeat(64);
-    let mut worker = Worker::spawn(python, generation.clone(), artifact.into(), DEADLINE)?;
+    let mut worker =
+        AlgorithmProcess::spawn(python, generation.clone(), artifact.into(), DEADLINE)?;
     let mut requests = BTreeMap::new();
     let external =
         json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}});
@@ -114,7 +116,12 @@ pub fn setup(
         cluster: "cluster".parse()?,
     };
     let program = Program::new(revision, scope.clone(), &generation, &source, artifact)?;
-    let nodes = StrategyNodes::new(python.to_owned(), program.clone(), requests, DEADLINE)?;
+    let nodes = StrategyNodes::new(
+        Arc::new(AlgorithmProcess::new(python.to_owned())),
+        program.clone(),
+        requests,
+        DEADLINE,
+    )?;
     let strategy = Executor::new(program, nodes)?;
     let calendar = Arc::new(OnlyTradingCalendar::new(OnlyTradingCalendarInput {
         calendar_id: "probe-calendar".parse()?,

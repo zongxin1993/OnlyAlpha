@@ -1,3 +1,4 @@
+mod support;
 use onlyalpha_calculation_bridge::{Worker, WorkerError};
 use std::{
     io::{Read, Write},
@@ -15,7 +16,14 @@ fn malformed_peer_is_unknown_and_poisoned() {
         peer.read_exact(&mut data).unwrap();
         peer.write_all(&u32::MAX.to_be_bytes()).unwrap();
     });
-    let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+    let mut worker = Worker::from_stream(
+        socket,
+        "a".repeat(64),
+        "b".repeat(64),
+        support::control(),
+        1024 * 1024,
+    )
+    .unwrap();
     assert!(matches!(
         worker.handshake(Duration::from_secs(2)),
         Err(WorkerError::Unknown(_))
@@ -29,12 +37,27 @@ fn malformed_peer_is_unknown_and_poisoned() {
 #[test]
 fn cancellation_wakes_blocked_exchange_without_sleep() {
     let (socket, mut peer) = UnixStream::pair().unwrap();
-    let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+    let mut worker = Worker::from_stream(
+        socket,
+        "a".repeat(64),
+        "b".repeat(64),
+        support::control(),
+        1024 * 1024,
+    )
+    .unwrap();
     let cancellation = worker.cancellation().unwrap();
     let task = thread::spawn(move || worker.handshake(Duration::from_secs(10)));
     let mut head = [0; 4];
     peer.read_exact(&mut head).unwrap();
+    assert_eq!(
+        cancellation.state(),
+        onlyalpha_calculation_bridge::ProcessState::Running
+    );
     cancellation.cancel().unwrap();
+    assert_eq!(
+        cancellation.state(),
+        onlyalpha_calculation_bridge::ProcessState::Joined
+    );
     assert!(matches!(task.join().unwrap(), Err(WorkerError::Unknown(_))));
 }
 
@@ -51,7 +74,14 @@ fn total_deadline_on_partial_prefix_and_crash_are_unknown() {
         peer.write_all(&[0]).unwrap();
         release_rx.recv().unwrap();
     });
-    let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+    let mut worker = Worker::from_stream(
+        socket,
+        "a".repeat(64),
+        "b".repeat(64),
+        support::control(),
+        1024 * 1024,
+    )
+    .unwrap();
     assert!(matches!(
         worker.handshake(Duration::from_millis(20)),
         Err(WorkerError::Unknown(_))
@@ -60,7 +90,14 @@ fn total_deadline_on_partial_prefix_and_crash_are_unknown() {
     peer_task.join().unwrap();
     let (socket, peer) = UnixStream::pair().unwrap();
     drop(peer);
-    let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+    let mut worker = Worker::from_stream(
+        socket,
+        "a".repeat(64),
+        "b".repeat(64),
+        support::control(),
+        1024 * 1024,
+    )
+    .unwrap();
     assert!(matches!(
         worker.handshake(Duration::from_secs(2)),
         Err(WorkerError::Unknown(_))
@@ -113,7 +150,14 @@ fn stale_scope_generation_sequence_and_malformed_wire_are_never_accepted() {
             peer.write_all(&(data.len() as u32).to_be_bytes()).unwrap();
             peer.write_all(&data).unwrap();
         });
-        let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+        let mut worker = Worker::from_stream(
+            socket,
+            "a".repeat(64),
+            "b".repeat(64),
+            support::control(),
+            1024 * 1024,
+        )
+        .unwrap();
         assert!(matches!(
             worker.handshake(Duration::from_secs(2)),
             Err(WorkerError::Unknown(_))
@@ -142,7 +186,14 @@ fn chart_operation_uses_the_same_fail_closed_wire_and_does_not_retry() {
                 peer.write_all(&u32::MAX.to_be_bytes()).unwrap();
             }
         });
-        let mut worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
+        let mut worker = Worker::from_stream(
+            socket,
+            "a".repeat(64),
+            "b".repeat(64),
+            support::control(),
+            1024 * 1024,
+        )
+        .unwrap();
         for _ in 0..2 {
             assert!(matches!(
                 worker.exchange_chart(serde_json::json!({"op":"CATALOG"}), Duration::from_secs(2)),

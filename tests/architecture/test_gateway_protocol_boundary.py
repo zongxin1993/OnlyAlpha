@@ -43,7 +43,7 @@ def test_core_business_modules_have_zero_gateway_transport_dependency() -> None:
 
 @pytest.mark.architecture
 def test_protocol_package_is_independent_of_core_product_and_api_packages() -> None:
-    package = ROOT / "packages/onlyalpha-gateway-protocol"
+    package = ROOT / "packages/backend/python/gateway_protocol"
     metadata = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = metadata["project"]["dependencies"]
     assert all(not item.startswith(("onlyalpha==", "onlyalpha-backend", "onlyalpha-client")) for item in dependencies)

@@ -8,11 +8,9 @@ use serde_json::Value;
 use std::{
     io::{Read, Write},
     net::Shutdown,
-    os::{fd::OwnedFd, unix::net::UnixStream},
-    path::Path,
-    process::{Child, Command, Stdio},
+    os::unix::net::UnixStream,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -36,107 +34,67 @@ pub(crate) fn sha(s: &str) -> bool {
         && s.bytes()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
-fn terminate_owned<T>(
-    slot: &mut Option<T>,
-    kill: impl FnOnce(&mut T) -> std::io::Result<()>,
-    wait: impl FnOnce(&mut T) -> std::io::Result<()>,
-    exited: impl FnOnce(&mut T) -> std::io::Result<bool>,
-) -> Result<()> {
-    if let Some(process) = slot.as_mut() {
-        if kill(process).is_err() {
-            // A process that exited before kill is still a positive join through try_wait.
-            if !exited(process).map_err(|_| WorkerError::Unknown("PROCESS_WAIT"))? {
-                return Err(WorkerError::Unknown("PROCESS_KILL"));
-            }
-        } else {
-            wait(process).map_err(|_| WorkerError::Unknown("PROCESS_WAIT"))?;
-        }
-        *slot = None;
-    }
-    Ok(())
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessState {
     Running,
     Uncertain,
     Joined,
 }
-struct ChildOwner {
-    child: Option<Child>,
-    completion: Option<Box<dyn Send>>,
-    uncertain: bool,
-    // Failed cleanup must survive the last caller's Drop. Explicit drain of this
-    // same owner clears the hold only after wait; it never spawns/retries work.
-    failed_hold: Option<Arc<Mutex<ChildOwner>>>,
+/// Supplied by the process owner. A failed join retains ownership and capacity.
+pub trait ProcessControl: Send + Sync {
+    fn state(&self) -> ProcessState;
+    fn terminate(&self, recover: bool) -> Result<()>;
 }
-fn terminate(owner: &Arc<Mutex<ChildOwner>>, recover: bool) -> Result<()> {
-    terminate_with(owner, recover, |child| {
-        terminate_owned(
-            child,
-            Child::kill,
-            |p| p.wait().map(|_| ()),
-            |p| p.try_wait().map(|v| v.is_some()),
-        )
-    })
+/// Recreates only an explicitly bound transport for checkpoint candidate recovery.
+/// This interface grants no Generation admission or work retry authority.
+pub trait WorkerConnector: Send + Sync {
+    fn connect(
+        &self,
+        generation: String,
+        artifact: String,
+        hosted: bool,
+        deadline: Duration,
+    ) -> Result<Worker>;
 }
-fn terminate_with(
-    owner: &Arc<Mutex<ChildOwner>>,
-    recover: bool,
-    finish: impl FnOnce(&mut Option<Child>) -> Result<()>,
-) -> Result<()> {
-    let mut slot = match owner.lock() {
-        Ok(slot) => slot,
-        Err(poison) => {
-            let mut slot = poison.into_inner();
-            slot.uncertain = true;
-            slot.failed_hold = Some(owner.clone());
-            if !recover {
-                return Err(WorkerError::Unknown("PROCESS_OWNER_POISONED"));
-            }
-            slot
-        }
-    };
-    slot.uncertain = true;
-    slot.failed_hold = Some(owner.clone());
-    finish(&mut slot.child)?;
-    slot.completion = None;
-    slot.uncertain = false;
-    slot.failed_hold = None;
-    if recover {
-        owner.clear_poison();
+/// Validate the supplied port before an adapter constructs any canonical binding.
+pub(crate) fn connect_exact(
+    connector: &dyn WorkerConnector,
+    generation: &str,
+    artifact: &str,
+    hosted: bool,
+    deadline: Duration,
+) -> Result<Worker> {
+    let worker = connector.connect(generation.into(), artifact.into(), hosted, deadline)?;
+    if worker.binding() != (generation, artifact) {
+        return Err(WorkerError::Invalid);
     }
-    Ok(())
+    Ok(worker)
 }
 #[derive(Clone)]
 pub struct Cancellation {
     socket: Arc<UnixStream>,
-    child: Arc<Mutex<ChildOwner>>,
+    control: Arc<dyn ProcessControl>,
     cancelled: Arc<AtomicBool>,
 }
 impl Cancellation {
     pub fn state(&self) -> ProcessState {
-        match self.child.lock() {
-            Ok(owner) if owner.uncertain => ProcessState::Uncertain,
-            Ok(owner) if owner.child.is_some() => ProcessState::Running,
-            Ok(_) => ProcessState::Joined,
-            Err(_) => ProcessState::Uncertain,
-        }
+        self.control.state()
     }
     pub fn cancel(&self) -> Result<()> {
         self.cancelled.store(true, Ordering::SeqCst);
         let _ = self.socket.shutdown(Shutdown::Both);
-        terminate(&self.child, false)
+        self.control.terminate(false)
     }
     /// Explicitly drain the retained owner, including a poisoned owner. No work retry.
     pub fn drain(&self) -> Result<()> {
         self.cancelled.store(true, Ordering::SeqCst);
         let _ = self.socket.shutdown(Shutdown::Both);
-        terminate(&self.child, true)
+        self.control.terminate(true)
     }
 }
 pub struct Worker {
     socket: Arc<UnixStream>,
-    child: Arc<Mutex<ChildOwner>>,
+    control: Arc<dyn ProcessControl>,
     cancelled: Arc<AtomicBool>,
     generation: String,
     artifact: String,
@@ -147,77 +105,27 @@ pub struct Worker {
 }
 impl Worker {
     /// Attach an already owned, private connected transport. No Generation admission is granted.
-    pub fn from_stream(socket: UnixStream, generation: String, artifact: String) -> Result<Self> {
-        if !sha(&generation) || !sha(&artifact) {
+    pub fn from_stream(
+        socket: UnixStream,
+        generation: String,
+        artifact: String,
+        control: Arc<dyn ProcessControl>,
+        max_frame: usize,
+    ) -> Result<Self> {
+        if !sha(&generation) || !sha(&artifact) || !matches!(max_frame, MAX_FRAME | 8388608) {
             return Err(WorkerError::Invalid);
         }
         Ok(Self {
             socket: Arc::new(socket),
-            child: Arc::new(Mutex::new(ChildOwner {
-                child: None,
-                completion: None,
-                uncertain: false,
-                failed_hold: None,
-            })),
+            control,
             cancelled: Arc::new(AtomicBool::new(false)),
             generation,
             artifact,
             sequence: 0,
             poisoned: false,
             last_compute_ns: 0,
-            max_frame: MAX_FRAME,
+            max_frame,
         })
-    }
-    /// Interpreter must belong to the caller's exact admitted materialization.
-    pub fn spawn(
-        interpreter: &Path,
-        generation: String,
-        artifact: String,
-        deadline: Duration,
-    ) -> Result<Self> {
-        Self::spawn_bound(
-            interpreter,
-            generation,
-            artifact,
-            deadline,
-            false,
-            None,
-            None,
-        )
-    }
-    /// Formal work requires the installed Generation context; it never uses comparison registrations.
-    pub fn spawn_hosted(
-        interpreter: &Path,
-        generation: String,
-        artifact: String,
-        deadline: Duration,
-    ) -> Result<Self> {
-        Self::spawn_bound(
-            interpreter,
-            generation,
-            artifact,
-            deadline,
-            true,
-            None,
-            None,
-        )
-    }
-    /// Disposable Chart composition, never a Trading Runtime Generation.
-    pub fn spawn_chart(
-        interpreter: &Path,
-        installation: &Path,
-        artifact: String,
-        completion: Box<dyn Send>,
-    ) -> Result<Self> {
-        Self::spawn_bound(
-            interpreter,
-            artifact.clone(),
-            artifact,
-            Duration::ZERO,
-            false,
-            Some(installation),
-            Some(completion),
-        )
     }
     pub fn exchange_chart(&mut self, request: Value, deadline: Duration) -> Result<Value> {
         self.exchange(
@@ -226,64 +134,6 @@ impl Worker {
             }),
             deadline,
         )
-    }
-    fn spawn_bound(
-        interpreter: &Path,
-        generation: String,
-        artifact: String,
-        deadline: Duration,
-        hosted: bool,
-        chart_installation: Option<&Path>,
-        completion: Option<Box<dyn Send>>,
-    ) -> Result<Self> {
-        if !interpreter.is_absolute() || !sha(&generation) || !sha(&artifact) {
-            return Err(WorkerError::Invalid);
-        }
-        let (parent, child) = UnixStream::pair().map_err(|_| WorkerError::Invalid)?;
-        let input: OwnedFd = child.try_clone().map_err(|_| WorkerError::Invalid)?.into();
-        let output: OwnedFd = child.into();
-        let mut command = Command::new(interpreter);
-        command.args([
-            "-B",
-            "-I",
-            "-m",
-            if chart_installation.is_some() {
-                "onlyalpha_calculation_worker.chart_worker"
-            } else {
-                "onlyalpha_calculation_worker.worker"
-            },
-            "--generation",
-            &generation,
-        ]);
-        if let Some(installation) = chart_installation {
-            command.arg("--installation").arg(installation);
-        }
-        if hosted {
-            command.arg("--hosted-generation");
-        }
-        let mut worker = Self::from_stream(parent, generation, artifact)?;
-        let owner = Arc::get_mut(&mut worker.child)
-            .ok_or(WorkerError::Invalid)?
-            .get_mut()
-            .map_err(|_| WorkerError::Invalid)?;
-        owner.completion = completion;
-        owner.child = Some(
-            command
-                .env_clear()
-                .env("PYTHONDONTWRITEBYTECODE", "1")
-                .current_dir("/")
-                .stdin(Stdio::from(input))
-                .stdout(Stdio::from(output))
-                .stderr(Stdio::inherit())
-                .spawn()
-                .map_err(|_| WorkerError::Invalid)?,
-        );
-        if chart_installation.is_some() {
-            worker.max_frame = 8 * 1024 * 1024;
-        } else {
-            worker.handshake(deadline)?;
-        }
-        Ok(worker)
     }
     pub fn terminate(&self) -> Result<()> {
         self.cancellation()?.cancel()
@@ -316,14 +166,14 @@ impl Worker {
     pub fn cancellation(&self) -> Result<Cancellation> {
         Ok(Cancellation {
             socket: self.socket.clone(),
-            child: self.child.clone(),
+            control: self.control.clone(),
             cancelled: self.cancelled.clone(),
         })
     }
     pub(crate) fn poison<T>(&mut self, reason: &'static str) -> Result<T> {
         self.poisoned = true;
         let _ = self.socket.shutdown(Shutdown::Both);
-        let _ = terminate(&self.child, false);
+        let _ = self.control.terminate(false);
         Err(WorkerError::Unknown(reason))
     }
     pub fn handshake(&mut self, deadline: Duration) -> Result<Value> {
@@ -460,126 +310,91 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.socket.shutdown(Shutdown::Both);
-        let _ = terminate(&self.child, false);
+        let _ = self.control.terminate(false);
     }
 }
 
 #[cfg(test)]
-mod lifecycle_faults {
+mod binding_tests {
     use super::*;
-    #[test]
-    fn kill_and_wait_failure_retain_the_same_owner_until_positive_join() {
-        for failed_kill in [true, false] {
-            let mut slot = Some(71u32);
-            let result = terminate_owned(
-                &mut slot,
-                |_| {
-                    if failed_kill {
-                        Err(std::io::Error::other("controlled kill failure"))
-                    } else {
-                        Ok(())
-                    }
-                },
-                |_| Err(std::io::Error::other("controlled wait failure")),
-                |_| Ok(false),
-            );
-            assert!(result.is_err());
-            assert_eq!(slot, Some(71));
-            assert!(terminate_owned(&mut slot, |_| Ok(()), |_| Ok(()), |_| Ok(false)).is_ok());
-            assert_eq!(slot, None);
-        }
-    }
-    struct Guard(Arc<std::sync::atomic::AtomicUsize>);
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            self.0.fetch_sub(1, Ordering::SeqCst);
-        }
-    }
-    fn owned() -> (Worker, Cancellation, Arc<std::sync::atomic::AtomicUsize>) {
-        let (socket, _peer) = UnixStream::pair().unwrap();
-        let worker = Worker::from_stream(socket, "a".repeat(64), "b".repeat(64)).unwrap();
-        let count = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let child = Command::new("/bin/cat")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        {
-            let mut owner = worker.child.lock().unwrap();
-            owner.child = Some(child);
-            owner.completion = Some(Box::new(Guard(count.clone())));
-        }
-        let control = worker.cancellation().unwrap();
-        (worker, control, count)
-    }
-    #[test]
-    fn actual_child_and_capacity_survive_kill_wait_failures_and_last_control_drop() {
-        for kill_failure in [true, false] {
-            let (worker, control, count) = owned();
-            let owner = worker.child.clone();
-            assert!(
-                terminate_with(&owner, false, |slot| terminate_owned(
-                    slot,
-                    |child| if kill_failure {
-                        Err(std::io::Error::other("kill fault"))
-                    } else {
-                        child.kill()
-                    },
-                    |_| Err(std::io::Error::other("wait fault")),
-                    |_| Ok(false)
-                ))
-                .is_err()
-            );
-            assert_eq!(control.state(), ProcessState::Uncertain);
-            assert_eq!(count.load(Ordering::SeqCst), 1);
-            assert!(owner.lock().unwrap().child.is_some());
-            // Simulate disappearance of all callers after failed best effort. The
-            // failed lifecycle still owns its Child/permit and can be drained.
-            let weak = Arc::downgrade(&owner);
-            // Poison makes Worker Drop preserve the injected uncertain lifecycle.
-            let _ = std::panic::catch_unwind(|| {
-                let _lock = owner.lock().unwrap();
-                panic!("drop barrier")
-            });
-            drop(worker);
-            drop(control);
-            drop(owner);
-            let retained = weak.upgrade().unwrap();
-            terminate(&retained, true).unwrap();
-            assert_eq!(count.load(Ordering::SeqCst), 0);
-            assert!(retained.lock().unwrap().child.is_none());
-            drop(retained);
-        }
-    }
-    #[test]
-    fn poison_is_explicit_and_only_explicit_drain_recovers_same_child() {
-        let (worker, control, count) = owned();
-        let owner = worker.child.clone();
-        let _ = std::panic::catch_unwind(|| {
-            let _lock = owner.lock().unwrap();
-            panic!("controlled owner poison")
-        });
-        assert!(control.cancel().is_err());
-        assert_eq!(control.state(), ProcessState::Uncertain);
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        drop(worker); // best effort cannot recover a poisoned owner
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        control.drain().unwrap();
-        assert_eq!(control.state(), ProcessState::Joined);
-        assert_eq!(count.load(Ordering::SeqCst), 0);
-        control.drain().unwrap(); // reentry cannot release twice
-    }
-    #[test]
-    fn normal_cancel_and_worker_drop_release_only_after_join() {
-        for cancel in [true, false] {
-            let (worker, control, count) = owned();
-            if cancel {
-                control.cancel().unwrap();
+    struct Control(Arc<AtomicBool>);
+    impl ProcessControl for Control {
+        fn state(&self) -> ProcessState {
+            if self.0.load(Ordering::SeqCst) {
+                ProcessState::Joined
+            } else {
+                ProcessState::Running
             }
-            drop(worker);
-            assert_eq!(control.state(), ProcessState::Joined);
-            assert_eq!(count.load(Ordering::SeqCst), 0);
-            control.cancel().unwrap();
         }
+        fn terminate(&self, _: bool) -> Result<()> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    struct Connector {
+        generation: String,
+        artifact: String,
+        joined: Arc<AtomicBool>,
+    }
+    impl WorkerConnector for Connector {
+        fn connect(&self, _: String, _: String, _: bool, _: Duration) -> Result<Worker> {
+            let (socket, _peer) = UnixStream::pair().unwrap();
+            Worker::from_stream(
+                socket,
+                self.generation.clone(),
+                self.artifact.clone(),
+                Arc::new(Control(self.joined.clone())),
+                MAX_FRAME,
+            )
+        }
+    }
+    #[test]
+    fn substituted_valid_generation_or_artifact_is_rejected_and_closed_before_use() {
+        for (generation, artifact) in [
+            ("c".repeat(64), "b".repeat(64)),
+            ("a".repeat(64), "c".repeat(64)),
+        ] {
+            let joined = Arc::new(AtomicBool::new(false));
+            let connector = Connector {
+                generation,
+                artifact,
+                joined: joined.clone(),
+            };
+            assert!(matches!(
+                connect_exact(
+                    &connector,
+                    &"a".repeat(64),
+                    &"b".repeat(64),
+                    false,
+                    Duration::from_secs(1)
+                ),
+                Err(WorkerError::Invalid)
+            ));
+            assert!(joined.load(Ordering::SeqCst));
+        }
+    }
+    #[test]
+    fn matching_connector_retains_its_lifecycle_until_consumer_drop() {
+        let joined = Arc::new(AtomicBool::new(false));
+        let connector = Connector {
+            generation: "a".repeat(64),
+            artifact: "b".repeat(64),
+            joined: joined.clone(),
+        };
+        let worker = connect_exact(
+            &connector,
+            &connector.generation,
+            &connector.artifact,
+            true,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(
+            worker.binding(),
+            (connector.generation.as_str(), connector.artifact.as_str())
+        );
+        assert!(!joined.load(Ordering::SeqCst));
+        drop(worker);
+        assert!(joined.load(Ordering::SeqCst));
     }
 }

@@ -30,13 +30,41 @@ def test_current_installed_minimal_algorithm_and_kernel_restrictions(tmp_path: P
     installation = tmp_path / "installed"
     artifact = install(tmp_path / "wheels", installation)
     interpreter = installation / "bin/python"
+
+    # Execute the actual Shipping CI smoke body against this installed closure.
+    # This catches stale CI imports/metadata consumers without mocking the package.
+    import shlex
+
+    import yaml
+
+    from scripts.build_algorithm_sdk import ROOT
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        row
+        for row in workflow["jobs"]["build-smoke"]["steps"]
+        if row.get("name") == "Check the installed algorithm boundary"
+    )
+    smoke = shlex.split(step["run"])[-1]
+    subprocess.run(
+        [str(interpreter), "-B", "-I", "-c", smoke],
+        env={
+            "EXPECTED_VERSION": json.loads((installation / "algorithm-installation.json").read_text())[
+                "distribution_version"
+            ]
+        },
+        check=True,
+    )
     code = r"""
 import errno, importlib, json, os, resource, socket, subprocess, sys
 from decimal import Decimal, ROUND_DOWN, getcontext
 from onlyalpha_plugin_indicators.chart_factory import ChartFactory
-from onlyalpha_calculation_worker.chart_worker import verify_installation
+from onlyalpha_backend_algorithms.chart_worker import verify_installation
 from pathlib import Path
 verify_installation(Path(sys.argv[1]), sys.argv[2])
+import importlib.metadata, importlib.util
+assert importlib.util.find_spec("onlyalpha_calculation_worker") is None
+assert importlib.metadata.version("onlyalpha-backend-algorithms") == json.loads((Path(sys.argv[1])/"algorithm-installation.json").read_text())["distribution_version"]
 f = ChartFactory()
 expected = {
  'ema': ('value', '10'), 'sma': ('value','10'), 'bollinger': ('middle','10'),
@@ -127,7 +155,7 @@ for module in ('onlyalpha.application','onlyalpha.runtime','onlyalpha.persistenc
  except ModuleNotFoundError: pass
  else: raise AssertionError(module)
 assert not any('.pth' in x for x in sys.path)
-from onlyalpha_calculation_worker.chart_isolation import restrict
+from onlyalpha_backend_algorithms.chart_isolation import restrict
 assert restrict()=='LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1'
 for operation in (lambda:open('/etc/passwd'), lambda:socket.socket(), lambda:subprocess.Popen(['/bin/true']), lambda:os.mkdir('/tmp/chart-forbidden')):
  try: operation()
@@ -159,7 +187,7 @@ print(json.dumps({'families':len(expected),'isolation':'enforced'}))
             "-B",
             "-I",
             "-c",
-            "from onlyalpha_calculation_worker.chart_isolation import restrict\nrestrict()\nwhile True: pass\n",
+            "from onlyalpha_backend_algorithms.chart_isolation import restrict\nrestrict()\nwhile True: pass\n",
         ],
         capture_output=True,
         env={},
@@ -182,9 +210,9 @@ def test_sdk_wheel_release_comes_from_frozen_source(tmp_path, monkeypatch):
     backend.write_text('[package]\nversion = "0.11.0"\n')
     monkeypatch.setattr(builder, "ROOT", source)
     monkeypatch.setattr(importlib.metadata, "version", lambda _: "0.10.21")
-    path = builder.wheel(tmp_path, "onlyalpha-calculation-worker", {}, ("onlyalpha", "protobuf"))
+    path = builder.wheel(tmp_path, "onlyalpha-backend-algorithms", {}, ("onlyalpha", "protobuf"))
     with zipfile.ZipFile(path) as archive:
-        metadata = archive.read("onlyalpha_calculation_worker-0.11.0.dist-info/METADATA").decode()
+        metadata = archive.read("onlyalpha_backend_algorithms-0.11.0.dist-info/METADATA").decode()
     assert "Version: 0.11.0\n" in metadata
     assert "Requires-Dist: onlyalpha==0.11.0\n" in metadata
     assert "Requires-Dist: protobuf\n" in metadata

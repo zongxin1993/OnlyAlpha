@@ -8,13 +8,13 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, cast
 
+from onlyalpha.algorithm.codec import decode as decode
+from onlyalpha.algorithm.codec import digest as digest
+from onlyalpha.algorithm.codec import encode as encode
+from onlyalpha.algorithm.codec import exact as exact
+from onlyalpha.algorithm.codec import integer as integer
+from onlyalpha.algorithm.codec import sha as sha
 from onlyalpha.calculation.definition import OnlyCalculationDefinition
-from onlyalpha_calculation_worker.codec import decode as decode
-from onlyalpha_calculation_worker.codec import digest as digest
-from onlyalpha_calculation_worker.codec import encode as encode
-from onlyalpha_calculation_worker.codec import exact as exact
-from onlyalpha_calculation_worker.codec import integer as integer
-from onlyalpha_calculation_worker.codec import sha as sha
 
 MAX_FRAME = 1024 * 1024
 MAX_BATCH = 256

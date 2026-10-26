@@ -1,6 +1,7 @@
+use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
 mod support;
 use onlyalpha_backtest::{Inputs, MarketInput, RunLoop, RunSpec, Source, Trading};
-use onlyalpha_calculation_bridge::{Worker, fingerprint};
+use onlyalpha_calculation_bridge::fingerprint;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     market::OnlyBar,
@@ -8,7 +9,7 @@ use onlyalpha_domain::{
 };
 use serde_json::{Value, json};
 use std::{path::Path, str::FromStr, time::Duration};
-const FACTS: &str = include_str!("../../../test-data/domain/fact-records-v1.jsonl");
+const FACTS: &str = include_str!("../../../../test-data/domain/fact-records-v1.jsonl");
 fn setup() -> (
     RunSpec,
     Inputs,
@@ -49,7 +50,7 @@ fn setup_with_settings(
     let generation = program.generation().to_owned();
     let cfg = json!({"schema_version":1,"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":generation,"runtime_kind":"BACKTEST","currency":instrument["settlement_currency"],"initial_cash":"1000.00","capitals":{"cluster":"1000.00"},"profiles":{"cluster":{"schema_version":1,"revision":revision,"instruments":["600000.XSHG"],"rules":[]}},"instruments":[{"schema_version":1,"id":"600000.XSHG","price_precision":2,"quantity_precision":0,"multiplier":"1"}]});
     let request: Value = serde_json::from_str(include_str!(
-        "../../../test-data/execution/domain-inputs.json"
+        "../../../../test-data/execution/domain-inputs.json"
     ))
     .unwrap();
     let mut buy = request["request"].clone();
@@ -64,7 +65,7 @@ fn setup_with_settings(
     sell["price"]["value"] = json!("12.00");
     let mut settings = json!({"schema_version":1,"execution":cfg,"instrument":instrument,"maximum_fill_quantity":"2","requests":[buy,sell]});
     mutate(&mut settings);
-    let worker = Worker::spawn(
+    let worker = AlgorithmProcess::spawn(
         Path::new(&python),
         generation,
         artifact,

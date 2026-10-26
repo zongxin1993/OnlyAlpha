@@ -152,7 +152,7 @@ print(json.dumps({'result':first.result_fingerprint,'determinism':first.determin
 def test_exact_sealed_generation_executes_factor_and_recovers_same_rust_run(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[3]
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    executable = repository / "test-results/rust-kernel/target" / target / "release/onlyalpha-backtest-runtime"
+    executable = repository / "test-results/rust-kernel/target" / target / "release/examples/native-backtest-reference"
     values = tuple(item for item in bars() if str(item.instrument_id) == "A.XNAS")
     values = values + tuple(
         replace(

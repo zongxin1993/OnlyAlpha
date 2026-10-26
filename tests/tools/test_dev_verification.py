@@ -43,6 +43,17 @@ def test_source_edits_reuse_environment_but_dependency_edits_require_rebuild(tmp
     assert dev_verification.environment_inputs(tmp_path) != admitted
 
 
+def test_backend_python_constituents_are_environment_inputs(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    path = tmp_path / "packages/backend/python/algorithms/pyproject.toml"
+    path.parent.mkdir(parents=True)
+    path.write_text("first metadata")
+    before = dev_verification.environment_inputs(tmp_path)
+    assert str(path.relative_to(tmp_path)) in before
+    path.write_text("changed dependency")
+    assert dev_verification.environment_inputs(tmp_path) != before
+
+
 def test_source_inventory_excludes_artifacts_and_host_dependencies(tmp_path: Path) -> None:
     _environment(tmp_path)
     before = dev_verification.source_inputs(tmp_path)

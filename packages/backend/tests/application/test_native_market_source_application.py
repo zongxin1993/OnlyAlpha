@@ -114,7 +114,7 @@ def _native_command(
 
 @pytest.fixture
 def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
-    from scripts.rust_kernel_check import _isolated_modules, compiler_environment, module_path, prepare_cargo_home
+    from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     # Existing retained authoring asset is a precondition of this read-only slice.
@@ -176,23 +176,6 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     ch = OnlyClickHouseClient(config)
     ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
     OnlyClickHouseMigrationAuthority(ch).migrate()
-    modules = (
-        "domain",
-        "calculation",
-        "market_data_construction",
-        "strategy",
-        "metadata_json",
-        "integration_contract",
-        "event",
-        "market_data_state",
-        "market_data_delivery",
-        "market_data_pipeline",
-        "gateway_protocol",
-        "calculation_bridge",
-        "backend",
-        "plugin_binance",
-        "plugin_tushare",
-    )
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     output = ROOT / "test-results/rust-kernel/target"
     environment = compiler_environment(os.environ, output)
@@ -206,7 +189,7 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
             tempfile.TemporaryDirectory(prefix="onlyalpha-native-market-wal-", dir="/tmp") as wal_temporary,
         ):
             root = Path(temporary) / "closure"
-            manifest = _isolated_modules(ROOT, root, modules)
+            manifest = isolated_backend(ROOT, root)
             consumer = root / "native-consumer"
             consumer.mkdir()
             shutil.copyfile(Path(__file__).parent / "support/native_market_consumer.rs", consumer / "lib.rs")

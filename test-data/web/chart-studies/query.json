@@ -4,7 +4,7 @@
     "capability_projection": {
       "authority": "DISPLAY_ONLY",
       "backend": "RESEARCH",
-      "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
+      "catalog_generation_fingerprint": "f192708f1fdbaa3ec159b8ee0781e4d72b83d13db058d40bd4e90ec9214d7308",
       "descriptor": {
         "execution_shape": "TIME_SERIES",
         "factor_kind": null,
@@ -82,12 +82,20 @@
           "type_id": "onlyalpha.indicator.sma"
         },
         "entrypoint_identity": "onlyalpha_plugin_indicators.chart_factory:ChartFactory",
-        "implementation_bundle_fingerprint": "1d31539644e4f125f538579772dcca2833d26d29509217617c92658aaee73513",
-        "implementation_fingerprint": "9f791bf630d0a8ffaca73b4f5cbf7885d3f509fb928a92a64c3a4ce46447ec4d",
+        "implementation_bundle_fingerprint": "96960b6668e3f8326a5b74706a3b99eb528435fa6fb7591bd4a10395674ea05f",
+        "implementation_fingerprint": "2333c20df9cc2ce9d9b4cda4591795bdab5b3929a54ab78c77e7949bbfd49e26",
         "resources": [
           {
             "byte_sha256": "916b71032c3d554f162c15e0dfec03c1a49a3559939e42e96845014fdf0f9249",
             "relative_path": "onlyalpha/algorithm/batch.py"
+          },
+          {
+            "byte_sha256": "536399e2bc709641b05c8156daebfbaef7e1531b8ade9da83992cc063ae38642",
+            "relative_path": "onlyalpha/algorithm/codec.py"
+          },
+          {
+            "byte_sha256": "d5e883b9b8cc8e98fc6e4efcb1fb1ed289e76ddda8f3086f341079d5555c0e59",
+            "relative_path": "onlyalpha/algorithm/type_declaration.py"
           },
           {
             "byte_sha256": "6a9f0e817eba72c65203a18985c60c0e3e5cd0dd2595f0521ee816c4eddcb87c",
@@ -114,14 +122,6 @@
             "relative_path": "onlyalpha/canonical.py"
           },
           {
-            "byte_sha256": "536399e2bc709641b05c8156daebfbaef7e1531b8ade9da83992cc063ae38642",
-            "relative_path": "onlyalpha_calculation_worker/codec.py"
-          },
-          {
-            "byte_sha256": "072e66d037ed98a75569857213f43369736865d043a86fb7ee837942a822d6b0",
-            "relative_path": "onlyalpha_calculation_worker/type_declaration.py"
-          },
-          {
             "byte_sha256": "3ebd4300b81b7e5c61ab60751ac484e45c723e30081121e71ee3376e404154ef",
             "relative_path": "onlyalpha_plugin_indicators/calibrated.py"
           },
@@ -130,7 +130,7 @@
             "relative_path": "onlyalpha_plugin_indicators/chart.py"
           },
           {
-            "byte_sha256": "e3bfbd7ae1fd655710ab23bb6cb66234b99b20dcbd7e146942e1027e58f9b337",
+            "byte_sha256": "bade3fe16c93a0d152ad6bcaa0653b1a9bb7a5712b1b94c71d8aa174d14a3cbc",
             "relative_path": "onlyalpha_plugin_indicators/chart_factory.py"
           },
           {
@@ -149,7 +149,7 @@
         "schema_version": 1,
         "semantic_dependencies": [
           {
-            "artifact_fingerprint": "e177a4d2ac813953d12cde12e12b8d01e6ac66aa32309a2b5de546299a089838",
+            "artifact_fingerprint": "861ffad60bb076ff30347f9d74f8c85ea48b063973774a2064f825d548c1a119",
             "dependency_id": "onlyalpha.algorithm-sdk",
             "semantic_version": "1"
           }
@@ -172,18 +172,18 @@
           "type_id": "onlyalpha.chart-study.invocation"
         },
         "entrypoint_identity": "onlyalpha_product_runtime.chart:ChartQuery",
-        "implementation_bundle_fingerprint": "a791d2ac2843476463159d3670c72a220498dcb1137ca4cb9f98378dfec68ccd",
-        "implementation_fingerprint": "c5c5890c9d6a691a363046ff06fa0ca689ddaee7f6d7337e4a1558c72a11577d",
+        "implementation_bundle_fingerprint": "d390ee2e4625081747da7acabad5d83db3d04549a6907587fd62f44d1951f549",
+        "implementation_fingerprint": "24c95eb90f6f54974bb399105ef704c6b85bca638cd00053f3584f36a593365d",
         "resources": [
           {
-            "byte_sha256": "733b57115c78f936ec66aaa52bb4cec7b6dbc49b8519505998f99b5303a2933a",
+            "byte_sha256": "a30e864ce76b0d4cd67ac5cdade3bafe97afa8291b6ed2b8f2b72a8377def840",
             "relative_path": "native-product-executable"
           }
         ],
         "schema_version": 1,
         "semantic_dependencies": [
           {
-            "artifact_fingerprint": "71b7217175392886d1f2083cdd6eff0f28f87f38fc8381d2ac2fd9de87a76ad7",
+            "artifact_fingerprint": "f1203b56ed13384b00bfc80d60de7902003f7aa891160da3cc48b102c6d5c13f",
             "dependency_id": "onlyalpha.algorithm-installation",
             "semantic_version": "1"
           }
@@ -245,7 +245,7 @@
           }
         ]
       },
-      "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
+      "provider_content_fingerprint": "605f656342b2eedd498d1263446e87bc44595cbcc6993363289140c3b64a6fb0",
       "provider_manifest": {
         "kind": "INDICATOR",
         "provider_id": "onlyalpha.indicator.library",
@@ -265,8 +265,8 @@
       "source_kind": "CHART_STUDY_TRANSIENT",
       "supported_shape": "TIME_SERIES/BAR_FIELDS"
     },
-    "capability_projection_fingerprint": "3f9b8ac3cd57974ed1b697f5d7a91417eefbf7a47eaf3ef05a4119d1052f9274",
-    "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
+    "capability_projection_fingerprint": "9586895d57ed3929bd5266a1fa5da4c082e16501a683c80d610faeded6222030",
+    "catalog_generation_fingerprint": "f192708f1fdbaa3ec159b8ee0781e4d72b83d13db058d40bd4e90ec9214d7308",
     "descriptor": {
       "execution_shape": "TIME_SERIES",
       "factor_kind": null,
@@ -336,8 +336,8 @@
     },
     "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
     "execution_shape": "TIME_SERIES",
-    "implementation_fingerprint": "9f791bf630d0a8ffaca73b4f5cbf7885d3f509fb928a92a64c3a4ce46447ec4d",
-    "invocation_implementation_fingerprint": "c5c5890c9d6a691a363046ff06fa0ca689ddaee7f6d7337e4a1558c72a11577d",
+    "implementation_fingerprint": "2333c20df9cc2ce9d9b4cda4591795bdab5b3929a54ab78c77e7949bbfd49e26",
+    "invocation_implementation_fingerprint": "24c95eb90f6f54974bb399105ef704c6b85bca638cd00053f3584f36a593365d",
     "kind": "INDICATOR",
     "limits": {
       "max_concurrent_invocations": 2,
@@ -395,7 +395,7 @@
         }
       ]
     },
-    "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
+    "provider_content_fingerprint": "605f656342b2eedd498d1263446e87bc44595cbcc6993363289140c3b64a6fb0",
     "provider_id": "onlyalpha.indicator.library",
     "provider_version": "18",
     "readiness_contract_version": 1,
@@ -418,12 +418,12 @@
     },
     "calculation": {
       "backend": "RESEARCH",
-      "capability_projection_fingerprint": "3f9b8ac3cd57974ed1b697f5d7a91417eefbf7a47eaf3ef05a4119d1052f9274",
-      "catalog_generation_fingerprint": "e25b2ce83cdd994ee1da271039ba38e26e8fcef602ed0de264559149bfcf8e96",
+      "capability_projection_fingerprint": "9586895d57ed3929bd5266a1fa5da4c082e16501a683c80d610faeded6222030",
+      "catalog_generation_fingerprint": "f192708f1fdbaa3ec159b8ee0781e4d72b83d13db058d40bd4e90ec9214d7308",
       "definition_fingerprint": "f21db1be2434426ef9fbf6e7ae806268bb866cf3bae005db4950891685e8d49e",
       "descriptor_fingerprint": "5cd9dedf053fdf9a92e8f1effd618469d813b9e30f1d7e4b0f94c43ac46e913b",
-      "implementation_fingerprint": "9f791bf630d0a8ffaca73b4f5cbf7885d3f509fb928a92a64c3a4ce46447ec4d",
-      "invocation_implementation_fingerprint": "c5c5890c9d6a691a363046ff06fa0ca689ddaee7f6d7337e4a1558c72a11577d",
+      "implementation_fingerprint": "2333c20df9cc2ce9d9b4cda4591795bdab5b3929a54ab78c77e7949bbfd49e26",
+      "invocation_implementation_fingerprint": "24c95eb90f6f54974bb399105ef704c6b85bca638cd00053f3584f36a593365d",
       "kind": "INDICATOR",
       "normalized_definition": {
         "extensions": {},
@@ -532,7 +532,7 @@
           "unit": "PRICE"
         }
       ],
-      "provider_content_fingerprint": "eea619fa70a2863814f3fd9a6a054f7396bcf4fac7f4fa9da59d36d231c64f66",
+      "provider_content_fingerprint": "605f656342b2eedd498d1263446e87bc44595cbcc6993363289140c3b64a6fb0",
       "provider_id": "onlyalpha.indicator.library",
       "provider_version": "18",
       "semantic_version": "1",
@@ -554,7 +554,7 @@
       "before_ns": "1767225600000000000",
       "calendar_fingerprint": "c39cb3a385e4db470757403c8eb03b380dc80953c404269b4fb5f5df4cfce828",
       "derived_projection_fingerprint": null,
-      "history_projection_fingerprint": "c01b027fea687819a8cf88570ea45899961e250da693882ded8702a4c191c877",
+      "history_projection_fingerprint": "0bc0b9d0bb41dcb28b3ace1c3785466f5612f0fbaf6877076c2c48dbe2173e07",
       "initialization": "FINITE_WINDOW_START",
       "resolution_mode": "PROVIDER_NATIVE",
       "resolution_plan_fingerprint": "b0b80484ebe1c74ff94f90ee173107ff5741766f7d2221332c1a7b8326ef714c",
@@ -566,29 +566,29 @@
         {
           "covered_end_ns": "1766030400000000000",
           "covered_start_ns": "1765425600000000000",
-          "manifest_fingerprint": "8307b080f2678850abb675873a4b019673418690841c72ff6108013f952e08cd",
-          "manifest_id": "manifest:8307b080f2678850abb675873a4b019673418690841c72ff6108013f952e08cd",
-          "revision_fingerprint": "c45d51c842cea8d8f81b013c62d7de6141526dce520cef4c6648a4ed291c98c8",
-          "revision_id": "market-data-revision:c45d51c842cea8d8f81b013c62d7de6141526dce520cef4c6648a4ed291c98c8",
-          "seal_id": "seal:b8e871128fd5390ad549c57f86c0ca407ed34ed449cc0749dff828ad800b324c"
+          "manifest_fingerprint": "9fda1dc80f200cc68536334d2a618d82658bb40cd28cea0b39744948bd892148",
+          "manifest_id": "manifest:9fda1dc80f200cc68536334d2a618d82658bb40cd28cea0b39744948bd892148",
+          "revision_fingerprint": "2277ed001d2cf55f853b996b29e96472d847996055ca04b99fc65b8f4993fa56",
+          "revision_id": "market-data-revision:2277ed001d2cf55f853b996b29e96472d847996055ca04b99fc65b8f4993fa56",
+          "seal_id": "seal:474776a36747787b5bccf2f5a8fc1a38353c2c9558c910fe394dc2ebfe74267a"
         },
         {
           "covered_end_ns": "1766635200000000000",
           "covered_start_ns": "1766030400000000000",
-          "manifest_fingerprint": "786e8cc412e0544c454cc2ceb70a10f4e3bed43cbb96ccccf71a0afb3ae911a9",
-          "manifest_id": "manifest:786e8cc412e0544c454cc2ceb70a10f4e3bed43cbb96ccccf71a0afb3ae911a9",
-          "revision_fingerprint": "a2d65cb5a5eae573951a7d54d1d48859b8680e43825ea7fb16215282286189bb",
-          "revision_id": "market-data-revision:a2d65cb5a5eae573951a7d54d1d48859b8680e43825ea7fb16215282286189bb",
-          "seal_id": "seal:fb14ffcf4f46422d6819d153fc3602b135ef68707ef63bd66180bc044bb8c06b"
+          "manifest_fingerprint": "ad11d1f9bb9bdb2118dfd5b93279ac5581f68e757c4d5092854a016d489430ae",
+          "manifest_id": "manifest:ad11d1f9bb9bdb2118dfd5b93279ac5581f68e757c4d5092854a016d489430ae",
+          "revision_fingerprint": "2f30604294382f53e00db4f98d4cc95e2d1f4799307aac9cc1c9b28fbff143d6",
+          "revision_id": "market-data-revision:2f30604294382f53e00db4f98d4cc95e2d1f4799307aac9cc1c9b28fbff143d6",
+          "seal_id": "seal:dfbc3d8db0ddecddee673982f7460552b92df1cedd3b2a3dc6409bbea3011f1e"
         },
         {
           "covered_end_ns": "1767225600000000000",
           "covered_start_ns": "1766635200000000000",
-          "manifest_fingerprint": "4af8a6866c6be610c65c1c4d713e16bb6e208ff0425cf5beea5929b369da70b0",
-          "manifest_id": "manifest:4af8a6866c6be610c65c1c4d713e16bb6e208ff0425cf5beea5929b369da70b0",
-          "revision_fingerprint": "25f84ea0b1fcac8f5a9b170eb49f78b271c21e61b65f9af240a00902baeea138",
-          "revision_id": "market-data-revision:25f84ea0b1fcac8f5a9b170eb49f78b271c21e61b65f9af240a00902baeea138",
-          "seal_id": "seal:fe580bced4e2e8b601fb3eca9dec057560aa33bfe1d1570638a2f5972043f994"
+          "manifest_fingerprint": "b58f9453702a8ea8411b647e50e12686da2ebf192655d5d5d5e35c01400a5832",
+          "manifest_id": "manifest:b58f9453702a8ea8411b647e50e12686da2ebf192655d5d5d5e35c01400a5832",
+          "revision_fingerprint": "f4384aea676afa8df4b1d6574cdd5183763353bd65174170b889dabd7709708b",
+          "revision_id": "market-data-revision:f4384aea676afa8df4b1d6574cdd5183763353bd65174170b889dabd7709708b",
+          "seal_id": "seal:5f605c95c2e3f97b41b83822646d122ae7df9f25b53dc50e72bae24625141e8d"
         }
       ],
       "target_bar_count": 2000
@@ -36645,7 +36645,7 @@
     },
     "derived_projection_fingerprint": null,
     "display_symbol": "BTCUSDT",
-    "history_projection_fingerprint": "c01b027fea687819a8cf88570ea45899961e250da693882ded8702a4c191c877",
+    "history_projection_fingerprint": "0bc0b9d0bb41dcb28b3ace1c3785466f5612f0fbaf6877076c2c48dbe2173e07",
     "instrument_id": "BTCUSDT.BINANCE",
     "market": "SPOT",
     "requested_bar_count": 2000,
@@ -36660,29 +36660,29 @@
       {
         "covered_end_ns": "1766030400000000000",
         "covered_start_ns": "1765425600000000000",
-        "manifest_fingerprint": "8307b080f2678850abb675873a4b019673418690841c72ff6108013f952e08cd",
-        "manifest_id": "manifest:8307b080f2678850abb675873a4b019673418690841c72ff6108013f952e08cd",
-        "revision_fingerprint": "c45d51c842cea8d8f81b013c62d7de6141526dce520cef4c6648a4ed291c98c8",
-        "revision_id": "market-data-revision:c45d51c842cea8d8f81b013c62d7de6141526dce520cef4c6648a4ed291c98c8",
-        "seal_id": "seal:b8e871128fd5390ad549c57f86c0ca407ed34ed449cc0749dff828ad800b324c"
+        "manifest_fingerprint": "9fda1dc80f200cc68536334d2a618d82658bb40cd28cea0b39744948bd892148",
+        "manifest_id": "manifest:9fda1dc80f200cc68536334d2a618d82658bb40cd28cea0b39744948bd892148",
+        "revision_fingerprint": "2277ed001d2cf55f853b996b29e96472d847996055ca04b99fc65b8f4993fa56",
+        "revision_id": "market-data-revision:2277ed001d2cf55f853b996b29e96472d847996055ca04b99fc65b8f4993fa56",
+        "seal_id": "seal:474776a36747787b5bccf2f5a8fc1a38353c2c9558c910fe394dc2ebfe74267a"
       },
       {
         "covered_end_ns": "1766635200000000000",
         "covered_start_ns": "1766030400000000000",
-        "manifest_fingerprint": "786e8cc412e0544c454cc2ceb70a10f4e3bed43cbb96ccccf71a0afb3ae911a9",
-        "manifest_id": "manifest:786e8cc412e0544c454cc2ceb70a10f4e3bed43cbb96ccccf71a0afb3ae911a9",
-        "revision_fingerprint": "a2d65cb5a5eae573951a7d54d1d48859b8680e43825ea7fb16215282286189bb",
-        "revision_id": "market-data-revision:a2d65cb5a5eae573951a7d54d1d48859b8680e43825ea7fb16215282286189bb",
-        "seal_id": "seal:fb14ffcf4f46422d6819d153fc3602b135ef68707ef63bd66180bc044bb8c06b"
+        "manifest_fingerprint": "ad11d1f9bb9bdb2118dfd5b93279ac5581f68e757c4d5092854a016d489430ae",
+        "manifest_id": "manifest:ad11d1f9bb9bdb2118dfd5b93279ac5581f68e757c4d5092854a016d489430ae",
+        "revision_fingerprint": "2f30604294382f53e00db4f98d4cc95e2d1f4799307aac9cc1c9b28fbff143d6",
+        "revision_id": "market-data-revision:2f30604294382f53e00db4f98d4cc95e2d1f4799307aac9cc1c9b28fbff143d6",
+        "seal_id": "seal:dfbc3d8db0ddecddee673982f7460552b92df1cedd3b2a3dc6409bbea3011f1e"
       },
       {
         "covered_end_ns": "1767225600000000000",
         "covered_start_ns": "1766635200000000000",
-        "manifest_fingerprint": "4af8a6866c6be610c65c1c4d713e16bb6e208ff0425cf5beea5929b369da70b0",
-        "manifest_id": "manifest:4af8a6866c6be610c65c1c4d713e16bb6e208ff0425cf5beea5929b369da70b0",
-        "revision_fingerprint": "25f84ea0b1fcac8f5a9b170eb49f78b271c21e61b65f9af240a00902baeea138",
-        "revision_id": "market-data-revision:25f84ea0b1fcac8f5a9b170eb49f78b271c21e61b65f9af240a00902baeea138",
-        "seal_id": "seal:fe580bced4e2e8b601fb3eca9dec057560aa33bfe1d1570638a2f5972043f994"
+        "manifest_fingerprint": "b58f9453702a8ea8411b647e50e12686da2ebf192655d5d5d5e35c01400a5832",
+        "manifest_id": "manifest:b58f9453702a8ea8411b647e50e12686da2ebf192655d5d5d5e35c01400a5832",
+        "revision_fingerprint": "f4384aea676afa8df4b1d6574cdd5183763353bd65174170b889dabd7709708b",
+        "revision_id": "market-data-revision:f4384aea676afa8df4b1d6574cdd5183763353bd65174170b889dabd7709708b",
+        "seal_id": "seal:5f605c95c2e3f97b41b83822646d122ae7df9f25b53dc50e72bae24625141e8d"
       }
     ],
     "schema_version": 1,
