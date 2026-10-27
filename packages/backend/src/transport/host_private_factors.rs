@@ -6,7 +6,9 @@ use crate::security::{
     ingress::{self, Release},
 };
 use crate::transport::host::{Failure, Host, invalid, now};
-use crate::transport::wire::{PublishPrivateFactorRevisionDto, SavePrivateFactorDraftDto};
+use crate::transport::wire::{
+    PublishPrivateFactorRevisionDto, SavePrivateFactorDraftDto, UpdatePrivateFactorDisplayDto,
+};
 use axum::{
     Json,
     body::{Body, to_bytes},
@@ -99,9 +101,18 @@ impl Host {
                             id,
                             draft,
                             dto.expected_draft_fingerprint.as_deref(),
+                            dto.initial_display
+                                .map(serde_json::to_value)
+                                .transpose()
+                                .map_err(|_| invalid())?,
                             &now()?.to_string(),
                         )
                         .await?
+                }
+                (["api", "v2", "private-assets", "factors", id, "display"], Method::PUT) => {
+                    let dto: UpdatePrivateFactorDisplayDto =
+                        serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+                    store.update_display(&command,id,&dto.expected_display_fingerprint,serde_json::json!({"display_name":dto.display_name,"usage_summary":dto.usage_summary}),human.subject_id()?,&now()?.to_string()).await?
                 }
                 (["api", "v2", "private-assets", "factors", id, "revisions"], Method::POST) => {
                     let dto: PublishPrivateFactorRevisionDto =

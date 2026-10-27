@@ -17,6 +17,12 @@ ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicat
 
 Each complete capability carries its own Task Contract, independent expected behavior, fault/structural mutation tests, affected canonical lanes and bounded independent review. These dependencies do not waive current behavior, authorize placeholder implementations or grant a fallback path. The admitted Product Slice determines which API operations are available during the migration. Operations outside that slice are explicitly unimplemented in both the native API and Shipping Web; no capability is called migrated until its Rust owner actually serves the normal Product flow.
 
+Product names and readable versions follow [ADR 0143](adr/0143-product-names-display-versions-and-historical-labels.md) and
+[Product display identity](product-display-identity.md). Apply the Private Factor presentation slice first, then existing
+catalog/workspace consumers; capture submission labels when each native Research/Backtest flow is built. Do not build those
+deferred execution capabilities just to rename their placeholders. Follow the bounded [display migration sequence](repository-migration-work-program.md#product-display-migration)
+with eligible Python retirement, no old-development-data compatibility work and no new alias/version infrastructure.
+
 ## First native Shipping slice
 
 The 0.11.0 slice is the existing chart workstation: Source management and

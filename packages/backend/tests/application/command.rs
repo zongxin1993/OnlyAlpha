@@ -77,7 +77,7 @@ fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
 }
 #[test]
 fn all_existing_command_and_outcome_families_are_supported_without_new_identities() {
-    assert_eq!(CommandKind::ALL.len(), 22);
+    assert_eq!(CommandKind::ALL.len(), 23);
     for kind in CommandKind::ALL {
         assert_eq!(kind.as_str().parse::<CommandKind>().unwrap(), *kind);
     }

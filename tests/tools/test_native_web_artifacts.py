@@ -40,3 +40,11 @@ def test_selected_manifest_hash_is_checked_before_parsing_or_source_queries(tmp_
     path.write_text("not JSON")
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT_SELECTION_MISMATCH"):
         native_web_e2e.selected_artifact(tmp_path, tmp_path, "0" * 64)
+
+
+def test_factor_browser_does_not_take_shared_host_lifecycle_ownership():
+    spec = (native_web_e2e.ROOT / "packages/frontend/e2e/private-factor-authoring.spec.ts").read_text()
+    assert "node:child_process" not in spec, (
+        "the shared native Host belongs to the harness, not an individual browser test"
+    )
+    assert "/proc/" not in spec, "browser tests must not terminate or adopt the harness-owned Host"

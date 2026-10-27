@@ -1,5 +1,7 @@
+import { ContractEditor } from "./ContractEditor";
+import { inspectContract, type ContractKind } from "./contractForm";
 import { z } from "zod";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalReadCredentials } from "../../../app/providers";
 import {
     FactorAuthoringClient,
@@ -7,6 +9,7 @@ import {
     type FactorDraft,
     type FactorAuthoringState,
     type FactorAuthoringReceipt,
+    type FactorDisplayFields,
     type FactorAuthoringInventory
 } from "../../../api/privateAssets/authoring";
 const contracts = ["input_contract", "parameter_contract", "output_contract"] as const;
@@ -14,13 +17,13 @@ type Contracts = Record<(typeof contracts)[number], string>;
 interface Pending {
     id: string;
     factor: string;
-    kind: "SAVE" | "PUBLISH";
+    kind: "SAVE" | "PUBLISH" | "DISPLAY";
 }
 const pendingKey = "onlyalpha.private-factor.pending-command";
 const pendingSchema = z.strictObject({
     id: z.uuid().refine((value) => value[14] === "4"),
     factor: z.string().regex(/^private\.factor\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/),
-    kind: z.enum(["SAVE", "PUBLISH"])
+    kind: z.enum(["SAVE", "PUBLISH", "DISPLAY"])
 });
 function retainedCommand(): { command: Pending | null; error: string | null } {
     try {
@@ -65,7 +68,7 @@ function fromState(state: FactorAuthoringState, fingerprint?: string): FactorDra
         state.draft.base_revision_fingerprint === state.current_revision_fingerprint
     )
         return state.draft;
-    const current = state.revisions.at(-1);
+    const current = state.revisions.at(-1)?.revision;
     if (current === undefined) {
         if (state.draft !== null) return state.draft;
         if (fingerprint !== undefined) return initialDraft(state.factor_id, fingerprint);
@@ -90,17 +93,8 @@ function fromState(state: FactorAuthoringState, fingerprint?: string): FactorDra
 }
 function serialized(draft: FactorDraft, raw: Contracts): string {
     for (const key of contracts) {
-        const value: unknown = JSON.parse(raw[key]);
-        if (value === null || typeof value !== "object" || Array.isArray(value))
-            throw new Error("契约必须是 JSON 对象");
-        // Validate UI representability, but send original text so the backend also
-        // detects duplicate keys and preserves exact integer spelling.
-        const tokens =
-            raw[key]
-                .replace(/"(?:\\.|[^"\\])*"/g, '""')
-                .match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g) ?? [];
-        if (tokens.some((token) => /[.eE]/.test(token) || !Number.isSafeInteger(Number(token))))
-            throw new Error("契约数值只支持安全范围内的整数；小数请使用字符串");
+        const checked = inspectContract(raw[key]);
+        if (checked.error) throw new Error(checked.error);
     }
     return `{${Object.entries(draft)
         .map(
@@ -123,6 +117,23 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         output_contract: "{}"
     });
     const [tagsText, setTagsText] = useState("");
+    const [contractEpoch, setContractEpoch] = useState(0);
+    const [contractErrors, setContractErrors] = useState<Partial<Record<ContractKind, string>>>({});
+    const contractValidity = useCallback((kind: ContractKind, error: string) => {
+        setContractErrors((previous) =>
+            previous[kind] === error ? previous : { ...previous, [kind]: error }
+        );
+    }, []);
+    function resetContracts() {
+        setContractEpoch((epoch) => epoch + 1);
+        setContractErrors({});
+    }
+
+    const [names, setNames] = useState<FactorDisplayFields>({
+        display_name: "",
+        usage_summary: ""
+    });
+    const [draftExpected, setDraftExpected] = useState<string | null>(null);
     const [needsReload, setNeedsReload] = useState(false);
     const [busy, setBusy] = useState(false);
     const [retained] = useState(retainedCommand);
@@ -158,8 +169,14 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
             const value = await api.read(id);
             const draft = fromState(value, inventory?.factor_api_contract_fingerprint);
             setState(value);
+            setNames({
+                display_name: value.display.display_name,
+                usage_summary: value.display.usage_summary
+            });
+            setDraftExpected(value.draft_fingerprint);
             setDraft(draft);
             setRaw(edit(draft));
+            resetContracts();
             setTagsText(draft.tags.join(", "));
             setNeedsReload(false);
             setHistorical(null);
@@ -176,8 +193,11 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
             inventory.factor_api_contract_fingerprint
         );
         setState(null);
+        setNames(inventory.new_factor_defaults);
+        setDraftExpected(null);
         setDraft(draft);
         setRaw(edit(draft));
+        resetContracts();
         setTagsText(draft.tags.join(", "));
         setNeedsReload(false);
         setMessage("");
@@ -198,17 +218,29 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         if (!clearPending()) return;
         setError("");
         setMessage(
-            kind === "SAVE" ? "草稿已保存" : "Revision 已发布；仅保存作者内容，未验证或执行"
+            kind === "SAVE"
+                ? "草稿已保存"
+                : kind === "DISPLAY"
+                  ? "名称和用途已保存；内容版本未变"
+                  : "内容版本已发布；未验证或执行"
         );
         onChanged();
         try {
             // A historical accepted effect is not a query of the current head.
             const current = await api.read(value.factor_id);
             setState(current);
-            const editable = fromState(current, inventory?.factor_api_contract_fingerprint);
-            setDraft(editable);
-            setRaw(edit(editable));
-            setTagsText(editable.tags.join(", "));
+            setNames({
+                display_name: current.display.display_name,
+                usage_summary: current.display.usage_summary
+            });
+            if (kind !== "DISPLAY" || draft?.factor_id !== value.factor_id) {
+                const editable = fromState(current, inventory?.factor_api_contract_fingerprint);
+                setDraft(editable);
+                setDraftExpected(current.draft_fingerprint);
+                setRaw(edit(editable));
+                resetContracts();
+                setTagsText(editable.tags.join(", "));
+            }
             setNeedsReload(false);
             setHistorical(null);
         } catch {
@@ -226,19 +258,26 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         if (draft === null || pending !== null) return;
         setError("");
         setMessage("");
+        if (kind !== "DISPLAY" && Object.values(contractErrors).some(Boolean)) {
+            setError("请修正契约填写错误后保存或发布；名称和用途可独立保存。");
+            return;
+        }
         let body: string;
         try {
-            body = serialized(
-                {
-                    ...draft,
-                    tags: tagsText
-                        .split(/[,，]/)
-                        .map((value) => value.trim())
-                        .filter(Boolean)
-                        .sort()
-                },
-                raw
-            );
+            body =
+                kind === "DISPLAY"
+                    ? ""
+                    : serialized(
+                          {
+                              ...draft,
+                              tags: tagsText
+                                  .split(/[,，]/)
+                                  .map((value) => value.trim())
+                                  .filter(Boolean)
+                                  .sort()
+                          },
+                          raw
+                      );
         } catch (e) {
             setError(e instanceof Error ? e.message : "契约 JSON 无效");
             return;
@@ -254,25 +293,34 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         setBusy(true);
         try {
             const result =
-                kind === "SAVE"
-                    ? await api.save(
+                kind === "DISPLAY"
+                    ? await api.updateDisplay(
                           draft.factor_id,
                           command.id,
-                          state?.draft_fingerprint ?? null,
-                          body
+                          state?.display_fingerprint ?? "",
+                          names
                       )
-                    : await api.publish(
-                          draft.factor_id,
-                          command.id,
-                          state?.draft_fingerprint ?? ""
-                      );
+                    : kind === "SAVE"
+                      ? await api.save(
+                            draft.factor_id,
+                            command.id,
+                            draftExpected,
+                            body,
+                            state === null ? names : null
+                        )
+                      : await api.publish(
+                            draft.factor_id,
+                            command.id,
+                            state?.draft_fingerprint ?? ""
+                        );
             await accepted(result, kind);
         } catch (e) {
             if (e instanceof FactorAuthoringError && e.definitive) {
                 if (!clearPending()) return;
                 setError(
-                    e.code === "PRIVATE_FACTOR_DRAFT_CONFLICT"
-                        ? "草稿已被其他操作修改，请重新载入后编辑。当前输入仍保留。"
+                    e.code === "PRIVATE_FACTOR_DRAFT_CONFLICT" ||
+                        e.code === "PRIVATE_FACTOR_DISPLAY_CONFLICT"
+                        ? "内容或展示信息已被其他操作修改，请重新载入后编辑。当前输入仍保留。"
                         : e.code === "PRIVATE_ASSET_INVALID"
                           ? "内容无效：请检查版本、契约和值的格式，移除 NUL 控制字符；当前输入仍保留。"
                           : e.code
@@ -289,7 +337,7 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         setBusy(true);
         setError("");
         try {
-            const result = await api.command(pending.factor, pending.id);
+            const result = await api.command(pending.factor, pending.id, pending.kind);
             if (result === null) {
                 if (!clearPending()) return;
                 setMessage("原命令未被接纳，未自动重试；可继续手动编辑或保存。");
@@ -345,7 +393,7 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                         关闭
                     </button>
                 </header>
-                <p>保存草稿和发布 Revision 只管理作者内容，不运行代码或授予研究资格。</p>
+                <p>保存草稿和发布内容版本 只管理作者内容，不运行代码或授予研究资格。</p>
                 {busy && <p role="status">正在处理…</p>}
                 {error !== "" && <p role="alert">{error}</p>}
                 {message !== "" && <p role="status">{message}</p>}
@@ -380,10 +428,10 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                             void choose(item.factor_id);
                                         }}
                                     >
-                                        {item.description || "未命名因子"} ·{" "}
-                                        {item.current_revision_fingerprint === null
+                                        {item.display.display_name} ·{" "}
+                                        {item.current_display_version === null
                                             ? "草稿"
-                                            : "已发布"}
+                                            : `第 ${String(item.current_display_version)} 版`}
                                     </button>
                                 </li>
                             ))}
@@ -392,9 +440,10 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                     {draft !== null && (
                         <section aria-label="Factor 编辑器">
                             <form
+                                aria-label="名称和用途"
                                 onSubmit={(event) => {
                                     event.preventDefault();
-                                    void submit("SAVE");
+                                    void submit("DISPLAY");
                                 }}
                             >
                                 <fieldset disabled={blocked || needsReload}>
@@ -402,55 +451,105 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                         因子名称
                                         <input
                                             required
-                                            maxLength={200}
-                                            value={draft.description}
+                                            maxLength={100}
+                                            value={names.display_name}
                                             onChange={(event) => {
-                                                setDraft({
-                                                    ...draft,
-                                                    description: event.target.value
+                                                setNames({
+                                                    ...names,
+                                                    display_name: event.target.value
                                                 });
                                             }}
                                         />
                                     </label>
                                     <label>
-                                        语义版本
-                                        <input
-                                            required
-                                            pattern="[1-9][0-9]*"
-                                            value={draft.semantic_version}
-                                            onChange={(event) => {
-                                                setDraft({
-                                                    ...draft,
-                                                    semantic_version: event.target.value
-                                                });
-                                            }}
-                                        />
-                                    </label>
-                                    <label>
-                                        类别
-                                        <input
-                                            required
-                                            value={draft.category}
-                                            onChange={(event) => {
-                                                setDraft({
-                                                    ...draft,
-                                                    category: event.target.value
-                                                });
-                                            }}
-                                        />
-                                    </label>
-                                    <label>
-                                        经济依据
+                                        用途说明
                                         <textarea
-                                            value={draft.economic_rationale}
+                                            required
+                                            maxLength={1000}
+                                            value={names.usage_summary}
                                             onChange={(event) => {
-                                                setDraft({
-                                                    ...draft,
-                                                    economic_rationale: event.target.value
+                                                setNames({
+                                                    ...names,
+                                                    usage_summary: event.target.value
                                                 });
                                             }}
                                         />
                                     </label>
+                                    <p>名称和用途不改变计算内容或已发布版本。</p>
+                                    {state === null ? (
+                                        <p>首次保存草稿时一并保存名称和用途。</p>
+                                    ) : (
+                                        <button type="submit">保存名称和用途</button>
+                                    )}
+                                </fieldset>
+                            </form>
+                            <p>
+                                {state?.revisions.at(-1)
+                                    ? `当前第 ${String(state.revisions.at(-1)?.display_version)} 版；编辑内容需另行保存和发布。`
+                                    : "尚未发布内容版本"}
+                            </p>
+                            <form
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    void submit("SAVE");
+                                }}
+                            >
+                                <fieldset disabled={blocked || needsReload}>
+                                    <details>
+                                        <summary>版本技术信息</summary>
+                                        <label>
+                                            版本内容说明
+                                            <textarea
+                                                value={draft.description}
+                                                onChange={(event) => {
+                                                    setDraft({
+                                                        ...draft,
+                                                        description: event.target.value
+                                                    });
+                                                }}
+                                            />
+                                        </label>
+                                        <p>此说明随内容版本冻结，与当前名称、用途独立。</p>
+                                        <label>
+                                            语义版本
+                                            <input
+                                                required
+                                                pattern="[1-9][0-9]*"
+                                                value={draft.semantic_version}
+                                                onChange={(event) => {
+                                                    setDraft({
+                                                        ...draft,
+                                                        semantic_version: event.target.value
+                                                    });
+                                                }}
+                                            />
+                                        </label>
+                                        <label>
+                                            类别
+                                            <input
+                                                required
+                                                value={draft.category}
+                                                onChange={(event) => {
+                                                    setDraft({
+                                                        ...draft,
+                                                        category: event.target.value
+                                                    });
+                                                }}
+                                            />
+                                        </label>
+                                        <label>
+                                            经济依据
+                                            <textarea
+                                                value={draft.economic_rationale}
+                                                onChange={(event) => {
+                                                    setDraft({
+                                                        ...draft,
+                                                        economic_rationale: event.target.value
+                                                    });
+                                                }}
+                                            />
+                                        </label>
+                                    </details>
                                     <label>
                                         Python 源码
                                         <textarea
@@ -466,23 +565,23 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                             }}
                                         />
                                     </label>
-                                    {contracts.map((key, index) => (
-                                        <label key={key}>
-                                            {
-                                                ["输入契约 JSON", "参数契约 JSON", "输出契约 JSON"][
-                                                    index
-                                                ]
-                                            }
-                                            <textarea
-                                                spellCheck={false}
-                                                rows={3}
-                                                value={raw[key]}
-                                                onChange={(event) => {
-                                                    setRaw({ ...raw, [key]: event.target.value });
-                                                }}
-                                            />
-                                        </label>
+                                    {contracts.map((key) => (
+                                        <ContractEditor
+                                            key={`${draft.factor_id}:${String(contractEpoch)}:${key}`}
+                                            kind={key}
+                                            value={raw[key]}
+                                            onChange={(text) => {
+                                                setRaw((previous) => ({
+                                                    ...previous,
+                                                    [key]: text
+                                                }));
+                                            }}
+                                            onValidity={contractValidity}
+                                        />
                                     ))}
+                                    <p>
+                                        此处检查填写格式；保存或发布不代表源码已执行或计算结果已验证。
+                                    </p>
                                     <label>
                                         标签（逗号分隔）
                                         <input
@@ -495,12 +594,16 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                     <button type="submit">保存草稿</button>
                                     <button
                                         type="button"
-                                        disabled={dirty || state?.draft_fingerprint == null}
+                                        disabled={
+                                            dirty ||
+                                            Object.values(contractErrors).some(Boolean) ||
+                                            state?.draft_fingerprint == null
+                                        }
                                         onClick={() => {
                                             void submit("PUBLISH");
                                         }}
                                     >
-                                        发布 Revision
+                                        发布内容版本
                                     </button>
                                     {dirty && <p>有未保存的修改，请先保存草稿再发布。</p>}
                                 </fieldset>
@@ -527,21 +630,20 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                     >
                                         重新载入已保存内容
                                     </button>
-                                    <h3>Revision 历史</h3>
+                                    <h3>内容版本历史</h3>
                                     {state.revisions.length === 0 ? (
-                                        <p>尚未发布 Revision。</p>
+                                        <p>尚未发布内容版本。</p>
                                     ) : (
                                         <ol>
-                                            {state.revisions.map((item, index) => (
-                                                <li key={item.revision_fingerprint}>
+                                            {state.revisions.map((item) => (
+                                                <li key={item.revision.revision_fingerprint}>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
                                                             setHistorical(item);
                                                         }}
                                                     >
-                                                        查看 Revision {index + 1} ·{" "}
-                                                        {item.description}
+                                                        查看第 {item.display_version} 版
                                                     </button>
                                                 </li>
                                             ))}
@@ -550,13 +652,14 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
                                 </>
                             )}
                             {historical !== null && (
-                                <section aria-label="历史 Revision">
-                                    <h4>{historical.description}</h4>
-                                    <p>语义版本 {historical.semantic_version}</p>
-                                    <pre>{historical.source_text}</pre>
+                                <section aria-label="历史内容版本">
+                                    <h4>第 {historical.display_version} 版</h4>
+                                    <pre>{historical.revision.source_text}</pre>
                                     <details>
                                         <summary>精确身份</summary>
-                                        <code>{historical.revision_fingerprint}</code>
+                                        <p>算法语义版本 {historical.revision.semantic_version}</p>
+                                        <p>版本内容说明：{historical.revision.description}</p>
+                                        <code>{historical.revision.revision_fingerprint}</code>
                                     </details>
                                 </section>
                             )}

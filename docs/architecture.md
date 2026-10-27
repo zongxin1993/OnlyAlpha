@@ -619,6 +619,15 @@ validation, native Provider materialization and Runtime Generation integration u
 Private Factor authoring uses backend's native Private Asset Application and PostgreSQL adapter through the normal Shipping Web UI.
 [Private Factor authoring](private-factor-authoring.md) defines Draft concurrency, immutable Revision history and exact Command
 recovery. The global Command Admission/Receipt remains the sole acceptance Authority; authoring does not confer execution admission.
+[ADR 0144](adr/0144-private-factor-forms-and-lossless-contract-editing.md) specifies independent ordinary/advanced contract
+editing over those same objects; [the authoring architecture](private-factor-authoring.md#structured-contract-editing-target)
+owns its fields and lossless round-trip rules. This target UI change does not change contract or fingerprint semantics.
+
+[ADR 0143](adr/0143-product-names-display-versions-and-historical-labels.md) and
+[Product display identity](product-display-identity.md) separate mutable names/usage summaries from immutable content and exact
+identity. Backend derives private publication ordinals from verified history. Research/Backtest input labels are captured at
+submission; later current names are auxiliary and task titles remain editable. This is target design, with no legacy-data
+compatibility/backfill requirement and no change to current `description` fingerprint semantics.
 
 ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
 require a private checkout, editable install, wheel or package for DB-native authoring.

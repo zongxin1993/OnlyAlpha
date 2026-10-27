@@ -48,6 +48,10 @@ fn formal_authoring_routes_are_available_without_enabling_research_execution() {
     for (method, path) in [
         (http::Method::GET, "/api/v2/private-assets/factors"),
         (
+            http::Method::PUT,
+            "/api/v2/private-assets/factors/private.factor.momentum/display",
+        ),
+        (
             http::Method::GET,
             "/api/v2/private-assets/factors/private.factor.momentum",
         ),

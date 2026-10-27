@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
 from onlyalpha.canonical import only_canonical_fingerprint
 
 from .private import (
@@ -20,7 +21,6 @@ from .private import (
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,
 )
-from .private_factor_execution import ONLY_PRIVATE_FACTOR_API_V1
 
 _EXAMPLE_ID = re.compile(r"^(?:factor|strategy)\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 

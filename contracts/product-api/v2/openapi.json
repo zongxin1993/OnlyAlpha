@@ -4719,13 +4719,24 @@
       "PrivateFactorAuthoringEntryDto": {
         "additionalProperties": false,
         "properties": {
+          "current_display_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "current_revision_fingerprint": {
             "type": [
               "string",
               "null"
             ]
           },
-          "description": {
+          "display": {
+            "$ref": "#/components/schemas/PrivateFactorDisplayDto"
+          },
+          "display_fingerprint": {
             "type": "string"
           },
           "factor_id": {
@@ -4737,7 +4748,9 @@
         },
         "required": [
           "factor_id",
-          "description",
+          "display",
+          "display_fingerprint",
+          "current_display_version",
           "has_draft",
           "current_revision_fingerprint"
         ],
@@ -4758,12 +4771,16 @@
           "factor_api_version": {
             "$ref": "#/components/schemas/Version1"
           },
+          "new_factor_defaults": {
+            "$ref": "#/components/schemas/PrivateFactorDisplayFieldsDto"
+          },
           "schema_version": {
             "$ref": "#/components/schemas/Version1"
           }
         },
         "required": [
           "schema_version",
+          "new_factor_defaults",
           "factor_api_version",
           "factor_api_contract_fingerprint",
           "entries"
@@ -4797,11 +4814,35 @@
       "PrivateFactorAuthoringResultDto": {
         "additionalProperties": false,
         "properties": {
+          "display": {
+            "$ref": "#/components/schemas/PrivateFactorDisplayDto"
+          },
+          "display_fingerprint": {
+            "type": "string"
+          },
+          "display_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "draft": {
-            "$ref": "#/components/schemas/PrivateFactorDraftDto"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateFactorDraftDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "draft_fingerprint": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "revision": {
             "oneOf": [
@@ -4817,6 +4858,9 @@
         "required": [
           "draft",
           "draft_fingerprint",
+          "display",
+          "display_fingerprint",
+          "display_version",
           "revision"
         ],
         "type": "object"
@@ -4829,6 +4873,12 @@
               "string",
               "null"
             ]
+          },
+          "display": {
+            "$ref": "#/components/schemas/PrivateFactorDisplayDto"
+          },
+          "display_fingerprint": {
+            "type": "string"
           },
           "draft": {
             "oneOf": [
@@ -4851,7 +4901,7 @@
           },
           "revisions": {
             "items": {
-              "$ref": "#/components/schemas/PrivateFactorRevisionDto"
+              "$ref": "#/components/schemas/PrivateFactorPublishedRevisionDto"
             },
             "type": "array"
           },
@@ -4865,7 +4915,55 @@
           "current_revision_fingerprint",
           "draft",
           "draft_fingerprint",
-          "revisions"
+          "revisions",
+          "display",
+          "display_fingerprint"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorDisplayDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "edit_number": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "usage_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_id",
+          "display_name",
+          "usage_summary",
+          "edit_number"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorDisplayFieldsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "usage_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "usage_summary"
         ],
         "type": "object"
       },
@@ -4954,6 +5052,24 @@
           "economic_rationale",
           "category",
           "tags"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorPublishedRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/PrivateFactorRevisionDto"
+          }
+        },
+        "required": [
+          "display_version",
+          "revision"
         ],
         "type": "object"
       },
@@ -5353,10 +5469,21 @@
               "string",
               "null"
             ]
+          },
+          "initial_display": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateFactorDisplayFieldsDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "draft",
+          "initial_display",
           "expected_draft_fingerprint"
         ],
         "type": "object"
@@ -5906,6 +6033,26 @@
           "calendar_fingerprint",
           "resolution_plan_fingerprint",
           "resolution_mode"
+        ],
+        "type": "object"
+      },
+      "UpdatePrivateFactorDisplayDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "expected_display_fingerprint": {
+            "type": "string"
+          },
+          "usage_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "usage_summary",
+          "expected_display_fingerprint"
         ],
         "type": "object"
       },
@@ -10635,6 +10782,112 @@
                       "type": "null"
                     }
                   ]
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}/display": {
+      "put": {
+        "operationId": "private_factor_display_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePrivateFactorDisplayDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorAuthoringReceiptDto"
                 }
               }
             }

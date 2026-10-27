@@ -56,6 +56,30 @@ def call(probe: Path, factor_id: str, action: str, **values):
     return json.loads(result.stdout)
 
 
+def insert_display_fixture(db, factor_id):
+    # Explicit current-schema precondition, never inferred from old content.
+    import hashlib
+
+    value = {
+        "schema_version": 1,
+        "factor_id": factor_id,
+        "display_name": "Fixture",
+        "usage_summary": "Fixture metadata",
+        "edit_number": 1,
+    }
+    raw = json.dumps(
+        {"contract": "ONLYALPHA_PRIVATE_FACTOR_DISPLAY_V1", "display": value},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    pin = hashlib.sha256(raw.encode()).hexdigest()
+    db.execute(
+        "INSERT INTO private_factor_display(factor_id,payload,fingerprint,schema_version) VALUES(%s,%s::jsonb,%s,1)",
+        (factor_id, json.dumps(value), pin),
+    )
+
+
 def test_saved_draft_and_two_revisions_survive_fresh_processes_with_exact_command_replay(native_probe, database):
     factor_id = "private.factor.f" + uuid4().hex
     original = draft(factor_id)
@@ -77,8 +101,8 @@ def test_saved_draft_and_two_revisions_survive_fresh_processes_with_exact_comman
     call(native_probe, factor_id, "publish", expected=second["result"]["draft_fingerprint"])
     state = call(native_probe, factor_id, "read")
     assert len(state["revisions"]) == 2
-    assert state["revisions"][0] == first
-    assert state["current_revision_fingerprint"] == state["revisions"][1]["revision_fingerprint"]
+    assert state["revisions"][0] == {"display_version": 1, "revision": first}
+    assert state["current_revision_fingerprint"] == state["revisions"][1]["revision"]["revision_fingerprint"]
     assert call(native_probe, factor_id, "command", command_id=command) == saved
     assert call(native_probe, factor_id, "save", draft=original, expected=None, command_id=command) == saved
     assert call(native_probe, factor_id, "save", draft=changed, expected=None, command_id=command) == {
@@ -288,6 +312,7 @@ def test_history_capacity_rejection_preserves_last_readable_state(
     parent = None
     with psycopg.connect(database) as db:
         db.execute("INSERT INTO private_factor_asset(factor_id,schema_version) VALUES(%s,1)", (factor_id,))
+        insert_display_fixture(db, factor_id)
         for index in range(count):
             revision = {**value, "semantic_version": str(index + 1)}
             del revision["base_revision_fingerprint"]
@@ -331,6 +356,7 @@ def test_concurrent_creation_cannot_overflow_inventory_capacity(native_probe: Pa
         placeholders = [prefix + "_" + str(index) for index in range(199 - count)]
         for factor_id in placeholders:
             db.execute("INSERT INTO private_factor_asset(factor_id,schema_version) VALUES(%s,1)", (factor_id,))
+            insert_display_fixture(db, factor_id)
     barrier = Barrier(2)
     ids = ["private.factor.f" + uuid4().hex for _ in range(2)]
 
@@ -347,4 +373,238 @@ def test_concurrent_creation_cannot_overflow_inventory_capacity(native_probe: Pa
         assert len(inventory["entries"]) == 200
     finally:
         with psycopg.connect(database) as db:
+            db.execute("DELETE FROM private_factor_display WHERE factor_id=ANY(%s)", (placeholders,))
             db.execute("DELETE FROM private_factor_asset WHERE factor_id=ANY(%s)", (placeholders,))
+
+
+def test_display_defaults_rename_and_versions_preserve_exact_content(native_probe: Path, database: str) -> None:
+    factor_id = "private.factor.f" + uuid4().hex
+    original = draft(factor_id)
+    saved = call(native_probe, factor_id, "save", draft=original, expected=None)
+    initial = call(native_probe, factor_id, "read")
+    assert initial["display"]["display_name"] == "私有因子 1"
+    assert initial["display"]["usage_summary"] == "自定义计算；用途待完善。"
+    assert initial["display"]["edit_number"] == 1
+    assert initial["display"]["display_name"] != original["description"]
+    assert initial["revisions"] == []
+    published = call(native_probe, factor_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    first = published["result"]["revision"]
+    assert published["result"]["display_version"] == 1
+    before = call(native_probe, factor_id, "read")
+    command = str(uuid4())
+    changed = call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=before["display_fingerprint"],
+        display_name="收盘价动量",
+        usage_summary="观察价格变化",
+        command_id=command,
+    )
+    assert changed["result"]["display"]["display_name"] == "收盘价动量"
+    current = call(native_probe, factor_id, "read")
+    assert current["draft"] == before["draft"]
+    assert current["draft_fingerprint"] == before["draft_fingerprint"]
+    assert current["current_revision_fingerprint"] == first["revision_fingerprint"]
+    assert current["revisions"] == [{"display_version": 1, "revision": first}]
+    assert call(native_probe, factor_id, "command", command_id=command) == changed
+    assert (
+        call(
+            native_probe,
+            factor_id,
+            "display",
+            expected=before["display_fingerprint"],
+            display_name="收盘价动量",
+            usage_summary="观察价格变化",
+            command_id=command,
+        )
+        == changed
+    )
+    assert call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=before["display_fingerprint"],
+        display_name="stale",
+        usage_summary="stale",
+    ) == {"error": "PRIVATE_FACTOR_DISPLAY_CONFLICT"}
+    second_draft = {
+        **original,
+        "base_revision_fingerprint": first["revision_fingerprint"],
+        "source_text": str(original["source_text"]) + "# second\n",
+    }
+    second_saved = call(native_probe, factor_id, "save", draft=second_draft, expected=current["draft_fingerprint"])
+    second = call(native_probe, factor_id, "publish", expected=second_saved["result"]["draft_fingerprint"])
+    assert second["result"]["display_version"] == 2
+    final = call(native_probe, factor_id, "read")
+    assert final["display"] == current["display"]
+    assert final["revisions"][0] == {"display_version": 1, "revision": first}
+    assert final["revisions"][1]["display_version"] == 2
+    assert call(native_probe, factor_id, "command", command_id=command) == changed
+    with psycopg.connect(database) as db:
+        assert db.execute(
+            "SELECT payload->'input'->>'actor_id' FROM private_factor_authoring_outcome WHERE command_id=%s", (command,)
+        ).fetchone() == ("technical-test",)
+
+
+def test_display_concurrency_and_aba_do_not_reuse_stale_tokens(native_probe: Path, database: str) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    factor_id = "private.factor.f" + uuid4().hex
+    call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+    original = call(native_probe, factor_id, "read")
+    barrier = Barrier(2)
+
+    def rename(name):
+        barrier.wait(timeout=10)
+        return call(
+            native_probe,
+            factor_id,
+            "display",
+            expected=original["display_fingerprint"],
+            display_name=name,
+            usage_summary="用途",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        replies = list(pool.map(rename, ["名称 A", "名称 B"]))
+    assert sum("result" in reply for reply in replies) == 1
+    assert {r["error"] for r in replies if "error" in r} == {"PRIVATE_FACTOR_DISPLAY_CONFLICT"}
+    current = call(native_probe, factor_id, "read")
+    back = call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=current["display_fingerprint"],
+        display_name=original["display"]["display_name"],
+        usage_summary=original["display"]["usage_summary"],
+    )
+    assert back["result"]["display"]["edit_number"] == 3
+    assert back["result"]["display_fingerprint"] != original["display_fingerprint"]
+    assert call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=original["display_fingerprint"],
+        display_name="stale A",
+        usage_summary="用途",
+    ) == {"error": "PRIVATE_FACTOR_DISPLAY_CONFLICT"}
+
+
+def test_display_input_and_missing_metadata_never_fall_back_to_description(native_probe: Path, database: str) -> None:
+    factor_id = "private.factor.f" + uuid4().hex
+    call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+    initial = call(native_probe, factor_id, "read")
+    for name, summary in [("", "用途"), ("名称", "  "), ("x" * 101, "用途"), ("名称", "bad\0text")]:
+        assert call(
+            native_probe,
+            factor_id,
+            "display",
+            expected=initial["display_fingerprint"],
+            display_name=name,
+            usage_summary=summary,
+        ) == {"error": "PRIVATE_ASSET_INVALID"}
+    assert call(native_probe, factor_id, "read") == initial
+    with psycopg.connect(database) as db:
+        db.execute("DELETE FROM private_factor_display WHERE factor_id=%s", (factor_id,))
+    assert call(native_probe, factor_id, "read") == {"error": "PRIVATE_FACTOR_DISPLAY_UNAVAILABLE"}
+    assert call(native_probe, factor_id, "save", draft=draft(factor_id), expected=initial["draft_fingerprint"]) == {
+        "error": "PRIVATE_FACTOR_DISPLAY_UNAVAILABLE"
+    }
+
+
+def test_display_command_replay_and_failed_receipt_are_atomic(native_probe: Path, database: str) -> None:
+    factor_id = "private.factor.f" + uuid4().hex
+    call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+    initial = call(native_probe, factor_id, "read")
+    command = str(uuid4())
+    with psycopg.connect(database) as db:
+        db.execute(
+            "CREATE FUNCTION reject_display_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.command_kind='UPDATE_PRIVATE_FACTOR_DISPLAY' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$"
+        )
+        db.execute(
+            "CREATE TRIGGER reject_display_receipt BEFORE INSERT ON product_command_receipt FOR EACH ROW EXECUTE FUNCTION reject_display_receipt()"
+        )
+    try:
+        assert call(
+            native_probe,
+            factor_id,
+            "display",
+            expected=initial["display_fingerprint"],
+            display_name="New",
+            usage_summary="Summary",
+            command_id=command,
+        ) == {"error": "PRIVATE_ASSET_AUTHORITY_UNAVAILABLE"}
+        assert call(native_probe, factor_id, "read") == initial
+        assert call(native_probe, factor_id, "command", command_id=command) is None
+    finally:
+        with psycopg.connect(database) as db:
+            db.execute("DROP TRIGGER reject_display_receipt ON product_command_receipt")
+            db.execute("DROP FUNCTION reject_display_receipt()")
+    accepted = call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=initial["display_fingerprint"],
+        display_name="New",
+        usage_summary="Summary",
+        command_id=command,
+    )
+    assert (
+        call(
+            native_probe,
+            factor_id,
+            "display",
+            expected=initial["display_fingerprint"],
+            display_name="New",
+            usage_summary="Summary",
+            command_id=command,
+        )
+        == accepted
+    )
+    assert call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=initial["display_fingerprint"],
+        display_name="Different",
+        usage_summary="Summary",
+        command_id=command,
+    ) == {"error": "PRIVATE_FACTOR_COMMAND_CONFLICT"}
+    assert call(native_probe, factor_id, "read")["display"]["edit_number"] == 2
+
+
+def test_forked_history_never_gets_display_ordinals_or_accepts_rename(native_probe: Path, database: str) -> None:
+    import hashlib
+
+    factor_id = "private.factor.f" + uuid4().hex
+    saved = call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+    first = call(native_probe, factor_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+        "revision"
+    ]
+    before = call(native_probe, factor_id, "read")
+    orphan = {**first, "description": "another root"}
+    del orphan["revision_fingerprint"]
+    canonical = json.dumps(
+        {"contract": "ONLYALPHA_PRIVATE_FACTOR_REVISION_V1", **orphan},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    pin = hashlib.sha256(canonical.encode()).hexdigest()
+    orphan["revision_fingerprint"] = pin
+    with psycopg.connect(database) as db:
+        db.execute(
+            "INSERT INTO private_factor_revision(revision_fingerprint,factor_id,parent_revision_fingerprint,source_text,source_sha256,payload,schema_version) VALUES(%s,%s,NULL,%s,%s,%s::jsonb,1)",
+            (pin, factor_id, orphan["source_text"], orphan["source_sha256"], json.dumps(orphan)),
+        )
+    assert call(native_probe, factor_id, "read") == {"error": "PRIVATE_ASSET_CORRUPT"}
+    assert call(
+        native_probe,
+        factor_id,
+        "display",
+        expected=before["display_fingerprint"],
+        display_name="New",
+        usage_summary="Summary",
+    ) == {"error": "PRIVATE_ASSET_CORRUPT"}

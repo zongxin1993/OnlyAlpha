@@ -3343,8 +3343,43 @@ pub struct PrivateFactorDraftDto {
 strict_object!(PrivateFactorDraftDto);
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorDisplayFieldsDto {
+    pub display_name: String,
+    pub usage_summary: String,
+}
+strict_object!(PrivateFactorDisplayFieldsDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorDisplayDto {
+    pub schema_version: Version1,
+    pub factor_id: String,
+    pub display_name: String,
+    pub usage_summary: String,
+    pub edit_number: u64,
+}
+strict_object!(PrivateFactorDisplayDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct UpdatePrivateFactorDisplayDto {
+    pub display_name: String,
+    pub usage_summary: String,
+    pub expected_display_fingerprint: String,
+}
+strict_object!(UpdatePrivateFactorDisplayDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorPublishedRevisionDto {
+    pub display_version: u16,
+    pub revision: PrivateFactorRevisionDto,
+}
+strict_object!(PrivateFactorPublishedRevisionDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
 pub struct SavePrivateFactorDraftDto {
     pub draft: PrivateFactorDraftDto,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub initial_display: Option<PrivateFactorDisplayFieldsDto>,
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
     pub expected_draft_fingerprint: Option<String>,
@@ -3359,8 +3394,17 @@ strict_object!(PublishPrivateFactorRevisionDto);
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PrivateFactorAuthoringResultDto {
-    pub draft: PrivateFactorDraftDto,
-    pub draft_fingerprint: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft: Option<PrivateFactorDraftDto>,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft_fingerprint: Option<String>,
+    pub display: PrivateFactorDisplayDto,
+    pub display_fingerprint: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub display_version: Option<u16>,
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
     pub revision: Option<PrivateFactorRevisionDto>,
@@ -3389,14 +3433,20 @@ pub struct PrivateFactorAuthoringStateDto {
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
     pub draft_fingerprint: Option<String>,
-    pub revisions: Vec<PrivateFactorRevisionDto>,
+    pub revisions: Vec<PrivateFactorPublishedRevisionDto>,
+    pub display: PrivateFactorDisplayDto,
+    pub display_fingerprint: String,
 }
 strict_object!(PrivateFactorAuthoringStateDto);
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PrivateFactorAuthoringEntryDto {
     pub factor_id: String,
-    pub description: String,
+    pub display: PrivateFactorDisplayDto,
+    pub display_fingerprint: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub current_display_version: Option<u16>,
     pub has_draft: bool,
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
@@ -3407,6 +3457,7 @@ strict_object!(PrivateFactorAuthoringEntryDto);
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PrivateFactorAuthoringInventoryDto {
     pub schema_version: Version1,
+    pub new_factor_defaults: PrivateFactorDisplayFieldsDto,
     pub factor_api_version: Version1,
     pub factor_api_contract_fingerprint: String,
     pub entries: Vec<PrivateFactorAuthoringEntryDto>,

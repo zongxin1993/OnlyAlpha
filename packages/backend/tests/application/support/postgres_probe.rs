@@ -494,10 +494,12 @@ async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) 
                     id,
                     request["draft"].clone(),
                     request["expected"].as_str(),
+                    (!request["initial_display"].is_null()).then(||request["initial_display"].clone()),
                     request["accepted_at"].as_str().unwrap(),
                 )
                 .await
         }
+        "display"=>store.update_display(&command,id,request["expected"].as_str().unwrap(),json!({"display_name":request["display_name"],"usage_summary":request["usage_summary"]}),"technical-test",request["accepted_at"].as_str().unwrap()).await,
         "publish" => {
             store
                 .publish(

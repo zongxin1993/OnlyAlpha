@@ -88,6 +88,7 @@ text_enum!(CommandKind, InvalidCommandKind, {
     PublishIntegrationRevision => "PUBLISH_INTEGRATION_REVISION", SetIntegrationLifecycle => "SET_INTEGRATION_LIFECYCLE",
     CreateChartCalculation => "CREATE_CHART_CALCULATION", SaveWatchlists => "SAVE_WATCHLISTS", SaveWorkspace => "SAVE_WORKSPACE",
     SavePrivateFactorDraft => "SAVE_PRIVATE_FACTOR_DRAFT", PublishPrivateFactorRevision => "PUBLISH_PRIVATE_FACTOR_REVISION",
+    UpdatePrivateFactorDisplay => "UPDATE_PRIVATE_FACTOR_DISPLAY",
 });
 text_enum!(OutcomeKind, InvalidOutcomeKind, {
     ResearchRun => "RESEARCH_RUN", Strategy => "STRATEGY", StrategyPromotion => "STRATEGY_PROMOTION",

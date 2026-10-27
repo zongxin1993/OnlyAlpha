@@ -131,6 +131,9 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
+    parser.add_argument(
+        "--restart-check", action="store_true", help="Repeat selected browser checks after a fully drained Host restart"
+    )
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--artifact-sha256")
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
@@ -245,137 +248,154 @@ def main() -> int:
         ONLYALPHA_CLICKHOUSE_PASSWORD=os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
     selected_artifact(ROOT, resources, selected_sha)
-    started = time.monotonic()
-    events: queue.Queue[bytes] = queue.Queue()
-    with (output / "native.log").open("wb") as log:
-        child = subprocess.Popen(
-            [str(executable), "--user-data-root", str(data)],
-            env=env,
-            stdout=log,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-        assert child.stderr is not None
 
-        def read_errors() -> None:
-            assert child.stderr is not None
-            for line in child.stderr:
-                log.write(line)
-                log.flush()
-                events.put(line)
-            events.put(b"")
-
-        reader = threading.Thread(target=read_errors, name="native-host-stderr")
-        reader.start()
-
-        def interrupted(number: int, _frame: object) -> None:
-            if child.poll() is None:
-                os.killpg(child.pid, signal.SIGTERM)
-            raise InterruptedError(f"native browser verification interrupted by {number}")
-
-        previous = {number: signal.signal(number, interrupted) for number in (signal.SIGTERM, signal.SIGINT)}
-        try:
-            version = build_version = json.loads((resources / "manifest.json").read_text())["version"]
-            while True:
-                remaining = 20 - (time.monotonic() - started)
-                if remaining <= 0:
-                    raise TimeoutError("Native Host did not report actual READY within startup budget")
-                line = events.get(timeout=remaining)
-                if not line:
-                    raise RuntimeError("Native Host exited before READY")
-                if line.decode().strip() == f"NATIVE_WORKSTATION_READY version={version}":
-                    break
-            (output / "startup.json").write_text(
-                json.dumps(
-                    {
-                        "version": build_version,
-                        "ready_seconds": time.monotonic() - started,
-                        "pid": child.pid,
-                        "resources": str(resources),
-                        "operation_id": operation,
-                    },
-                    indent=2,
-                )
+    def run_host(phase: str) -> int:
+        phase_output = output if phase == "initial" else output / "after-restart"
+        phase_output.mkdir(exist_ok=True)
+        started = time.monotonic()
+        events: queue.Queue[bytes] = queue.Queue()
+        with (phase_output / "native.log").open("wb") as log:
+            child = subprocess.Popen(
+                [str(executable), "--user-data-root", str(data)],
+                env=env,
+                stdout=log,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
             )
-            assert sorted(path.name for path in wal_parent.iterdir()) == sorted(wal_locations)
-            for location in wal_locations:
-                wal_directory = wal_parent / location / "wal"
-                # Only the real owning Wal::from_directory creates this lock.
-                # This proves traversal rather than a skip of unknown labels.
-                writer_lock = wal_directory / ".writer.lock"
-                assert writer_lock.is_file() and not writer_lock.is_symlink()
-                assert writer_lock.read_bytes() == b""
-                assert {path.name for path in wal_directory.iterdir()} == {".writer.lock"}
-            (output / "wal-recovery-locations.json").write_text(json.dumps(wal_locations) + "\n")
-            result = 0
-            results = {}
-            if not args.contract_fuzz or args.tests:
-                browser = subprocess.run(
-                    [
-                        "npm",
-                        "exec",
-                        "--",
-                        "playwright",
-                        "test",
-                        "--workers=1",
-                        *args.tests,
-                        *(["--grep", args.grep] if args.grep else []),
-                    ],
-                    cwd=ROOT / "packages/frontend",
-                    env={
-                        **os.environ,
-                        "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
-                        "PLAYWRIGHT_OUTPUT_DIR": str(output / "browser"),
-                    },
-                )
-                result = browser.returncode
-                results["browser"] = result
-                (output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
-            if args.contract_fuzz:
-                from scripts.native_contract_fuzz import run_contract_fuzz
+            assert child.stderr is not None
 
-                fuzz = run_contract_fuzz(executable, output, ROOT)
-                results["contract_fuzz"] = fuzz
-                result = result or fuzz
-            (output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
-        finally:
-            for number, handler in previous.items():
-                signal.signal(number, handler)
-            if child.poll() is None:
-                child.send_signal(signal.SIGTERM)
+            def read_errors() -> None:
+                assert child.stderr is not None
+                for line in child.stderr:
+                    log.write(line)
+                    log.flush()
+                    events.put(line)
+                events.put(b"")
+
+            reader = threading.Thread(target=read_errors, name="native-host-stderr")
+            reader.start()
+
+            def interrupted(number: int, _frame: object) -> None:
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGTERM)
+                raise InterruptedError(f"native browser verification interrupted by {number}")
+
+            previous = {number: signal.signal(number, interrupted) for number in (signal.SIGTERM, signal.SIGINT)}
             try:
-                child.wait(timeout=20)
-            except subprocess.TimeoutExpired as error:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
-                raise RuntimeError("Native Host did not drain after SIGTERM") from error
-            finally:
-                reader.join(timeout=5)
-                if reader.is_alive():
-                    raise RuntimeError("Native stderr owner did not drain")
-                remaining_processes = []
-                for entry in Path("/proc").iterdir():
-                    if entry.name.isdigit():
-                        try:
-                            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
-                            if int(fields[2]) == child.pid:
-                                remaining_processes.append(int(entry.name))
-                        except (FileNotFoundError, ProcessLookupError):
-                            continue
-                (output / "process-drain.json").write_text(
+                version = build_version = json.loads((resources / "manifest.json").read_text())["version"]
+                while True:
+                    remaining = 20 - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise TimeoutError("Native Host did not report actual READY within startup budget")
+                    line = events.get(timeout=remaining)
+                    if not line:
+                        raise RuntimeError("Native Host exited before READY")
+                    if line.decode().strip() == f"NATIVE_WORKSTATION_READY version={version}":
+                        break
+                (phase_output / "startup.json").write_text(
                     json.dumps(
-                        {"pid": child.pid, "exit": child.returncode, "remaining_process_group": remaining_processes},
+                        {
+                            "version": build_version,
+                            "ready_seconds": time.monotonic() - started,
+                            "pid": child.pid,
+                            "resources": str(resources),
+                            "operation_id": operation,
+                        },
                         indent=2,
                     )
                 )
-                if remaining_processes:
+                assert sorted(path.name for path in wal_parent.iterdir()) == sorted(wal_locations)
+                for location in wal_locations:
+                    wal_directory = wal_parent / location / "wal"
+                    # Only the real owning Wal::from_directory creates this lock.
+                    # This proves traversal rather than a skip of unknown labels.
+                    writer_lock = wal_directory / ".writer.lock"
+                    assert writer_lock.is_file() and not writer_lock.is_symlink()
+                    assert writer_lock.read_bytes() == b""
+                    assert {path.name for path in wal_directory.iterdir()} == {".writer.lock"}
+                (phase_output / "wal-recovery-locations.json").write_text(json.dumps(wal_locations) + "\n")
+                result = 0
+                results = {}
+                if not args.contract_fuzz or args.tests:
+                    browser = subprocess.run(
+                        [
+                            "npm",
+                            "exec",
+                            "--",
+                            "playwright",
+                            "test",
+                            "--workers=1",
+                            *args.tests,
+                            *(["--grep", args.grep] if args.grep else []),
+                        ],
+                        cwd=ROOT / "packages/frontend",
+                        env={
+                            **os.environ,
+                            "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
+                            "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                            "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
+                            "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
+                        },
+                    )
+                    result = browser.returncode
+                    results["browser"] = result
+                    (phase_output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
+                if args.contract_fuzz:
+                    from scripts.native_contract_fuzz import run_contract_fuzz
+
+                    fuzz = run_contract_fuzz(executable, output, ROOT)
+                    results["contract_fuzz"] = fuzz
+                    result = result or fuzz
+                (phase_output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
+            finally:
+                for number, handler in previous.items():
+                    signal.signal(number, handler)
+                if child.poll() is None:
+                    child.send_signal(signal.SIGTERM)
+                try:
+                    child.wait(timeout=20)
+                except subprocess.TimeoutExpired as error:
                     os.killpg(child.pid, signal.SIGKILL)
-                    raise RuntimeError("Native process group did not drain")
-                ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
-    if child.returncode != 0:
-        raise RuntimeError("Native Host failed its owned lifecycle")
-    selected_artifact(ROOT, resources, selected_sha)
-    return result
+                    child.wait()
+                    raise RuntimeError("Native Host did not drain after SIGTERM") from error
+                finally:
+                    reader.join(timeout=5)
+                    if reader.is_alive():
+                        raise RuntimeError("Native stderr owner did not drain")
+                    remaining_processes = []
+                    for entry in Path("/proc").iterdir():
+                        if entry.name.isdigit():
+                            try:
+                                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                                if int(fields[2]) == child.pid:
+                                    remaining_processes.append(int(entry.name))
+                            except (FileNotFoundError, ProcessLookupError):
+                                continue
+                    (phase_output / "process-drain.json").write_text(
+                        json.dumps(
+                            {
+                                "pid": child.pid,
+                                "exit": child.returncode,
+                                "remaining_process_group": remaining_processes,
+                            },
+                            indent=2,
+                        )
+                    )
+                    if remaining_processes:
+                        os.killpg(child.pid, signal.SIGKILL)
+                        raise RuntimeError("Native process group did not drain")
+        if child.returncode != 0:
+            raise RuntimeError("Native Host failed its owned lifecycle")
+        selected_artifact(ROOT, resources, selected_sha)
+        return result
+
+    try:
+        result = run_host("initial")
+        if result == 0 and args.restart_check:
+            result = run_host("restored")
+        return result
+    finally:
+        ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
 
 
 if __name__ == "__main__":

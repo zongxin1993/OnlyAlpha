@@ -676,6 +676,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/private-assets/factors/{factor_id}/display": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["private_factor_display_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/private-assets/factors/{factor_id}/draft": {
         parameters: {
             query?: never;
@@ -2636,8 +2652,11 @@ export interface components {
             tags: string[];
         };
         PrivateFactorAuthoringEntryDto: {
+            /** Format: int32 */
+            current_display_version: number | null;
             current_revision_fingerprint: string | null;
-            description: string;
+            display: components["schemas"]["PrivateFactorDisplayDto"];
+            display_fingerprint: string;
             factor_id: string;
             has_draft: boolean;
         };
@@ -2645,6 +2664,7 @@ export interface components {
             entries: components["schemas"]["PrivateFactorAuthoringEntryDto"][];
             factor_api_contract_fingerprint: string;
             factor_api_version: components["schemas"]["Version1"];
+            new_factor_defaults: components["schemas"]["PrivateFactorDisplayFieldsDto"];
             schema_version: components["schemas"]["Version1"];
         };
         PrivateFactorAuthoringReceiptDto: {
@@ -2654,17 +2674,35 @@ export interface components {
             schema_version: components["schemas"]["Version1"];
         };
         PrivateFactorAuthoringResultDto: {
-            draft: components["schemas"]["PrivateFactorDraftDto"];
-            draft_fingerprint: string;
+            display: components["schemas"]["PrivateFactorDisplayDto"];
+            display_fingerprint: string;
+            /** Format: int32 */
+            display_version: number | null;
+            draft: components["schemas"]["PrivateFactorDraftDto"] | null;
+            draft_fingerprint: string | null;
             revision: components["schemas"]["PrivateFactorRevisionDto"] | null;
         };
         PrivateFactorAuthoringStateDto: {
             current_revision_fingerprint: string | null;
+            display: components["schemas"]["PrivateFactorDisplayDto"];
+            display_fingerprint: string;
             draft: components["schemas"]["PrivateFactorDraftDto"] | null;
             draft_fingerprint: string | null;
             factor_id: string;
-            revisions: components["schemas"]["PrivateFactorRevisionDto"][];
+            revisions: components["schemas"]["PrivateFactorPublishedRevisionDto"][];
             schema_version: components["schemas"]["Version1"];
+        };
+        PrivateFactorDisplayDto: {
+            display_name: string;
+            /** Format: int64 */
+            edit_number: number;
+            factor_id: string;
+            schema_version: components["schemas"]["Version1"];
+            usage_summary: string;
+        };
+        PrivateFactorDisplayFieldsDto: {
+            display_name: string;
+            usage_summary: string;
         };
         PrivateFactorDraftDto: {
             base_revision_fingerprint: string | null;
@@ -2687,6 +2725,11 @@ export interface components {
             semantic_version: string;
             source_text: string;
             tags: string[];
+        };
+        PrivateFactorPublishedRevisionDto: {
+            /** Format: int32 */
+            display_version: number;
+            revision: components["schemas"]["PrivateFactorRevisionDto"];
         };
         PrivateFactorRevisionDto: {
             category: string;
@@ -2770,6 +2813,7 @@ export interface components {
         SavePrivateFactorDraftDto: {
             draft: components["schemas"]["PrivateFactorDraftDto"];
             expected_draft_fingerprint: string | null;
+            initial_display: components["schemas"]["PrivateFactorDisplayFieldsDto"] | null;
         };
         SaveWatchlistsDto: {
             command_id: string;
@@ -2901,6 +2945,11 @@ export interface components {
             source_kind: components["schemas"]["TemporaryMarketDataSourceKind"];
             source_selection: components["schemas"]["MarketDataSourceSelectionDto"];
             window_fingerprint: string;
+        };
+        UpdatePrivateFactorDisplayDto: {
+            display_name: string;
+            expected_display_fingerprint: string;
+            usage_summary: string;
         };
         /** @enum {integer} */
         Version0: 0;
@@ -6215,6 +6264,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrivateFactorAuthoringReceiptDto"] | null;
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    private_factor_display_update: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                factor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePrivateFactorDisplayDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateFactorAuthoringReceiptDto"];
                 };
             };
             400: {

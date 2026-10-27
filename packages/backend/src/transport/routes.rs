@@ -82,6 +82,7 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(private_factor_authoring_inventory))
  .routes(routes!(private_factor_authoring_state))
  .routes(routes!(private_factor_draft_save))
+ .routes(routes!(private_factor_display_update))
  .routes(routes!(private_factor_revision_publish))
  .routes(routes!(private_factor_authoring_command))
  .routes(routes!(browse_current_private_assets_v2))
@@ -1213,6 +1214,14 @@ async fn private_factor_authoring_state(
     request: Request<Body>,
 ) -> Response {
     verify::<PrivateFactorAuthoringStateDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(put, path = "/api/v2/private-assets/factors/{factor_id}/display", operation_id = "private_factor_display_update", tag = "private-factor-authoring", security(("LocalDeveloperCookie" = [])), params(("factor_id" = String, Path),("Idempotency-Key" = String, Header)), request_body = UpdatePrivateFactorDisplayDto, responses((status = 200, body = PrivateFactorAuthoringReceiptDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_factor_display_update(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<PrivateFactorAuthoringReceiptDto>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(put, path = "/api/v2/private-assets/factors/{factor_id}/draft", operation_id = "private_factor_draft_save", tag = "private-factor-authoring", security(("LocalDeveloperCookie" = [])), params(("factor_id" = String, Path),("Idempotency-Key" = String, Header)), request_body = SavePrivateFactorDraftDto, responses((status = 200, body = PrivateFactorAuthoringReceiptDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]

@@ -39,6 +39,62 @@ UI check does not discharge them. Private Factor authoring is constructed before
 following the Product dependency map and [Private Factor authoring](private-factor-authoring.md). This clarifies dependency order,
 not completion or a waiver of any gate.
 
+## Product display migration
+
+[ADR 0143](adr/0143-product-names-display-versions-and-historical-labels.md) records the accepted decision;
+[Product display identity](product-display-identity.md) owns its terms, boundaries and rules. The following sequence refines
+the Product capability phases above; it is not a completion ledger or a new acceptance Authority. It authorizes no code
+changes by itself. Each implementation slice still freezes its own Task Contract under AGENTS.md.
+
+| Stage | Deliverable and dependency | Acceptance at that boundary |
+|---|---|---|
+| D1 — Private Factor presentation | Audit the existing Rust writer, version-bound description and current consumers; implement owning current display metadata, meaningful defaults, API/DTOs and the existing Shipping editor together. Derive the display ordinal from verified history; preserve current content identity. | Normal UI creates an object with usable defaults, renames/edits its summary and retains changes after reload/restart. Object ID, existing Revision/source/API fingerprints and publication count stay unchanged. Stale concurrent rename fails explicitly; accepted Command replay does not apply another update. Two content publications keep stable ordinals after rename/filtering; incomplete/forked history is unavailable, not renumbered. Source/parameter-contract edits still follow content publication. No raw ID input is required. |
+| D2 — Existing catalog and workspace surfaces | Reuse D1's presentation rules for installed Indicator/public Factor defaults, explicit Product type overrides and per-instance workspace labels. Touch only existing native catalog/workspace consumers and their actual owning stores. | Two instances of the same algorithm with different parameters remain distinguishable; a custom label survives restore without changing algorithm identity or numeric output. Plugin declarations/bytes remain unchanged. Reordering/filtering cannot change version labels. Technical IDs remain discoverable; missing/denied/loading states stay explicit. No new public calculation or execution capability is claimed. |
+| D3 — Native task titles and submission snapshots | Include names/usage summaries and coherent exact-input name/version capture in each actual native Research or Backtest admission slice. D1/D2 establish label ownership; each task's existing semantic/admission prerequisites still govern execution. | Through normal Shipping UI submit with input name A, rename the object to B, then reopen/restart and view the result: A is primary, B is optional current context, and exact Revision/configuration/Dataset/result pins are unchanged. A concurrent rename cannot mix unbound snapshot fields. Rename the task title independently; accepted submission retry preserves the original snapshot. Unavailable current-name lookup does not substitute latest input or hide the recorded name. Published report bytes stay unchanged. Missing required new-model snapshots fail closed. |
+| D4 — Direct-consumer closure and eligible Python deletion | At each earlier stage migrate its real callers and useful independent assertions, delete replaced Python business/import/export/packaging paths as soon as retirement conditions are met. After the last affected surface, review remaining raw-fingerprint-primary presentation and current description-as-name coupling. | No current caller/build/install/discovery path depends on a deleted implementation. Necessary algorithm SDK/AST/math helpers remain. No Python business proxy, duplicate name Authority, browser-generated ordinal, name-based execution lookup or speculative extension survives. The affected UI paths and direct consumers pass; this does not trigger a whole-repository cleanup or full test workflow. |
+
+D1 is a complete small Product slice and need not wait for all D2/D3 work. Private Strategy display metadata and its authoring
+Revision ordinals follow the same rules when the actual native Strategy authoring slice is delivered; D1 does not implement
+Strategy authoring or assign publication ordinals to arbitrary frozen Strategy history. D3 is delivered with the real native task flow,
+not with a mock task service or placeholder-page rewrite. Do not expand a task to all Research/Generation/Backtest lifecycles
+solely to satisfy display planning. These stages add no services, crates, alias registry, second version ledger, dev runner,
+release/cache framework or automatic deployment. They do not replace the existing Rust migration dependency order.
+
+This active-development cutover excludes old-row/name initialization from current descriptions, historical name-snapshot
+backfill, old-schema/DTO compatibility, legacy loaders, identity translation, old-version execution and rolling-upgrade matrix
+work. Implement the chosen current model directly. Any necessary disposable dev rebuild is explicit and coordinated under
+AGENTS.md; no test or normal startup silently resets, migrates or rebinds business data. This is not authority to rewrite
+existing fingerprints, mutate retained immutable facts or weaken new-model history/recovery. No reset is performed by this
+documentation task.
+
+Verification follows actual impact: D1's metadata/identity/history/Command/API/editor checks; D2's affected plugin-description,
+catalog and workspace consumers; D3's owning task admission, snapshot/recovery and result/report consumers. Run the nearest
+affected canonical checks and real Shipping UI path through the single `onlyalpha-dev` entry. Keep hermetic error/concurrency
+and current-model restart proofs, preserve guards and use bounded independent review where required. Do not run unrelated
+Kernel/Research/Backtest suites, full-repo coverage or release matrices for a display-only slice. This document-only stage
+requires link/reference, Constitution and bounded architecture review; it requires no business test run or code migration.
+
+### Private Factor contract-form follow-up
+
+[ADR 0144](adr/0144-private-factor-forms-and-lossless-contract-editing.md) refines the existing D1 authoring surface after its
+name/usage/version boundary. [Structured contract editing](private-factor-authoring.md#structured-contract-editing-target)
+owns the agreed fields, defaults, validation and lossless-round-trip acceptance cases. This sequence is a dependency plan,
+not a completion claim or an authorization to change executable code in the documentation task. It does not replace D2/D3
+or expand into their native execution capabilities.
+
+| Step | Bounded deliverable | Proof before proceeding / closure |
+|---|---|---|
+| D1-F1 — Lossless editing boundary | Audit current three contract objects, ordinary representable subset and actual mapping consumers; specify the minimal per-section projection/patch behavior in the existing frontend. Keep Rust storage/API/identity unchanged. | Deterministic no-op/edit-revert vectors for omitted/explicit flags, nullable spellings, required/default combinations, unknown/nested content and exact numbers. Projection cannot drop fields or coerce values; unsupported sections retain advanced editing. No new generic schema engine, endpoints or tools. This technical prerequisite alone is not Product closure. |
+| D1-F2 — Shipping forms | Integrate 所需数据 / 可调参数 / 计算结果, their documented new-object/new-row defaults, local errors and independent advanced controls into the current authoring dialog. Reuse Save/Publish and name/usage paths. | Through ordinary Web navigation create/edit/save/reload/publish without entering JSON for common structures. Exercise each complex section independently and show confirmed required/default companion edits. Existing content/display CAS, UNKNOWN recovery and unsaved text survive. Type/format checks are never presented as source/execution validation. |
+| D1-F3 — Direct-consumer closure | Complete the owning architecture's acceptance cases with backend-observed identities and real UI/dogfooding; remove only superseded editor code whose consumers have moved. | No-op round trips and revert retain exact canonical content; true content edits use existing publication rules and leave old Revisions exact. Error/unknown-field/numeric and accessibility/narrow-viewport cases pass. No remaining direct consumer depends on removed UI code; Python algorithm/business code is not deleted merely because input widgets changed. |
+
+Deliver these steps as one coherent bounded Product change; do not defer UI until an unrelated backend rewrite. Verification
+covers the edited editor/client/projection tests and directly affected API/authoring consumers only. Preserve guards and
+required identity/concurrency/recovery proof; run real Shipping UI through the sole dev environment. No full-repository suite,
+new runner, compatibility framework, Kernel migration, automatic deployment or unrelated Python cleanup follows from this plan.
+The present documentation change requires Constitution consistency, direct-reference review and bounded independent review,
+not runtime tests, a dev refresh or code migration.
+
 ## Implementation procedure at each stable boundary
 
 Read Constitution, owning contracts/ADRs and current checkout/callers first. Freeze Required Behavior and name the exact source,

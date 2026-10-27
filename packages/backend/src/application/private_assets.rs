@@ -1,6 +1,7 @@
 //! Private Asset metadata and authoring content. No authoring, registration, execution
 //! or Research authority follows from a published authoring Revision.
 pub mod authoring;
+pub mod display;
 use crate::application::source_access::Session;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -18,12 +19,16 @@ pub enum Error {
     CommandConflict,
     DraftConflict,
     CommandUnknown,
+    DisplayConflict,
+    DisplayUnavailable,
 }
 impl Error {
     pub fn code(self) -> &'static str {
         match self {
             Self::CommandConflict => "PRIVATE_FACTOR_COMMAND_CONFLICT",
             Self::DraftConflict => "PRIVATE_FACTOR_DRAFT_CONFLICT",
+            Self::DisplayConflict => "PRIVATE_FACTOR_DISPLAY_CONFLICT",
+            Self::DisplayUnavailable => "PRIVATE_FACTOR_DISPLAY_UNAVAILABLE",
             Self::CommandUnknown => "PRIVATE_FACTOR_COMMAND_UNKNOWN",
             Self::Invalid => "PRIVATE_ASSET_INVALID",
             Self::Corrupt => "PRIVATE_ASSET_CORRUPT",

@@ -19,6 +19,20 @@ Inspector surfaces remain target design.
 
 ## 1. Product role
 
+[ADR 0143](adr/0143-product-names-display-versions-and-historical-labels.md) and the owning
+[display identity architecture](product-display-identity.md) govern future name/version presentation across these surfaces.
+Primary UI uses names, purpose, readable version and status; exact fingerprints remain available under technical details.
+Historical inputs show submission-time labels first and current names separately; task title edits do not rewrite inputs or
+Evidence. Backend owns display metadata and publication ordinals. This target rule is not an assertion that the legacy P8
+Research flows described below are native Shipping capabilities. The development cutover introduces no old-data fallback or
+snapshot backfill.
+
+Private Factor contract authoring follows [ADR 0144](adr/0144-private-factor-forms-and-lossless-contract-editing.md) and
+[its owning editor architecture](private-factor-authoring.md#structured-contract-editing-target): ordinary 所需数据 / 可调参数 /
+计算结果 forms, independently advanced JSON for complex sections, and lossless no-op/edit-revert behavior. The form is a
+presentation/editing projection of existing contracts, not a new schema or browser Authority. Required/default controls stay
+independent and storage validation does not certify execution. This is target behavior, not a current Shipping completion claim.
+
 OnlyAlpha Web is a **Scientific Quant Workstation**.
 
 Its job is to let a user move through a repeatable quantitative workflow:
