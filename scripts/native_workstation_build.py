@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import release_inputs
 from scripts.build_algorithm_sdk import install
 from scripts.dev_verification import CUT_METADATA, source_inputs
 from scripts.native_http_contract import native_executable
@@ -51,7 +53,7 @@ def verify_artifacts(
     if not isinstance(manifest, dict):
         raise ValueError("NATIVE_ARTIFACT_INPUT_MISMATCH")
     if (
-        set(manifest)
+        (set(manifest) - {"release_inputs"})
         != {
             "schema_version",
             "version",
@@ -68,6 +70,10 @@ def verify_artifacts(
         or manifest["build_environment"] != BUILD_ENVIRONMENT
     ):
         raise ValueError("NATIVE_ARTIFACT_INPUT_MISMATCH")
+    if "release_inputs" in manifest:
+        release_inputs.verify_receipt(manifest["release_inputs"], inputs)
+        if manifest["release_inputs"]["versions"].get("backend") != version:
+            raise ValueError("RELEASE_INPUT_BACKEND_VERSION_MISMATCH")
     if (
         not isinstance(manifest["algorithm_artifact"], str)
         or len(manifest["algorithm_artifact"]) != 64
@@ -85,12 +91,19 @@ def verify_artifacts(
     return manifest
 
 
-def build(directory: Path) -> dict[str, Any]:
+def build(
+    directory: Path, *, release_input_path: Path | None = None, release_input_sha256: str | None = None
+) -> dict[str, Any]:
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     cut = json.loads((ROOT / CUT_METADATA).read_text())
     inputs = source_inputs(ROOT)
     if cut["operation_id"] != operation or cut["inputs"] != inputs or directory.exists() or not directory.is_absolute():
         raise ValueError("NATIVE_BUILD_FROZEN_INPUT_REQUIRED")
+    if (release_input_path is None) != (release_input_sha256 is None):
+        raise ValueError("RELEASE_INPUT_EXPLICIT_SELECTION_REQUIRED")
+    selection = None
+    if release_input_path is not None and release_input_sha256 is not None:
+        selection = release_inputs.verify(ROOT, release_input_path, release_input_sha256)
     directory.mkdir(parents=True)
     (directory / "bin").mkdir()
     shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
@@ -118,14 +131,22 @@ def build(directory: Path) -> dict[str, Any]:
         "algorithm_artifact": artifact,
         "files": _files(directory),
     }
+    if release_input_path is not None and release_input_sha256 is not None:
+        if release_inputs.verify(ROOT, release_input_path, release_input_sha256) != selection:
+            raise ValueError("RELEASE_INPUT_CHANGED_DURING_BUILD")
+        manifest["release_inputs"] = selection
     (directory / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     verify_artifacts(directory, inputs, version)
     return manifest
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--release-inputs", type=Path)
+    parser.add_argument("--release-inputs-sha256")
+    args = parser.parse_args()
     directory = ROOT / "test-results/native-workstation" / os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
-    manifest = build(directory)
+    manifest = build(directory, release_input_path=args.release_inputs, release_input_sha256=args.release_inputs_sha256)
     print(
         json.dumps(
             {

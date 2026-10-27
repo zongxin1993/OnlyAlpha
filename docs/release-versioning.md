@@ -110,6 +110,25 @@ version_sync.py release-selection --context-file release-context.json
 version_sync.py check-transition --base-ref EXACT_BASE --context-file release-context.json
 ```
 
+The native builder also accepts a minimal, explicit input selection. In the frozen dev tool environment, generate a candidate
+with `python scripts/release_inputs.py candidate /workspace/test-results/selected-inputs.json`. It exclusively creates that
+file and prints its SHA-256. Review/select the digest separately, then check with
+`python scripts/release_inputs.py check /workspace/test-results/selected-inputs.json --sha256 SELECTED_SHA256`, or pass the same
+file and digest to `scripts/native_workstation_build.py --release-inputs PATH --release-inputs-sha256 SELECTED_SHA256`.
+All commands run through `scripts/dev_verification.py run -- ...`; use test-results for generated inputs so they never enter
+their own source inventory. A changed working tree requires a newly reviewed selection; the builder does not refresh it.
+
+This preflight binds the complete non-secret frozen source inventory, discovered independent versions, Cargo/uv/npm locks,
+pinned Rust toolchain, native target, release profile, default feature selection and explicit Web build environment. Missing,
+changed, extra or unsupported selected inputs fail before creating the artifact directory; inputs are checked again after
+construction. The existing artifact manifest stores the selected digest, versions and build recipe, reusing its source inventory
+instead of adding a second source or version ledger. Ordinary dev builds omit the selection and make no release-input claim.
+
+The candidate is a build-input selection, not proof that its libraries/plugins have already been published, a signature,
+or certification of a frontend/backend API pair. Independent released source-bundle provenance, executable publication and
+the phase-6 install/start/activation proofs remain necessary for formal release composition. This conservative preflight
+currently selects the complete source tree; it does not yet allow unrelated tree changes while reusing a selected bundle.
+
 `set` edits the selected unit/projections and incoming dependency pins, then refreshes `uv.lock`; it is a source-edit operation,
 not a command to run against the read-only formal source cut. PR checks separately validate locks and graph. The trusted mainline
 publisher derives named source Releases from exact first-parent version changes; no change produces no Release. It preserves

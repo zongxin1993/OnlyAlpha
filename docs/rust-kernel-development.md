@@ -91,7 +91,11 @@ python scripts/dev_verification.py --rebuild prepare
 python scripts/dev_verification.py run -- python scripts/test_suite.py rust-kernel
 ```
 
-Rebuild only for changed toolchain/dependency/environment inputs. Rust source edits reuse the image. The formal entry freezes source
+Rebuild only for changed toolchain/dependency/environment inputs. Rust source edits reuse the image. The formal entry verifies the
+previous frozen inventory before reusing unchanged files with their existing timestamps and read-only permissions, so Cargo and
+TypeScript can retain their incremental state. Changed bytes or execution permissions refresh the affected file; final inventory,
+source-change, Git, lifecycle and mount guards remain required. This is file reuse, never reuse of a test result for changed inputs.
+The formal entry freezes source
 and serializes shared dev verification. Build output is under ignored `test-results/rust-kernel/target`, never inside frozen source;
 no host Cargo directory or Rust installation is used. The canonical `rust-kernel` check is also a required Linux CI job.
 

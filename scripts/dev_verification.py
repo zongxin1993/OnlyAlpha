@@ -220,13 +220,18 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False, resea
     cut.mkdir(parents=True, exist_ok=True)
     for name, digest in inputs.items():
         source, target = root / name, cut / name
+        mode = source.stat().st_mode & 0o555
+        # The whole previous cut was verified above. Reuse its bytes and mtime
+        # only after that guard; final inventories still detect live changes.
+        if previous.get("inputs", {}).get(name) == digest and target.stat().st_mode & 0o777 == mode:
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".dev-copy")
         shutil.copyfile(source, temporary)
         if hashlib.sha256(temporary.read_bytes()).hexdigest() != digest:
             temporary.unlink()
             raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
-        temporary.chmod(source.stat().st_mode & 0o555)
+        temporary.chmod(mode)
         temporary.replace(target)
     # These are mountpoints, not mutable source. Their writable mounts are checked
     # separately; build artifacts and dependency caches never enter the source cut.

@@ -32,6 +32,51 @@ def _environment(root: Path) -> None:
         path.write_text("input")
 
 
+@pytest.mark.parametrize("product", [False, True])
+def test_freeze_reuses_verified_unchanged_source_without_touching_build_inputs(tmp_path: Path, product: bool) -> None:
+    _environment(tmp_path)
+    dev_verification.freeze_source(tmp_path, "first", product=product)
+    cut = tmp_path / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
+    target = cut / "pyproject.toml"
+    os.utime(target, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+    before = target.stat()
+    dev_verification.freeze_source(tmp_path, "unchanged", product=product)
+    assert (target.stat().st_ino, target.stat().st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert target.stat().st_mode & 0o777 == 0o444
+    (tmp_path / "pyproject.toml").write_text("changed")
+    dev_verification.freeze_source(tmp_path, "changed", product=product)
+    assert target.read_text() == "changed"
+    (tmp_path / "pyproject.toml").chmod(0o755)
+    dev_verification.freeze_source(tmp_path, "executable", product=product)
+    assert target.stat().st_mode & 0o777 == 0o555
+
+
+def test_freeze_cache_still_rejects_tampering_and_concurrent_source_changes(tmp_path: Path, monkeypatch) -> None:
+    _environment(tmp_path)
+    dev_verification.freeze_source(tmp_path, "first", product=True)
+    target = tmp_path / ".test-cache/dev-product-source/pyproject.toml"
+    target.chmod(0o644)
+    target.write_text("tampered")
+    with pytest.raises(ValueError, match="SOURCE_CUT_MODIFIED"):
+        dev_verification.freeze_source(tmp_path, "tampered", product=True)
+    target.write_text("input")
+    original = dev_verification.source_inputs
+    calls = 0
+
+    def mutate_after_inventory(root: Path) -> dict[str, str]:
+        nonlocal calls
+        result = original(root)
+        if root == tmp_path:
+            calls += 1
+            if calls == 1:
+                (root / "pyproject.toml").write_text("concurrent change")
+        return result
+
+    monkeypatch.setattr(dev_verification, "source_inputs", mutate_after_inventory)
+    with pytest.raises(ValueError, match="SOURCE_CHANGED_DURING_CAPTURE"):
+        dev_verification.freeze_source(tmp_path, "concurrent", product=True)
+
+
 def test_source_edits_reuse_environment_but_dependency_edits_require_rebuild(tmp_path: Path) -> None:
     _environment(tmp_path)
     admitted = dev_verification.environment_inputs(tmp_path)

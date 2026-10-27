@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts import native_workstation_build, release_inputs
+from scripts.dev_verification import CUT_METADATA, source_inputs
 from scripts.native_workstation_build import verify_artifacts, web_environment
 
 
@@ -63,3 +65,41 @@ def test_shipping_assets_build_with_explicit_cookie_session_inputs() -> None:
         {"PATH": "/tools", "VITE_ONLYALPHA_LOCAL_SESSION": "false", "VITE_TOKEN": "unbound", "NODE_ENV": "development"}
     )
     assert environment == {"PATH": "/tools", "VITE_ONLYALPHA_LOCAL_SESSION": "true", "NODE_ENV": "production"}
+
+
+def test_native_build_checks_selected_inputs_before_creating_any_artifact(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "Cargo.lock").write_text("locked")
+    (root / CUT_METADATA).write_text(json.dumps({"operation_id": "test", "inputs": source_inputs(root)}))
+    monkeypatch.setattr(native_workstation_build, "ROOT", root)
+    monkeypatch.setenv("ONLYALPHA_DEV_VERIFICATION_OPERATION_ID", "test")
+    destination = tmp_path / "artifact"
+    with pytest.raises(ValueError, match="RELEASE_INPUT"):
+        native_workstation_build.build(
+            destination, release_input_path=tmp_path / "missing.json", release_input_sha256="a" * 64
+        )
+    assert not destination.exists()
+
+
+def test_native_artifact_retains_and_checks_selected_release_receipt(tmp_path: Path) -> None:
+    inputs = _artifact(tmp_path)
+    path = tmp_path / "manifest.json"
+    manifest = json.loads(path.read_text())
+    selected = {
+        "schema_version": 1,
+        "source_inputs": inputs,
+        "versions": {"backend": "0.11.0", "libs": "0.10.0", "frontend": "0.9.0"},
+        "build": {"profile": "release"},
+    }
+    manifest["release_inputs"] = {
+        "sha256": hashlib.sha256(release_inputs.encode(selected)).hexdigest(),
+        "versions": selected["versions"],
+        "build": selected["build"],
+    }
+    path.write_text(json.dumps(manifest))
+    assert verify_artifacts(tmp_path, inputs, "0.11.0")["release_inputs"]["versions"]["libs"] == "0.10.0"
+    manifest["release_inputs"]["versions"]["libs"] = "0.10.1"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="RELEASE_INPUT"):
+        verify_artifacts(tmp_path, inputs, "0.11.0")
