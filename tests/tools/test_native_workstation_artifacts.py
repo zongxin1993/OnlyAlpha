@@ -82,6 +82,22 @@ def test_native_build_checks_selected_inputs_before_creating_any_artifact(tmp_pa
     assert not destination.exists()
 
 
+def test_native_build_requires_dependency_artifacts_for_a_release_selection(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / CUT_METADATA).write_text(json.dumps({"operation_id": "test", "inputs": {}}))
+    monkeypatch.setattr(native_workstation_build, "ROOT", root)
+    monkeypatch.setenv("ONLYALPHA_DEV_VERIFICATION_OPERATION_ID", "test")
+    # A standalone preliminary receipt cannot masquerade as a dependency-locked build.
+    monkeypatch.setattr(release_inputs, "verify", lambda *args, **kwargs: {"sha256": "a" * 64})
+    destination = tmp_path / "artifact"
+    with pytest.raises(ValueError, match="RELEASE_INPUT_SOURCE_SELECTION_REQUIRED"):
+        native_workstation_build.build(
+            destination, release_input_path=tmp_path / "inputs.json", release_input_sha256="a" * 64
+        )
+    assert not destination.exists()
+
+
 def test_native_artifact_retains_and_checks_selected_release_receipt(tmp_path: Path) -> None:
     inputs = _artifact(tmp_path)
     path = tmp_path / "manifest.json"

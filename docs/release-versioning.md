@@ -124,10 +124,55 @@ changed, extra or unsupported selected inputs fail before creating the artifact 
 construction. The existing artifact manifest stores the selected digest, versions and build recipe, reusing its source inventory
 instead of adding a second source or version ledger. Ordinary dev builds omit the selection and make no release-input claim.
 
-The candidate is a build-input selection, not proof that its libraries/plugins have already been published, a signature,
-or certification of a frontend/backend API pair. Independent released source-bundle provenance, executable publication and
-the phase-6 install/start/activation proofs remain necessary for formal release composition. This conservative preflight
-currently selects the complete source tree; it does not yet allow unrelated tree changes while reusing a selected bundle.
+### Per-unit immutable source inputs
+
+`release_sources.py UNIT EXACT_COMMIT OUTPUT.zip [--tag UNIT-vX.Y.Z]` creates a source artifact from that exact committed
+tree, never the current uncommitted files. Raw Git tree/blob reads bypass archive export attributes and disable object
+replacements; blob object identities are verified. UNIT uses the existing manifest-derived release-unit names. Named tags are optional;
+when supplied, the tag must already exist, match the unit/version and resolve to the exact commit. The tool never creates tags,
+fetches, publishes or overwrites artifacts. A commit-only source artifact is a candidate, not proof of a published Release.
+
+The ZIP uses sorted entries, fixed metadata/timestamps and no compression. Its canonical manifest records the unit/version,
+commit/tag, file hashes and exact execution bits. Same inputs yield identical bytes. Consumption verifies the selected SHA-256,
+canonical archive, complete payload and actual frozen unit source; it never extracts archive paths into the working tree.
+Links, duplicate/escaping paths, missing/extra payload and same-version source drift fail closed.
+
+Unit content follows actual workspace members: libraries include their crate trees, literal compile-time resources/vectors,
+Gateway source protocols and the existing Gateway/timezone generator tools; a plugin includes its own distribution tree;
+frontend includes its own package tree. Backend includes its Rust/Python constituent tree, the SDK files declared by the actual
+SDK builder, schema/contract inputs and the build tools it uses. Root LICENSE is shared. Rust units bind inherited workspace
+semantics, excluding the workspace member list and, outside libs, the library version. Pure Python plugins/frontend do not
+inherit Rust semantics. Dynamic Rust includes are refused pending explicit closure design; existing Rust source guards remain.
+
+Root manifests, Cargo/uv/npm locks and pinned toolchain are retained as original-build context in each source artifact.
+The current composition independently binds its actual locks, profiles and environment through the full frozen build-input
+selection. Reusing library source does not silently replace current locks with an old bundle's locks. Backend-only changes
+can generate a new build selection while retaining the exact same library/plugin artifacts; version equality never substitutes
+for content equality. Source identity includes the canonical unit inventory; the ZIP digest also binds original context/origin.
+
+For a dependency-locked native build, provide an operational JSON file to `--source-bundles` in candidate, check and builder:
+
+```json
+{
+  "libs": {"path": "libs.zip", "sha256": "SELECTED_SHA256"},
+  "plugin-binance": {"path": "binance.zip", "sha256": "SELECTED_SHA256"},
+  "plugin-tushare": {"path": "tushare.zip", "sha256": "SELECTED_SHA256"},
+  "plugin-indicators": {"path": "indicators.zip", "sha256": "SELECTED_SHA256"}
+}
+```
+
+Paths are locators, relative to that JSON file or absolute; they are not semantic identity and are not copied into the artifact
+receipt. Required units derive from backend's declared Rust normal/build dependency closure and the internal Python executor's
+plugin requirements; undeclared local Rust dependencies, omitted or extra units are rejected. No per-worker package/registry
+is introduced. Keep generated ZIP/selection files under `test-results` when using the frozen dev environment.
+
+The native builder requires this complete source selection whenever `--release-inputs` is used. Preliminary candidate/check
+without source bundles remains only a whole-tree input preflight; ordinary dev builds omit both options. Before artifact
+creation and after building, the selected source bytes/origin and the whole frozen build inputs must agree. Existing artifact
+manifests retain each selected ZIP/content digest, unit version and commit/tag alongside the build receipt and artifact hashes.
+
+These tools do not certify published provenance, a frontend/backend API pair, install/start/activation or supported history.
+Those phase-6 proofs and authorized executable publication remain separate. No ordinary build activates a Generation or LIVE.
 
 `set` edits the selected unit/projections and incoming dependency pins, then refreshes `uv.lock`; it is a source-edit operation,
 not a command to run against the read-only formal source cut. PR checks separately validate locks and graph. The trusted mainline

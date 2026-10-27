@@ -92,18 +92,28 @@ def verify_artifacts(
 
 
 def build(
-    directory: Path, *, release_input_path: Path | None = None, release_input_sha256: str | None = None
+    directory: Path,
+    *,
+    release_input_path: Path | None = None,
+    release_input_sha256: str | None = None,
+    source_bundles_path: Path | None = None,
 ) -> dict[str, Any]:
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     cut = json.loads((ROOT / CUT_METADATA).read_text())
     inputs = source_inputs(ROOT)
     if cut["operation_id"] != operation or cut["inputs"] != inputs or directory.exists() or not directory.is_absolute():
         raise ValueError("NATIVE_BUILD_FROZEN_INPUT_REQUIRED")
-    if (release_input_path is None) != (release_input_sha256 is None):
+    if (release_input_path is None) != (release_input_sha256 is None) or (
+        source_bundles_path is not None and release_input_path is None
+    ):
         raise ValueError("RELEASE_INPUT_EXPLICIT_SELECTION_REQUIRED")
     selection = None
     if release_input_path is not None and release_input_sha256 is not None:
-        selection = release_inputs.verify(ROOT, release_input_path, release_input_sha256)
+        selection = release_inputs.verify(
+            ROOT, release_input_path, release_input_sha256, source_bundles=source_bundles_path
+        )
+        if source_bundles_path is None or not selection.get("sources"):
+            raise ValueError("RELEASE_INPUT_SOURCE_SELECTION_REQUIRED")
     directory.mkdir(parents=True)
     (directory / "bin").mkdir()
     shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
@@ -132,7 +142,10 @@ def build(
         "files": _files(directory),
     }
     if release_input_path is not None and release_input_sha256 is not None:
-        if release_inputs.verify(ROOT, release_input_path, release_input_sha256) != selection:
+        if (
+            release_inputs.verify(ROOT, release_input_path, release_input_sha256, source_bundles=source_bundles_path)
+            != selection
+        ):
             raise ValueError("RELEASE_INPUT_CHANGED_DURING_BUILD")
         manifest["release_inputs"] = selection
     (directory / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
@@ -144,9 +157,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-inputs", type=Path)
     parser.add_argument("--release-inputs-sha256")
+    parser.add_argument("--source-bundles", type=Path)
     args = parser.parse_args()
     directory = ROOT / "test-results/native-workstation" / os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
-    manifest = build(directory, release_input_path=args.release_inputs, release_input_sha256=args.release_inputs_sha256)
+    manifest = build(
+        directory,
+        release_input_path=args.release_inputs,
+        release_input_sha256=args.release_inputs_sha256,
+        source_bundles_path=args.source_bundles,
+    )
     print(
         json.dumps(
             {
