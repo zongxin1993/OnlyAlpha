@@ -33,6 +33,12 @@ do not publish an intermediate candidate with incoherent old/new release rules. 
 are selected against actual published history at implementation time, not invented here. No automatic commit, merge, push or
 publication is authorized by this plan.
 
+The current workstation's release composition can be validated independently of not-yet-native Research/Generation roles.
+Keep phase-5/6 claim/drain/new-work rollback obligations attached to the capabilities that consume them; a build or workstation
+UI check does not discharge them. Private Factor authoring is constructed before its Research/Generation execution consumers,
+following the Product dependency map and [Private Factor authoring](private-factor-authoring.md). This clarifies dependency order,
+not completion or a waiver of any gate.
+
 ## Implementation procedure at each stable boundary
 
 Read Constitution, owning contracts/ADRs and current checkout/callers first. Freeze Required Behavior and name the exact source,

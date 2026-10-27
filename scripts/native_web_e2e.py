@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import queue
 import signal
 import socket
@@ -13,8 +14,8 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 import uuid
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,86 @@ def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any
         raise ValueError("NATIVE_ARTIFACT_SELECTION_MISMATCH")
     backend, frontend = product_versions(root)
     return verify_artifacts(directory, source_inputs(root), backend, frontend_version=frontend, manifest_sha256=digest)
+
+
+def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Existing authoring facts for read-only tests, created by their Rust owner.
+
+    Never use this precondition for the authoring UI's creation/publication goal.
+    """
+    from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
+    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
+
+    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
+    output = ROOT / "test-results/rust-kernel/target"
+    environment = compiler_environment(os.environ, output)
+    environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
+    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--frozen",
+            "--offline",
+            "--target",
+            target,
+            "-j1",
+            "-p",
+            "onlyalpha-backend",
+            "--example",
+            "command-postgres-probe",
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=True,
+    )
+    probe = output / target / "debug/examples/command-postgres-probe"
+
+    def command(action: str, **values: Any) -> dict[str, Any]:
+        request = {
+            "op": "factor-authoring",
+            "action": action,
+            "factor_id": factor_id,
+            "command_id": str(uuid.uuid4()),
+            "accepted_at": "2026-10-27T00:00:00Z",
+            **values,
+        }
+        response = subprocess.run(
+            [str(probe)], input=json.dumps(request), text=True, capture_output=True, check=True, timeout=20
+        )
+        value = json.loads(response.stdout)
+        if not isinstance(value, dict) or "error" in value:
+            raise ValueError("NATIVE_METADATA_PRECONDITION_FAILED")
+        return value
+
+    draft: dict[str, Any] = {
+        "schema_version": 1,
+        "factor_id": factor_id,
+        "base_revision_fingerprint": None,
+        "semantic_version": "1",
+        "source_text": "def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
+        "factor_api_version": 1,
+        "factor_api_contract_fingerprint": ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
+        "input_contract": {"close": {"type": "DECIMAL"}},
+        "parameter_contract": {},
+        "output_contract": {"value": {"type": "DECIMAL"}},
+        "description": "Retained native metadata",
+        "economic_rationale": "Explicit saved hypothesis",
+        "category": "test",
+        "tags": ["native"],
+    }
+    saved = command("save", draft=draft, expected=None)
+    first = command("publish", expected=saved["result"]["draft_fingerprint"])["result"]["revision"]
+    draft.update(
+        {
+            "semantic_version": "2",
+            "base_revision_fingerprint": first["revision_fingerprint"],
+            "source_text": "def calculate(api, inputs, parameters):\n    return {'value': inputs['close'] * 2}\n",
+        }
+    )
+    saved = command("save", draft=draft, expected=saved["result"]["draft_fingerprint"])
+    current = command("publish", expected=saved["result"]["draft_fingerprint"])["result"]["revision"]
+    return first, current
 
 
 def main() -> int:
@@ -113,43 +194,11 @@ def main() -> int:
     )
     (output / "algorithm-artifact.sha256").write_text(artifact + "\n")
     executable = resources / "bin/onlyalpha-backend"
-    # Existing immutable authoring metadata is a read-only UI precondition. The
-    # test's user goal is discovery/inspection, not Factor authoring or execution.
-    from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
-    from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
-    from onlyalpha.quant_assets.private import OnlyPrivateFactorAsset, OnlyPrivateFactorDraft
-
-    assets = OnlyPostgresPrivateAssetStore(dsn)
-    factor_id = "private.factor.native_metadata"
-    assets.put_factor_asset(OnlyPrivateFactorAsset(factor_id))
-    draft = OnlyPrivateFactorDraft(
-        factor_id=factor_id,
-        semantic_version="1",
-        source_text="def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
-        factor_api_version=1,
-        factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
-        input_contract={"close": {"type": "DECIMAL"}},
-        parameter_contract={},
-        output_contract={"value": {"type": "DECIMAL"}},
-        description="Retained native metadata",
-        economic_rationale="Explicit saved hypothesis",
-        category="test",
-        tags=("native",),
-    )
-    assets.save_factor_draft(draft)
-    _, revision = assets.publish_factor_revision(factor_id)
-    # Two existing immutable revisions prove exact reads never substitute the head.
-    assets.save_factor_draft(
-        replace(
-            draft,
-            semantic_version="2",
-            source_text="def calculate(api, inputs, parameters):\n    return {'value': inputs['close'] * 2}\n",
-            base_revision_fingerprint=revision.revision_fingerprint,
-        )
-    )
-    _, current = assets.publish_factor_revision(factor_id)
+    # Retained metadata is a separate precondition; authoring tests create their
+    # own Assets and Revisions exclusively through the normal Shipping UI.
+    revision, current = seed_private_metadata("private.factor.native_metadata")
     (output / "private-metadata-precondition.json").write_text(
-        json.dumps({"first": revision.to_dict(), "current": current.to_dict()}, sort_keys=True)
+        json.dumps({"first": revision, "current": current}, sort_keys=True)
     )
     database = "onlyalpha_test_native_host_" + operation.replace("-", "")
     only_assert_clickhouse_test_database(database)

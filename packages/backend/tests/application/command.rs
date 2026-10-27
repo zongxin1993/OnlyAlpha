@@ -77,11 +77,11 @@ fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
 }
 #[test]
 fn all_existing_command_and_outcome_families_are_supported_without_new_identities() {
-    assert_eq!(CommandKind::ALL.len(), 20);
+    assert_eq!(CommandKind::ALL.len(), 22);
     for kind in CommandKind::ALL {
         assert_eq!(kind.as_str().parse::<CommandKind>().unwrap(), *kind);
     }
-    assert_eq!(OutcomeKind::ALL.len(), 11);
+    assert_eq!(OutcomeKind::ALL.len(), 12);
     for kind in OutcomeKind::ALL {
         assert_eq!(kind.as_str().parse::<OutcomeKind>().unwrap(), *kind);
         let uuid = matches!(

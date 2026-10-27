@@ -25,8 +25,10 @@ impl From<crate::application::private_assets::Error> for Failure {
             Error::Invalid => StatusCode::BAD_REQUEST,
             Error::Forbidden => StatusCode::FORBIDDEN,
             Error::NotFound => StatusCode::NOT_FOUND,
-            Error::Mismatch => StatusCode::CONFLICT,
-            Error::Corrupt | Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Error::Mismatch | Error::CommandConflict | Error::DraftConflict => StatusCode::CONFLICT,
+            Error::Corrupt | Error::Unavailable | Error::CommandUnknown => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
         };
         Self::with_status(status, e.code())
     }

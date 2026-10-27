@@ -1,3 +1,4 @@
+import { PrivateFactorAuthoring } from "./PrivateFactorAuthoring";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useLocalReadCredentials } from "../../../app/providers";
@@ -67,6 +68,11 @@ export function FactorExplorerPage() {
                     Configure Research · unavailable
                 </button>
             </header>
+            <PrivateFactorAuthoring
+                onChanged={() => {
+                    void assets.refetch();
+                }}
+            />
             <label htmlFor="factor-search">Search calculations and private Factors</label>
             <input
                 id="factor-search"

@@ -616,6 +616,10 @@ Research Authoring Provenance binds an exact database Revision and content finge
 are no longer part of that canonical contract. This authority stores and verifies source/definition content only: Private Factor execution,
 validation, native Provider materialization and Runtime Generation integration use the exact Revision-derived source artifact.
 
+Private Factor authoring uses backend's native Private Asset Application and PostgreSQL adapter through the normal Shipping Web UI.
+[Private Factor authoring](private-factor-authoring.md) defines Draft concurrency, immutable Revision history and exact Command
+recovery. The global Command Admission/Receipt remains the sole acceptance Authority; authoring does not confer execution admission.
+
 ADR 0111 remains the optional source/distribution loading contract for interoperability and executable materialization. It does not
 require a private checkout, editable install, wheel or package for DB-native authoring.
 

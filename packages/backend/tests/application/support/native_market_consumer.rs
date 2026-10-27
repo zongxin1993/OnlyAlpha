@@ -2142,7 +2142,26 @@ async fn native_source_application() {
         .0;
     emit("stream", &closed);
     assert_eq!(closed["event"], "BAR_CLOSED");
-    let value = retained_chart.into_parts().unwrap().0;
+    assert!(matches!(
+        retained_chart.into_parts(),
+        Err(onlyalpha_backend::application::chart::Error::Market(
+            onlyalpha_backend::application::market_product::Error::PreviewSuperseded
+        ))
+    ));
+    let value = evaluate_chart(
+        &query,
+        &app,
+        &distinct,
+        &source_session,
+        &mut business,
+        &ch,
+        &request,
+        Some(&stream),
+    )
+    .await
+    .into_parts()
+    .unwrap()
+    .0;
     assert!(value["preview"].is_null());
     assert!(!value["series"].as_array().unwrap().is_empty());
     emit("chart_evaluation", &value);

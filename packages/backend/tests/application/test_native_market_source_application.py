@@ -117,53 +117,14 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    # Existing retained authoring asset is a precondition of this read-only slice.
-    from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
-    from onlyalpha.persistence.postgres.private_asset_store import OnlyPostgresPrivateAssetStore
-    from onlyalpha.quant_assets.private import OnlyPrivateFactorAsset, OnlyPrivateFactorDraft
+    # Read-only preconditions now use the native owning authoring implementation.
+    from scripts.native_web_e2e import seed_private_metadata
 
-    assets = OnlyPostgresPrivateAssetStore(postgres_dsn)
-    factor_id = "private.factor.chart_" + uuid.uuid4().hex
-    assets.put_factor_asset(OnlyPrivateFactorAsset(factor_id))
-    assets.save_factor_draft(
-        OnlyPrivateFactorDraft(
-            factor_id=factor_id,
-            semantic_version="1",
-            source_text="def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
-            factor_api_version=1,
-            factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
-            input_contract={"close": {"type": "DECIMAL"}},
-            parameter_contract={},
-            output_contract={"value": {"type": "DECIMAL"}},
-            description="Retained native metadata",
-            economic_rationale="Explicit saved hypothesis",
-            category="test",
-            tags=("native",),
-        )
-    )
-    _, factor_revision = assets.publish_factor_revision(factor_id)
-    assets.save_factor_draft(
-        OnlyPrivateFactorDraft(
-            factor_id=factor_id,
-            semantic_version="2",
-            base_revision_fingerprint=factor_revision.revision_fingerprint,
-            source_text="def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
-            factor_api_version=1,
-            factor_api_contract_fingerprint=ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint,
-            input_contract={"close": {"type": "DECIMAL"}},
-            parameter_contract={},
-            output_contract={"value": {"type": "DECIMAL"}},
-            description="Current head advanced after retained revision",
-            economic_rationale="Explicit saved hypothesis",
-            category="test",
-            tags=("native",),
-        )
-    )
-    _, factor_head = assets.publish_factor_revision(factor_id)
+    factor_revision, factor_head = seed_private_metadata("private.factor.chart_" + uuid.uuid4().hex)
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     evidence = ROOT / "test-results/rust-product-backend" / ("chart-consumer-" + operation)
     evidence.mkdir(parents=True)
-    (evidence / "factor-precondition.json").write_text(json.dumps(factor_revision.to_dict()))
+    (evidence / "factor-precondition.json").write_text(json.dumps(factor_revision))
     database = "onlyalpha_test_native_market_source"
     only_assert_clickhouse_test_database(database)
     config = OnlyClickHouseConfig(
@@ -179,8 +140,8 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     output = ROOT / "test-results/rust-kernel/target"
     environment = compiler_environment(os.environ, output)
-    environment["ONLYALPHA_NATIVE_FACTOR_METADATA"] = json.dumps(factor_revision.to_dict())
-    environment["ONLYALPHA_NATIVE_FACTOR_HEAD"] = json.dumps(factor_head.to_dict())
+    environment["ONLYALPHA_NATIVE_FACTOR_METADATA"] = json.dumps(factor_revision)
+    environment["ONLYALPHA_NATIVE_FACTOR_HEAD"] = json.dumps(factor_head)
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
     try:

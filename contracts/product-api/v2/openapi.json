@@ -4716,6 +4716,247 @@
         ],
         "type": "object"
       },
+      "PrivateFactorAuthoringEntryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "has_draft": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "factor_id",
+          "description",
+          "has_draft",
+          "current_revision_fingerprint"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorAuthoringInventoryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateFactorAuthoringEntryDto"
+            },
+            "type": "array"
+          },
+          "factor_api_contract_fingerprint": {
+            "type": "string"
+          },
+          "factor_api_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_api_version",
+          "factor_api_contract_fingerprint",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorAuthoringReceiptDto": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PrivateFactorAuthoringResultDto"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "factor_id",
+          "result"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorAuthoringResultDto": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateFactorDraftDto"
+          },
+          "draft_fingerprint": {
+            "type": "string"
+          },
+          "revision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateFactorRevisionDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "draft",
+          "draft_fingerprint",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorAuthoringStateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draft": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateFactorDraftDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateFactorRevisionDto"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_id",
+          "current_revision_fingerprint",
+          "draft",
+          "draft_fingerprint",
+          "revisions"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorDraftDto": {
+        "additionalProperties": false,
+        "properties": {
+          "base_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "economic_rationale": {
+            "type": "string"
+          },
+          "factor_api_contract_fingerprint": {
+            "type": "string"
+          },
+          "factor_api_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "factor_id": {
+            "type": "string"
+          },
+          "input_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "output_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "parameter_contract": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "semantic_version": {
+            "type": "string"
+          },
+          "source_text": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_id",
+          "base_revision_fingerprint",
+          "semantic_version",
+          "source_text",
+          "factor_api_version",
+          "factor_api_contract_fingerprint",
+          "input_contract",
+          "parameter_contract",
+          "output_contract",
+          "description",
+          "economic_rationale",
+          "category",
+          "tags"
+        ],
+        "type": "object"
+      },
       "PrivateFactorRevisionDto": {
         "additionalProperties": false,
         "properties": {
@@ -4812,6 +5053,18 @@
           "source_sha256",
           "source_text",
           "tags"
+        ],
+        "type": "object"
+      },
+      "PublishPrivateFactorRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_draft_fingerprint"
         ],
         "type": "object"
       },
@@ -5088,6 +5341,25 @@
             "type": "string"
           }
         ]
+      },
+      "SavePrivateFactorDraftDto": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateFactorDraftDto"
+          },
+          "expected_draft_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "draft",
+          "expected_draft_fingerprint"
+        ],
+        "type": "object"
       },
       "SaveWatchlistsDto": {
         "additionalProperties": false,
@@ -10160,6 +10432,487 @@
         ],
         "tags": [
           "workstation"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors": {
+      "get": {
+        "operationId": "private_factor_authoring_inventory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorAuthoringInventoryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}": {
+      "get": {
+        "operationId": "private_factor_authoring_state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorAuthoringStateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}/commands/{command_id}": {
+      "get": {
+        "operationId": "private_factor_authoring_command",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PrivateFactorAuthoringReceiptDto"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}/draft": {
+      "put": {
+        "operationId": "private_factor_draft_save",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePrivateFactorDraftDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorAuthoringReceiptDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/factors/{factor_id}/revisions": {
+      "post": {
+        "operationId": "private_factor_revision_publish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishPrivateFactorRevisionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateFactorAuthoringReceiptDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-factor-authoring"
         ]
       }
     },

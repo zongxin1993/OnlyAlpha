@@ -1,5 +1,6 @@
-//! Read-only retained Private Asset metadata. No authoring, registration, execution
+//! Private Asset metadata and authoring content. No authoring, registration, execution
 //! or Research authority follows from a published authoring Revision.
+pub mod authoring;
 use crate::application::source_access::Session;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -14,10 +15,16 @@ pub enum Error {
     NotFound,
     Mismatch,
     Forbidden,
+    CommandConflict,
+    DraftConflict,
+    CommandUnknown,
 }
 impl Error {
     pub fn code(self) -> &'static str {
         match self {
+            Self::CommandConflict => "PRIVATE_FACTOR_COMMAND_CONFLICT",
+            Self::DraftConflict => "PRIVATE_FACTOR_DRAFT_CONFLICT",
+            Self::CommandUnknown => "PRIVATE_FACTOR_COMMAND_UNKNOWN",
             Self::Invalid => "PRIVATE_ASSET_INVALID",
             Self::Corrupt => "PRIVATE_ASSET_CORRUPT",
             Self::Unavailable => "PRIVATE_ASSET_AUTHORITY_UNAVAILABLE",
@@ -212,7 +219,7 @@ fn revision(kind: &str, value: &Value) -> Result<()> {
     }
     Ok(())
 }
-fn row(kind: &str, row: &Row) -> Result<Value> {
+pub(crate) fn row(kind: &str, row: &Row) -> Result<Value> {
     let raw: Option<String> = row.try_get("payload").map_err(|_| Error::Corrupt)?;
     let raw = raw.ok_or(Error::Corrupt)?;
     if raw.len() > WORK {
@@ -406,3 +413,7 @@ impl<'a> PrivateAssets<'a> {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "private_assets/authoring_tests.rs"]
+mod authoring_tests;

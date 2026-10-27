@@ -423,6 +423,12 @@ impl Host {
         if path == "/api/v2/chart/market-data/bars" {
             return self.temporary_market(request, deadline).await;
         }
+        if path == "/api/v2/private-assets/factors"
+            || (path.starts_with("/api/v2/private-assets/factors/")
+                && !path.contains("/revisions/"))
+        {
+            return self.factor_authoring(request, &human, deadline).await;
+        }
         if path.starts_with("/api/v2/private-assets") {
             return self.private_assets(request, &human).await;
         }

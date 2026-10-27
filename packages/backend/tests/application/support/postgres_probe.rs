@@ -479,6 +479,44 @@ async fn credential(
     })
 }
 
+async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) -> Value {
+    use onlyalpha_backend::persistence::private_factor_postgres::Factors;
+    let mut store = Factors::new(client);
+    let id = request["factor_id"].as_str().unwrap();
+    let command = CommandId::new(request["command_id"].as_str().unwrap()).unwrap();
+    let value = match request["action"].as_str().unwrap() {
+        "read" => store.read(id).await,
+        "list" => store.list().await,
+        "save" => {
+            store
+                .save(
+                    &command,
+                    id,
+                    request["draft"].clone(),
+                    request["expected"].as_str(),
+                    request["accepted_at"].as_str().unwrap(),
+                )
+                .await
+        }
+        "publish" => {
+            store
+                .publish(
+                    &command,
+                    id,
+                    request["expected"].as_str().unwrap(),
+                    request["accepted_at"].as_str().unwrap(),
+                )
+                .await
+        }
+        "command" => store.command(id, &command).await,
+        _ => panic!("unsupported authoring test operation"),
+    };
+    match value {
+        Ok(value) => value,
+        Err(error) => json!({"error":error.code()}),
+    }
+}
+
 fn main() -> Result<(), Box<dyn StdError>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -493,9 +531,12 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let driver=tokio::spawn(connection);
   if std::env::args().any(|arg|arg=="--pid-barrier") {let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).await?.get(0);println!("{}",json!({"ready":true,"backend_pid":pid}));io::stdout().flush()?;}
   else if std::env::args().any(|arg|arg=="--barrier") {println!("{}",json!({"ready":true}));io::stdout().flush()?;}
-  let mut raw=String::new();io::stdin().take(131073).read_to_string(&mut raw)?;
-  if raw.len()>131072 {return Err("probe frame bound".into())}
+  let mut raw=String::new();io::stdin().take(270337).read_to_string(&mut raw)?;
+  if raw.len()>270336 {return Err("probe frame bound".into())}
   let request:Value=serde_json::from_str(&raw)?;
+  // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
+  // Other probe operations retain their existing 128 KiB frame guard.
+  if raw.len()>131072 && request["op"]!="factor-authoring" {return Err("probe frame bound".into())}
   if request["op"]=="market-storage" {drop(client);driver.await??;let result=match market_storage_probe::run(&request["request"]).await{Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})};println!("{result}");return Ok(());}
   let id=CommandId::new(request["command_id"].as_str().ok_or("command id")?)?;
   let op=request["op"].as_str().ok_or("operation")?;
@@ -503,6 +544,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let r=if matches!(op,"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(receipt(&request)?)} else {None};
   let outcome:Result<Value,Error>=async {
    Ok(match op {
+    "factor-authoring"=>factor_authoring(&request,&mut client).await,
     value if value.starts_with("workspace-")=>match workspace(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     value if value.starts_with("watchlist-")=>match watchlist(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     "credential"=>credential(&request,&mut client).await.map_err(|_|Error::Unavailable)?,

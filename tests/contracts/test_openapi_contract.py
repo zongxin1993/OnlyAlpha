@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import cast
@@ -122,9 +123,26 @@ def test_current_render_is_byte_deterministic_and_has_no_build_metadata() -> Non
     first = governance.rendered_contract()
     second = governance.rendered_contract()
     assert first == second == (ROOT / "contracts/product-api/v2/openapi.json").read_bytes()
-    lowered = first.lower()
-    for forbidden in (b"generated_at", b"hostname", b"build_number", b"git_sha", str(ROOT).encode()):
+    _assert_no_build_metadata(first, ROOT)
+
+
+def _assert_no_build_metadata(document: bytes, root: Path) -> None:
+    lowered = document.lower()
+    for forbidden in (b"generated_at", b"hostname", b"build_number", b"git_sha"):
         assert forbidden not in lowered
+    # A route suffix (e.g. /api/v2/workspace) is not an absolute build path.
+    pattern = rb"(?<![a-z0-9_./-])" + re.escape(str(root).lower().encode()) + rb"(?=$|[^a-z0-9_.-])"
+    assert re.search(pattern, lowered) is None
+
+
+@pytest.mark.parametrize("leak", ["/workspace", "/workspace/src/main.rs", "built in /workspace/src"])
+def test_build_metadata_check_rejects_absolute_source_paths(leak: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_no_build_metadata(json.dumps({"description": leak}).encode(), Path("/workspace"))
+
+
+def test_build_metadata_check_accepts_product_workspace_routes() -> None:
+    _assert_no_build_metadata(b'{"paths":{"/api/v2/workspace":{}}}', Path("/workspace"))
 
 
 def test_private_asset_product_discovery_and_exact_read_paths_are_canonical() -> None:

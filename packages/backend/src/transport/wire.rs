@@ -3319,3 +3319,96 @@ mod default_workspace_tests {
         );
     }
 }
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorDraftDto {
+    pub schema_version: Version1,
+    pub factor_id: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub base_revision_fingerprint: Option<String>,
+    pub semantic_version: String,
+    pub source_text: String,
+    pub factor_api_version: Version1,
+    pub factor_api_contract_fingerprint: String,
+    pub input_contract: std::collections::BTreeMap<String, JsonValue>,
+    pub parameter_contract: std::collections::BTreeMap<String, JsonValue>,
+    pub output_contract: std::collections::BTreeMap<String, JsonValue>,
+    pub description: String,
+    pub economic_rationale: String,
+    pub category: String,
+    pub tags: Vec<String>,
+}
+strict_object!(PrivateFactorDraftDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct SavePrivateFactorDraftDto {
+    pub draft: PrivateFactorDraftDto,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub expected_draft_fingerprint: Option<String>,
+}
+strict_object!(SavePrivateFactorDraftDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PublishPrivateFactorRevisionDto {
+    pub expected_draft_fingerprint: String,
+}
+strict_object!(PublishPrivateFactorRevisionDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorAuthoringResultDto {
+    pub draft: PrivateFactorDraftDto,
+    pub draft_fingerprint: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub revision: Option<PrivateFactorRevisionDto>,
+}
+strict_object!(PrivateFactorAuthoringResultDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorAuthoringReceiptDto {
+    pub schema_version: Version1,
+    pub command_id: String,
+    pub factor_id: String,
+    pub result: PrivateFactorAuthoringResultDto,
+}
+strict_object!(PrivateFactorAuthoringReceiptDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorAuthoringStateDto {
+    pub schema_version: Version1,
+    pub factor_id: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub current_revision_fingerprint: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft: Option<PrivateFactorDraftDto>,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft_fingerprint: Option<String>,
+    pub revisions: Vec<PrivateFactorRevisionDto>,
+}
+strict_object!(PrivateFactorAuthoringStateDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorAuthoringEntryDto {
+    pub factor_id: String,
+    pub description: String,
+    pub has_draft: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub current_revision_fingerprint: Option<String>,
+}
+strict_object!(PrivateFactorAuthoringEntryDto);
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorAuthoringInventoryDto {
+    pub schema_version: Version1,
+    pub factor_api_version: Version1,
+    pub factor_api_contract_fingerprint: String,
+    pub entries: Vec<PrivateFactorAuthoringEntryDto>,
+}
+strict_object!(PrivateFactorAuthoringInventoryDto);

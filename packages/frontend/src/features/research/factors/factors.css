@@ -519,3 +519,54 @@
 .factor-explorer > input {
     width: min(100%, 36rem);
 }
+
+.private-factor-editor {
+    width: min(1100px, 94vw);
+    max-height: 90vh;
+    overflow: auto;
+    background: var(--surface, #141922);
+    color: inherit;
+    border: 1px solid #536071;
+    padding: 20px;
+}
+.private-factor-editor::backdrop {
+    background: rgb(0 0 0 / 55%);
+}
+.private-factor-editor header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+.private-factor-layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 20px;
+}
+.private-factor-layout label {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0;
+}
+.private-factor-layout input,
+.private-factor-layout textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+.private-factor-layout textarea {
+    font-family: monospace;
+}
+.private-factor-layout fieldset {
+    border: 0;
+    padding: 0;
+    min-width: 0;
+}
+.private-factor-layout pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+    .private-factor-layout {
+        grid-template-columns: 1fr;
+    }
+}

@@ -8,3 +8,5 @@ pub mod postgres;
 pub mod schema;
 pub mod watchlist_postgres;
 pub mod workspace_postgres;
+
+pub mod private_factor_postgres;
