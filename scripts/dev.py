@@ -14,7 +14,6 @@ import subprocess
 import sys
 import threading
 import time
-import tomllib
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -161,8 +160,12 @@ def artifact_parameters(artifact: Path | None) -> tuple[Path, dict[str, Any]]:
     ):
         raise ValueError("DEV_NATIVE_ARTIFACT_REQUIRED")
     runtime = Path("/workspace/test-results/native-workstation") / artifact.name
-    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    return artifact, verify_artifacts(artifact, source_inputs(ROOT), version, runtime_root=runtime)
+    from scripts.runtime_artifacts import product_versions
+
+    version, frontend_version = product_versions(ROOT)
+    return artifact, verify_artifacts(
+        artifact, source_inputs(ROOT), version, frontend_version=frontend_version, runtime_root=runtime
+    )
 
 
 def start_stop(mode: str, artifact: Path | None = None) -> int:
@@ -416,8 +419,10 @@ def inside() -> int:
         or str(uuid.UUID(artifact.name)) != artifact.name
     ):
         raise ValueError("DEV_NATIVE_ARTIFACT_REQUIRED")
-    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    manifest = verify_artifacts(artifact, source_inputs(ROOT), version)
+    from scripts.runtime_artifacts import product_versions
+
+    version, frontend_version = product_versions(ROOT)
+    manifest = verify_artifacts(artifact, source_inputs(ROOT), version, frontend_version=frontend_version)
     # Host inspection can only attest assigned interfaces after Docker starts
     # the container. Await that one protected deployment record within a fixed
     # infrastructure startup budget; no default addresses or authentication.

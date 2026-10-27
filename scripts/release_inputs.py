@@ -15,8 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import release_sources
 from scripts.dev_verification import source_inputs
-from scripts.release_sources import encode as encode
-from scripts.version_sync import load_release_units
+from scripts.release_metadata import load_release_units
+from scripts.runtime_artifacts import encode as encode
+from scripts.runtime_artifacts import verify_receipt as verify_receipt
 
 
 def candidate(root: Path, *, source_bundles: Path | None = None) -> dict[str, Any]:
@@ -63,21 +64,11 @@ def verify(root: Path, path: Path, digest: str, *, source_bundles: Path | None =
     }
 
 
-def verify_receipt(receipt: dict[str, Any], inputs: dict[str, str]) -> None:
-    """The existing artifact manifest owns source bytes; do not duplicate them."""
-    selected = {
-        "schema_version": 1,
-        "source_inputs": inputs,
-        "versions": receipt["versions"],
-        "build": receipt["build"],
-    }
-    if "sources" in receipt:
-        selected["sources"] = receipt["sources"]
-    if (
-        set(receipt) - {"sources"} != {"sha256", "versions", "build"}
-        or hashlib.sha256(encode(selected)).hexdigest() != receipt["sha256"]
-    ):
-        raise ValueError("RELEASE_INPUT_RECEIPT_MISMATCH")
+def selected(root: Path, path: Path, digest: str, source_bundles: Path | None) -> dict[str, Any]:
+    receipt = verify(root, path, digest, source_bundles=source_bundles)
+    if source_bundles is None or not receipt.get("sources"):
+        raise ValueError("RELEASE_INPUT_SOURCE_SELECTION_REQUIRED")
+    return receipt
 
 
 def main() -> None:

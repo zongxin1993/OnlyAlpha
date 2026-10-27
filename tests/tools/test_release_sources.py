@@ -96,6 +96,23 @@ def test_required_dependencies_come_from_backend_and_executor_metadata(source_re
     assert release_sources.required_units(root) == {"libs", "plugin-test", "plugin-math"}
 
 
+@pytest.mark.parametrize("requirement", [" onlyalpha-plugin-math==0.5.0", "onlyalpha-plugin-math == 0.5.0"])
+def test_valid_whitespace_cannot_omit_bundled_plugin_provenance(source_repo, requirement):
+    root, _ = source_repo
+    path = root / "packages/backend/python/algorithms/pyproject.toml"
+    path.write_text(path.read_text().replace("onlyalpha-plugin-math==0.5.0", requirement))
+    assert release_sources.required_units(root) == {"libs", "plugin-test", "plugin-math"}
+
+
+@pytest.mark.parametrize("requirement", ["OnlyAlpha_Plugin_Math==0.5.0", "onlyalpha-plugin-math[extra]==0.5.0"])
+def test_unsupported_plugin_spelling_is_refused_instead_of_silently_omitted(source_repo, requirement):
+    root, _ = source_repo
+    path = root / "packages/backend/python/algorithms/pyproject.toml"
+    path.write_text(path.read_text().replace("onlyalpha-plugin-math==0.5.0", requirement))
+    with pytest.raises(ValueError, match="RELEASE_SOURCE_DEPENDENCY_UNPINNED"):
+        release_sources.required_units(root)
+
+
 def test_python_plugin_and_frontend_are_independent_of_rust_workspace_configuration(source_repo, tmp_path):
     root, revision = source_repo
     references = []

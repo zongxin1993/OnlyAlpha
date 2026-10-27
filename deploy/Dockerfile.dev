@@ -137,20 +137,46 @@ RUN mkdir -p /workspace/packages/frontend/node_modules/.vite \
 RUN python -c "import json; from pathlib import Path; from scripts.dev_verification import environment_inputs; Path('/opt/onlyalpha-dev-environment.json').write_text(json.dumps(environment_inputs(Path('/workspace')), sort_keys=True))"
 USER onlyalpha
 
-# The maintained backend artifact; no Python service or business module is copied.
+# Immutable input preflight is a dependency of every runtime artifact producer.
+# It needs no reference/test dependencies, registry, application or deployment.
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime-inputs
+WORKDIR /source
+COPY . .
+ARG ONLYALPHA_RELEASE_INPUTS_SHA256=""
+ARG ONLYALPHA_RELEASE_INPUTS_DIR=""
+RUN python scripts/runtime_build.py preflight --root /source --receipt /build-inputs.json \
+    --selection-dir "${ONLYALPHA_RELEASE_INPUTS_DIR}" --sha256 "${ONLYALPHA_RELEASE_INPUTS_SHA256}"
+
 FROM rust-dependencies AS native-service
-RUN cargo build --locked --offline --release --package onlyalpha-backend --bin onlyalpha-backend
+COPY --from=runtime-inputs /source/ /rust-source/
+RUN --mount=type=cache,id=onlyalpha-runtime-cargo-target,target=/rust-source/target,sharing=locked \
+    onlyalpha_target="$(rustc -vV | sed -n 's/^host: //p')" \
+    && cargo build --locked --offline --release --jobs 1 --package onlyalpha-backend --bin onlyalpha-backend --target "$onlyalpha_target" \
+    && cp "target/$onlyalpha_target/release/onlyalpha-backend" /onlyalpha-backend
 
 FROM web AS web-assets
+COPY --from=runtime-inputs /source/packages/frontend/ ./
 RUN NODE_ENV=production VITE_ONLYALPHA_LOCAL_SESSION=true npm run build
 
-# Reuse the admitted exact algorithm installation rather than a broad Core wheel.
+# Build the admitted installation directly at its final absolute runtime path.
 FROM reference-tools AS algorithm-installation
 USER root
 RUN install -d -o onlyalpha -g onlyalpha /opt/onlyalpha
+COPY --from=runtime-inputs --chown=onlyalpha:onlyalpha /source/ /source/
+WORKDIR /source
 USER onlyalpha
 RUN python scripts/build_algorithm_sdk.py /opt/onlyalpha/wheels --install /opt/onlyalpha/algorithms \
     > /opt/onlyalpha/algorithm-artifact.sha256
+
+FROM algorithm-installation AS runtime-assembly
+COPY --from=native-service /onlyalpha-backend /opt/onlyalpha/bin/onlyalpha-backend
+COPY --from=web-assets /workspace/packages/frontend/dist /opt/onlyalpha/web
+COPY --from=runtime-inputs /source/database/postgres/migrations /opt/onlyalpha/schema
+COPY --from=runtime-inputs /build-inputs.json /build-inputs.json
+ARG ONLYALPHA_RELEASE_INPUTS_SHA256=""
+ARG ONLYALPHA_RELEASE_INPUTS_DIR=""
+RUN python scripts/runtime_build.py seal --root /source --receipt /build-inputs.json --artifact /opt/onlyalpha \
+    --selection-dir "${ONLYALPHA_RELEASE_INPUTS_DIR}" --sha256 "${ONLYALPHA_RELEASE_INPUTS_SHA256}"
 
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -162,15 +188,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ONLYALPHA_NATIVE_SOURCE_TRUST=/etc/ssl/certs/ca-certificates.crt
 RUN useradd --create-home --uid 10001 onlyalpha \
     && install -d -o onlyalpha -g onlyalpha /var/lib/onlyalpha
-COPY --from=native-service /rust-source/target/release/onlyalpha-backend /usr/local/bin/onlyalpha-backend
-COPY --from=algorithm-installation /opt/onlyalpha/algorithms /opt/onlyalpha/algorithms
-COPY --from=algorithm-installation /opt/onlyalpha/algorithm-artifact.sha256 /opt/onlyalpha/algorithm-artifact.sha256
-COPY --from=algorithm-installation /opt/onlyalpha/wheels /opt/onlyalpha/wheels
-COPY --from=web-assets /workspace/packages/frontend/dist /opt/onlyalpha/web
-COPY database/postgres/migrations /opt/onlyalpha/schema
+COPY --from=runtime-assembly /opt/onlyalpha /opt/onlyalpha
+COPY --from=runtime-inputs /source/scripts/runtime_artifacts.py /usr/local/lib/onlyalpha/runtime_artifacts.py
 USER onlyalpha
-# Exercise the final filesystem as its actual unprivileged runtime user.
-# This build step needs no deployment, database, container, or business data.
+# Same manifest verification on the final filesystem as its actual runtime user.
+# No deployment, DB, user data or product service is started here.
+RUN python - <<'PY_RUNTIME_MANIFEST'
+import hashlib
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, "/usr/local/lib/onlyalpha")
+from runtime_artifacts import verify_artifacts
+root = Path("/opt/onlyalpha")
+manifest = json.loads((root / "manifest.json").read_bytes())
+assert hashlib.sha256(Path("/usr/local/lib/onlyalpha/runtime_artifacts.py").read_bytes()).hexdigest() == manifest["source_inputs"]["scripts/runtime_artifacts.py"]
+verify_artifacts(root, manifest["source_inputs"], manifest["version"], frontend_version=manifest["default_pair"]["frontend_version"])
+PY_RUNTIME_MANIFEST
 RUN /opt/onlyalpha/algorithms/bin/python -B -I - <<'PY_RUNTIME_SMOKE'
 import hashlib
 import importlib.util
@@ -192,8 +226,8 @@ for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_serve
 for name in ("onlyalpha", "onlyalpha-backend-algorithms", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
 for flag in ("--export-openapi", "--export-websocket"):
-    result = subprocess.run(["/usr/local/bin/onlyalpha-backend", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
+    result = subprocess.run(["/opt/onlyalpha/bin/onlyalpha-backend", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
     assert isinstance(json.loads(result.stdout), dict), flag
 PY_RUNTIME_SMOKE
-ENTRYPOINT ["/usr/local/bin/onlyalpha-backend"]
+ENTRYPOINT ["/opt/onlyalpha/bin/onlyalpha-backend"]
 CMD ["--user-data-root", "/var/lib/onlyalpha"]

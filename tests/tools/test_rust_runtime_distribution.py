@@ -60,7 +60,16 @@ def test_runtime_image_cannot_inherit_or_copy_python_reference_backend() -> None
             for source in arguments[:-1]:
                 if source.startswith("/workspace"):
                     assert source == "/workspace/packages/frontend/dist"
-    assert 'ENTRYPOINT ["/usr/local/bin/onlyalpha-backend"]' in stage
+    assert 'ENTRYPOINT ["/opt/onlyalpha/bin/onlyalpha-backend"]' in stage
+    copies = [shlex.split(line)[1:] for line in stage.splitlines() if line.startswith("COPY ")]
+    assert copies == [
+        ["--from=runtime-assembly", "/opt/onlyalpha", "/opt/onlyalpha"],
+        [
+            "--from=runtime-inputs",
+            "/source/scripts/runtime_artifacts.py",
+            "/usr/local/lib/onlyalpha/runtime_artifacts.py",
+        ],
+    ]
     assert " AS reference-tools" in dockerfile
     assert "FROM reference-tools AS test" in dockerfile
 
@@ -71,6 +80,10 @@ def test_runtime_algorithm_artifact_uses_the_existing_exact_sdk_builder() -> Non
     assert "scripts/build_algorithm_sdk.py" in dockerfile
     assert "--install /opt/onlyalpha/algorithms" in dockerfile
     runtime = dockerfile.split(" AS runtime\n", 1)[1]
-    assert "COPY --from=algorithm-installation" in runtime
-    assert "COPY --from=native-service" in runtime
-    assert "COPY --from=web-assets" in runtime
+    assert "COPY --from=runtime-assembly /opt/onlyalpha /opt/onlyalpha" in runtime
+    assembly = dockerfile.split(" AS runtime-assembly\n", 1)[1].split("\nFROM ", 1)[0]
+    assert "FROM algorithm-installation AS runtime-assembly" in dockerfile
+    assert "COPY --from=native-service /onlyalpha-backend /opt/onlyalpha/bin/onlyalpha-backend" in assembly
+    assert "COPY --from=web-assets /workspace/packages/frontend/dist /opt/onlyalpha/web" in assembly
+    assert "scripts/runtime_build.py seal" in assembly
+    assert "scripts/runtime_build.py preflight" in dockerfile

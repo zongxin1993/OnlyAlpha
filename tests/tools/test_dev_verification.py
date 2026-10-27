@@ -21,6 +21,7 @@ def _environment(root: Path) -> None:
         "pyproject.toml",
         "uv.lock",
         "deploy/Dockerfile.dev",
+        "deploy/Dockerfile.dev.dockerignore",
         "packages/frontend/package.json",
         "packages/frontend/package-lock.json",
         "plugs/example/pyproject.toml",
@@ -30,6 +31,20 @@ def _environment(root: Path) -> None:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("input")
+
+
+def test_runtime_image_build_uses_existing_admitted_host_lifecycle(monkeypatch, tmp_path: Path) -> None:
+    from scripts import runtime_build
+
+    calls = _host(monkeypatch, tmp_path, ["runtime-build", "--", "--release-inputs", "selected.json"])
+    observed = []
+    monkeypatch.setattr(
+        runtime_build, "build_image", lambda root, command, owner: observed.append((root, command, owner)) or 0
+    )
+    assert dev_verification.main() == 0
+    assert observed[0][0] == tmp_path
+    assert observed[0][1] == ["--release-inputs", "selected.json"]
+    assert not any("build" in command or "up" in command for command, _ in calls)
 
 
 @pytest.mark.parametrize("product", [False, True])
@@ -96,6 +111,13 @@ def test_backend_python_constituents_are_environment_inputs(tmp_path: Path) -> N
     before = dev_verification.environment_inputs(tmp_path)
     assert str(path.relative_to(tmp_path)) in before
     path.write_text("changed dependency")
+    assert dev_verification.environment_inputs(tmp_path) != before
+
+
+def test_docker_context_filter_changes_require_environment_rebuild(tmp_path: Path) -> None:
+    _environment(tmp_path)
+    before = dev_verification.environment_inputs(tmp_path)
+    (tmp_path / "deploy/Dockerfile.dev.dockerignore").write_text("changed build context rules")
     assert dev_verification.environment_inputs(tmp_path) != before
 
 

@@ -18,11 +18,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from packaging.requirements import Requirement
-
 from scripts.dev_verification import source_inputs
+from scripts.release_metadata import load_release_units
+from scripts.runtime_artifacts import encode as encode
 from scripts.rust_kernel_check import _workspace_packages
-from scripts.version_sync import load_release_units
 
 CONTEXT_FILES = (
     "Cargo.toml",
@@ -32,10 +31,6 @@ CONTEXT_FILES = (
     "uv.lock",
     "packages/frontend/package-lock.json",
 )
-
-
-def encode(value: dict[str, Any]) -> bytes:
-    return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
 
 
 def _safe_name(name: str) -> bool:
@@ -90,10 +85,14 @@ def _paths(root: Path, unit: str, inputs: dict[str, str]) -> set[str]:
             for name in (
                 "native_workstation_build.py",
                 "native_http_contract.py",
+                "market_data_stream_contract.py",
                 "build_algorithm_sdk.py",
                 "dev_verification.py",
                 "release_inputs.py",
                 "release_sources.py",
+                "release_metadata.py",
+                "runtime_artifacts.py",
+                "runtime_build.py",
                 "version_sync.py",
                 "rust_kernel_check.py",
             )
@@ -170,11 +169,17 @@ def required_units(root: Path) -> set[str]:
                     if dependency in packages:
                         pending.append(dependency)
     executor = tomllib.loads((root / "packages/backend/python/algorithms/pyproject.toml").read_text())
-    result.update(
-        requirement.name.removeprefix("onlyalpha-")
-        for raw in executor["project"]["dependencies"]
-        if (requirement := Requirement(raw)).name.startswith("onlyalpha-plugin-")
-    )
+    for raw in executor["project"]["dependencies"]:
+        dependency_name = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", raw)
+        if dependency_name is not None and re.sub(r"[-_.]+", "-", dependency_name[1]).lower().startswith(
+            "onlyalpha-plugin-"
+        ):
+            match = re.fullmatch(
+                r"onlyalpha-(plugin-[a-z0-9]+(?:-[a-z0-9]+)*)\s*==\s*[0-9]+\.[0-9]+\.[0-9]+", raw.strip()
+            )
+            if match is None:
+                raise ValueError("RELEASE_SOURCE_DEPENDENCY_UNPINNED")
+            result.add(match[1])
     if not result <= load_release_units(root).keys():
         raise ValueError("RELEASE_SOURCE_DEPENDENCY_UNKNOWN")
     return result

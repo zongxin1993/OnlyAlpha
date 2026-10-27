@@ -14,17 +14,44 @@ from scripts.native_workstation_build import verify_artifacts, web_environment
 
 
 def _artifact(root: Path) -> dict[str, str]:
-    (root / "bin").mkdir()
-    (root / "bin/onlyalpha-backend").write_bytes(b"original executable")
-    inputs = {"pyproject.toml": "a" * 64}
+    payloads = {
+        "bin/onlyalpha-backend": b"original executable",
+        "web/index.html": b"Shipping UI",
+        "contracts/openapi.json": b"{}",
+        "contracts/market-data-stream.schema.json": b"{}",
+        "algorithm-artifact.sha256": ("b" * 64 + "\n").encode(),
+    }
+    for name, content in payloads.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    files = {name: hashlib.sha256(content).hexdigest() for name, content in payloads.items()}
+    inputs = {
+        "pyproject.toml": "a" * 64,
+        **{
+            "contracts/product-api/v2/" + name: files["contracts/" + name]
+            for name in ("openapi.json", "market-data-stream.schema.json")
+        },
+    }
+    web = {"web/index.html": files["web/index.html"]}
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "version": "0.11.0",
         "runtime_root": str(root),
         "source_inputs": inputs,
         "build_environment": {"NODE_ENV": "production", "VITE_ONLYALPHA_LOCAL_SESSION": "true"},
         "algorithm_artifact": "b" * 64,
-        "files": {"bin/onlyalpha-backend": hashlib.sha256(b"original executable").hexdigest()},
+        "files": files,
+        "default_pair": {
+            "policy": "EXACT_BUNDLED_PAIR",
+            "api_major": 2,
+            "backend_version": "0.11.0",
+            "frontend_version": "0.10.7",
+            "backend_sha256": files["bin/onlyalpha-backend"],
+            "frontend_sha256": hashlib.sha256(release_inputs.encode(web)).hexdigest(),
+            "openapi_sha256": files["contracts/openapi.json"],
+            "stream_sha256": files["contracts/market-data-stream.schema.json"],
+        },
     }
     (root / "manifest.json").write_text(json.dumps(manifest))
     return inputs
@@ -32,13 +59,13 @@ def _artifact(root: Path) -> dict[str, str]:
 
 def test_native_artifact_keeps_original_frozen_source_and_absolute_installation(tmp_path: Path) -> None:
     inputs = _artifact(tmp_path)
-    assert verify_artifacts(tmp_path, inputs, "0.11.0")["runtime_root"] == str(tmp_path)
+    assert verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")["runtime_root"] == str(tmp_path)
     for wrong_inputs, version in (({"pyproject.toml": "c" * 64}, "0.11.0"), (inputs, "0.10.21")):
         with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
-            verify_artifacts(tmp_path, wrong_inputs, version)
+            verify_artifacts(tmp_path, wrong_inputs, version, frontend_version="0.10.7")
     (tmp_path / "bin/onlyalpha-backend").write_bytes(b"replaced executable")
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
-        verify_artifacts(tmp_path, inputs, "0.11.0")
+        verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")
 
 
 @pytest.mark.parametrize("name", ("../outside", "/absolute", "bin/../manifest.json"))
@@ -48,7 +75,7 @@ def test_native_artifact_rejects_paths_outside_its_original_resource_root(tmp_pa
     manifest["files"] = {name: "d" * 64}
     (tmp_path / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
-        verify_artifacts(tmp_path, inputs, "0.11.0")
+        verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")
 
 
 def test_native_artifact_rejects_symlink_substitution_and_unrecorded_payload(tmp_path: Path) -> None:
@@ -57,7 +84,7 @@ def test_native_artifact_rejects_symlink_substitution_and_unrecorded_payload(tmp
     original.rename(tmp_path / "original")
     original.symlink_to(tmp_path / "original")
     with pytest.raises(ValueError, match="NATIVE_ARTIFACT"):
-        verify_artifacts(tmp_path, inputs, "0.11.0")
+        verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")
 
 
 def test_shipping_assets_build_with_explicit_cookie_session_inputs() -> None:
@@ -105,7 +132,7 @@ def test_native_artifact_retains_and_checks_selected_release_receipt(tmp_path: P
     selected = {
         "schema_version": 1,
         "source_inputs": inputs,
-        "versions": {"backend": "0.11.0", "libs": "0.10.0", "frontend": "0.9.0"},
+        "versions": {"backend": "0.11.0", "libs": "0.10.0", "frontend": "0.10.7"},
         "build": {"profile": "release"},
     }
     manifest["release_inputs"] = {
@@ -114,8 +141,11 @@ def test_native_artifact_retains_and_checks_selected_release_receipt(tmp_path: P
         "build": selected["build"],
     }
     path.write_text(json.dumps(manifest))
-    assert verify_artifacts(tmp_path, inputs, "0.11.0")["release_inputs"]["versions"]["libs"] == "0.10.0"
+    assert (
+        verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")["release_inputs"]["versions"]["libs"]
+        == "0.10.0"
+    )
     manifest["release_inputs"]["versions"]["libs"] = "0.10.1"
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="RELEASE_INPUT"):
-        verify_artifacts(tmp_path, inputs, "0.11.0")
+        verify_artifacts(tmp_path, inputs, "0.11.0", frontend_version="0.10.7")

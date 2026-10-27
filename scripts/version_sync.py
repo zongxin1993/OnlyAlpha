@@ -16,6 +16,12 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 from tomlkit import dumps, parse
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.release_metadata import VersionSyncError as VersionSyncError
+from scripts.release_metadata import load_release_units as load_release_units
+from scripts.release_metadata import validate_release_version
+
 ROOT = Path(__file__).resolve().parents[1]
 TEST_DISTRIBUTION_PATHS = (
     Path("test-data/external_plugins/onlyalpha_test_plugin/pyproject.toml"),
@@ -30,10 +36,6 @@ QUANT_ASSET_PROVIDER_PATHS = (
 _DISTRIBUTION_VERSION = re.compile(
     r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
 )
-
-
-class VersionSyncError(ValueError):
-    """Raised when the workspace release graph is invalid or inconsistent."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,60 +223,6 @@ def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
     return result
 
 
-def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[str, str]:
-    def raw(path: Path) -> str:
-        if revision is None:
-            return (root / path).read_text(encoding="utf-8")
-        # Read the authority present in this exact historical tree. This is Git
-        # publication history, never an installed-runtime compatibility path.
-        original = {
-            BACKEND_MANIFEST: Path("packages/onlyalpha-http-server/Cargo.toml"),
-            WEB_PACKAGE_PATH: Path("packages/onlyalpha-web-console/package.json"),
-        }.get(path)
-        if original is not None:
-            candidates = subprocess.check_output(
-                ["git", "-C", str(root), "ls-tree", "-r", "--name-only", revision, "--", str(path), str(original)],
-                text=True,
-            ).splitlines()
-            if len(candidates) != 1:
-                raise VersionSyncError("historical release metadata authority is missing or ambiguous")
-            path = Path(candidates[0])
-        return subprocess.check_output(["git", "-C", str(root), "show", f"{revision}:{path.as_posix()}"], text=True)
-
-    try:
-        cargo = tomllib.loads(raw(Path("Cargo.toml")))
-        library_version = cargo["workspace"]["package"]["version"]
-
-        def resolved_version(value: Any) -> str:
-            if isinstance(value, str):
-                return value
-            if isinstance(value, dict) and set(value) == {"workspace"} and value["workspace"] is True:
-                return str(library_version)
-            raise VersionSyncError("invalid workspace version inheritance")
-
-        backend = tomllib.loads(raw(BACKEND_MANIFEST))["package"]["version"]
-        # Exact historical metadata may inherit the old workspace version. Current
-        # check_versions requires an independent backend authority after cutover.
-        units = {"libs": library_version, "backend": resolved_version(backend)}
-        units["frontend"] = json.loads(raw(WEB_PACKAGE_PATH))["version"]
-        for member in cargo["workspace"]["members"]:
-            if Path(member).parts[0] == "plugs":
-                package = tomllib.loads(raw(Path(member) / "Cargo.toml"))["package"]
-                value = package["version"]
-                units["plugin-" + package["name"].removeprefix("onlyalpha-plugin-")] = resolved_version(value)
-        python = tomllib.loads(raw(Path("pyproject.toml")))
-        for member in python["tool"]["uv"]["workspace"]["members"]:
-            if Path(member).parts[0] == "plugs":
-                package = tomllib.loads(raw(Path(member) / "pyproject.toml"))["project"]
-                unit = "plugin-" + package["name"].removeprefix("onlyalpha-plugin-")
-                units.setdefault(unit, package["version"])
-        for version in units.values():
-            next_release_version(version)
-        return dict(sorted(units.items()))
-    except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError) as error:
-        raise VersionSyncError("cannot establish exact release-unit metadata") from error
-
-
 def _python_unit(distribution: WorkspaceDistribution, root: Path) -> str:
     if distribution.path.relative_to(root).parts[0] == "plugs":
         return "plugin-" + distribution.name.removeprefix("onlyalpha-plugin-")
@@ -430,11 +378,7 @@ def rewrite_unit(
 
 
 def next_release_version(version: str, level: str = "patch") -> str:
-    if (
-        not isinstance(version, str)
-        or re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version) is None
-    ):
-        raise VersionSyncError(f"release version must be canonical X.Y.Z: {version!r}")
+    validate_release_version(version)
     major, minor, patch = map(int, version.split("."))
     if level == "patch":
         return f"{major}.{minor}.{patch + 1}"

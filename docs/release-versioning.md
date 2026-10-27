@@ -174,6 +174,45 @@ manifests retain each selected ZIP/content digest, unit version and commit/tag a
 These tools do not certify published provenance, a frontend/backend API pair, install/start/activation or supported history.
 Those phase-6 proofs and authorized executable publication remain separate. No ordinary build activates a Generation or LIVE.
 
+### Runtime assembly and selected-artifact acceptance
+
+Native workstation and Docker runtime construction share `runtime_artifacts.py` schema 2. Each manifest requires an exact
+bundled pair: backend/frontend versions from their own metadata, the backend executable digest, the Web file-inventory digest,
+and Product API v2 OpenAPI/stream contract digests. The built executable's pure contract exports must equal the selected source
+contracts before sealing. Version-number equality is neither required nor a compatibility test. The declared default is the
+exact bundled pair; no arbitrary mixed-version matrix or rolling-upgrade promise is created. Missing/changed pair metadata,
+contracts or payload fail with an explicit artifact error before acceptance starts. Earlier dev manifest schemas are not loaded.
+
+Docker's `runtime-inputs` checks the same exact selection before runtime compilation/installation; the assembly checks it again
+and writes the same manifest. Original fixed-path Python identity is retained: installation is created directly under
+`/opt/onlyalpha/algorithms`. The runtime executable is `/opt/onlyalpha/bin/onlyalpha-backend`, inside the hashed artifact tree.
+The final image verifies that tree as its non-root runtime user, without starting a Product service, database or deployment.
+The default CI runtime smoke remains an explicitly unselected development build; it makes no release-input claim.
+
+Local selected image construction uses the existing lifecycle/frozen-source entry and only the fixed `onlyalpha-runtime:dev`
+tag, without creating or starting a new service/project:
+
+```text
+python scripts/dev_verification.py runtime-build -- --release-inputs INPUTS.json --release-inputs-sha256 SELECTED_SHA256 --source-bundles SOURCES.json
+```
+
+It validates/copies only the explicit non-secret selection into a managed frozen-context capsule, preserves original image
+identity/consumer observations and build logs under `test-results/runtime-image`, and refuses source/selection drift.
+Docker build inputs `ONLYALPHA_RELEASE_INPUTS_DIR` and `ONLYALPHA_RELEASE_INPUTS_SHA256` must be supplied together for a selected
+build. No automatic publication or deployment follows. Changes to Docker/tool dependencies require the ordinary explicit
+fixed dev-tool image preparation before affected formal checks; source-only edits do not.
+
+Browser acceptance can consume the original selected workstation artifact without compiling or reinstalling it:
+
+```text
+python scripts/dev_verification.py run -- python scripts/native_web_e2e.py --artifact /workspace/test-results/native-workstation/OPERATION --artifact-sha256 SELECTED_MANIFEST_SHA256 --grep "native watchlist" e2e/product-package-migration.spec.ts
+```
+
+Both selection arguments are required together. The manifest digest, original installation path, source/payload and default
+pair are admitted before touching test databases, checked before launch and again after owned process draining. The existing
+single-dev test namespaces, test-DB guards and ordinary Shipping UI flows remain mandatory. This technical receipt records
+the exact artifact used; it does not confer Generation or trading authority. A normal dev run may still build its own artifact.
+
 `set` edits the selected unit/projections and incoming dependency pins, then refreshes `uv.lock`; it is a source-edit operation,
 not a command to run against the read-only formal source cut. PR checks separately validate locks and graph. The trusted mainline
 publisher derives named source Releases from exact first-parent version changes; no change produces no Release. It preserves

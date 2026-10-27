@@ -53,7 +53,10 @@ EXCLUDED_DIRECTORIES = {
 
 
 def environment_inputs(root: Path) -> dict[str, str]:
-    paths = [root / name for name in ("pyproject.toml", "uv.lock", "deploy/Dockerfile.dev")]
+    paths = [
+        root / name
+        for name in ("pyproject.toml", "uv.lock", "deploy/Dockerfile.dev", "deploy/Dockerfile.dev.dockerignore")
+    ]
     paths += [root / WEB / name for name in ("package.json", "package-lock.json")]
     paths += [root / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml") if (root / name).is_file()]
     paths += sorted((root / "crates").rglob("Cargo.toml"))
@@ -528,6 +531,12 @@ def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reserva
     elif mode == "run":
         raise ValueError("DEV_VERIFICATION_CONTAINER_REQUIRED")
     inputs = freeze_source(ROOT, reservation["operation_id"], research="research-postgres" in command)
+    if mode == "runtime-build":
+        from scripts.runtime_build import build_image
+
+        if web or rebuild:
+            raise ValueError("RUNTIME_BUILD_OPTIONS_REFUSED")
+        return build_image(ROOT, command, reservation)
     if mode == "prepare":
         # Explicit setup/rebuild only. Ordinary run never invokes build/up/run/down.
         available = (
@@ -583,7 +592,7 @@ def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reserva
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare", "run", "inside"))
+    parser.add_argument("mode", choices=("prepare", "run", "inside", "runtime-build"))
     parser.add_argument("--web", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--operation-id", default="")

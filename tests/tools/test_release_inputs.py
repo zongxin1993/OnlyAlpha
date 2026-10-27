@@ -4,11 +4,29 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from scripts import release_inputs
+
+
+def test_runtime_preflight_works_without_reference_or_test_dependencies() -> None:
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            f"import sys; sys.path.insert(0, {str(root)!r}); from scripts import release_inputs; release_inputs.candidate(__import__('pathlib').Path({str(root)!r}))",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _tree(root: Path) -> None:

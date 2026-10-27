@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -15,6 +16,7 @@ import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -28,16 +30,35 @@ from onlyalpha.persistence.clickhouse import (
     only_assert_clickhouse_test_database,
 )
 from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+from scripts.dev_verification import source_inputs
 from scripts.native_workstation_build import build
+from scripts.runtime_artifacts import product_versions, verify_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any]:
+    if not directory.is_absolute() or directory.is_symlink() or (directory / "manifest.json").is_symlink():
+        raise ValueError("NATIVE_ARTIFACT_SYMLINK")
+    raw = (directory / "manifest.json").read_bytes()
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("NATIVE_ARTIFACT_SELECTION_MISMATCH")
+    backend, frontend = product_versions(root)
+    return verify_artifacts(directory, source_inputs(root), backend, frontend_version=frontend, manifest_sha256=digest)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
+    parser.add_argument("--artifact", type=Path)
+    parser.add_argument("--artifact-sha256")
+    parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if (args.artifact is None) != (args.artifact_sha256 is None):
+        raise ValueError("NATIVE_ARTIFACT_EXPLICIT_SELECTION_REQUIRED")
+    if args.artifact is not None:
+        selected_artifact(ROOT, args.artifact, args.artifact_sha256)
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     output = ROOT / "test-results/native-web-e2e" / operation
     output.mkdir(parents=True)
@@ -78,8 +99,18 @@ def main() -> int:
     )
     for location in wal_locations:
         (wal_parent / location / "wal").mkdir(parents=True, mode=0o700)
-    resources = output / "artifacts"
-    artifact = build(resources)["algorithm_artifact"]
+    resources = args.artifact or output / "artifacts"
+    if args.artifact is None:
+        build(resources)
+    selected_sha = args.artifact_sha256 or hashlib.sha256((resources / "manifest.json").read_bytes()).hexdigest()
+    selected = selected_artifact(ROOT, resources, selected_sha)
+    artifact = selected["algorithm_artifact"]
+    (output / "artifact-selection.json").write_text(
+        json.dumps(
+            {"artifact": str(resources), "manifest_sha256": selected_sha, "default_pair": selected["default_pair"]},
+            sort_keys=True,
+        )
+    )
     (output / "algorithm-artifact.sha256").write_text(artifact + "\n")
     executable = resources / "bin/onlyalpha-backend"
     # Existing immutable authoring metadata is a read-only UI precondition. The
@@ -164,6 +195,7 @@ def main() -> int:
         ONLYALPHA_CLICKHOUSE_USER=os.environ["ONLYALPHA_TEST_CLICKHOUSE_USER"],
         ONLYALPHA_CLICKHOUSE_PASSWORD=os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
+    selected_artifact(ROOT, resources, selected_sha)
     started = time.monotonic()
     events: queue.Queue[bytes] = queue.Queue()
     with (output / "native.log").open("wb") as log:
@@ -230,7 +262,16 @@ def main() -> int:
             results = {}
             if not args.contract_fuzz or args.tests:
                 browser = subprocess.run(
-                    ["npm", "exec", "--", "playwright", "test", "--workers=1", *args.tests],
+                    [
+                        "npm",
+                        "exec",
+                        "--",
+                        "playwright",
+                        "test",
+                        "--workers=1",
+                        *args.tests,
+                        *(["--grep", args.grep] if args.grep else []),
+                    ],
                     cwd=ROOT / "packages/frontend",
                     env={
                         **os.environ,
@@ -284,6 +325,7 @@ def main() -> int:
                 ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
     if child.returncode != 0:
         raise RuntimeError("Native Host failed its owned lifecycle")
+    selected_artifact(ROOT, resources, selected_sha)
     return result
 
 

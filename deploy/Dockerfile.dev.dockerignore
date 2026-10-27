@@ -26,3 +26,13 @@ htmlcov
 *.egg-info
 
 /target
+
+# Only explicit non-secret runtime selection capsules enter image build inputs.
+!test-results/
+test-results/*
+!test-results/runtime-build-inputs/
+!test-results/runtime-build-inputs/**
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
