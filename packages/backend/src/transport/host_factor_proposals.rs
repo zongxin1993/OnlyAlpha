@@ -145,6 +145,21 @@ impl Host {
                 .await
         } else if method == Method::POST
             && path.starts_with("/api/v2/factor-proposals/")
+            && path.ends_with("/withdrawal")
+            && human.is_some()
+        {
+            let fp = path
+                .trim_start_matches("/api/v2/factor-proposals/")
+                .trim_end_matches("/withdrawal");
+            let b: ConfirmInput = serde_json::from_value(body).map_err(|_| invalid())?;
+            if b.schema_version != 1 || b.proposal_fingerprint != fp {
+                return Err(invalid());
+            }
+            store
+                .withdraw(command.ok_or_else(invalid)?, owner, fp, &at)
+                .await
+        } else if method == Method::POST
+            && path.starts_with("/api/v2/factor-proposals/")
             && path.ends_with("/confirmation")
             && human.is_some()
         {

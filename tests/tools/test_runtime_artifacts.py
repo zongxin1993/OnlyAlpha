@@ -119,3 +119,36 @@ def test_external_selection_digest_binds_the_manifest_bytes_actually_verified(co
         runtime_artifacts.verify_artifacts(
             artifact, inputs, "0.12.0", frontend_version="0.13.0", manifest_sha256="0" * 64
         )
+
+
+def test_agent_installation_is_bound_to_its_own_project_contract_and_workflow(composition):
+    root, artifact = composition
+    agent = artifact / "agent"
+    agent.mkdir()
+    project = b'[project]\nversion="0.2.0"\n'
+    contract = b'{"info":{"version":"1"}}'
+    for relative, raw in [
+        ("packages/agent/pyproject.toml", project),
+        ("contracts/agent-api/v1/openapi.json", contract),
+    ]:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    (agent / "project.toml").write_bytes(project)
+    (agent / "openapi.json").write_bytes(contract)
+    record = {
+        "workflow": "c" * 64,
+        "project_sha256": hashlib.sha256(project).hexdigest(),
+        "openapi_sha256": hashlib.sha256(contract).hexdigest(),
+    }
+    (agent / "installation.json").write_text(json.dumps(record))
+    inputs = source_inputs(root)
+    manifest = runtime_artifacts.seal(root, artifact, inputs)
+    assert manifest["agent"] == {**record, "version": "0.2.0"}
+    assert (
+        runtime_artifacts.verify_artifacts(artifact, inputs, "0.12.0", frontend_version="0.13.0")["agent"]
+        == manifest["agent"]
+    )
+    (agent / "installation.json").write_text(json.dumps({**record, "workflow": "d" * 64}))
+    with pytest.raises(ValueError):
+        runtime_artifacts.verify_artifacts(artifact, inputs, "0.12.0", frontend_version="0.13.0")

@@ -265,12 +265,12 @@ user sees to the direct backend confirmation; neither Agent prose nor a chat req
 previews, advanced forms, fingerprint/display semantics and UNKNOWN protections below remain required. No historical dev-chat
 conversion or permanent old-route fallback is selected.
 
-### Backend-hosted C2 reference
+### Canonical preview and the Shipping C2 boundary
 
-C2 introduces Human-only `/api/v2/factor-chats` conversation queries and recoverable Commands, and a read-only model-configuration
-selection projection. Existing `/api/v2/agent` autonomous operations remain denied. An installed OpenAI-compatible model adapter is
-configured through existing Integration Draft/Revision/Secret Commands; conversation creation pins one exact active Revision.
-Model protocols stay in the backend's external adapter boundary, not Kernel semantics. No model credentials enter chat records.
+Shipping C2 uses independent Agent API v1 for model settings, bounded chat and interaction provenance, and the backend proposal
+API for immutable previews and direct Human confirmation (ADR 0146). The backend-hosted `/api/v2/factor-chats` and Integration-based
+chat-model writer/adapter are retired. The independent service is the only active model/chat owner for this page. Existing
+`/api/v2/agent` autonomous operations remain denied. No model credentials enter chat records or frontend persistence.
 
 The first supported candidate grammar is a bounded arithmetic tree over OHLCV, integer literals, and declared closed-bar delay/
 rolling-mean dependencies. Unsupported source/operations are rejected. The backend derives formula, input contracts and restricted
@@ -278,11 +278,11 @@ Private Factor API V1 source together; returned model code is never accepted or 
 requirements, not admitted executable graphs. C3 must resolve them through the existing canonical Calculation Graph and prove the
 exact execution binding before Research. The current API V1 remains stateless pointwise with unchanged identity and numeric rules.
 
-Conversation events are append-only provenance bound to global Command/Receipt identity and exact preceding event. A model turn is
-accepted before one external call; its bounded response or failure/UNKNOWN is recorded once. A repeated Command observes that
-original event and never calls the model again. Refresh/restart queries exact events; an unresolved external occurrence stays
-UNKNOWN. A deliberate new user message is a new occurrence, never recovery by resubmission. Current provider withdrawal/Revision
-change prevents new model calls; old conversation facts remain readable without current model availability.
+Agent conversation events are append-only provenance bound to Agent-local command identity, the exact preceding event and pinned
+model/workflow. Backend global Command/Receipt identities own registration, withdrawal and Human confirmation. A model occurrence
+is accepted before one external call; its bounded response or failure/UNKNOWN is recorded once. Reconciliation never calls the model
+again. A deliberate new message is a new occurrence and cannot bypass an unresolved predecessor. Model-profile successors do not
+replace existing session bindings; missing exact workflow/artifact pauses continuation without a latest-version fallback.
 
 Explicit chat text “确认因子” / “确认当前因子”, or the equivalent preview action, submits a Human confirmation bound to the exact
 preview. Confirmation and the existing Authoring save participate in one owning transaction, with separately bound child Command
@@ -291,8 +291,8 @@ Calculation admission, Runtime Generation or Research Run. Concurrent manual aut
 and purposes remain separate display metadata; computational confirmation survives a display-only edit. Model output is never
 interpreted as Human confirmation. C2's visible completion is a confirmed saved draft, not scientific validation or a runnable factor.
 
-C2 Command intent binds the original Human request, independently of model context derived by the server. The accepted event also
+Agent-local Command intent binds the original Human request, independently of model context derived by the service. The accepted event also
 freezes the complete model request, including exactly the messages known at acceptance; late model responses cannot change that
 request. Display metadata uses its own last-confirmed base fingerprint, so manual renaming cannot be silently overwritten by a
-later chat confirmation. An explicit UI abandonment action settles a not-yet-accepted original Command under its global lock with
-an immutable no-effect receipt. This fences late arrivals; it does not revoke an accepted event or retry an unknown model call.
+later chat confirmation. An explicit UI abandonment action settles a not-yet-accepted original Command under its Agent command lock with
+an immutable Agent-local abandonment fact. This fences late arrivals; it does not revoke an accepted event or retry an unknown model call.

@@ -8,6 +8,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, cast
+from uuid import UUID
 
 import psycopg
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -54,9 +55,19 @@ CREATE TABLE IF NOT EXISTS agent_backend_result (
 CREATE TABLE IF NOT EXISTS agent_backend_observation (
  command uuid NOT NULL REFERENCES agent_backend_plan, ordinal integer NOT NULL CHECK(ordinal BETWEEN 1 AND 100),
  fingerprint text NOT NULL, payload jsonb NOT NULL, PRIMARY KEY(command,ordinal));
+CREATE UNIQUE INDEX IF NOT EXISTS agent_backend_origin ON agent_backend_plan(session,(payload->'body'->'origin'->>'event_fingerprint'));
 CREATE OR REPLACE FUNCTION agent_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN RAISE EXCEPTION 'AGENT_IMMUTABLE_FACT'; END $$;
 """
+
+
+def backend_command_id(command: str) -> str:
+    return str(
+        UUID(
+            bytes=bytes.fromhex(digest({"agent_command": command, "purpose": "register-factor-proposal"}))[:16],
+            version=4,
+        )
+    )
 
 
 class Store:
@@ -138,14 +149,19 @@ class Store:
         finally:
             self.conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))", (session,))
 
-    @contextmanager
-    def command(self, command: str, owner: str, value: Any) -> Iterator[dict[str, Any] | None]:
-        intent = hmac.digest(
+    def intent(self, value: Any) -> str:
+        return hmac.digest(
             self.settings.encryption_key, json.dumps(value, sort_keys=True, ensure_ascii=False).encode(), "sha256"
         ).hex()
+
+    @contextmanager
+    def command(self, command: str, owner: str, value: Any) -> Iterator[dict[str, Any] | None]:
+        intent = self.intent(value)
         with self.conn.transaction():
             self.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,1))", (command,))
             old = self.conn.execute("SELECT * FROM agent_command WHERE id=%s", (command,)).fetchone()
+            if old and old["owner"] == owner and old["outcome"] == {"abandoned": True}:
+                raise Conflict("AGENT_COMMAND_ABANDONED")
             if old and (old["owner"] != owner or old["intent"] != intent):
                 raise Conflict("AGENT_COMMAND_CONFLICT")
             if old:
@@ -156,6 +172,59 @@ class Store:
                 self.conn.execute(
                     "INSERT INTO agent_command VALUES(%s,%s,%s,%s)", (command, owner, intent, Jsonb(self.outcome))
                 )
+
+    def observe_command(self, command: str, owner: str) -> dict[str, Any]:
+        row = self.conn.execute("SELECT owner,outcome,intent FROM agent_command WHERE id=%s", (command,)).fetchone()
+        if row is None:
+            return {"status": "UNKNOWN", "outcome": None}
+        if row["owner"] != owner:
+            raise Missing()
+        outcome = row["outcome"]
+        if outcome == {"abandoned": True}:
+            return {"status": "ABANDONED", "outcome": outcome}
+        # An accepted receipt must resolve to its own mandatory effect. External
+        # model/backend results are optional: their absence remains UNKNOWN.
+        valid = False
+        if isinstance(outcome, dict) and set(outcome) == {"event"}:
+            plan = self.plan(command)
+            session, events = self.history(plan["session"], owner)
+            valid = any(
+                str(event["command"]) == command and event["fingerprint"] == outcome["event"] for event in events
+            )
+        elif isinstance(outcome, dict) and set(outcome) == {"backend_plan"}:
+            plan = self.backend_plan(command)
+            self.session(plan["session"], owner)
+            valid = plan["owner"] == owner and digest(plan) == outcome["backend_plan"]
+        elif isinstance(outcome, dict) and set(outcome) == {"id", "workflow"}:
+            session = self.session(outcome["id"], owner)
+            valid = session["workflow"] == outcome["workflow"]
+            expected = self.intent(
+                {
+                    "operation": "create",
+                    "id": outcome["id"],
+                    "body": {"model_revision": session["model"], "model_call_limit": session["budget"]},
+                }
+            )
+            receipt = self.conn.execute("SELECT intent FROM agent_command WHERE id=%s", (command,)).fetchone()
+            valid = valid and receipt is not None and hmac.compare_digest(receipt["intent"], expected)
+        elif isinstance(outcome, dict) and "revision" in outcome:
+            profile, _secret = self.model(outcome["revision"], owner)
+            valid = profile == outcome and outcome["credential_generation"] == command
+        if not valid:
+            raise Conflict("AGENT_COMMAND_EFFECT_CORRUPT")
+        return {"status": "ACCEPTED", "outcome": outcome}
+
+    def abandon_command(self, command: str, owner: str) -> dict[str, Any]:
+        with self.conn.transaction():
+            self.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,1))", (command,))
+            outcome = self.observe_command(command, owner)
+            if outcome["status"] == "UNKNOWN":
+                self.conn.execute(
+                    "INSERT INTO agent_command VALUES(%s,%s,%s,%s)",
+                    (command, owner, digest({"abandon": command}), Jsonb({"abandoned": True})),
+                )
+                return {"status": "ABANDONED", "outcome": {"abandoned": True}}
+            return outcome
 
     def models(self, owner: str) -> list[Any]:
         return [
@@ -203,11 +272,7 @@ class Store:
             count = self.conn.execute("SELECT count(*) AS n FROM agent_session WHERE owner=%s", (owner,)).fetchone()
             if count is None or count["n"] >= 100:
                 raise Conflict("AGENT_CAPACITY_REACHED")
-            profile = self.conn.execute(
-                "SELECT revision FROM agent_model WHERE revision=%s AND owner=%s", (body["model_revision"], owner)
-            ).fetchone()
-            if not profile:
-                raise Missing()
+            self.model(body["model_revision"], owner)
             if self.conn.execute("SELECT 1 FROM agent_session WHERE id=%s", (sid,)).fetchone():
                 raise Conflict("AGENT_SESSION_CONFLICT")
             self.conn.execute(
@@ -221,32 +286,67 @@ class Store:
         row = self.conn.execute("SELECT * FROM agent_session WHERE id=%s AND owner=%s", (sid, owner)).fetchone()
         if not row:
             raise Missing()
+        creation = self.conn.execute(
+            "SELECT intent,outcome FROM agent_command WHERE owner=%s AND outcome->>'id'=%s AND outcome ? 'workflow'",
+            (owner, sid),
+        ).fetchall()
+        expected = self.intent(
+            {
+                "operation": "create",
+                "id": sid,
+                "body": {"model_revision": row["model"], "model_call_limit": row["budget"]},
+            }
+        )
+        if (
+            len(creation) != 1
+            or creation[0]["outcome"] != {"id": sid, "workflow": row["workflow"]}
+            or not hmac.compare_digest(creation[0]["intent"], expected)
+        ):
+            raise Conflict("AGENT_SESSION_CORRUPT")
         return row
 
-    def view(self, sid: str, owner: str, workflow: str) -> dict[str, Any]:
-        s = self.session(sid, owner)
+    def history(self, sid: str, owner: str) -> tuple[Any, list[Any]]:
+        session = self.session(sid, owner)
         rows = list(self.conn.execute("SELECT * FROM agent_event WHERE session=%s ORDER BY ordinal", (sid,)))
-        messages = []
-        status = "READY"
         head = None
-        candidate = None
         for i, row in enumerate(rows):
             if row["ordinal"] != i + 1 or digest(row["plan"]) != row["fingerprint"] or row["plan"]["expected"] != head:
                 raise Conflict("AGENT_HISTORY_CORRUPT")
             receipt = self.conn.execute(
-                "SELECT owner,outcome FROM agent_command WHERE id=%s", (row["command"],)
+                "SELECT owner,outcome,intent FROM agent_command WHERE id=%s", (row["command"],)
             ).fetchone()
             if (
                 receipt is None
                 or receipt["owner"] != owner
                 or receipt["outcome"] != {"event": row["fingerprint"]}
+                or not hmac.compare_digest(
+                    receipt["intent"],
+                    self.intent(
+                        {
+                            "operation": "message",
+                            "id": sid,
+                            "body": {"expected": row["plan"]["expected"], "text": row["plan"]["text"]},
+                        }
+                    ),
+                )
                 or row["plan"]["session"] != sid
                 or row["plan"]["command"] != str(row["command"])
-                or row["plan"]["workflow"] != s["workflow"]
-                or row["plan"]["model_revision"] != s["model"]
+                or row["plan"]["workflow"] != session["workflow"]
+                or row["plan"]["model_revision"] != session["model"]
             ):
                 raise Conflict("AGENT_HISTORY_CORRUPT")
             head = row["fingerprint"]
+        return session, rows
+
+    def view(self, sid: str, owner: str, workflow: str) -> dict[str, Any]:
+        s, rows = self.history(sid, owner)
+        messages = []
+        status = "READY"
+        head = None
+        candidate = None
+        for row in rows:
+            head = row["fingerprint"]
+            candidate = None
             messages.append({"role": "user", "content": row["plan"]["text"]})
             result = self.result(str(row["command"]))
             if result is None or result.get("error") == "MODEL_OUTCOME_UNKNOWN":
@@ -260,8 +360,35 @@ class Store:
                 candidate = result["response"]["candidate"]
         if s["workflow"] != workflow:
             status = "WORKFLOW_UNAVAILABLE"
+        proposal = None
+        plans = self.conn.execute(
+            "SELECT command FROM agent_backend_plan WHERE session=%s AND payload->'body'->'origin'->>'event_fingerprint'=%s",
+            (sid, head),
+        ).fetchall()
+        receipts = (
+            self.conn.execute(
+                "SELECT id FROM agent_command WHERE owner=%s AND intent=%s",
+                (owner, self.intent({"operation": "stage", "session": sid, "expected": head})),
+            ).fetchall()
+            if head is not None
+            else []
+        )
+        if len(plans) > 1 or {str(row["command"]) for row in plans} != {str(row["id"]) for row in receipts}:
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        if plans:
+            command = str(plans[0]["command"])
+            plan = self.backend_plan(command)
+            if plan["owner"] != owner or plan["session"] != sid:
+                raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+            receipt = self.backend_recorded(command)
+            proposal = {
+                "command": command,
+                "head": head,
+                "fingerprint": receipt["effect"]["proposal_fingerprint"] if receipt else None,
+            }
         return {
             "id": sid,
+            "proposal": proposal,
             "workflow": s["workflow"],
             "model_revision": s["model"],
             "head": head,
@@ -286,12 +413,7 @@ class Store:
                 raise Conflict("AGENT_ORIGINAL_CALL_UNKNOWN")
             if current["consumed"] >= s["budget"]:
                 raise Conflict("AGENT_BUDGET_EXHAUSTED")
-            profile = self.conn.execute(
-                "SELECT payload FROM agent_model WHERE revision=%s",
-                (s["model"],),
-            ).fetchone()
-            if not profile:
-                raise Conflict("AGENT_MODEL_BINDING_UNAVAILABLE")
+            profile, _secret = self.model(s["model"], owner)
             plan = {
                 "session": sid,
                 "command": command,
@@ -300,7 +422,7 @@ class Store:
                 "workflow": s["workflow"],
                 "model_revision": s["model"],
                 "request": {
-                    "model": profile["payload"]["model_id"],
+                    "model": profile["model_id"],
                     "messages": [
                         {"role": "system", "content": PROMPT},
                         *current["messages"],
@@ -324,18 +446,60 @@ class Store:
 
     def plan(self, command: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM agent_event WHERE command=%s", (command,)).fetchone()
-        if not row or digest(row["plan"]) != row["fingerprint"]:
+        if (
+            not row
+            or digest(row["plan"]) != row["fingerprint"]
+            or row["plan"].get("session") != str(row["session"])
+            or row["plan"].get("command") != str(row["command"])
+        ):
             raise Conflict("AGENT_CALL_CORRUPT")
         return cast(dict[str, Any], row["plan"])
 
+    def model(self, revision: str, owner: str) -> tuple[dict[str, Any], str]:
+        from cryptography.exceptions import InvalidTag
+
+        row = self.conn.execute("SELECT * FROM agent_model WHERE revision=%s", (revision,)).fetchone()
+        if row is None:
+            raise Conflict("AGENT_MODEL_BINDING_UNAVAILABLE")
+        payload = row["payload"]
+        content = {k: v for k, v in payload.items() if k != "revision"}
+        if (
+            row["owner"] != owner
+            or payload.get("owner") != owner
+            or payload.get("id") != str(row["id"])
+            or payload.get("revision") != revision
+            or digest(content) != revision
+        ):
+            raise Conflict("AGENT_MODEL_CORRUPT")
+        try:
+            cipher = bytes(row["secret"])
+            secret = AESGCM(self.settings.encryption_key).decrypt(cipher[:12], cipher[12:], revision.encode()).decode()
+            body = {k: payload[k] for k in ("name", "base_url", "model_id", "model_version")}
+            body.update(expected=payload["parent"], secret=secret)
+            receipt = self.conn.execute(
+                "SELECT owner,intent,outcome FROM agent_command WHERE id=%s", (payload["credential_generation"],)
+            ).fetchone()
+            if (
+                receipt is None
+                or receipt["owner"] != owner
+                or receipt["outcome"] != payload
+                or not hmac.compare_digest(
+                    receipt["intent"], self.intent({"operation": "model", "id": payload["id"], "body": body})
+                )
+            ):
+                raise Conflict("AGENT_MODEL_CORRUPT")
+        except (InvalidTag, ValueError, KeyError, TypeError):
+            raise Conflict("AGENT_MODEL_CORRUPT") from None
+        return cast(dict[str, Any], payload), secret
+
     def model_input(self, command: str) -> tuple[Any, str, Any]:
         plan = self.plan(command)
-        m = self.conn.execute("SELECT * FROM agent_model WHERE revision=%s", (plan["model_revision"],)).fetchone()
-        if m is None:
-            raise Conflict("AGENT_MODEL_BINDING_UNAVAILABLE")
-        cipher = bytes(m["secret"])
-        secret = AESGCM(self.settings.encryption_key).decrypt(cipher[:12], cipher[12:], m["revision"].encode()).decode()
-        return m["payload"], secret, plan["request"]
+        row = self.conn.execute("SELECT owner FROM agent_session WHERE id=%s", (plan["session"],)).fetchone()
+        if row is None:
+            raise Conflict("AGENT_CALL_CORRUPT")
+        session, _events = self.history(plan["session"], row["owner"])
+        profile, secret = self.model(session["model"], row["owner"])
+        return profile, secret, plan["request"]
 
     def result(self, command: str) -> Any:
         row = self.conn.execute("SELECT * FROM agent_result WHERE command=%s", (command,)).fetchone()
@@ -356,8 +520,6 @@ class Store:
     def prepare_backend(
         self, sid: str, owner: str, command: str, expected: str, binding: str, context: dict[str, Any]
     ) -> tuple[dict[str, Any], bool]:
-        from uuid import UUID
-
         with self.command(command, owner, {"operation": "stage", "session": sid, "expected": expected}) as old:
             if old is not None:
                 return self.backend_plan(command), False
@@ -375,12 +537,7 @@ class Store:
             ).fetchone()
             if recorded is None:
                 raise Conflict("AGENT_PROPOSAL_ORIGIN_UNAVAILABLE")
-            backend_command = str(
-                UUID(
-                    bytes=bytes.fromhex(digest({"agent_command": command, "purpose": "register-factor-proposal"}))[:16],
-                    version=4,
-                )
-            )
+            backend_command = backend_command_id(command)
             body = {
                 "schema_version": 1,
                 "origin": {
@@ -412,16 +569,43 @@ class Store:
         return plan, True
 
     def backend_plan(self, command: str) -> dict[str, Any]:
-        row = self.conn.execute(
-            "SELECT fingerprint,payload FROM agent_backend_plan WHERE command=%s", (command,)
-        ).fetchone()
-        if row is None or digest(row["payload"]) != row["fingerprint"]:
+        row = self.conn.execute("SELECT * FROM agent_backend_plan WHERE command=%s", (command,)).fetchone()
+        if (
+            row is None
+            or digest(row["payload"]) != row["fingerprint"]
+            or row["payload"].get("session") != str(row["session"])
+            or row["payload"].get("backend_command") != str(row["backend_command"])
+        ):
             raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
-        receipt = self.conn.execute("SELECT owner,outcome FROM agent_command WHERE id=%s", (command,)).fetchone()
+        receipt = self.conn.execute("SELECT owner,outcome,intent FROM agent_command WHERE id=%s", (command,)).fetchone()
         if (
             receipt is None
             or receipt["owner"] != row["payload"]["owner"]
             or receipt["outcome"] != {"backend_plan": row["fingerprint"]}
+        ):
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        plan = row["payload"]
+        session, events = self.history(plan["session"], plan["owner"])
+        origin = plan["body"]["origin"]
+        if not hmac.compare_digest(
+            receipt["intent"],
+            self.intent({"operation": "stage", "session": plan["session"], "expected": origin["event_fingerprint"]}),
+        ) or plan["backend_command"] != backend_command_id(command):
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        source = next((event for event in events if event["fingerprint"] == origin["event_fingerprint"]), None)
+        result = (
+            self.conn.execute("SELECT * FROM agent_result WHERE command=%s", (source["command"],)).fetchone()
+            if source
+            else None
+        )
+        if (
+            origin["session_id"] != plan["session"]
+            or origin["workflow_fingerprint"] != session["workflow"]
+            or origin["model_revision"] != session["model"]
+            or result is None
+            or result["fingerprint"] != origin["result_fingerprint"]
+            or digest(result["payload"]) != result["fingerprint"]
+            or result["payload"].get("response", {}).get("candidate") != plan["body"]["candidate"]
         ):
             raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
         return cast(dict[str, Any], row["payload"])

@@ -77,7 +77,7 @@ macro_rules! text_enum {
 }
 text_enum!(CommandKind, InvalidCommandKind, {
     CreateProposalGrant => "CREATE_PROPOSAL_GRANT", RevokeProposalGrant => "REVOKE_PROPOSAL_GRANT",
-    StageFactorProposal => "STAGE_FACTOR_PROPOSAL", ConfirmFactorProposal => "CONFIRM_FACTOR_PROPOSAL",
+    WithdrawFactorProposal => "WITHDRAW_FACTOR_PROPOSAL", StageFactorProposal => "STAGE_FACTOR_PROPOSAL", ConfirmFactorProposal => "CONFIRM_FACTOR_PROPOSAL",
     FactorChat => "FACTOR_CHAT",
     CreateResearchRun => "CREATE_RESEARCH_RUN", CancelResearchRun => "CANCEL_RESEARCH_RUN",
     FreezeStrategy => "FREEZE_STRATEGY", PromoteStrategy => "PROMOTE_STRATEGY",

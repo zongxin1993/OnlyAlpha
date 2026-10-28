@@ -85,6 +85,27 @@ def _pair(files: dict[str, str], inputs: dict[str, str], backend: str, frontend:
     }
 
 
+def _agent(directory: Path, inputs: dict[str, str]) -> dict[str, str] | None:
+    root = directory / "agent"
+    if not root.exists():
+        return None
+    record = json.loads((root / "installation.json").read_text())
+    if (
+        set(record) != {"workflow", "project_sha256", "openapi_sha256"}
+        or re.fullmatch(r"[0-9a-f]{64}", record["workflow"]) is None
+    ):
+        raise ValueError("NATIVE_AGENT_ARTIFACT_INVALID")
+    if (
+        record["project_sha256"] != _digest(root / "project.toml")
+        or record["project_sha256"] != inputs.get("packages/agent/pyproject.toml")
+        or record["openapi_sha256"] != _digest(root / "openapi.json")
+        or record["openapi_sha256"] != inputs.get("contracts/agent-api/v1/openapi.json")
+    ):
+        raise ValueError("NATIVE_AGENT_ARTIFACT_MISMATCH")
+    version = tomllib.loads((root / "project.toml").read_text())["project"]["version"]
+    return {**record, "version": version}
+
+
 def verify_artifacts(
     directory: Path,
     inputs: dict[str, str],
@@ -100,7 +121,7 @@ def verify_artifacts(
     if manifest_sha256 is not None and hashlib.sha256(raw).hexdigest() != manifest_sha256:
         raise ValueError("NATIVE_ARTIFACT_SELECTION_MISMATCH")
     manifest = json.loads(raw)
-    if not isinstance(manifest, dict) or set(manifest) - {"release_inputs"} != {
+    if not isinstance(manifest, dict) or set(manifest) - {"release_inputs", "agent"} != {
         "schema_version",
         "version",
         "runtime_root",
@@ -125,6 +146,14 @@ def verify_artifacts(
         versions = manifest["release_inputs"]["versions"]
         if versions.get("backend") != version or versions.get("frontend") != frontend_version:
             raise ValueError("NATIVE_ARTIFACT_PAIR_MISMATCH")
+    if manifest.get("agent") != _agent(directory, inputs):
+        raise ValueError("NATIVE_AGENT_ARTIFACT_MISMATCH")
+    if (
+        "release_inputs" in manifest
+        and manifest.get("agent") is not None
+        and manifest["release_inputs"]["versions"].get("agent") != manifest["agent"]["version"]
+    ):
+        raise ValueError("NATIVE_AGENT_RELEASE_MISMATCH")
     identity = manifest["algorithm_artifact"]
     if not isinstance(identity, str) or re.fullmatch(r"[0-9a-f]{64}", identity) is None:
         raise ValueError("NATIVE_ARTIFACT_IDENTITY_INVALID")
@@ -183,6 +212,9 @@ def seal(
         "files": files,
         "default_pair": _pair(files, inputs, backend, frontend),
     }
+    agent = _agent(directory, inputs)
+    if agent is not None:
+        manifest["agent"] = agent
     if selection is not None:
         manifest["release_inputs"] = selection
     if source_inputs(root) != inputs:

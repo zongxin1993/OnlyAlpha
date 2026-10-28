@@ -1,7 +1,7 @@
 //! The backend owns snapshots, grants and acceptance; Authoring owns Factor facts.
 use crate::application::{
     command::{Admission, Binding, CommandId, CommandKind, Outcome, OutcomeKind, Receipt},
-    factor_chat::hash,
+    factor_content::{INVALID, hash},
     factor_proposals::{self as a, GrantInput, Result, StageInput},
     private_assets::authoring::Draft,
 };
@@ -127,6 +127,50 @@ impl<'a> Proposals<'a> {
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
+    pub async fn grant_state(
+        &mut self,
+        config: &crate::security::agent_browser::Connection,
+        owner: &str,
+        at: &str,
+    ) -> Result<String> {
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
+        if tx
+            .query_opt(
+                "SELECT 1 FROM factor_proposal_grant WHERE grant_id=$1::text::uuid",
+                &[&config.grant_id],
+            )
+            .await
+            .map_err(db)?
+            .is_none()
+        {
+            return Ok("ABSENT".into());
+        }
+        let (_, g) = load_grant(&tx, &config.grant_id).await?;
+        if g["owner"] != owner
+            || g["input"]["service_subject"] != config.service_subject
+            || g["input"]["credential_sha256"] != config.credential_sha256
+        {
+            return Err("FACTOR_PROPOSAL_CORRUPT");
+        }
+        let revoked = tx
+            .query_opt(
+                "SELECT 1 FROM factor_proposal_revocation WHERE grant_id=$1::text::uuid",
+                &[&config.grant_id],
+            )
+            .await
+            .map_err(db)?
+            .is_some();
+        let state = if revoked {
+            "REVOKED"
+        } else if a::datetime(text(&g["input"], "expires_at")?)? <= a::datetime(at)? {
+            "EXPIRED"
+        } else {
+            "ACTIVE"
+        };
+        tx.commit().await.map_err(db)?;
+        Ok(state.into())
+    }
     pub async fn context(
         &mut self,
         credential: &Presented,
@@ -209,6 +253,57 @@ impl<'a> Proposals<'a> {
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
+    pub async fn withdraw(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        fp: &str,
+        at: &str,
+    ) -> Result<Value> {
+        a::pin(fp)?;
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
+        let body = json!({"proposal_fingerprint":fp});
+        let admission = admit(
+            command,
+            CommandKind::WithdrawFactorProposal,
+            owner,
+            "HUMAN",
+            &body,
+        )?;
+        Commands::lock_command(&tx, command).await.map_err(db)?;
+        if let Some(v) = replay(&tx, &admission, owner, "HUMAN").await? {
+            tx.commit().await.map_err(db)?;
+            return Ok(v);
+        }
+        let s = snapshot(&tx, fp, owner, None).await?;
+        let fid = text(&s, "factor_id")?;
+        lineage(&tx, fid).await?;
+        if head(&tx, fid).await? != json!(fp) {
+            return Err("FACTOR_PROPOSAL_STALE");
+        }
+        if withdrawn(&tx, fp, owner).await? {
+            return Err("FACTOR_PROPOSAL_ALREADY_WITHDRAWN");
+        }
+        tx.execute(
+            "INSERT INTO factor_proposal_withdrawal VALUES($1,$2::text::uuid)",
+            &[&fp, &command.value()],
+        )
+        .await
+        .map_err(db)?;
+        let v = finish(
+            &tx,
+            admission,
+            owner,
+            "HUMAN",
+            &body,
+            json!({"proposal_fingerprint":fp}),
+            at,
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(v)
+    }
     pub async fn confirm(
         &mut self,
         command: &CommandId,
@@ -233,8 +328,8 @@ impl<'a> Proposals<'a> {
         }
         let s = snapshot(&tx, fp, owner, None).await?;
         let fid = text(&s, "factor_id")?;
-        let save = crate::persistence::factor_chat::child(command, "save")?;
-        let display = crate::persistence::factor_chat::child(command, "display")?;
+        let save = authoring_child(command, "save")?;
+        let display = authoring_child(command, "display")?;
         Commands::lock_command(&tx, &save).await.map_err(db)?;
         Commands::lock_command(&tx, &display).await.map_err(db)?;
         lineage(&tx, fid).await?;
@@ -251,6 +346,9 @@ impl<'a> Proposals<'a> {
             .is_some()
         {
             return Err("FACTOR_PROPOSAL_ALREADY_CONFIRMED");
+        }
+        if withdrawn(&tx, fp, owner).await? {
+            return Err("FACTOR_PROPOSAL_STALE");
         }
         let before = state(&tx, fid).await?;
         expected(&s, &before)?;
@@ -307,7 +405,8 @@ impl<'a> Proposals<'a> {
         } else {
             Value::Null
         };
-        let v = json!({"schema_version":1,"fingerprint":fp,"snapshot":s,"is_current":current,"confirmation":confirmation});
+        let withdrawn = withdrawn(&tx, fp, &actual_owner).await?;
+        let v = json!({"schema_version":1,"fingerprint":fp,"snapshot":s,"is_current":current,"withdrawn":withdrawn,"confirmation":confirmation});
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -346,6 +445,42 @@ impl<'a> Proposals<'a> {
 }
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str().ok_or(UNAVAILABLE)
+}
+async fn withdrawn(tx: &Transaction<'_>, fp: &str, owner: &str) -> Result<bool> {
+    let row = tx
+        .query_opt(
+            "SELECT command_id::text FROM factor_proposal_withdrawal WHERE proposal_fingerprint=$1",
+            &[&fp],
+        )
+        .await
+        .map_err(db)?;
+    let expected = command_intent(
+        CommandKind::WithdrawFactorProposal,
+        owner,
+        "HUMAN",
+        &json!({"proposal_fingerprint":fp}),
+    )?;
+    let related = tx.query("SELECT command_id::text FROM product_command_admission WHERE command_kind='WITHDRAW_FACTOR_PROPOSAL' AND command_fingerprint=$1 UNION SELECT command_id::text FROM product_command_receipt WHERE command_kind='WITHDRAW_FACTOR_PROPOSAL' AND command_fingerprint=$1 UNION SELECT command_id::text FROM factor_proposal_operation WHERE payload->>'kind'='WITHDRAW_FACTOR_PROPOSAL' AND (payload->'request'->>'proposal_fingerprint'=$2 OR payload->'effect'->>'proposal_fingerprint'=$2) LIMIT 2",&[&expected,&fp]).await.map_err(db)?;
+    let Some(row) = row else {
+        return if related.is_empty() {
+            Ok(false)
+        } else {
+            Err("FACTOR_PROPOSAL_CORRUPT")
+        };
+    };
+    let id = CommandId::new(&row.get::<_, String>(0)).map_err(db)?;
+    if related.len() != 1 || related[0].get::<_, String>(0) != id.value() {
+        return Err("FACTOR_PROPOSAL_CORRUPT");
+    }
+    let record = operation_payload(tx, &id).await?;
+    if record["kind"] != "WITHDRAW_FACTOR_PROPOSAL"
+        || record["request"]["proposal_fingerprint"] != fp
+        || record["effect"]["proposal_fingerprint"] != fp
+    {
+        return Err("FACTOR_PROPOSAL_CORRUPT");
+    }
+    operation(tx, &id, owner, Some("HUMAN")).await?;
+    Ok(true)
 }
 async fn load_grant(tx: &Transaction<'_>, id: &str) -> Result<(String, Value)> {
     let row=tx.query_opt("SELECT fingerprint,payload::text FROM factor_proposal_grant WHERE grant_id=$1::text::uuid FOR UPDATE",&[&id]).await.map_err(db)?.ok_or("FACTOR_PROPOSAL_UNAUTHORIZED")?;
@@ -509,6 +644,11 @@ async fn snapshot(
     }
     Ok(v)
 }
+fn command_intent(kind: CommandKind, owner: &str, actor: &str, body: &Value) -> Result<String> {
+    hash(
+        &json!({"contract":"ONLYALPHA_FACTOR_PROPOSAL_COMMAND_V1","owner":owner,"actor":actor,"kind":kind.as_str(),"body":body}),
+    )
+}
 fn admit(
     command: &CommandId,
     kind: CommandKind,
@@ -516,8 +656,14 @@ fn admit(
     actor: &str,
     body: &Value,
 ) -> Result<Admission> {
-    Admission::new(command.clone(),kind,&hash(&json!({"contract":"ONLYALPHA_FACTOR_PROPOSAL_COMMAND_V1","owner":owner,"actor":actor,"kind":kind.as_str(),"body":body}))?).map_err(db)
+    Admission::new(
+        command.clone(),
+        kind,
+        &command_intent(kind, owner, actor, body)?,
+    )
+    .map_err(db)
 }
+
 async fn replay(
     tx: &Transaction<'_>,
     a: &Admission,
@@ -553,7 +699,18 @@ async fn operation(
     owner: &str,
     actor: Option<&str>,
 ) -> Result<Value> {
-    let row=tx.query_opt("SELECT fingerprint,payload::text FROM factor_proposal_operation WHERE command_id=$1::text::uuid",&[&id.value()]).await.map_err(db)?.ok_or("FACTOR_PROPOSAL_COMMAND_UNKNOWN")?;
+    let row=tx.query_opt("SELECT fingerprint,payload::text FROM factor_proposal_operation WHERE command_id=$1::text::uuid",&[&id.value()]).await.map_err(db)?;
+    let Some(row) = row else {
+        let binding = Commands::verify_binding_in_transaction(tx, id)
+            .await
+            .map_err(db)?;
+        return if matches!(binding,Binding::Accepted(ref receipt) if matches!(receipt.admission().kind(),CommandKind::CreateProposalGrant|CommandKind::RevokeProposalGrant|CommandKind::StageFactorProposal|CommandKind::ConfirmFactorProposal|CommandKind::WithdrawFactorProposal))
+        {
+            Err("FACTOR_PROPOSAL_CORRUPT")
+        } else {
+            Err("FACTOR_PROPOSAL_COMMAND_UNKNOWN")
+        };
+    };
     let fp: String = row.get(0);
     let v = value(row.get(1))?;
     if hash(&v)? != fp || v["command_id"] != id.value() {
@@ -582,6 +739,21 @@ async fn operation(
         )? != *receipt.admission()
     {
         return Err("FACTOR_PROPOSAL_CORRUPT");
+    }
+    if v["kind"] == "WITHDRAW_FACTOR_PROPOSAL" {
+        let proposal = text(&v["request"], "proposal_fingerprint")?;
+        a::pin(proposal)?;
+        if v["actor"] != "HUMAN"
+            || v["request"] != json!({"proposal_fingerprint":proposal})
+            || v["effect"] != json!({"proposal_fingerprint":proposal})
+        {
+            return Err("FACTOR_PROPOSAL_CORRUPT");
+        }
+        Box::pin(snapshot(tx, proposal, owner, None)).await?;
+        let marker=tx.query_opt("SELECT command_id::text FROM factor_proposal_withdrawal WHERE proposal_fingerprint=$1",&[&proposal]).await.map_err(db)?.ok_or("FACTOR_PROPOSAL_CORRUPT")?;
+        if marker.get::<_, String>(0) != id.value() {
+            return Err("FACTOR_PROPOSAL_CORRUPT");
+        }
     }
     if v["kind"] == "CONFIRM_FACTOR_PROPOSAL" {
         let proposal = text(&v["request"], "proposal_fingerprint")?;
@@ -613,7 +785,7 @@ async fn operation(
             } else {
                 "display"
             };
-            if child != crate::persistence::factor_chat::child(id, purpose)?
+            if child != authoring_child(id, purpose)?
                 || effect["factor_id"] != s["factor_id"]
                 || key == "authoring" && effect["result"]["draft"] != s["preview"]["draft"]
             {
@@ -668,4 +840,21 @@ async fn finish(
     Ok(
         json!({"schema_version":1,"command_id":command.value(),"operation_fingerprint":fp,"effect":v["effect"]}),
     )
+}
+
+fn authoring_child(command: &CommandId, purpose: &str) -> Result<CommandId> {
+    let h = hash(&json!({"parent":command.value(),"purpose":purpose}))?;
+    let mut b = h.into_bytes();
+    b[12] = b'4';
+    b[16] = b'8';
+    let s = String::from_utf8(b).map_err(|_| INVALID)?;
+    CommandId::new(&format!(
+        "{}-{}-{}-{}-{}",
+        &s[..8],
+        &s[8..12],
+        &s[12..16],
+        &s[16..20],
+        &s[20..32]
+    ))
+    .map_err(|_| INVALID)
 }

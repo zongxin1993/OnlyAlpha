@@ -8,6 +8,7 @@ from uuid import UUID
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -115,6 +116,17 @@ class ChatMessage(Closed):
     content: str
 
 
+class ProposalReference(Closed):
+    command: str
+    head: str
+    fingerprint: str | None
+
+
+class CommandView(Closed):
+    status: Literal["UNKNOWN", "ACCEPTED", "ABANDONED"]
+    outcome: dict[str, Any] | None
+
+
 class SessionView(Closed):
     id: str
     workflow: str
@@ -125,6 +137,7 @@ class SessionView(Closed):
     messages: list[ChatMessage]
     status: Literal["READY", "FAILED", "OUTCOME_UNKNOWN", "WORKFLOW_UNAVAILABLE"]
     candidate: dict[str, Any] | None
+    proposal: ProposalReference | None
     execution_admitted: Literal[False]
 
 
@@ -146,12 +159,20 @@ def create_app(settings: Settings) -> FastAPI:
         with Store(settings) as store:
             store.initialize()
         app.state.workflow = workflow.current_identity()
+        if settings.expected_workflow is not None and app.state.workflow != settings.expected_workflow:
+            raise Conflict("AGENT_INSTALLATION_BINDING_UNAVAILABLE")
         yield
 
     app = FastAPI(title="OnlyAlpha Agent API", version="1", lifespan=lifespan)
 
     @app.middleware("http")
     async def bounded_input(request: Request, call_next: Any) -> Any:
+        if settings.contained_peer is not None and (
+            request.client is None
+            or request.client.host not in {"127.0.0.1", settings.contained_peer}
+            or request.headers.getlist("host") != ["127.0.0.1:5174"]
+        ):
+            return JSONResponse({"error": "AGENT_TRANSPORT_DENIED"}, status_code=403)
         if request.method not in {"GET", "HEAD"}:
             raw = await request.body()
             if len(raw) > 16384:
@@ -164,6 +185,13 @@ def create_app(settings: Settings) -> FastAPI:
         return await call_next(request)
 
     app.add_middleware(BoundedBody)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.origin],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    )
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -193,10 +221,14 @@ def create_app(settings: Settings) -> FastAPI:
                 or "cookie" in headers
                 or any(k in {"forwarded", "x-user"} or k.startswith("x-forwarded-") for k in headers)
                 or headers.get("origin") not in {None, settings.origin}
-                or headers.get("sec-fetch-site") not in {None, "none", "same-origin"}
+                or headers.get("sec-fetch-site") not in {None, "none", "same-origin", "same-site", "cross-site"}
+                or headers.get("sec-fetch-site") in {"same-site", "cross-site"}
+                and headers.get("origin") != settings.origin
             ):
                 raise Denied("AGENT_UNAUTHORIZED")
-            p = authenticate(settings.signing_key, headers["authorization"])
+            p = authenticate(
+                settings.signing_key, headers["authorization"], browser_issuer_key=settings.browser_issuer_key
+            )
             with Store(settings) as store:
                 if store.conn.execute(
                     "SELECT 1 FROM agent_revocation WHERE owner=%s AND token_id=%s", (p.subject, p.token_id)
@@ -224,6 +256,18 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/v1/agent/health", response_model=HealthView)
     def health() -> Any:
         return {"status": "ALIVE"}
+
+    @app.get("/api/v1/agent/commands/{cid}", response_model=CommandView)
+    def observe(cid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "chat:read")
+        with Store(settings) as store:
+            return store.observe_command(str(cid), p.subject)
+
+    @app.post("/api/v1/agent/commands/{cid}/abandon", response_model=CommandView)
+    def abandon(cid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "chat:write", True)
+        with Store(settings) as store:
+            return store.abandon_command(str(cid), p.subject)
 
     @app.get("/api/v1/agent/models", response_model=ModelsView)
     def models(p: Annotated[Principal, Depends(principal)]) -> Any:
@@ -329,17 +373,30 @@ def create_app(settings: Settings) -> FastAPI:
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
         p: Annotated[Principal, Depends(principal)],
     ) -> Any:
+        return stage(str(sid), body.expected, command(request), p, True)
+
+    @app.post("/api/v1/agent/sessions/{sid}/proposals/{cid}/resume", response_model=BackendProposalView)
+    def recover_proposal(sid: UUID4, cid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "chat:write", True)
+        with Store(settings) as store:
+            plan = store.backend_plan(str(cid))
+            if plan["owner"] != p.subject or plan["session"] != str(sid):
+                raise HTTPException(404, "AGENT_NOT_FOUND")
+        return stage(str(sid), plan["body"]["origin"]["event_fingerprint"], str(cid), p, False)
+
+    def stage(sid: str, expected: str, cid: str, p: Principal, allow_new: bool) -> Any:
         require(p, "chat:write", True)
         if settings.backend_url is None or settings.backend_credential is None:
             raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
         connection = backend.Connection(settings.backend_url, settings.backend_credential)
-        cid = command(request)
         with Store(settings) as store, store.session_lock(str(sid)):
             current = store.view(str(sid), p.subject, app.state.workflow)
             if current["status"] == "WORKFLOW_UNAVAILABLE":
                 raise HTTPException(409, "AGENT_WORKFLOW_UNAVAILABLE")
             old = store.conn.execute("SELECT 1 FROM agent_backend_plan WHERE command=%s", (cid,)).fetchone()
             if old is None:
+                if not allow_new:
+                    raise HTTPException(409, "AGENT_BACKEND_OUTCOME_UNKNOWN")
                 try:
                     context = backend.request(connection, "GET", "/api/v2/factor-proposal-context/" + str(sid))
                 except (backend.Unknown, backend.Rejected) as error:
@@ -349,7 +406,7 @@ def create_app(settings: Settings) -> FastAPI:
             else:
                 context = {}
             plan, accepted = store.prepare_backend(
-                str(sid), p.subject, cid, body.expected, connection.fingerprint(), context
+                str(sid), p.subject, cid, expected, connection.fingerprint(), context
             )
             result = {"status": "OUTCOME_UNKNOWN", "backend_command": plan["backend_command"], "receipt": None}
             if plan["binding"] != connection.fingerprint():

@@ -268,6 +268,7 @@ impl Running {
         if *shutdown.borrow() {
             return Err(Failure::unavailable("NATIVE_STARTUP_INTERRUPTED"));
         }
+        let agent_browser = crate::security::agent_browser::Issuer::load(&config.user_data).map_err(Failure::unavailable)?;
         let database = Database::from(&config);
         let inputs = StorageInputs::load(
             StorageRoots::open(&config.user_data).map_err(|e| Failure::unavailable(e.code()))?,
@@ -291,8 +292,6 @@ impl Running {
         );
         let catalog = Arc::new(
             AuthoringCatalog::new(vec![
-                crate::adapters::agent_model::registration(WORK)
-                    .map_err(|_| Failure::unavailable("AGENT_CATALOG_INVALID"))?,
                 onlyalpha_plugin_binance::spot_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
                 onlyalpha_plugin_binance::usdm_authoring(WORK)
@@ -449,6 +448,7 @@ impl Running {
             }
         };
         let host = Arc::new(Host {
+            agent_browser,
             inputs,
             database,
             writer_live,

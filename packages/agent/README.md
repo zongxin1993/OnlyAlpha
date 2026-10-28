@@ -1,6 +1,6 @@
 # OnlyAlpha Agent
 
-Independent Python 3.12 / LangGraph service. The serving C2 Web page remains on backend until A4; this service is not yet its API target. A2 chat-session/call IDs identify interaction provenance, not ADR 0123 Research Brief/Session/Decision identities; they cannot be submitted as those formal facts. Agent chat/proposals are unadmitted content, never Factor acceptance, Research evidence or trading authority. No Research, Generation, backend confirmation or LIVE endpoints exist here.
+Independent Python 3.12 / LangGraph service. The Shipping C2 Factor Research page calls this service for model settings/chat and calls backend directly for Human confirmation. A2 chat-session/call IDs identify interaction provenance, not ADR 0123 Research Brief/Session/Decision identities; they cannot be submitted as those formal facts. Agent chat/proposals are unadmitted content, never Factor acceptance, Research evidence or trading authority. No Research, Generation, backend confirmation or LIVE endpoints exist here.
 
 ## Installation and startup
 
@@ -24,11 +24,11 @@ Provide two distinct 32-byte files, mode 0600, using `ONLYALPHA_AGENT_KEY_FILE` 
 onlyalpha-agent serve --host 127.0.0.1 --port 5174
 ```
 
-A remote listener additionally requires `--ssl-certfile` and `--ssl-keyfile`; proxy-forwarded identity is rejected. Do not expose plaintext remote service or silently trust proxy/user headers. Local development uses only `onlyalpha-dev`; this phase adds no separate Compose deployment and starts no serving Agent instance automatically.
+A remote listener additionally requires `--ssl-certfile` and `--ssl-keyfile`; proxy-forwarded identity is rejected. Do not expose plaintext remote service or silently trust proxy/user headers. Local development uses only `onlyalpha-dev`; the sole dev topology can supervise the explicitly provisioned independent Agent installation without creating a second stack, installing dependencies or granting business permission on startup.
 
 ## Authentication and API
 
-[Agent API v1](../../contracts/agent-api/v1/openapi.json) is separate from backend Product API. A dedicated signed, expiring Agent-audience bearer credential binds issuer, subject, Human/service kind, scopes and token identity. Infrastructure can provision a bounded token with `onlyalpha-agent access-token --subject SUBJECT --kind human --scope chat:read --scope chat:write --expires-in 3600`. Provision model configuration/revocation scopes only when required. Treat command output as a credential. Browser sign-in and direct backend Human confirmation remain A4/A3 work; do not copy backend Cookies or grant keys into Agent.
+[Agent API v1](../../contracts/agent-api/v1/openapi.json) is separate from backend Product API. A dedicated signed, expiring Agent-audience bearer credential binds issuer, subject, Human/service kind, scopes and token identity. Infrastructure can provision a bounded token with `onlyalpha-agent access-token --subject SUBJECT --kind human --scope chat:read --scope chat:write --expires-in 3600`. Provision model configuration/revocation scopes only when required. Treat command output as a credential. Shipping Web exchanges its verified backend Human session for a separate short-lived Agent-audience assertion. Do not copy backend Cookies or model/service credentials into browser persistence.
 
 Agent verifies audience/subject, scoped operations, ownership, expiry, durable token revocation and request-origin protections. Mutations are Human-only in A2; service credentials can read only explicitly scoped, owned chat. Agent tokens confer no backend authority. Cookie authentication, forwarded-user headers and foreign origins are rejected. No CORS wildcard or backend proxy is provided.
 
@@ -40,7 +40,7 @@ Sessions pin exact workflow code, installed dependency files, interpreter, check
 
 A PostgreSQL advisory session lock fences concurrent service instances. Immutable call plans and command receipts commit before external I/O; usage derives from those plans. Full frozen model requests and bounded results are durable facts; checkpoint state contains references/results without keys. Recorded results repair checkpoint loss without another model call. An accepted call lacking a provable result remains `OUTCOME_UNKNOWN`; restart, resume and repeated messages never resend it or reset budget. Resume reuses the original workflow only. Checkpoints do not grant consent or scientific qualification.
 
-Old Rust C2 and legacy Python consumers remain until A3/A4 and retirement gates replace their actual consumers. A2 does not migrate or delete their stored development data, reset dev services, publish or deploy.
+Superseded Rust C2 chat/model hosting is retired at the UI cutover. Legacy Python Research consumers remain until their actual replacement gates pass; they are never this page's fallback. There is no old dev-chat data conversion or automatic publication/deployment.
 
 ## Scoped backend proposal staging (A3)
 
@@ -60,4 +60,21 @@ backend retained an unadmitted snapshot. It is not Factor confirmation, publicat
 An unavailable backend is reported as unavailable; local history is still readable. Exact receipts and classified observations are
 Agent provenance, not another current Factor store. Credential changes pause original binding reconciliation; do not mint another
 Command to disguise UNKNOWN. Model-call budgets are separate from backend grant usage. Only the frontend's direct backend Human
-command can confirm; this client exposes no confirmation or Research operation. The current C2 UI is unchanged until A4.
+command can confirm; this client exposes no confirmation or Research operation. Shipping C2 uses these exact registration/confirmation boundaries.
+
+
+## Shipping browser deployment
+
+Operator provisioning uses an empty dedicated unprivileged database and an empty Agent state directory. Run the independently
+installed `onlyalpha_agent provision --root /chosen/agent-state --backend-root /chosen/backend-user-data --dsn-file /protected/agent.dsn`.
+The DSN file must be private; provisioning writes distinct 0600 keys, the Agent-only proposal credential, a protected backend browser
+assertion key and public `agent-connection.json`. No model, grant, Factor or business Command is created. Partial/nonempty
+installations and symlink targets are refused; provisioning never repairs or overwrites another installation.
+
+Agent also reads `ONLYALPHA_AGENT_BROWSER_KEY_FILE` and `ONLYALPHA_AGENT_EXPECTED_WORKFLOW` when the deployment provides browser
+exchange and a selected installation manifest. The ordinary page explicitly enables the bounded proposal grant, configures the
+model and creates discussion through public UI. Each model occurrence can have only one staging plan. Query/recovery and explicit
+abandonment endpoints preserve original command identity; an accepted occurrence without external result remains UNKNOWN.
+
+See [Shipping C2 architecture](../../docs/agent-service-architecture.md#shipping-c2-interaction-and-independent-lifecycle) for exact
+origin/audience rules, the protected contained-dev listener, independent outage behavior and retirement boundaries.

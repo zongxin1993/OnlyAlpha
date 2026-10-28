@@ -11,6 +11,5 @@ pub mod workspace_postgres;
 
 pub mod private_factor_postgres;
 
-pub mod factor_chat;
 
 pub mod factor_proposals;

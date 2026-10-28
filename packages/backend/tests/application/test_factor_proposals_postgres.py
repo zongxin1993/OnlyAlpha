@@ -1,4 +1,4 @@
-"""A3 technical authority proofs. Shipping C2 stays unchanged until A4."""
+"""Proposal Authority proofs; business acceptance uses the independent Shipping chat UI."""
 
 from __future__ import annotations
 
@@ -289,3 +289,127 @@ def test_confirmation_requires_owning_authoring_children_even_with_valid_hashes(
         for table in ["factor_proposal_operation", "product_command_receipt"]:
             db.execute(f"ALTER TABLE {table} ENABLE TRIGGER USER")
     assert call(native_probe, "read", fingerprint=first) == {"error": "FACTOR_PROPOSAL_CORRUPT"}
+
+
+def test_withdrawal_invalidates_old_tab_but_preserves_authoring_and_exact_replay(native_probe, postgres_dsn):
+    _, token = grant(native_probe, postgres_dsn)
+    request = proposal(native_probe, token)
+    first = call(native_probe, "stage", token=token, body=request)["effect"]["proposal_fingerprint"]
+    body = {"schema_version": 1, "proposal_fingerprint": first}
+    assert "error" in call(native_probe, "withdraw", actor="other", body=body)
+    assert "error" in call(native_probe, "withdraw", token=token, body=body)
+    cid = str(uuid4())
+    receipt = call(native_probe, "withdraw", command=cid, body=body)
+    assert "error" not in receipt, receipt
+    assert call(native_probe, "withdraw", command=cid, body=body) == receipt
+    view = call(native_probe, "read", fingerprint=first)
+    assert view["withdrawn"] is True and view["confirmation"] is None
+    assert call(native_probe, "confirm", body=body)["error"] == "FACTOR_PROPOSAL_STALE"
+    newer = proposal(native_probe, token, request["origin"]["session_id"])
+    newer["origin"]["event_fingerprint"] = "f" * 64
+    second = call(native_probe, "stage", token=token, body=newer)["effect"]["proposal_fingerprint"]
+    second_body = {"schema_version": 1, "proposal_fingerprint": second}
+    confirmation_id = str(uuid4())
+    confirmed = call(native_probe, "confirm", command=confirmation_id, body=second_body)
+    assert "error" not in confirmed, confirmed
+    assert "error" not in call(native_probe, "withdraw", body=second_body)
+    assert call(native_probe, "confirm", command=confirmation_id, body=second_body) == confirmed
+    assert call(native_probe, "read", fingerprint=second)["confirmation"] == confirmed
+
+
+@pytest.mark.parametrize("mutation", ["foreign_lineage", "wrong_family"])
+def test_withdrawal_requires_exact_owner_family_and_target(native_probe, postgres_dsn, mutation):
+    _, token = grant(native_probe, postgres_dsn)
+    first = call(native_probe, "stage", token=token, body=proposal(native_probe, token))["effect"][
+        "proposal_fingerprint"
+    ]
+    second = call(native_probe, "stage", token=token, body=proposal(native_probe, token))["effect"][
+        "proposal_fingerprint"
+    ]
+    withdrawn = call(native_probe, "withdraw", body={"schema_version": 1, "proposal_fingerprint": second})
+    replacement = withdrawn["command_id"]
+    if mutation == "wrong_family":
+        replacement = call(native_probe, "confirm", body={"schema_version": 1, "proposal_fingerprint": first})[
+            "command_id"
+        ]
+    with psycopg.connect(postgres_dsn) as db:
+        db.execute("ALTER TABLE factor_proposal_withdrawal DISABLE TRIGGER USER")
+        if mutation == "wrong_family":
+            db.execute("INSERT INTO factor_proposal_withdrawal VALUES(%s,%s)", (first, replacement))
+        else:
+            db.execute(
+                "UPDATE factor_proposal_withdrawal SET proposal_fingerprint=%s WHERE proposal_fingerprint=%s",
+                (first, second),
+            )
+        db.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        db.execute("ALTER TABLE factor_proposal_withdrawal ENABLE TRIGGER USER")
+    assert call(native_probe, "read", fingerprint=first) == {"error": "FACTOR_PROPOSAL_CORRUPT"}
+
+
+def test_manual_display_change_after_preview_cannot_be_overwritten(native_probe, postgres_dsn):
+    from packages.backend.tests.application.test_private_factor_authoring_postgres import call as author
+
+    _, token = grant(native_probe, postgres_dsn)
+    request = proposal(native_probe, token)
+    first = call(native_probe, "stage", token=token, body=request)["effect"]["proposal_fingerprint"]
+    assert "error" not in call(native_probe, "confirm", body={"schema_version": 1, "proposal_fingerprint": first})
+    newer = proposal(native_probe, token, request["origin"]["session_id"])
+    newer["origin"]["event_fingerprint"] = "f" * 64
+    second = call(native_probe, "stage", token=token, body=newer)["effect"]["proposal_fingerprint"]
+    fid = call(native_probe, "read", fingerprint=first)["snapshot"]["factor_id"]
+    saved = author(native_probe, fid, "read")
+    assert "error" not in author(
+        native_probe,
+        fid,
+        "display",
+        expected=saved["display_fingerprint"],
+        display_name="手工保留名称",
+        usage_summary="手工用途",
+    )
+    assert (
+        call(native_probe, "confirm", body={"schema_version": 1, "proposal_fingerprint": second})["error"]
+        == "FACTOR_PROPOSAL_AUTHORING_CONFLICT"
+    )
+    assert author(native_probe, fid, "read")["display"]["display_name"] == "手工保留名称"
+
+
+@pytest.mark.parametrize("missing", ["marker", "operation"])
+def test_missing_withdrawal_proof_is_never_nonwithdrawal(native_probe, postgres_dsn, missing):
+    _, token = grant(native_probe, postgres_dsn)
+    fp = call(native_probe, "stage", token=token, body=proposal(native_probe, token))["effect"]["proposal_fingerprint"]
+    body = {"schema_version": 1, "proposal_fingerprint": fp}
+    accepted = call(native_probe, "withdraw", body=body)
+    assert "error" not in accepted
+    with psycopg.connect(postgres_dsn) as db:
+        table = "factor_proposal_withdrawal" if missing == "marker" else "factor_proposal_operation"
+        db.execute("ALTER TABLE " + table + " DISABLE TRIGGER USER")
+        db.execute("DELETE FROM " + table + " WHERE command_id=%s", (accepted["command_id"],))
+        db.execute("ALTER TABLE " + table + " ENABLE TRIGGER USER")
+    assert call(native_probe, "read", fingerprint=fp)["error"] == "FACTOR_PROPOSAL_CORRUPT"
+    assert call(native_probe, "confirm", body=body)["error"] == "FACTOR_PROPOSAL_CORRUPT"
+    assert call(native_probe, "observe", observed_command=accepted["command_id"])["error"] == "FACTOR_PROPOSAL_CORRUPT"
+
+
+def test_unresolved_withdrawal_admission_is_not_certified_absence(native_probe, postgres_dsn):
+    _, token = grant(native_probe, postgres_dsn)
+    fp = call(native_probe, "stage", token=token, body=proposal(native_probe, token))["effect"]["proposal_fingerprint"]
+    intent = {
+        "contract": "ONLYALPHA_FACTOR_PROPOSAL_COMMAND_V1",
+        "owner": "owner",
+        "actor": "HUMAN",
+        "kind": "WITHDRAW_FACTOR_PROPOSAL",
+        "body": {"proposal_fingerprint": fp},
+    }
+    pin = hashlib.sha256(
+        json.dumps(intent, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    with psycopg.connect(postgres_dsn) as db:
+        db.execute(
+            "INSERT INTO product_command_admission(command_id,command_kind,command_fingerprint,schema_version) VALUES(%s,'WITHDRAW_FACTOR_PROPOSAL',%s,1)",
+            (str(uuid4()), pin),
+        )
+    assert call(native_probe, "read", fingerprint=fp)["error"] == "FACTOR_PROPOSAL_CORRUPT"
+    assert (
+        call(native_probe, "confirm", body={"schema_version": 1, "proposal_fingerprint": fp})["error"]
+        == "FACTOR_PROPOSAL_CORRUPT"
+    )

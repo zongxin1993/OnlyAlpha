@@ -1,6 +1,42 @@
 {
   "components": {
     "schemas": {
+      "AccessView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_url": {
+            "type": "string"
+          },
+          "binding": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "token",
+          "expires_at",
+          "subject",
+          "agent_url",
+          "binding"
+        ],
+        "type": "object"
+      },
       "ChartStudyBooleanDto": {
         "additionalProperties": false,
         "properties": {
@@ -2329,6 +2365,58 @@
         ],
         "type": "object"
       },
+      "Connection": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_url": {
+            "type": "string"
+          },
+          "credential_sha256": {
+            "type": "string"
+          },
+          "grant_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "service_subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "agent_url",
+          "grant_id",
+          "service_subject",
+          "credential_sha256"
+        ],
+        "type": "object"
+      },
+      "ConnectionView": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/Connection"
+          },
+          "grant_state": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "connection",
+          "grant_state"
+        ],
+        "type": "object"
+      },
       "Context": {
         "additionalProperties": false,
         "properties": {
@@ -2370,306 +2458,6 @@
           "owner",
           "service_subject",
           "factor_id"
-        ],
-        "type": "object"
-      },
-      "FactorChatCommandDto": {
-        "additionalProperties": false,
-        "properties": {
-          "abandon": {
-            "type": "boolean"
-          },
-          "expected": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "operation": {
-            "type": "string"
-          },
-          "preview_fingerprint": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/FactorChatProviderDto"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "schema_version": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "text": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "schema_version",
-          "operation"
-        ],
-        "type": "object"
-      },
-      "FactorChatCommandOutcomeDto": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FactorChatStateDto"
-          },
-          {
-            "$ref": "#/components/schemas/FactorChatObservationDto"
-          }
-        ]
-      },
-      "FactorChatListDto": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/FactorChatStateDto"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "type": "object"
-      },
-      "FactorChatMessageDto": {
-        "additionalProperties": false,
-        "properties": {
-          "content": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "role",
-          "content"
-        ],
-        "type": "object"
-      },
-      "FactorChatObservationDto": {
-        "additionalProperties": false,
-        "properties": {
-          "abandoned": {
-            "type": "boolean"
-          },
-          "accepted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "accepted",
-          "abandoned"
-        ],
-        "type": "object"
-      },
-      "FactorChatPreviewDto": {
-        "additionalProperties": false,
-        "properties": {
-          "dependencies": {
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "draft": {
-            "$ref": "#/components/schemas/PrivateFactorDraftDto"
-          },
-          "draft_fingerprint": {
-            "type": "string"
-          },
-          "execution_admitted": {
-            "type": "boolean"
-          },
-          "expression": {},
-          "formula": {
-            "type": "string"
-          },
-          "hypothesis": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "purpose",
-          "hypothesis",
-          "formula",
-          "expression",
-          "dependencies",
-          "draft",
-          "draft_fingerprint",
-          "execution_admitted"
-        ],
-        "type": "object"
-      },
-      "FactorChatProviderDto": {
-        "additionalProperties": false,
-        "properties": {
-          "integration_id": {
-            "type": "string"
-          },
-          "revision_fingerprint": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "integration_id",
-          "revision_fingerprint"
-        ],
-        "type": "object"
-      },
-      "FactorChatProviderSummaryDto": {
-        "additionalProperties": false,
-        "properties": {
-          "integration_id": {
-            "type": "string"
-          },
-          "lifecycle": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "revision_fingerprint": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "integration_id",
-          "name",
-          "lifecycle"
-        ],
-        "type": "object"
-      },
-      "FactorChatProvidersDto": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/FactorChatProviderSummaryDto"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "type": "object"
-      },
-      "FactorChatStateDto": {
-        "additionalProperties": false,
-        "properties": {
-          "confirmed": {
-            "type": "boolean"
-          },
-          "conversation_id": {
-            "type": "string"
-          },
-          "display_confirmed": {
-            "type": "boolean"
-          },
-          "event_count": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "factor_id": {
-            "type": "string"
-          },
-          "head": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "messages": {
-            "items": {
-              "$ref": "#/components/schemas/FactorChatMessageDto"
-            },
-            "type": "array"
-          },
-          "preview": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/FactorChatPreviewDto"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "preview_fingerprint": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/FactorChatProviderDto"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "saved_display_fingerprint": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "saved_draft_fingerprint": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "schema_version": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "schema_version",
-          "conversation_id",
-          "factor_id",
-          "event_count",
-          "messages",
-          "confirmed",
-          "display_confirmed",
-          "status"
         ],
         "type": "object"
       },
@@ -5703,13 +5491,17 @@
             "minimum": 0,
             "type": "integer"
           },
-          "snapshot": {}
+          "snapshot": {},
+          "withdrawn": {
+            "type": "boolean"
+          }
         },
         "required": [
           "schema_version",
           "fingerprint",
           "snapshot",
-          "is_current"
+          "is_current",
+          "withdrawn"
         ],
         "type": "object"
       },
@@ -7015,6 +6807,102 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v2/agent-browser-access": {
+      "post": {
+        "operationId": "agent_browser_access",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessView"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/agent-connection": {
+      "get": {
+        "operationId": "agent_connection",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
     "/api/v2/agent/sessions": {
       "post": {
         "operationId": "admit_agent_session_v2",
@@ -7942,527 +7830,6 @@
         ]
       }
     },
-    "/api/v2/factor-chat/providers": {
-      "get": {
-        "operationId": "factor_chat_providers",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FactorChatProvidersDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "LocalDeveloperCookie": []
-          }
-        ]
-      }
-    },
-    "/api/v2/factor-chats": {
-      "get": {
-        "operationId": "factor_chat_list",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FactorChatListDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "LocalDeveloperCookie": []
-          }
-        ]
-      }
-    },
-    "/api/v2/factor-chats/{conversation_id}": {
-      "get": {
-        "operationId": "factor_chat_read",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FactorChatStateDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "LocalDeveloperCookie": []
-          }
-        ]
-      }
-    },
-    "/api/v2/factor-chats/{conversation_id}/commands": {
-      "post": {
-        "operationId": "factor_chat_command",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FactorChatCommandDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FactorChatCommandOutcomeDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "LocalDeveloperCookie": []
-          }
-        ]
-      }
-    },
-    "/api/v2/factor-chats/{conversation_id}/commands/{command_id}": {
-      "get": {
-        "operationId": "factor_chat_observe",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "command_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FactorChatObservationDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NativeErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "LocalDeveloperCookie": []
-          }
-        ]
-      }
-    },
     "/api/v2/factor-proposal-context/{session_id}": {
       "get": {
         "operationId": "proposal_context",
@@ -9213,6 +8580,109 @@
             }
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-proposals/{fingerprint}/withdrawal": {
+      "post": {
+        "operationId": "proposal_withdraw",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
             "content": {
               "application/json": {
                 "schema": {

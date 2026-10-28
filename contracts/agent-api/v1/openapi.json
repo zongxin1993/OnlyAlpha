@@ -82,6 +82,38 @@
         "title": "ChatMessage",
         "type": "object"
       },
+      "CommandView": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "status": {
+            "enum": [
+              "UNKNOWN",
+              "ACCEPTED",
+              "ABANDONED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "outcome"
+        ],
+        "title": "CommandView",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -287,6 +319,37 @@
         "title": "ProposalInput",
         "type": "object"
       },
+      "ProposalReference": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "head": {
+            "title": "Head",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "head",
+          "fingerprint"
+        ],
+        "title": "ProposalReference",
+        "type": "object"
+      },
       "RevocationView": {
         "additionalProperties": false,
         "properties": {
@@ -377,6 +440,16 @@
             "title": "Model Revision",
             "type": "string"
           },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "enum": [
               "READY",
@@ -402,6 +475,7 @@
           "messages",
           "status",
           "candidate",
+          "proposal",
           "execution_admitted"
         ],
         "title": "SessionView",
@@ -521,6 +595,96 @@
           }
         ],
         "summary": "Revoke"
+      }
+    },
+    "/api/v1/agent/commands/{cid}": {
+      "get": {
+        "operationId": "observe_api_v1_agent_commands__cid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Observe"
+      }
+    },
+    "/api/v1/agent/commands/{cid}/abandon": {
+      "post": {
+        "operationId": "abandon_api_v1_agent_commands__cid__abandon_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Abandon"
       }
     },
     "/api/v1/agent/health": {
@@ -939,6 +1103,61 @@
           }
         ],
         "summary": "Proposal Status"
+      }
+    },
+    "/api/v1/agent/sessions/{sid}/proposals/{cid}/resume": {
+      "post": {
+        "operationId": "recover_proposal_api_v1_agent_sessions__sid__proposals__cid__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendProposalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recover Proposal"
       }
     },
     "/api/v1/agent/sessions/{sid}/resume": {

@@ -187,7 +187,7 @@ services:
       all_proxy: ""
       NO_PROXY: localhost,127.0.0.1,postgres,clickhouse
       no_proxy: localhost,127.0.0.1,postgres,clickhouse
-    ports: ["127.0.0.1:5173:5173"]
+    ports: ["127.0.0.1:5173:5173", "127.0.0.1:5174:5174"]
     volumes:
       - type: bind
         source: ../.test-cache/dev-product-source
@@ -213,6 +213,11 @@ services:
         read_only: true
         image:
           subpath: workspace/packages/frontend/node_modules
+      - type: volume
+        source: agent-state
+        target: /var/lib/onlyalpha-agent
+        volume:
+          nocopy: true
       - type: volume
         source: user-data
         target: /var/lib/onlyalpha

@@ -243,10 +243,10 @@ def test_d_production_agent_has_no_cross_node_store_db_broker_or_live_import() -
     assert not {item for item in imports if item.startswith(forbidden)}
 
 
-def test_retired_compose_agent_cannot_mount_agent_roots_or_publish_internal_access() -> None:
+def test_only_independent_agent_state_is_available_to_the_single_dev_supervisor() -> None:
     compose = yaml.safe_load((ROOT / "deploy/docker-compose.dev.yml").read_text(encoding="utf-8"))
     assert "agent" not in compose["services"]
-    # Retained data volumes do not authorize an executable Agent deployment.
+    # A4 enables only the independent Agent installation, never the retired orchestrator.
     assert {"agent-state", "agent-locks"} <= set(compose["volumes"])
     for name, service in compose["services"].items():
         command = str(service.get("command", ""))
@@ -254,7 +254,15 @@ def test_retired_compose_agent_cannot_mount_agent_roots_or_publish_internal_acce
         assert "--model-token-file" not in command, name
         for volume in service.get("volumes", ()):
             source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
-            assert source not in {"agent-state", "agent-locks"}, name
+            assert source != "agent-locks", name
+            if source == "agent-state":
+                assert name == "dev"
+                assert volume == {
+                    "type": "volume",
+                    "source": "agent-state",
+                    "target": "/var/lib/onlyalpha-agent",
+                    "volume": {"nocopy": True},
+                }
     assert compose["networks"]["database"]["internal"] is True
     native = (ROOT / "packages/backend/src/security/human_access.rs").read_text()
     assert '"/internal"' in native and '"/api/v2/agent"' in native

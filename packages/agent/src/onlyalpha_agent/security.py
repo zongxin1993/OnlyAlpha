@@ -8,6 +8,7 @@ import jwt
 
 ISSUER = "onlyalpha-agent-access-v1"
 AUDIENCE = "onlyalpha-agent"
+BROWSER_ISSUER = "onlyalpha-backend-browser-v1"
 
 
 class Denied(Exception):
@@ -27,12 +28,20 @@ class Principal:
 
 
 def issue_token(
-    key: bytes, *, subject: str, audience: str, kind: str, scopes: list[str], token_id: str, expires_at: int
+    key: bytes,
+    *,
+    subject: str,
+    audience: str,
+    kind: str,
+    scopes: list[str],
+    token_id: str,
+    expires_at: int,
+    issuer: str = ISSUER,
 ) -> str:
     return jwt.encode(
         {
             "v": 1,
-            "iss": ISSUER,
+            "iss": issuer,
             "aud": audience,
             "sub": subject,
             "kind": kind,
@@ -45,16 +54,21 @@ def issue_token(
     )
 
 
-def authenticate(key: bytes, authorization: str) -> Principal:
+def authenticate(key: bytes, authorization: str, *, browser_issuer_key: bytes | None = None) -> Principal:
     try:
         if len(authorization) > 16384 or not authorization.startswith("Bearer "):
+            raise ValueError
+        issuer = jwt.decode(authorization[7:], options={"verify_signature": False}).get("iss")
+        if issuer == BROWSER_ISSUER and browser_issuer_key is not None:
+            key = browser_issuer_key
+        elif issuer != ISSUER:
             raise ValueError
         claims = jwt.decode(
             authorization[7:],
             key,
             algorithms=["HS256"],
             audience=AUDIENCE,
-            issuer=ISSUER,
+            issuer=issuer,
             options={"require": ["v", "iss", "aud", "sub", "kind", "scopes", "jti", "exp"]},
         )
         if (

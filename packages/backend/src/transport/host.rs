@@ -56,6 +56,7 @@ pub struct Host {
     pub(crate) assets: Router,
     pub(crate) issuer: Mutex<Issuer>,
     pub(crate) proposal_fence: Mutex<Issuer>,
+    pub(crate) agent_browser: Option<crate::security::agent_browser::Issuer>,
     pub(crate) revoker: OnceLock<SourceRevoker>,
     pub(crate) ready: AtomicBool,
     pub(crate) socket_slots: Arc<tokio::sync::Semaphore>,
@@ -296,9 +297,17 @@ impl Host {
                 Err(Failure::unavailable("PRODUCT_NODE_NOT_READY"))
             };
         }
-        if request.extensions().get::<crate::security::proposal_access::Presented>().is_some() {
-            let deadline=request.extensions().get::<RequestDeadline>().ok_or(Failure::unavailable("REQUEST_DEADLINE_UNAVAILABLE"))?.0;
-            return self.factor_proposals(request,None,deadline).await;
+        if request
+            .extensions()
+            .get::<crate::security::proposal_access::Presented>()
+            .is_some()
+        {
+            let deadline = request
+                .extensions()
+                .get::<RequestDeadline>()
+                .ok_or(Failure::unavailable("REQUEST_DEADLINE_UNAVAILABLE"))?
+                .0;
+            return self.factor_proposals(request, None, deadline).await;
         }
         let human = request
             .extensions()
@@ -339,14 +348,11 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
-        if path.starts_with("/api/v2/factor-proposal") {
-            return self.factor_proposals(request,Some(human),deadline).await;
+        if path == "/api/v2/agent-browser-access" || path == "/api/v2/agent-connection" {
+            return self.agent_browser(request, human).await;
         }
-        if path.starts_with("/api/v2/factor-chat/")
-            || path == "/api/v2/factor-chats"
-            || path.starts_with("/api/v2/factor-chats/")
-        {
-            return self.factor_chat(request, human, deadline).await;
+        if path.starts_with("/api/v2/factor-proposal") {
+            return self.factor_proposals(request, Some(human), deadline).await;
         }
         if path == "/api/v2/market-data/acquisitions" && request.method() == Method::POST {
             return self.acquisition(request, human, deadline).await;

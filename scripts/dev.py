@@ -83,7 +83,10 @@ def deployment_attestation(
     ):
         raise ValueError("DEV_APPLICATION_BUSINESS_STORE_REFUSED")
     settings = record.get("NetworkSettings", {})
-    if settings.get("Ports") != {"5173/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5173"}]}:
+    if settings.get("Ports") != {
+        "5173/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5173"}],
+        "5174/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5174"}],
+    }:
         raise ValueError("DEV_PUBLICATION_ATTESTATION_INVALID")
     selected = settings.get("Networks", {})
     if set(selected) != {"onlyalpha-dev-application", "onlyalpha-dev-database"}:
@@ -112,6 +115,7 @@ def deployment_attestation(
         "local_address": app["IPAddress"],
         "gateway": app["Gateway"],
         "publication": "127.0.0.1:5173",
+        "agent_publication": "127.0.0.1:5174",
         "postgres_peer": pg["IPAddress"] + ":5432",
         "runtime_root": runtime,
     }
@@ -443,6 +447,7 @@ def inside() -> int:
             "local_address",
             "gateway",
             "publication",
+            "agent_publication",
             "postgres_peer",
             "runtime_root",
             "artifact_manifest_sha256",
@@ -503,8 +508,41 @@ def inside() -> int:
     if manifest["build_environment"] != {"NODE_ENV": "production", "VITE_ONLYALPHA_LOCAL_SESSION": "true"}:
         raise ValueError("DEV_NATIVE_WEB_BUILD_INVALID")
     executable = str(artifact / "bin/onlyalpha-backend")
-    os.execve(executable, [executable, "--user-data-root", "/var/lib/onlyalpha"], environment)
-    raise AssertionError("exec returned")
+    agent_root = Path("/var/lib/onlyalpha-agent")
+    if not (agent_root / "database.dsn").exists():
+        os.execve(executable, [executable, "--user-data-root", "/var/lib/onlyalpha"], environment)
+        raise AssertionError("exec returned")
+    import signal
+
+    from scripts.agent_runtime import launch
+
+    agent = launch(agent_root, artifact / "agent", contained=deployment)
+    backend = subprocess.Popen(
+        [executable, "--user-data-root", "/var/lib/onlyalpha"], env=environment, start_new_session=True
+    )
+    stop = threading.Event()
+
+    def halted(_number: int, _frame: object) -> None:
+        stop.set()
+
+    for number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, halted)
+    try:
+        # Infrastructure holds each process independently; backend never supervises Agent.
+        # A failed process remains failed until an explicit operator lifecycle action.
+        stop.wait()
+    finally:
+        for child in (agent, backend):
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGTERM)
+        for child in (agent, backend):
+            try:
+                child.wait(timeout=20)
+            except subprocess.TimeoutExpired as error:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+                raise RuntimeError("DEV_SERVICE_DRAIN_FAILED") from error
+    return 0 if backend.returncode == 0 and agent.returncode in {0, -signal.SIGTERM} else 1
 
 
 def main() -> int:

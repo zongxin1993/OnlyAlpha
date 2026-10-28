@@ -77,14 +77,15 @@ fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
 }
 #[test]
 fn all_existing_command_and_outcome_families_are_supported_without_new_identities() {
-    // C2 chat plus A3's four scoped proposal commands extend the existing vocabulary.
-    assert_eq!(CommandKind::ALL.len(), 28);
+    // Historical chat vocabulary is retained; A4 adds explicit proposal withdrawal.
+    assert_eq!(CommandKind::ALL.len(), 29);
     for (name, kind) in [
         ("FACTOR_CHAT", CommandKind::FactorChat),
         ("CREATE_PROPOSAL_GRANT", CommandKind::CreateProposalGrant),
         ("REVOKE_PROPOSAL_GRANT", CommandKind::RevokeProposalGrant),
         ("STAGE_FACTOR_PROPOSAL", CommandKind::StageFactorProposal),
         ("CONFIRM_FACTOR_PROPOSAL", CommandKind::ConfirmFactorProposal),
+        ("WITHDRAW_FACTOR_PROPOSAL", CommandKind::WithdrawFactorProposal),
     ] {
         assert_eq!(name.parse::<CommandKind>().unwrap(), kind);
     }

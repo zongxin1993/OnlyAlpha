@@ -194,7 +194,10 @@ def _native_artifact_precondition(monkeypatch, root: Path, source_inputs, calls)
                         },
                     ],
                     "NetworkSettings": {
-                        "Ports": {"5173/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5173"}]},
+                        "Ports": {
+                            "5173/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5173"}],
+                            "5174/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5174"}],
+                        },
                         "Networks": {
                             "onlyalpha-dev-application": {
                                 "NetworkID": "network-application",

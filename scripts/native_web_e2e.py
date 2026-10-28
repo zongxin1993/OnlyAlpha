@@ -16,10 +16,13 @@ import threading
 import time
 import tomllib
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -128,8 +131,101 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
     return first, current
 
 
+@contextmanager
+def agent_database(dsn: str, output: Path, backend: Path, installation: Path) -> Iterator[Path]:
+    """Infrastructure precondition only: separate unprivileged test database and keys."""
+    only_assert_postgres_test_database(dsn)
+    name = "oa_agent_browser_" + uuid.uuid4().hex + "_test"
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        password = uuid.uuid4().hex
+        admin.execute(
+            sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE").format(
+                sql.Identifier(name), sql.Literal(password)
+            )
+        )
+        try:
+            admin.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(name), sql.Identifier(name)))
+            try:
+                admin.execute(sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(sql.Identifier(name)))
+                root = output / "agent-state"
+                dsn_file = output / "agent-installation.dsn"
+                dsn_file.write_text(make_conninfo(dsn, dbname=name, user=name, password=password))
+                dsn_file.chmod(0o600)
+                subprocess.run(
+                    [
+                        str(installation / "env/bin/python"),
+                        "-B",
+                        "-I",
+                        "-m",
+                        "onlyalpha_agent",
+                        "provision",
+                        "--root",
+                        str(root),
+                        "--backend-root",
+                        str(backend),
+                        "--dsn-file",
+                        str(dsn_file),
+                    ],
+                    cwd=installation,
+                    env={},
+                    check=True,
+                )
+                yield root
+            finally:
+                admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+        finally:
+            admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(name)))
+
+
+@contextmanager
+def running_agent(root: Path, installation: Path, output: Path) -> Iterator[subprocess.Popen[bytes]]:
+    from scripts.agent_runtime import launch
+
+    with (output / "agent.log").open("wb") as log:
+        child = launch(root, installation, stdout=subprocess.PIPE, stderr=log)
+        stream = child.stdout
+        assert stream is not None
+        events: queue.Queue[bytes] = queue.Queue()
+
+        def read() -> None:
+            for line in stream:
+                log.write(line)
+                log.flush()
+                events.put(line)
+            events.put(b"")
+
+        reader = threading.Thread(target=read, name="agent-startup")
+        reader.start()
+        try:
+            deadline = time.monotonic() + 20
+            while True:
+                line = events.get(timeout=max(0, deadline - time.monotonic()))
+                if line.strip() == b"ONLYALPHA_AGENT_READY":
+                    break
+                if not line:
+                    raise RuntimeError("Agent exited before READY")
+            yield child
+        finally:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=20)
+            except subprocess.TimeoutExpired as error:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+                raise RuntimeError("Agent did not drain") from error
+            finally:
+                reader.join(timeout=5)
+                if reader.is_alive():
+                    raise RuntimeError("Agent stdout did not drain")
+        # Uvicorn drains then re-raises its received SIGTERM; retain that standard exit identity.
+        if child.returncode not in {0, -signal.SIGTERM}:
+            raise RuntimeError("Agent failed its owned lifecycle")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--agent", action="store_true", help="Include the independent Shipping Agent service")
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
     parser.add_argument(
         "--restart-check", action="store_true", help="Repeat selected browser checks after a fully drained Host restart"
@@ -249,7 +345,7 @@ def main() -> int:
     )
     selected_artifact(ROOT, resources, selected_sha)
 
-    def run_host(phase: str) -> int:
+    def run_host(phase: str, agent_pid: int | None = None) -> int:
         phase_output = output if phase == "initial" else output / "after-restart"
         phase_output.mkdir(exist_ok=True)
         started = time.monotonic()
@@ -333,6 +429,8 @@ def main() -> int:
                             **os.environ,
                             "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
                             "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                            "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
+                            "ONLYALPHA_BROWSER_AGENT_PID": str(agent_pid or ""),
                             "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
                             "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
                         },
@@ -390,9 +488,19 @@ def main() -> int:
         return result
 
     try:
-        result = run_host("initial")
-        if result == 0 and args.restart_check:
-            result = run_host("restored")
+        if args.agent:
+            with agent_database(dsn, output, data, resources / "agent") as agent_root:
+                with running_agent(agent_root, resources / "agent", output) as agent:
+                    result = run_host("initial", agent.pid)
+                if result == 0 and args.restart_check:
+                    restarted = output / "after-restart"
+                    restarted.mkdir(exist_ok=True)
+                    with running_agent(agent_root, resources / "agent", restarted) as agent:
+                        result = run_host("restored", agent.pid)
+        else:
+            result = run_host("initial")
+            if result == 0 and args.restart_check:
+                result = run_host("restored")
         return result
     finally:
         ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")

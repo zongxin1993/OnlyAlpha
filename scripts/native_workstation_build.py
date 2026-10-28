@@ -50,6 +50,9 @@ def build(
     (directory / "bin").mkdir()
     shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
     artifact = install(directory / "wheels", directory / "algorithms")
+    from scripts.build_agent_service import install as install_agent
+
+    install_agent(directory / "agent")
     (directory / "algorithm-artifact.sha256").write_text(artifact + "\n")
     with (directory / "web-build.log").open("w") as log:
         result = subprocess.run(

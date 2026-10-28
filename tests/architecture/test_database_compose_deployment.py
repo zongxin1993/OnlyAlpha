@@ -128,14 +128,14 @@ def test_ordinary_dev_reuses_fixed_dependencies_without_any_preparation_chain() 
     assert dev["profiles"] == ["dev"]
     assert dev["image"] == "${ONLYALPHA_DEV_TOOL_IMAGE_ID:-onlyalpha-browser-test:dev}"
     assert dev["command"] == ["python", "-m", "scripts.dev", "inside"]
-    assert dev["ports"] == ["127.0.0.1:5173:5173"]
+    assert dev["ports"] == ["127.0.0.1:5173:5173", "127.0.0.1:5174:5174"]
     assert "depends_on" not in dev and "build" not in dev
     assert (
         dev["environment"]["ONLYALPHA_POSTGRES_DSN"]
         == "postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha?sslmode=disable"
     )
     assert dev["environment"]["VITE_ONLYALPHA_LOCAL_SESSION"] == "true"
-    assert {m["source"] for m in dev["volumes"] if m["type"] == "volume"} == {"user-data"}
+    assert {m["source"] for m in dev["volumes"] if m["type"] == "volume"} == {"user-data", "agent-state"}
     assert dev["volumes"][0]["source"] == "../.test-cache/dev-product-source"
     assert all(m["read_only"] for m in dev["volumes"] if m["type"] != "volume")
     assert compose["volumes"]["user-data"]["external"] == "${ONLYALPHA_DEV_EXISTING_USER_DATA:-false}"

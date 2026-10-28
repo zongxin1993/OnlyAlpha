@@ -196,8 +196,7 @@ authorized by this design document.
 ## A3 proposal API and acceptance boundary
 
 The scoped Product seam is `/api/v2/factor-proposals`. An Agent registers an unadmitted immutable snapshot; only a separately
-verified backend Human session can confirm it. A3 retains the serving C2 page/model/chat path. These interfaces are technical
-prerequisites for A4, not an alternative normal Human workflow or an A4 Shipping UI acceptance claim.
+verified backend Human session can confirm it. These interfaces are the prerequisites for the Shipping C2 interaction below; technical API proofs alone do not establish Web acceptance.
 
 A Human-authorized grant is registered at `POST /api/v2/factor-proposal-grants` and revoked at
 `POST /api/v2/factor-proposal-grants/revocations`. Both use global Command identities. Grant input includes a UUID, service
@@ -255,5 +254,59 @@ Migration 0059 extends backend-owned Command kinds and adds grant/snapshot/opera
 It is transactional under the existing migration entry: any failure rolls back schema changes, and confirmation failure rolls back
 all Authoring/Command effects. Existing facts and fingerprints are not rewritten. Agent adds only its own backend-call plans,
 observations and receipt references to its separate store. Startup/tests never migrate backend data through Agent credentials.
-Old C2 writers and still-consumed Python implementations remain until A4/A6 retirement conditions are met; A3 does not introduce
-fallbacks, historical-development-data loaders, publication or deployment.
+Superseded Rust C2 chat/model writers are removed at the A4 cutover. Still-consumed Python Research orchestration/model-profile
+implementations remain subject to their actual A5/A6 consumer closure; they are not a fallback for this page. Migration 0058 remains
+schema provenance without a serving C2 reader/writer or development-history conversion path.
+
+
+## Shipping C2 interaction and independent lifecycle
+
+The ordinary Factor Research page configures models and persists discussion through Agent API v1. It reads the canonical preview
+from backend `/api/v2/factor-proposals/{fingerprint}` and submits the first Human confirmation directly to backend. It never submits
+confirmation through Agent. Model-generated content alone cannot create a Factor, publish a Revision, run Research or activate a
+Generation. Existing advanced authoring forms continue to use the same Authoring Authority.
+
+Backend `POST /api/v2/agent-browser-access` exchanges an already verified Human session for a short-lived, Agent-audience assertion.
+It is an operational authentication step, not a business grant. Its fixed issuer is `onlyalpha-backend-browser-v1`; subject comes
+from the verified Human and scopes are only `chat:read`, `chat:write`, `model:write`. A dedicated protected browser-assertion key is
+separate from Human Cookies, model keys, Agent's own signing/encryption keys and the proposal service credential. Agent verifies the
+issuer, signature, audience, expiry and its own durable revocation facts. This assertion grants no backend permission. Browser calls
+Agent with `credentials: omit` and the intended bearer; Cookies and forwarded identity headers are refused. CORS permits only the
+configured Web origin, without credentialed requests or wildcards. A cached Agent assertion permits an already loaded page to read
+owned history during backend outage; it does not independently serve the frontend while backend's static host is stopped.
+
+`GET /api/v2/agent-connection` exposes only public connection metadata and the exact Human-owned grant state. A discoverable Web
+action explicitly enables a finite proposal-registration grant (100 snapshots, 24 hours). There is no startup grant, copied service
+secret, model enrollment or execution consent. Configuration errors, expired/revoked grants and independent service outages remain
+visible. The browser-assertion binding pins the Agent endpoint/issuer/subject for pending interactions; reconnecting cannot silently
+move an unresolved command to another service installation.
+
+An edited text draft disables local confirmation. Before submitting that changed idea, Web explicitly withdraws the registered
+snapshot using backend Human `POST /api/v2/factor-proposals/{fingerprint}/withdrawal`. Withdrawal is an immutable, globally receipted
+Command, serialized with confirmation and head changes. It blocks a stale tab even while a new model response is pending. It does
+not undo accepted Authoring or erase historical confirmation. A newly registered snapshot still CAS-checks the exact prior head and
+Authoring/display bases. Delayed responses are displayed only for the selected session and exact event head.
+
+Agent `GET /api/v1/agent/commands/{id}` distinguishes UNKNOWN, accepted owning effect and an explicit local abandonment tombstone.
+`POST .../commands/{id}/abandon` fences a not-yet-accepted interaction under the same lock; it never cancels an accepted call or any
+backend operation. Model secrets are never retained in browser pending metadata. Proposal staging has one durable plan per model
+occurrence. `POST .../sessions/{session}/proposals/{id}/resume` loads that plan and only reconciles the original backend Command or
+repairs its recorded checkpoint. It cannot create a new plan or repeat the first POST. UNKNOWN is not certified absence; missing or
+malformed mandatory owning relations are not accepted effects. Optional model/backend results are not prerequisites for occurrence
+existence. A lost Human confirmation, withdrawal or grant response is reconciled against its original backend Command. Explicit same-identity
+replay preserves the complete original target/body (including grant expiry); it cannot become a second business identity. A staging
+refusal does not certify nonacceptance: Web may explicitly return to history while retaining the exact plan. Reopening that original
+session remains read-only pending reconciliation; another session requires an explicit Human action and distinct namespace.
+
+Infrastructure may package the exact independently installed Agent closure beside the selected local runtime composition. Its
+manifest pins Agent version, workflow, project/contract bytes and every bundled file; this does not couple Agent's release version
+to backend. The Agent interpreter has no backend/root distribution on its import path. Installation and operator provisioning are
+explicit build/deployment actions: a dedicated unprivileged Agent database, separate protected keys and a digest-only backend
+connection descriptor. Partial or conflicting provisioning is refused, not repaired or overwritten automatically.
+
+In the sole dev topology the infrastructure supervisor owns two separate processes. Backend never imports or starts Agent.
+A configured Agent has its own state volume and explicit loopback publication `127.0.0.1:5174`; backend/Web remain on 5173. The
+contained transport exception requires the host-inspected container/network/publication record and exact client peer/Host checks;
+remote listeners retain explicit TLS requirements. Normal source edits reuse the fixed tools; there is no extra Compose stack,
+startup dependency installation, automatic service restart or model fallback. An unavailable process remains visibly unavailable
+until an explicit lifecycle action. Fixed-image validation uses isolated test databases and the same selected Shipping artifacts.

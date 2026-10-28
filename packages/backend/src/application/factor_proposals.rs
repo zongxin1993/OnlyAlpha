@@ -1,7 +1,7 @@
 //! Immutable, unadmitted Agent input. Only Human confirmation reaches Authoring.
 use crate::application::{
     command::CommandId,
-    factor_chat::{hash, preview},
+    factor_content::{hash, preview},
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,7 @@ pub struct ProposalView {
     pub fingerprint: String,
     pub snapshot: Value,
     pub is_current: bool,
+    pub withdrawn: bool,
     pub confirmation: Option<Operation>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
