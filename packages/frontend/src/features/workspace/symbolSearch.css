@@ -61,6 +61,7 @@
     padding: 14px 8px;
     min-width: 0;
     background: transparent;
+    color: var(--text);
 }
 .symbol-search__results small {
     overflow-wrap: anywhere;
@@ -71,6 +72,7 @@
     font-size: 23px;
     background: transparent;
     border: 0;
+    color: var(--muted);
 }
 .symbol-search__star[aria-pressed="true"] {
     color: #ad7900;

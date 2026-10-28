@@ -63,5 +63,8 @@ it("states the browser authority boundary and reaches the workspace by keyboard"
 it("does not advertise a deferred research command as available", () => {
     renderShell();
     expect(screen.queryByRole("link", { name: "新建研究" })).not.toBeInTheDocument();
-    expect(screen.getByText("Control + Presentation")).toBeInTheDocument();
+    expect(screen.queryByText("Control + Presentation")).not.toBeInTheDocument();
+    expect(
+        screen.getByRole("navigation", { name: "产品导航" }).closest(".global-workspace-rail")
+    ).not.toBeNull();
 });

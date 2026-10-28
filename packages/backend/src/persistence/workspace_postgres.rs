@@ -1,4 +1,4 @@
-//! Single default workspace configuration Authority. Node owns store/TLS/Client lifecycle.
+//! Named workspace library Authority. Node owns store/TLS/Client lifecycle.
 use crate::application::command::{
     Admission, Binding, CommandId, CommandKind, Error as CommandError, Outcome, OutcomeKind,
     Receipt,
@@ -71,15 +71,9 @@ impl<'a> Workspaces<'a> {
         proposed: &Book,
         accepted_at: &str,
     ) -> Result<Book, Error> {
-        let next = Book::new(
-            proposed.version().checked_add(1).ok_or(Error::Invalid)?,
-            Some(proposed.configuration().ok_or(Error::Invalid)?.clone()),
-        )?;
-        let intent = Book::intent_fingerprint(
-            &self.namespace,
-            proposed.version(),
-            proposed.configuration().ok_or(Error::Invalid)?,
-        )?;
+        let next =
+            proposed.with_version(proposed.version().checked_add(1).ok_or(Error::Invalid)?)?;
+        let intent = proposed.intent_fingerprint(&self.namespace)?;
         let admission = Admission::new(id.clone(), CommandKind::SaveWorkspace, &intent)
             .map_err(|_| Error::Invalid)?;
         // READ COMMITTED is explicit: namespace lock wait must not pin a stale head.
@@ -140,8 +134,8 @@ impl<'a> Workspaces<'a> {
         }
         let version = i64::try_from(next.version()).map_err(|_| Error::Invalid)?;
         let payload = next.to_record().to_string();
-        tx.execute("INSERT INTO workspace_revision(namespace_id,version,fingerprint,configuration_json,command_id) VALUES($1::text::uuid,$2,$3,$4::text::jsonb,$5::text::uuid)",&[&self.namespace,&version,&fingerprint,&payload,&id.value()]).await.map_err(|_|Error::Unavailable)?;
-        tx.execute("INSERT INTO workspace_head(namespace_id,version) VALUES($1::text::uuid,$2) ON CONFLICT(namespace_id) DO UPDATE SET version=EXCLUDED.version",&[&self.namespace,&version]).await.map_err(|_|Error::Unavailable)?;
+        tx.execute("INSERT INTO workspace_library_revision(namespace_id,version,fingerprint,library_json,command_id) VALUES($1::text::uuid,$2,$3,$4::text::jsonb,$5::text::uuid)",&[&self.namespace,&version,&fingerprint,&payload,&id.value()]).await.map_err(|_|Error::Unavailable)?;
+        tx.execute("INSERT INTO workspace_library_head(namespace_id,version) VALUES($1::text::uuid,$2) ON CONFLICT(namespace_id) DO UPDATE SET version=EXCLUDED.version",&[&self.namespace,&version]).await.map_err(|_|Error::Unavailable)?;
         Commands::put_verified_receipt_in_transaction(&tx, &receipt)
             .await
             .map_err(command_error)?;
@@ -153,7 +147,7 @@ impl<'a> Workspaces<'a> {
 async fn current(tx: &Transaction<'_>, namespace: &str) -> Result<Book, Error> {
     // One head/history snapshot, including the genuinely empty namespace. A dangling
     // head cannot disappear through an inner join and become an empty configuration.
-    let row=tx.query_one("SELECT h.version AS head_version,r.fingerprint,r.command_id::text AS command_id,s.maximum,s.minimum,s.count FROM (SELECT $1::text::uuid AS namespace_id) n CROSS JOIN LATERAL (SELECT max(version) AS maximum,min(version) AS minimum,count(*) AS count FROM workspace_revision WHERE namespace_id=n.namespace_id) s LEFT JOIN workspace_head h ON h.namespace_id=n.namespace_id LEFT JOIN workspace_revision r ON r.namespace_id=h.namespace_id AND r.version=h.version",&[&namespace]).await.map_err(|_|Error::Unavailable)?;
+    let row=tx.query_one("SELECT h.version AS head_version,r.fingerprint,r.command_id::text AS command_id,s.maximum,s.minimum,s.count FROM (SELECT $1::text::uuid AS namespace_id) n CROSS JOIN LATERAL (SELECT max(version) AS maximum,min(version) AS minimum,count(*) AS count FROM workspace_library_revision WHERE namespace_id=n.namespace_id) s LEFT JOIN workspace_library_head h ON h.namespace_id=n.namespace_id LEFT JOIN workspace_library_revision r ON r.namespace_id=h.namespace_id AND r.version=h.version",&[&namespace]).await.map_err(|_|Error::Unavailable)?;
     let head: Option<i64> = row
         .try_get("head_version")
         .map_err(|_| Error::HistoryCorrupt)?;
@@ -161,7 +155,7 @@ async fn current(tx: &Transaction<'_>, namespace: &str) -> Result<Book, Error> {
     let maximum: Option<i64> = row.try_get("maximum").map_err(|_| Error::HistoryCorrupt)?;
     let minimum: Option<i64> = row.try_get("minimum").map_err(|_| Error::HistoryCorrupt)?;
     if head.is_none() && count == 0 && maximum.is_none() && minimum.is_none() {
-        return Book::new(0, None);
+        return Book::new(0, None, vec![]);
     }
     if head.is_none() || head != maximum || head != Some(count) || minimum != Some(1) {
         return Err(Error::HistoryCorrupt);
@@ -210,14 +204,12 @@ async fn from_receipt(
     {
         return Err(Error::CommandConflict);
     }
-    let row=tx.query_opt("SELECT version,fingerprint,configuration_json::text AS payload,(jsonb_typeof(configuration_json->'version')='number' AND configuration_json->>'version'=version::text) AS exact_version FROM workspace_revision WHERE namespace_id=$1::text::uuid AND fingerprint=$2 AND command_id=$3::text::uuid",&[&namespace,&receipt.outcome().id(),&receipt.admission().id().value()]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::HistoryCorrupt)?;
+    let row=tx.query_opt("SELECT version,fingerprint,library_json::text AS payload,(jsonb_typeof(library_json->'version')='number' AND library_json->>'version'=version::text) AS exact_version FROM workspace_library_revision WHERE namespace_id=$1::text::uuid AND fingerprint=$2 AND command_id=$3::text::uuid",&[&namespace,&receipt.outcome().id(),&receipt.admission().id().value()]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::HistoryCorrupt)?;
     let (version, payload) = original_record(namespace, &row)?;
-    let expected = Book::intent_fingerprint(
-        namespace,
-        version.checked_sub(1).ok_or(Error::HistoryCorrupt)?,
-        &payload["configuration"],
-    )
-    .map_err(|_| Error::HistoryCorrupt)?;
+    let expected = Book::from_record(&payload)
+        .and_then(|book| book.with_version(version.checked_sub(1).ok_or(Error::HistoryCorrupt)?))
+        .and_then(|book| book.intent_fingerprint(namespace))
+        .map_err(|_| Error::HistoryCorrupt)?;
     if receipt.admission().fingerprint() != expected {
         return Err(Error::HistoryCorrupt);
     }

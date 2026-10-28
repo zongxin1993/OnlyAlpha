@@ -2603,6 +2603,11 @@ export interface components {
         };
         /** @enum {string} */
         MarketDataVolumeFormationDtoKind: "VOLUME";
+        NamedWorkspaceDto: {
+            configuration: components["schemas"]["WorkspaceConfigurationDto"];
+            name: string;
+            workspace_id: string;
+        };
         NativeError: {
             code: string;
             detail: string;
@@ -2823,11 +2828,12 @@ export interface components {
             schema_version: components["schemas"]["Version2"];
         };
         SaveWorkspaceDto: {
+            active_workspace_id: string | null;
             command_id: string;
-            configuration: components["schemas"]["WorkspaceConfigurationDto"];
             /** Format: int64 */
             expected_version: number;
-            schema_version: components["schemas"]["Version2"];
+            schema_version: components["schemas"]["Version3"];
+            workspaces: components["schemas"]["NamedWorkspaceDto"][];
         };
         /** @enum {string} */
         SourceHistoryPolicy: "EXACT_SEALED_PROOF";
@@ -2994,10 +3000,11 @@ export interface components {
             integration_revision_fingerprint: string;
         };
         WorkspaceBookDto: {
-            configuration: components["schemas"]["WorkspaceConfigurationDto"] | null;
-            schema_version: components["schemas"]["Version2"];
+            active_workspace_id: string | null;
+            schema_version: components["schemas"]["Version3"];
             /** Format: int64 */
             version: number;
+            workspaces: components["schemas"]["NamedWorkspaceDto"][];
         };
         WorkspaceConfigurationDto: {
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];

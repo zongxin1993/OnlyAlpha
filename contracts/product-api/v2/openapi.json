@@ -4501,6 +4501,28 @@
         ],
         "type": "string"
       },
+      "NamedWorkspaceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/WorkspaceConfigurationDto"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "configuration"
+        ],
+        "type": "object"
+      },
       "NativeError": {
         "additionalProperties": false,
         "properties": {
@@ -5522,11 +5544,14 @@
       "SaveWorkspaceDto": {
         "additionalProperties": false,
         "properties": {
+          "active_workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "command_id": {
             "type": "string"
-          },
-          "configuration": {
-            "$ref": "#/components/schemas/WorkspaceConfigurationDto"
           },
           "expected_version": {
             "format": "int64",
@@ -5534,14 +5559,22 @@
             "type": "integer"
           },
           "schema_version": {
-            "$ref": "#/components/schemas/Version2"
+            "$ref": "#/components/schemas/Version3"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/NamedWorkspaceDto"
+            },
+            "maxItems": 32,
+            "type": "array"
           }
         },
         "required": [
           "schema_version",
           "command_id",
           "expected_version",
-          "configuration"
+          "active_workspace_id",
+          "workspaces"
         ],
         "type": "object"
       },
@@ -6227,29 +6260,33 @@
       "WorkspaceBookDto": {
         "additionalProperties": false,
         "properties": {
-          "configuration": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/WorkspaceConfigurationDto"
-              },
-              {
-                "type": "null"
-              }
+          "active_workspace_id": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "schema_version": {
-            "$ref": "#/components/schemas/Version2"
+            "$ref": "#/components/schemas/Version3"
           },
           "version": {
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/NamedWorkspaceDto"
+            },
+            "maxItems": 32,
+            "type": "array"
           }
         },
         "required": [
           "schema_version",
           "version",
-          "configuration"
+          "active_workspace_id",
+          "workspaces"
         ],
         "type": "object"
       },

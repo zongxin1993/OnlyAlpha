@@ -14,6 +14,7 @@ import { TransientStudyPriceChart } from "../../features/workspace/TransientStud
 import { projectMarketDataBar } from "./marketDataChartProjection";
 import sample from "../../../../../test-data/web/chart-studies/query.json";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { displayTimezones } from "./chartDisplayTime";
 import { PriceChart } from "./PriceChart";
 import { studySeriesFixture } from "../../test/studySeries";
 
@@ -188,6 +189,7 @@ const renderer = vi.hoisted(() => {
         unsubscribeVisibleLogicalRangeChange: vi.fn()
     };
     const chart = {
+        chartElement: vi.fn(() => document.createElement("div")),
         addSeries,
         applyOptions: vi.fn(),
         addPane,
@@ -213,6 +215,20 @@ vi.mock("lightweight-charts", () => ({
     createChart: renderer.createChart
 }));
 beforeEach(() => {
+    vi.stubGlobal(
+        "ResizeObserver",
+        class {
+            observe() {
+                /* Canvas geometry is provided by the renderer test. */
+            }
+            disconnect() {
+                /* No native observation in jsdom. */
+            }
+            unobserve() {
+                /* Canvas geometry is provided by the renderer test. */
+            }
+        }
+    );
     vi.clearAllMocks();
     localStorage.clear();
     renderer.panes.length = 0;
@@ -322,6 +338,7 @@ it("keeps separate pane refs and instance resources across hide/move/remove with
             studyEvidence={[otherEvidence]}
         />
     );
+    moveCrosshair(bars[0]?.time);
     expect(screen.getAllByTestId("study-hover")).toHaveLength(1);
     expect(renderer.chart.subscribeCrosshairMove).toHaveBeenCalledTimes(1);
     view.unmount();
@@ -346,8 +363,6 @@ it("hover uses exact timestamp/identity, never a previous point; stale/context c
     act(() => {
         callback?.({ point: { x: 1, y: 2 }, time: bars[40]?.time });
     });
-    expect(screen.getByText(/UTC ns/)).not.toBeVisible();
-    fireEvent.click(within(screen.getByTestId("study-hover")).getByLabelText("指标点详情 SMA"));
     expect(screen.getByText(/UTC ns/)).toBeVisible();
     expect(screen.getByTestId("study-hover")).toHaveTextContent(
         "PRE_READY · controlled missing value"
@@ -355,8 +370,28 @@ it("hover uses exact timestamp/identity, never a previous point; stale/context c
     act(() => {
         callback?.({ point: { x: 1, y: 2 }, time: (bars[40]?.time ?? 0) + 1 });
     });
-    expect(screen.getByTestId("study-hover")).toHaveTextContent("此时间无对应结果");
+    expect(screen.queryByTestId("study-hover")).not.toBeInTheDocument();
     expect(onSelection).toHaveBeenLastCalledWith(null);
+    const missing = bars[41];
+    if (!missing) throw new Error("Missing controlled bar");
+    view.rerender(
+        <PriceChart
+            bars={bars}
+            contextKey={instance.context.key}
+            studies={[instance]}
+            incarnationKey={evidence.incarnationKey}
+            studyEvidence={[
+                {
+                    ...evidence,
+                    points: evidence.points.filter((point) => point.timeNs !== missing.barStartNs)
+                }
+            ]}
+        />
+    );
+    act(() => {
+        callback?.({ point: { x: 1, y: 2 }, time: missing.time });
+    });
+    expect(screen.getByTestId("study-hover")).toHaveTextContent("此时间无对应结果");
     view.rerender(
         <PriceChart
             bars={bars}
@@ -406,7 +441,7 @@ it("new incarnation suppresses old hover immediately even with matching context 
             studyEvidence={[{ ...evidence, incarnationKey: "new-incarnation" }]}
         />
     );
-    expect(screen.getByTestId("study-hover")).toHaveTextContent("请移动十字线");
+    expect(screen.queryByTestId("study-hover")).not.toBeInTheDocument();
     act(() => {
         callback?.({ point: { x: 1, y: 1 }, time: bars[0]?.time });
     });
@@ -463,6 +498,7 @@ it("malformed presentation and null evidence release prior curves without affect
         />
     );
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
+    moveCrosshair(bars[0]?.time);
     expect(
         screen
             .getAllByTestId("study-hover")
@@ -517,6 +553,7 @@ it("keeps both PRICE outputs on the main right scale and isolates controlled oth
                 )
             )
     ).toBe(true);
+    moveCrosshair(bars[0]?.time);
     expect(screen.getAllByTestId("study-hover")[3]).toHaveTextContent("单位未知");
     expect(renderer.series[6]?.setData.mock.calls[0]?.[0][0]).toEqual({
         time: bars[0]?.time,
@@ -562,14 +599,22 @@ it("colors up/down/doji volume and preview by the corresponding candle and keeps
         ) => void;
         callback({ point: { x: 1, y: 1 }, time: first.time + 900 });
     });
-    expect(screen.getByLabelText("成交量悬浮信息")).toHaveTextContent("2.1234567890123456789");
+    expect(
+        screen
+            .getByRole("tooltip", { name: "K 线信息" })
+            .querySelector("[data-observation-field=volume]")
+    ).toHaveTextContent("2.1234567890123456789");
     act(() => {
         const callback = renderer.chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
             event: unknown
         ) => void;
         callback({ point: { x: 1, y: 1 }, time: first.time + 2700 });
     });
-    expect(screen.getByLabelText("成交量悬浮信息")).toHaveTextContent("4.000000000000000001");
+    expect(
+        screen
+            .getByRole("tooltip", { name: "K 线信息" })
+            .querySelector("[data-observation-field=volume]")
+    ).toHaveTextContent("4.000000000000000001");
     view.rerender(
         <PriceChart
             bars={controlled}
@@ -583,7 +628,11 @@ it("colors up/down/doji volume and preview by the corresponding candle and keeps
             }}
         />
     );
-    expect(screen.getByLabelText("成交量悬浮信息")).toHaveTextContent("5.000000000000000001");
+    expect(
+        screen
+            .getByRole("tooltip", { name: "K 线信息" })
+            .querySelector("[data-observation-field=volume]")
+    ).toHaveTextContent("5.000000000000000001");
     expect(renderer.series[1]?.update.mock.calls.at(-1)?.[0]).toEqual({
         time: first.time + 2700,
         value: 5,
@@ -672,9 +721,12 @@ it("a displayed admitted transient study keeps every Query input and call unchan
         )
     );
     vi.stubGlobal("fetch", transport);
+    const statusTarget = document.createElement("div");
+    document.body.append(statusTarget);
     function Query() {
         return (
             <TransientStudyPriceChart
+                statusTarget={statusTarget}
                 pageId="00000000-0000-4000-8000-000000000001"
                 context={context}
                 contextKey={context.key}
@@ -700,6 +752,10 @@ it("a displayed admitted transient study keeps every Query input and call unchan
         // Query admission precedes the child renderer's passive series sync.
         expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "1");
     });
+    expect(statusTarget).toContainElement(screen.getByTestId("chart-study-query-status"));
+    expect(
+        screen.getByTestId("price-chart").closest(".transient-study-chart")
+    ).not.toContainElement(screen.getByTestId("chart-study-query-status"));
     const reads = queryBars.mock.calls.length,
         requests = transport.mock.calls.length;
     const series = renderer.series.map((line) => line.setData.mock.calls.length);
@@ -707,7 +763,7 @@ it("a displayed admitted transient study keeps every Query input and call unchan
     const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
         throw new Error("denied");
     });
-    for (const zone of ["Asia/Shanghai", "USER_LOCAL", "UTC"]) {
+    for (const zone of displayTimezones.map(([zone]) => zone)) {
         act(() => {
             fireEvent.change(screen.getByRole("combobox", { name: "显示时区" }), {
                 target: { value: zone }
@@ -761,5 +817,147 @@ it("keeps two selected outputs in one instance pane and rejects a duplicate outp
             studyEvidence={[...rows, ...rows.slice(0, 1)]}
         />
     );
+    moveCrosshair(bars[0]?.time);
     expect(screen.getAllByTestId("study-hover")[0]).toHaveTextContent("重复身份");
+});
+
+it("places a lower-pane candle note near the actual pointer and clamps to the canvas", () => {
+    const { bars } = studySeriesFixture();
+    const first = bars[0];
+    if (!first) throw new Error("Missing bar");
+    render(<PriceChart bars={bars} contextKey="pane-position" />);
+    const canvas = screen.getByTestId("price-chart");
+    Object.defineProperties(canvas, { clientWidth: { value: 600 }, clientHeight: { value: 600 } });
+    const move = renderer.chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
+    act(() => {
+        move({
+            time: first.time,
+            point: { x: 10, y: 10 },
+            paneIndex: 1,
+            sourceEvent: { clientX: 100, clientY: 420 }
+        });
+    });
+    expect(screen.getByRole("tooltip").style.top).toBe("436px");
+    expect(screen.getByRole("tooltip").style.left).toBe("116px");
+    act(() => {
+        move({
+            time: first.time,
+            point: { x: 10, y: 10 },
+            paneIndex: 1,
+            sourceEvent: { clientX: 999, clientY: 999 }
+        });
+    });
+    expect(screen.getByRole("tooltip").style.top).toBe("596px");
+});
+
+it("shows study values only inside the hovered candle note with the curve's exact color", () => {
+    const { bars, instance, evidence } = studySeriesFixture();
+    const first = bars[0];
+    if (!first) throw new Error("Missing bar");
+    const colored = {
+        ...instance,
+        presentation: { ...instance.presentation, color: "#c8332a", opacity: 0.5 }
+    };
+    const view = render(
+        <PriceChart
+            bars={bars}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            studies={[colored]}
+            studyEvidence={[evidence]}
+        />
+    );
+    expect(screen.queryByTestId("study-hover")).not.toBeInTheDocument();
+    const move = renderer.chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
+    act(() => {
+        move({ point: { x: 10, y: 10 }, time: first.time });
+    });
+    const note = screen.getByRole("tooltip", { name: "K 线信息" });
+    const value = within(note).getByTestId("study-hover");
+    expect(value).toHaveTextContent("102.000000000000000001");
+    expect(value).toHaveStyle({ color: "#c8332a80" });
+    expect(renderer.series[2]?.applyOptions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ color: "#c8332a80" })
+    );
+    const writes = renderer.series[2]?.setData.mock.calls.length;
+    view.rerender(
+        <PriceChart
+            bars={bars}
+            contextKey={instance.context.key}
+            incarnationKey={evidence.incarnationKey}
+            studies={[
+                {
+                    ...colored,
+                    presentation: {
+                        ...colored.presentation,
+                        seriesStyles: { value: { color: "#123abc", visible: true } }
+                    }
+                }
+            ]}
+            studyEvidence={[evidence]}
+        />
+    );
+    expect(within(screen.getByRole("tooltip")).getByTestId("study-hover")).toHaveStyle({
+        color: "#123abc80"
+    });
+    expect(renderer.series[2]?.applyOptions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ color: "#123abc80" })
+    );
+    expect(renderer.series[2]?.setData.mock.calls.length).toBe(writes);
+    fireEvent.mouseLeave(screen.getByTestId("price-chart"));
+    expect(screen.queryByTestId("study-hover")).not.toBeInTheDocument();
+});
+
+function moveCrosshair(time: number | undefined) {
+    act(() => {
+        const move = renderer.chart.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+            event: object
+        ) => void;
+        move({ point: { x: 1, y: 1 }, time });
+    });
+}
+
+it("follows the actual axis corner through resize and releases its observer", () => {
+    const element = document.createElement("div");
+    element.innerHTML = "<table><tbody><tr><td></td></tr></tbody></table>";
+    const corner = element.querySelector("td");
+    if (!corner) throw new Error("Axis corner required");
+    const rect = vi
+        .spyOn(corner, "getBoundingClientRect")
+        .mockReturnValue(new DOMRect(900, 600, 72, 28));
+    renderer.chart.chartElement.mockReturnValueOnce(element);
+    let resize: () => void = vi.fn();
+    const observe = vi.fn(),
+        disconnect = vi.fn();
+    vi.stubGlobal(
+        "ResizeObserver",
+        class {
+            constructor(callback: () => void) {
+                resize = callback;
+            }
+            observe = observe;
+            disconnect = disconnect;
+        }
+    );
+    const { bars } = studySeriesFixture();
+    const view = render(<PriceChart bars={bars} />);
+    const controls = screen.getByRole("combobox", { name: "显示时区" }).parentElement;
+    expect(controls).toHaveStyle({ left: "900px", top: "600px", width: "72px", height: "28px" });
+    expect(observe).toHaveBeenCalledWith(corner);
+    rect.mockReturnValue(new DOMRect(320.25, 720.5, 80, 28));
+    act(() => {
+        resize();
+    });
+    expect(controls).toHaveStyle({
+        left: "320.25px",
+        top: "720.5px",
+        width: "80px",
+        height: "28px"
+    });
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
 });

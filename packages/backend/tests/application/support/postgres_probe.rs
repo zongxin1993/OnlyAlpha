@@ -99,7 +99,7 @@ async fn workspace(
         Some("workspace-command") => owner.command(&id).await?,
         Some("workspace-save") => {
             let proposed = Book::from_record(
-                &json!({"version":request["expected_version"],"configuration":request["configuration"]}),
+                &json!({"version":request["expected_version"],"active_workspace_id":request["active_workspace_id"],"workspaces":request["workspaces"]}),
             )?;
             Some(
                 owner

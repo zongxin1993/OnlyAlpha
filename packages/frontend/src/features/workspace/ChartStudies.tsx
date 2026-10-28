@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import type { WorkspaceStudy } from "../../api/workspace/client";
 import { readChartStudyCapabilities } from "../../api/chartStudies/client";
 import { workspaceStudyIntent } from "./workspaceIntent";
@@ -29,8 +30,10 @@ export function ChartStudies({
     context,
     children,
     credentials,
-    restoration
+    restoration,
+    toolbarTarget
 }: {
+    readonly toolbarTarget?: HTMLElement | null;
     readonly restoration?: {
         readonly key: string;
         readonly contextKey: string;
@@ -192,16 +195,23 @@ export function ChartStudies({
             unsubscribe?.();
         };
     }, [credentials]);
+    const picker = (
+        <div className="chart-studies__toolbar" inert={pendingRestore !== null}>
+            <CalculationPicker
+                draft={draft}
+                onDraftChange={changeDraft}
+                {...(credentials === undefined ? {} : { credentials })}
+            />
+        </div>
+    );
     return (
         <>
             <section className="chart-studies" aria-label="图表配置实例">
-                <div className="chart-studies__toolbar" inert={pendingRestore !== null}>
-                    <CalculationPicker
-                        draft={draft}
-                        onDraftChange={changeDraft}
-                        {...(credentials === undefined ? {} : { credentials })}
-                    />
-                </div>
+                {toolbarTarget === undefined
+                    ? picker
+                    : toolbarTarget === null
+                      ? null
+                      : createPortal(picker, toolbarTarget)}
                 {pendingRestore === null ? null : (
                     <section aria-label="待恢复指标配置">
                         <p role="status">

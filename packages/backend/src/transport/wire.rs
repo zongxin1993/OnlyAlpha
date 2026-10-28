@@ -3268,22 +3268,37 @@ strict_object!(WorkspaceConfigurationDto);
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct SaveWorkspaceDto {
-    pub schema_version: Version2,
+    pub schema_version: Version3,
     pub command_id: String,
     #[schema(minimum = 0.0)]
     pub expected_version: i64,
-    pub configuration: WorkspaceConfigurationDto,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub active_workspace_id: Option<String>,
+    #[schema(max_items = 32)]
+    pub workspaces: Vec<NamedWorkspaceDto>,
 }
 strict_object!(SaveWorkspaceDto);
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
+pub struct NamedWorkspaceDto {
+    pub workspace_id: String,
+    #[schema(min_length = 1, max_length = 120)]
+    pub name: String,
+    pub configuration: WorkspaceConfigurationDto,
+}
+strict_object!(NamedWorkspaceDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
 pub struct WorkspaceBookDto {
-    pub schema_version: Version2,
+    pub schema_version: Version3,
     #[schema(minimum = 0.0)]
     pub version: i64,
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
-    pub configuration: Option<WorkspaceConfigurationDto>,
+    pub active_workspace_id: Option<String>,
+    #[schema(max_items = 32)]
+    pub workspaces: Vec<NamedWorkspaceDto>,
 }
 strict_object!(WorkspaceBookDto);
 
@@ -3297,11 +3312,11 @@ mod default_workspace_tests {
     #[test]
     fn default_workspace_config_wire_excludes_values_and_requires_explicit_version() {
         let config = serde_json::json!({"source":{"integration_id":"source","integration_revision_fingerprint":"a".repeat(64),"expected_type_id":"test.source"},"instrument_id":"BTCUSDT.BINANCE","bar_semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":7,"stride_minutes":7,"alignment":"SESSION_START"},"price_type":"LAST","adjustment_policy":"RAW"},"studies":[]});
-        let good = serde_json::json!({"schema_version":2,"command_id":"00000000-0000-4000-8000-000000000001","expected_version":0,"configuration":config});
+        let good = serde_json::json!({"schema_version":3,"command_id":"00000000-0000-4000-8000-000000000001","expected_version":0,"active_workspace_id":"00000000-0000-4000-8000-000000000002","workspaces":[{"workspace_id":"00000000-0000-4000-8000-000000000002","name":"观察","configuration":config}]});
         assert!(serde_json::from_str::<SaveWorkspaceDto>(&good.to_string()).is_ok());
         for field in ["bars", "results", "viewport", "secret", "capability"] {
             let mut bad = good.clone();
-            bad["configuration"][field] = serde_json::json!([]);
+            bad["workspaces"][0]["configuration"][field] = serde_json::json!([]);
             assert!(serde_json::from_str::<SaveWorkspaceDto>(&bad.to_string()).is_err());
         }
         let mut bad = good.clone();
@@ -3309,12 +3324,12 @@ mod default_workspace_tests {
         assert!(serde_json::from_str::<SaveWorkspaceDto>(&bad.to_string()).is_err());
         assert!(
             serde_json::from_str::<WorkspaceBookDto>(
-                r#"{"schema_version":2,"version":0,"configuration":null}"#
+                r#"{"schema_version":3,"version":0,"active_workspace_id":null,"workspaces":[]}"#
             )
             .is_ok()
         );
         assert!(
-            serde_json::from_str::<WorkspaceBookDto>(r#"{"schema_version":2,"version":0}"#)
+            serde_json::from_str::<WorkspaceBookDto>(r#"{"schema_version":3,"version":0}"#)
                 .is_err()
         );
     }

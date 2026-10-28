@@ -306,10 +306,7 @@ test("default BTCUSDT workspace bootstraps only server identities and first 15m 
         "96"
     );
     expect(fixture.queriedSteps).toEqual([15]);
-    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "latest-closed"
-    );
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
     await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "指标", exact: true })).toHaveAttribute(
         "aria-haspopup",
@@ -347,10 +344,7 @@ test("ambiguous default sources require explicit choice without any Bar request"
     );
     await expect(page.getByRole("combobox", { name: "数据源" })).toHaveValue("");
     expect(fixture.queriedSteps).toEqual([]);
-    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
 });
 
 test("missing exact BTCUSDT member shows unavailable without requesting Bars", async ({ page }) => {
@@ -367,10 +361,7 @@ test("missing exact BTCUSDT member shows unavailable without requesting Bars", a
         "当前数据源未提供 BTCUSDT.BINANCE"
     );
     expect(fixture.queriedSteps).toEqual([]);
-    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
 });
 
 test("unavailable discovery is not misreported as absent configuration", async ({ page }) => {
@@ -396,10 +387,7 @@ test("loading discovery has no invented candles before the source response", asy
     await page.goto("/");
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "loading");
     await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
-    await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
     expect(fixture.queriedSteps).toEqual([]);
     release();
     await expect(page.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
@@ -416,10 +404,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(page.getByTestId("market-data-status")).toContainText(
             "未配置可用的 Binance Spot 公共行情数据源（GLOBAL）"
         );
-        await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-            "data-observation-mode",
-            "unavailable"
-        );
+        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
         await expect(page.getByTestId("market-data-source-tag")).toHaveCount(0);
         await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
         await expect(
@@ -454,9 +439,9 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         await selectBtc(page);
         const status = page.getByTestId("market-data-status");
         const chart = page.getByTestId("price-chart");
-        const observation = page.getByTestId("market-data-observation");
+        const observation = page.getByRole("tooltip", { name: "K 线信息" });
         await expect(status).toHaveAttribute("data-loaded-bar-count", "1440");
-        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        await expect(observation).toHaveCount(0);
         const count = fixture.queriedAnchors.length;
         const acquisitions = fixture.acquisitionCount();
         const range = await chart.getAttribute("data-visible-range-from");
@@ -464,7 +449,10 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         const anchor = await chart.getAttribute("data-visible-anchor-time");
         await expect(chart).toHaveAttribute("data-chart-type", "CANDLESTICK");
         for (const type of ["LINE", "CANDLESTICK"]) {
-            await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
+            await page.getByLabel("图表类型", { exact: true }).click();
+            await page
+                .getByRole("button", { name: type === "LINE" ? "收盘线" : "蜡烛图", exact: true })
+                .click();
             await expect(chart).toHaveAttribute("data-chart-type", type);
             await expect(chart).toHaveAttribute("data-visible-range-from", range ?? "");
             await expect(chart).toHaveAttribute("data-visible-range-to", rangeTo ?? "");
@@ -476,7 +464,7 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
         const bounds = await chart.boundingBox();
         if (bounds === null) throw new Error("price chart bounds unavailable");
         await page.mouse.move(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
-        await expect(observation).toHaveAttribute("data-observation-mode", "crosshair");
+        await expect(observation).toBeVisible();
         const start = await observation.getAttribute("data-bar-start-ns");
         const selected = bars(fixtureRange, true).bars.find((bar) => bar.bar_start_ns === start);
         expect(selected).toBeDefined();
@@ -491,12 +479,17 @@ test.describe("W1 historical golden path — CONTROLLED_TEST_EVIDENCE", () => {
                 path: test.info().outputPath("exact-crosshair-observation.png")
             })
         });
-        const context = await observation.getAttribute("data-chart-context-key");
+        const context = await page
+            .getByTestId("price-chart")
+            .getAttribute("data-chart-context-key");
         await page.mouse.move(0, 0);
-        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        await expect(observation).toHaveCount(0);
         await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
-        await expect(observation).not.toHaveAttribute("data-chart-context-key", context ?? "");
-        await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+        await expect(page.getByTestId("price-chart")).not.toHaveAttribute(
+            "data-chart-context-key",
+            context ?? ""
+        );
+        await expect(observation).toHaveCount(0);
         expect(errors).toEqual([]);
     });
     test("first load acquires canonical bars and reload does not reacquire complete history", async ({

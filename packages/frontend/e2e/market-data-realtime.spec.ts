@@ -1,5 +1,20 @@
 import { expect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test";
 import { chartCatalogFixture } from "./support/chartCatalog";
+import { marketDataSourceSchema } from "../src/api/marketData/model";
+
+async function hoverLatest(page: Page) {
+    const chart = page.getByTestId("price-chart");
+    const canvas = await chart.locator("canvas").first().boundingBox();
+    const from = Number(await chart.getAttribute("data-visible-range-from"));
+    const to = Number(await chart.getAttribute("data-visible-range-to"));
+    const count = Number(await chart.getAttribute("data-volume-point-count"));
+    if (!canvas || !Number.isFinite(from) || !(to > from) || count < 1)
+        throw new Error("Visible Bar geometry required");
+    await page.mouse.move(
+        canvas.x + (canvas.width * (count - 1 - from)) / (to - from),
+        canvas.y + canvas.height / 2
+    );
+}
 
 const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const integrationRevision = "a".repeat(64);
@@ -12,7 +27,7 @@ const historyEnd = historyStart + BigInt(1_440) * minuteNs;
 const planFingerprint = (durationMinutes: number) => durationMinutes.toString(16).padStart(64, "0");
 const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
 const semantic = (durationMinutes: number) => ({
-    schema_version: 2,
+    schema_version: 3,
     formation: {
         schema_version: 1,
         kind: "FIXED_DURATION",
@@ -24,7 +39,8 @@ const semantic = (durationMinutes: number) => ({
     adjustment_policy: "RAW"
 });
 
-const source = {
+const source = marketDataSourceSchema.parse({
+    is_current_revision: true,
     integration_id: integrationId,
     integration_revision_fingerprint: integrationRevision,
     display_name: "Binance Spot US",
@@ -40,7 +56,7 @@ const source = {
         minimum_window_minutes: 1,
         maximum_window_minutes: 240
     }
-};
+});
 const instrument = {
     instrument_id: "BTCUSDT.BINANCE",
     display_symbol: "BTCUSDT",
@@ -57,7 +73,12 @@ const json = (route: Route, body: unknown) =>
 
 async function sourceControl(page: Page) {
     const control = page.getByRole("combobox", { name: "数据源" });
-    if (!(await control.isVisible())) await page.getByText("行情设置", { exact: true }).click();
+    if (!(await control.isVisible())) {
+        const menu = page.locator(".workspace-settings");
+        if ((await menu.getAttribute("open")) === null)
+            await menu.getByLabel("设置", { exact: true }).click();
+        await page.getByText("行情设置", { exact: true }).click();
+    }
     return control;
 }
 
@@ -448,8 +469,8 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         "2 ms"
     );
     await expect(latency).toContainText("当前连接样本");
-    const observation = page.getByTestId("market-data-observation");
-    await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+    const observation = page.getByRole("tooltip", { name: "K 线信息" });
+    await expect(observation).toHaveCount(0);
     await expect(page.getByTestId("market-data-status")).toHaveAttribute(
         "data-loaded-bar-count",
         "3"
@@ -467,7 +488,8 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         "2 ms"
     );
     await expect(latency).toContainText("当前连接样本");
-    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await hoverLatest(page);
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
         "103.000000000000000001"
     );
@@ -505,8 +527,9 @@ for (const width of [1440, 1024, 390]) {
         });
         await page.goto("/");
         await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-        const observation = page.getByTestId("market-data-observation");
-        const context = await observation.getAttribute("data-chart-context-key");
+        const context = await page
+            .getByTestId("price-chart")
+            .getAttribute("data-chart-context-key");
         const baseline = {
             queries: market.historyAnchors.length,
             subscriptions: market.subscriptions.length,
@@ -563,9 +586,13 @@ for (const width of [1440, 1024, 390]) {
             fixture.capability.implementation_fingerprint
         );
         await expect(handoff).toContainText("尚未计算");
-        await expect(observation).toHaveAttribute("data-chart-context-key", context ?? "");
+        await expect(page.getByTestId("price-chart")).toHaveAttribute(
+            "data-chart-context-key",
+            context ?? ""
+        );
         market.emitPreview();
-        await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+        await hoverLatest(page);
+        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
         expect(market.historyAnchors).toHaveLength(baseline.queries);
         expect(market.subscriptions).toHaveLength(baseline.subscriptions);
         expect(market.acquisitions()).toBe(baseline.acquisitions);
@@ -603,8 +630,7 @@ test("registered discovery selection without Runtime preserves BTCUSDT history a
     });
     await page.goto("/");
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    const observation = page.getByTestId("market-data-observation");
-    const context = await observation.getAttribute("data-chart-context-key");
+    const context = await page.getByTestId("price-chart").getAttribute("data-chart-context-key");
     const baseline = {
         queries: market.historyAnchors.length,
         subscriptions: market.subscriptions.length,
@@ -616,9 +642,13 @@ test("registered discovery selection without Runtime preserves BTCUSDT history a
     const handoff = page.getByTestId("calculation-handoff");
     await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
     await expect(handoff).toContainText("尚未计算");
-    await expect(observation).toHaveAttribute("data-chart-context-key", context ?? "");
+    await expect(page.getByTestId("price-chart")).toHaveAttribute(
+        "data-chart-context-key",
+        context ?? ""
+    );
     market.emitPreview();
-    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await hoverLatest(page);
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
     expect(market.historyAnchors).toHaveLength(baseline.queries);
     expect(market.subscriptions).toHaveLength(baseline.subscriptions);
     expect(market.acquisitions()).toBe(baseline.acquisitions);
@@ -666,7 +696,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
         await expect(renderedChart).toHaveAttribute("data-pane-count", "2");
         const context = await page
-            .getByTestId("market-data-observation")
+            .getByTestId("price-chart")
             .getAttribute("data-chart-context-key");
         const baseline = {
             queries: market.historyAnchors.length,
@@ -795,10 +825,8 @@ for (const width of [1440, 1024, 390]) {
         await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
         expect(studyReads).toHaveLength(readsBeforeDisplay);
         market.emitPreview();
-        await expect(page.getByTestId("market-data-observation")).toHaveAttribute(
-            "data-observation-mode",
-            "preview"
-        );
+        await hoverLatest(page);
+        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
         expect(market.historyAnchors).toHaveLength(baseline.queries);
         expect(market.subscriptions).toHaveLength(baseline.subscriptions);
         expect(market.acquisitions()).toBe(baseline.acquisitions);
@@ -865,10 +893,11 @@ test("chart type keeps realtime subscription and exact preview readout", async (
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
     await selectBtcFromSearch(page);
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    const observation = page.getByTestId("market-data-observation");
-    await expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
+    const observation = page.getByRole("tooltip", { name: "K 线信息" });
+    await expect(observation).toHaveCount(0);
     fixture.emitPreview();
-    await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+    await hoverLatest(page);
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
         "103.000000000000000001"
     );
@@ -878,9 +907,13 @@ test("chart type keeps realtime subscription and exact preview readout", async (
     const barsRequests = fixture.historyAnchors.length;
     const subscriptions = fixture.cursors.length;
     for (const type of ["LINE", "CANDLESTICK"]) {
-        await page.getByRole("combobox", { name: "图表类型" }).selectOption(type);
+        await page.getByLabel("图表类型", { exact: true }).click();
+        await page
+            .getByRole("button", { name: type === "LINE" ? "收盘线" : "蜡烛图", exact: true })
+            .click();
         await expect(page.getByTestId("price-chart")).toHaveAttribute("data-chart-type", type);
-        await expect(observation).toHaveAttribute("data-observation-mode", "preview");
+        await hoverLatest(page);
+        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
         await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
             "103.000000000000000001"
         );
@@ -1033,3 +1066,38 @@ test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDEN
     await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
     await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
 });
+
+for (const width of [1381, 390]) {
+    test(`CONTROLLED_TEST_EVIDENCE search result text contrasts with its surface at ${String(width)}px`, async ({
+        page
+    }) => {
+        await page.setViewportSize({ width, height: 1187 });
+        await controlledRealtime(page);
+        await page.goto("/");
+        await page.getByRole("button", { name: "搜索商品", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "商品搜索" });
+        await dialog.getByRole("searchbox", { name: "商品代码或名称" }).fill("BTCUSDT");
+        const choice = dialog.getByRole("button", {
+            name: "查看 BTCUSDT · BINANCE · Binance Spot US",
+            exact: true
+        });
+        await expect(choice).toBeVisible();
+        const colors = await choice.evaluate((element) => {
+            const surface = element.closest("dialog");
+            const star = element.nextElementSibling;
+            if (!surface || !star) throw new Error("Search dialog and star required");
+            return {
+                surface: getComputedStyle(surface).backgroundColor,
+                text: [...element.children].map((child) => getComputedStyle(child).color),
+                star: getComputedStyle(star).color
+            };
+        });
+        expect(colors.text).not.toContain(colors.surface);
+        expect(colors.star).not.toBe(colors.surface);
+        await choice.click();
+        await expect(dialog).not.toBeVisible();
+        await expect(page.getByRole("button", { name: "搜索商品", exact: true })).toHaveText(
+            /BTCUSDT/
+        );
+    });
+}

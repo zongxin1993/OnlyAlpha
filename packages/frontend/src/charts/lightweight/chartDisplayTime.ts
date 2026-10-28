@@ -1,9 +1,49 @@
 import { TickMarkType, type Time } from "lightweight-charts";
 
-export type DisplayTimezone = "UTC" | "Asia/Shanghai" | "USER_LOCAL";
+export const displayTimezones = [
+    ["UTC", "UTC"],
+    ["USER_LOCAL", "本地时区"],
+    ["Etc/GMT+12", "UTC−12 贝克岛"],
+    ["Pacific/Pago_Pago", "UTC−11 帕果帕果"],
+    ["Pacific/Honolulu", "UTC−10 檀香山"],
+    ["America/Anchorage", "安克雷奇"],
+    ["America/Los_Angeles", "洛杉矶"],
+    ["America/Denver", "丹佛"],
+    ["America/Chicago", "芝加哥"],
+    ["America/New_York", "纽约"],
+    ["America/Halifax", "哈利法克斯"],
+    ["America/St_Johns", "圣约翰斯"],
+    ["America/Sao_Paulo", "圣保罗"],
+    ["Atlantic/South_Georgia", "UTC−02 南乔治亚"],
+    ["Atlantic/Azores", "亚速尔"],
+    ["Europe/London", "伦敦"],
+    ["Europe/Berlin", "柏林"],
+    ["Africa/Johannesburg", "UTC+02 约翰内斯堡"],
+    ["Europe/Moscow", "UTC+03 莫斯科"],
+    ["Asia/Tehran", "德黑兰"],
+    ["Asia/Dubai", "UTC+04 迪拜"],
+    ["Asia/Kabul", "UTC+04:30 喀布尔"],
+    ["Asia/Karachi", "UTC+05 卡拉奇"],
+    ["Asia/Kolkata", "UTC+05:30 加尔各答"],
+    ["Asia/Kathmandu", "UTC+05:45 加德满都"],
+    ["Asia/Dhaka", "UTC+06 达卡"],
+    ["Asia/Yangon", "UTC+06:30 仰光"],
+    ["Asia/Bangkok", "UTC+07 曼谷"],
+    ["Asia/Shanghai", "北京时间"],
+    ["Australia/Eucla", "UTC+08:45 尤克拉"],
+    ["Asia/Tokyo", "UTC+09 东京"],
+    ["Australia/Adelaide", "阿德莱德"],
+    ["Australia/Sydney", "悉尼"],
+    ["Pacific/Noumea", "UTC+11 努美阿"],
+    ["Pacific/Auckland", "奥克兰"],
+    ["Pacific/Chatham", "查塔姆"],
+    ["Pacific/Tongatapu", "UTC+13 努库阿洛法"],
+    ["Pacific/Kiritimati", "UTC+14 圣诞岛"]
+] as const;
+export type DisplayTimezone = (typeof displayTimezones)[number][0];
 export const displayTimezoneKey = "onlyalpha.chart.displayTimezone";
 export const isDisplayTimezone = (value: unknown): value is DisplayTimezone =>
-    value === "UTC" || value === "Asia/Shanghai" || value === "USER_LOCAL";
+    displayTimezones.some(([zone]) => zone === value);
 
 export function readDisplayTimezone(): { zone: DisplayTimezone; notice: string } {
     try {

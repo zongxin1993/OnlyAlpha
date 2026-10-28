@@ -12,9 +12,10 @@ import type {
     MouseEventParams,
     UTCTimestamp
 } from "lightweight-charts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     studyDescriptor,
+    studySeriesColor,
     studyDisplayLabel,
     validPresentation,
     type ChartStudyInstance
@@ -39,6 +40,7 @@ import {
 import {
     chartTimeFormatters,
     displayTimezoneKey,
+    displayTimezones,
     isDisplayTimezone,
     readDisplayTimezone
 } from "./chartDisplayTime";
@@ -90,6 +92,8 @@ export function PriceChart({
     const [display, setDisplay] = useState(readDisplayTimezone);
     const volumeColors = useRef({ up: "#c8332a", down: "#2f7d47" });
     const container = useRef<HTMLDivElement>(null);
+    const displayControls = useRef<HTMLDivElement>(null);
+    const note = useRef<HTMLDivElement>(null);
     const priceSeries = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
     const volumeSeries = useRef<ISeriesApi<"Histogram"> | null>(null);
     const studyRenderer = useRef<StudySeriesRenderer | null>(null);
@@ -97,6 +101,7 @@ export function PriceChart({
     const [hover, setHover] = useState<{
         readonly context: string | null;
         readonly incarnation: string;
+        readonly point?: { readonly x: number; readonly y: number } | undefined;
         readonly time: number | null;
     }>({ context: null, incarnation: "", time: null });
     const previewTime = liveBar?.time ?? null;
@@ -246,6 +251,25 @@ export function PriceChart({
         studySync.current = null;
         activeType.current = "CANDLESTICK";
         const timeScale = chart.timeScale();
+        // The renderer rounds its layout to physical pixels. Follow its actual
+        // time-axis corner, rather than the unrounded outer container.
+        const axisCorner = chart.chartElement().querySelector("tr:last-child td:last-child");
+        const alignDisplayControls = () => {
+            const controls = displayControls.current;
+            if (!axisCorner || !controls?.parentElement) return;
+            const axis = axisCorner.getBoundingClientRect();
+            const origin = controls.parentElement.getBoundingClientRect();
+            Object.assign(controls.style, {
+                left: `${String(axis.left - origin.left)}px`,
+                top: `${String(axis.top - origin.top)}px`,
+                width: `${String(axis.width)}px`,
+                height: `${String(axis.height)}px`
+            });
+        };
+        const axisObserver = new ResizeObserver(alignDisplayControls);
+        if (axisCorner) axisObserver.observe(axisCorner);
+        axisObserver.observe(element);
+        alignDisplayControls();
         const handleVisibleRange = (range: LogicalRange | null) => {
             publishVisibleAnchor(container.current, rendererBars.current, range, axisTimes.current);
             if (placingHistory.current || !initializedNonEmptyContext.current) return;
@@ -260,9 +284,28 @@ export function PriceChart({
         timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRange);
         const handleCrosshair = (event: MouseEventParams) => {
             const current = selectionContext.current;
+            const bounds = container.current?.getBoundingClientRect();
+            const pane = chart
+                .panes()
+                .at(event.paneIndex ?? 0)
+                ?.getHTMLElement()
+                ?.getBoundingClientRect();
+            const point =
+                event.point === undefined
+                    ? undefined
+                    : event.sourceEvent === undefined
+                      ? {
+                            x: event.point.x,
+                            y: event.point.y + (pane?.top ?? bounds?.top ?? 0) - (bounds?.top ?? 0)
+                        }
+                      : {
+                            x: event.sourceEvent.clientX - (bounds?.left ?? 0),
+                            y: event.sourceEvent.clientY - (bounds?.top ?? 0)
+                        };
             setHover({
                 context: current.contextKey,
                 incarnation: current.incarnationKey,
+                point,
                 time:
                     event.point === undefined || typeof event.time !== "number" ? null : event.time
             });
@@ -282,6 +325,7 @@ export function PriceChart({
         return () => {
             chart.unsubscribeCrosshairMove(handleCrosshair);
             timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRange);
+            axisObserver.disconnect();
             chartRef.current = null;
             studyRenderer.current?.dispose();
             studyRenderer.current = null;
@@ -556,92 +600,42 @@ export function PriceChart({
         previousProductBars.current = productBars;
     }, [barSemantic, bars, contextKey, productBars, liveBar, studies, views, selectedStudyId]);
 
+    const hoverBar =
+        hover.context === contextKey &&
+        hover.incarnation === incarnationKey &&
+        hover.time !== null &&
+        hover.point !== undefined
+            ? liveBar !== null &&
+              liveBar.time === hover.time &&
+              liveBar.time >= (productBars.at(-1)?.time ?? -Infinity)
+                ? liveBar
+                : productBars.find((bar) => bar.time === hover.time)
+            : undefined;
+    useLayoutEffect(() => {
+        const node = note.current,
+            canvas = container.current,
+            point = hover.point;
+        if (!node || !canvas || !point || !hoverBar) return;
+        const place = () => {
+            node.style.left = `${String(canvas.offsetLeft + Math.max(4, Math.min(point.x + 16, canvas.clientWidth - node.offsetWidth - 4)))}px`;
+            node.style.top = `${String(canvas.offsetTop + Math.max(4, Math.min(point.y + 16, canvas.clientHeight - node.offsetHeight - 4)))}px`;
+        };
+        place();
+        const observer = new ResizeObserver(place);
+        observer.observe(canvas);
+        observer.observe(node);
+        return () => {
+            observer.disconnect();
+        };
+    }, [hover.point, hoverBar, display.zone]);
     return (
         <div className="price-chart-surface">
-            <div className="study-hover" aria-label="指标悬浮信息">
-                <span aria-label="成交量悬浮信息">
-                    成交量{" "}
-                    {hover.context === contextKey &&
-                    hover.incarnation === incarnationKey &&
-                    hover.time !== null
-                        ? ((liveBar !== null &&
-                          liveBar.time === hover.time &&
-                          liveBar.time >= (productBars.at(-1)?.time ?? -Infinity)
-                              ? liveBar
-                              : productBars.find((bar) => bar.time === hover.time)
-                          )?.volume ?? "此时间无对应结果")
-                        : "请移动十字线查看精确点"}
-                </span>
-                {studies
-                    .filter(
-                        (instance) =>
-                            instance.context.key === contextKey && instance.presentation.visible
-                    )
-                    .flatMap((instance) =>
-                        instance.configuration.outputNames
-                            .filter(
-                                (name) =>
-                                    instance.presentation.seriesStyles?.[name]?.visible !== false
-                            )
-                            .map((outputName) => {
-                                const view = views.get(
-                                    JSON.stringify([instance.instanceId, outputName])
-                                );
-                                if (view === undefined) return null;
-                                const time =
-                                    hover.context === contextKey &&
-                                    hover.incarnation === incarnationKey
-                                        ? hover.time
-                                        : null;
-                                const point =
-                                    view.status === "PROJECTED" && time !== null
-                                        ? view.projection.pointsByTime.get(time)
-                                        : undefined;
-                                const value =
-                                    view.status !== "PROJECTED"
-                                        ? view.detail
-                                        : time === null
-                                          ? "—"
-                                          : point === undefined
-                                            ? "此时间无对应结果"
-                                            : `${point.value ?? "暂无数值"}${point.readiness === "PARTIAL" ? " · 部分可用" : point.readiness === "PRE_READY" ? " · 预热中" : ""}`;
-                                return (
-                                    <div
-                                        key={JSON.stringify([instance.instanceId, outputName])}
-                                        data-testid="study-hover"
-                                        data-instance-id={instance.instanceId}
-                                        data-selected={selectedStudyId === instance.instanceId}
-                                    >
-                                        <span>
-                                            {studyDisplayLabel(instance)} · {outputName} · {value}
-                                        </span>
-                                        <details className="study-hover__details">
-                                            <summary
-                                                aria-label={`指标点详情 ${studyDescriptor(instance.selection).typeId.split(".").at(-1)?.toUpperCase() ?? studyDescriptor(instance.selection).typeId}`}
-                                            >
-                                                详情
-                                            </summary>
-                                            <span>
-                                                {studyDescriptor(instance.selection).typeId} ·{" "}
-                                                {outputName} ·{" "}
-                                                {view.status === "PROJECTED"
-                                                    ? view.projection.outputUnit === "PRICE"
-                                                        ? "PRICE"
-                                                        : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
-                                                    : "无有效结果"}{" "}
-                                                · {studyHover(view, time)}
-                                            </span>
-                                        </details>
-                                    </div>
-                                );
-                            })
-                    )}
-            </div>
             <div
                 className="chart-region__canvas"
                 ref={container}
                 data-testid="price-chart"
                 data-chart-type={chartType}
+                data-chart-context-key={contextKey ?? ""}
                 data-study-preview-count={
                     studyEvidence.filter(
                         (row) =>
@@ -656,30 +650,133 @@ export function PriceChart({
                     setHover({ context: contextKey, incarnation: incarnationKey, time: null });
                 }}
             />
-            <div className="chart-display-controls">
+            {hoverBar !== undefined && hover.point !== undefined && (
+                <div
+                    className="candle-note"
+                    role="tooltip"
+                    aria-label="K 线信息"
+                    data-bar-start-ns={hoverBar.barStartNs}
+                    data-chart-context-key={contextKey ?? ""}
+                    ref={note}
+                >
+                    <time>{chartTimeFormatters(display.zone).timeFormatter(hoverBar.time)}</time>
+                    <dl>
+                        {(
+                            [
+                                ["open", "开盘"],
+                                ["high", "最高"],
+                                ["low", "最低"],
+                                ["close", "收盘"],
+                                ["volume", "成交量"]
+                            ] as const
+                        ).map(([field, label]) => (
+                            <div key={field}>
+                                <dt>{label}</dt>
+                                <dd data-observation-field={field}>{hoverBar[field]}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                    <span>{hoverBar.closed ? "已关闭 K 线" : "实时预览"}</span>
+                    <div className="study-hover" aria-label="指标悬浮信息">
+                        {studies
+                            .filter(
+                                (instance) =>
+                                    instance.context.key === contextKey &&
+                                    instance.presentation.visible
+                            )
+                            .flatMap((instance) =>
+                                instance.configuration.outputNames
+                                    .filter(
+                                        (name) =>
+                                            instance.presentation.seriesStyles?.[name]?.visible !==
+                                            false
+                                    )
+                                    .map((outputName) => {
+                                        const view = views.get(
+                                            JSON.stringify([instance.instanceId, outputName])
+                                        );
+                                        if (view === undefined) return null;
+                                        const time =
+                                            hover.context === contextKey &&
+                                            hover.incarnation === incarnationKey
+                                                ? hover.time
+                                                : null;
+                                        const point =
+                                            view.status === "PROJECTED" && time !== null
+                                                ? view.projection.pointsByTime.get(time)
+                                                : undefined;
+                                        const value =
+                                            view.status !== "PROJECTED"
+                                                ? view.detail
+                                                : time === null
+                                                  ? "—"
+                                                  : point === undefined
+                                                    ? "此时间无对应结果"
+                                                    : `${point.value ?? "暂无数值"}${point.readiness === "PARTIAL" ? " · 部分可用" : point.readiness === "PRE_READY" ? " · 预热中" : ""}`;
+                                        return (
+                                            <div
+                                                key={JSON.stringify([
+                                                    instance.instanceId,
+                                                    outputName
+                                                ])}
+                                                data-testid="study-hover"
+                                                data-instance-id={instance.instanceId}
+                                                data-selected={
+                                                    selectedStudyId === instance.instanceId
+                                                }
+                                                style={{
+                                                    color: studySeriesColor(instance, outputName)
+                                                }}
+                                            >
+                                                <span>
+                                                    {studyDisplayLabel(instance)} · {outputName} ·{" "}
+                                                    {value}
+                                                </span>
+                                                <small className="study-hover__evidence">
+                                                    {studyDescriptor(instance.selection).typeId} ·{" "}
+                                                    {outputName} ·{" "}
+                                                    {view.status === "PROJECTED"
+                                                        ? view.projection.outputUnit === "PRICE"
+                                                            ? "PRICE"
+                                                            : `${view.projection.outputUnit ?? "单位未知"} · 独立纵轴`
+                                                        : "无有效结果"}{" "}
+                                                    · {studyHover(view, time)}
+                                                </small>
+                                            </div>
+                                        );
+                                    })
+                            )}
+                    </div>
+                    {studies.some(
+                        (row) =>
+                            row.selection.source === "CHART_STUDY_TRANSIENT" &&
+                            row.presentation.visible
+                    ) && <small>图表指标仅供观察，数值保留各自可用状态。</small>}
+                </div>
+            )}
+            <div className="chart-display-controls" ref={displayControls}>
                 {display.notice !== "" && <span role="status">{display.notice}</span>}
-                <label>
-                    显示时区{" "}
-                    <select
-                        aria-label="显示时区"
-                        value={display.zone}
-                        onChange={(event) => {
-                            const zone = event.target.value;
-                            if (!isDisplayTimezone(zone)) return;
-                            let notice = "";
-                            try {
-                                localStorage.setItem(displayTimezoneKey, zone);
-                            } catch {
-                                notice = "无法保存时区偏好；仅本次显示生效";
-                            }
-                            setDisplay({ zone, notice });
-                        }}
-                    >
-                        <option value="UTC">UTC</option>
-                        <option value="Asia/Shanghai">北京时间</option>
-                        <option value="USER_LOCAL">本地时区</option>
-                    </select>
-                </label>
+                <select
+                    aria-label="显示时区"
+                    value={display.zone}
+                    onChange={(event) => {
+                        const zone = event.target.value;
+                        if (!isDisplayTimezone(zone)) return;
+                        let notice = "";
+                        try {
+                            localStorage.setItem(displayTimezoneKey, zone);
+                        } catch {
+                            notice = "无法保存时区偏好；仅本次显示生效";
+                        }
+                        setDisplay({ zone, notice });
+                    }}
+                >
+                    {displayTimezones.map(([zone, label]) => (
+                        <option key={zone} value={zone}>
+                            {label}
+                        </option>
+                    ))}
+                </select>
             </div>
         </div>
     );

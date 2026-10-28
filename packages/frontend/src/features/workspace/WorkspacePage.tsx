@@ -1,3 +1,7 @@
+import { useOutletContext } from "react-router-dom";
+import { createPortal } from "react-dom";
+import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
+import { WorkspaceLibraryControls } from "./WorkspaceLibraryControls";
 import { useDefaultWorkspace } from "./useDefaultWorkspace";
 import type { WorkspaceConfiguration } from "../../api/workspace/client";
 import { sameChartBinding } from "../../api/chartStudies/client";
@@ -8,13 +12,8 @@ import { SymbolSearch } from "./SymbolSearch";
 import { useWatchlists } from "./useWatchlists";
 import { TransientStudyPriceChart } from "./TransientStudyPriceChart";
 import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
-import type {
-    FinancialChartType,
-    MarketDataChartSelection
-} from "../../charts/lightweight/marketDataChartProjection";
-import { DataSourceEntry } from "../data/sources/DataSourceEntry";
+import type { FinancialChartType } from "../../charts/lightweight/marketDataChartProjection";
 import { DataSourceManager } from "../data/sources/DataSourceManager";
-import { useDataSourceOverview } from "../data/sources/overview";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
 import { LocalReadAccess } from "./LocalReadAccess";
@@ -23,12 +22,10 @@ import { onlyMarketDataChartContextKey } from "./marketDataChartContext";
 import {
     fixedDurationMinutes,
     formatBarSemantic,
-    marketDataBarSemantic,
     marketDataSourceChoiceKey
 } from "../../api/marketData/model";
 
 const realBarPresets = [1, 3, 5, 15, 30, 60, 120, 240] as const;
-const CATALOG_NOTE = "图表指标仅供观察，不是正式研究结果";
 const tools: readonly {
     readonly id: string;
     readonly label: string;
@@ -42,7 +39,12 @@ const tools: readonly {
 ];
 
 export function WorkspacePage() {
-    const [toolsCollapsed, setToolsCollapsed] = useState(false);
+    const slots = useOutletContext<WorkspaceShellSlots | null>();
+    const toolbarHost = slots?.toolbarHost ?? null;
+    const railHost = slots?.railHost ?? null;
+    const [managementHost, setManagementHost] = useState<HTMLDivElement | null>(null);
+    const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
+    const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [panelTab, setPanelTab] = useState<"watchlist" | "inspector">("watchlist");
     const [panelOpen, setPanelOpen] = useState(() =>
@@ -69,7 +71,6 @@ export function WorkspacePage() {
     const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
-    const [selection, setSelection] = useState<MarketDataChartSelection | null>(null);
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -81,7 +82,6 @@ export function WorkspacePage() {
         setSearchOpen(true);
     };
     const [managerOpen, setManagerOpen] = useState(false);
-    const dataSources = useDataSourceOverview();
     const credentials = useLocalReadCredentials();
     const workspace = useDefaultWorkspace(credentials);
     const startup = !credentials.localSession
@@ -111,7 +111,9 @@ export function WorkspacePage() {
         message: string | null;
     } | null>(null);
     const restoreNotice =
-        restoreOutcome?.key === workspace.restoration?.key ? restoreOutcome?.message : null;
+        restoreOutcome?.key === workspace.restoration?.key
+            ? (restoreOutcome?.message ?? null)
+            : null;
     const restoreKey = useRef<string | null>(null);
     const { catalogStatus, restoreSelection } = marketData;
     useEffect(() => {
@@ -152,22 +154,7 @@ export function WorkspacePage() {
                   },
         [marketData.reference, realInstrument, marketData.barSemantic]
     );
-    const selectedBar =
-        selection?.contextKey === marketData.chartContextKey
-            ? marketData.liveBar?.barStartNs === selection.barStartNs
-                ? marketData.liveBar
-                : marketData.bars.find((bar) => bar.barStartNs === selection.barStartNs)
-            : undefined;
     const latestBar = marketData.liveBar ?? marketData.bars.at(-1);
-    const observation = selectedBar ?? latestBar;
-    const observationMode =
-        observation == null
-            ? "unavailable"
-            : selectedBar != null
-              ? "crosshair"
-              : observation.closed
-                ? "latest-closed"
-                : "preview";
     const olderHistoryCopy =
         marketData.olderHistoryStatus === "loading"
             ? "正在加载更早临时行情…"
@@ -235,11 +222,238 @@ export function WorkspacePage() {
                   }
               ];
 
+    const tray = (
+        <div
+            className="workspace-tray"
+            role="toolbar"
+            aria-label="工作区面板"
+            aria-orientation="vertical"
+        >
+            <button
+                type="button"
+                className="rail-button"
+                aria-pressed={panelTab === "watchlist"}
+                aria-label="自选"
+                ref={panelToggle}
+                title="自选"
+                onClick={() => {
+                    setPanelTab("watchlist");
+                    setPanelOpen(true);
+                }}
+            >
+                <WorkspaceIcon name="results" />
+            </button>
+            <button
+                type="button"
+                className="rail-button"
+                aria-pressed={panelTab === "inspector"}
+                aria-label="检查器"
+                title="检查器"
+                onClick={() => {
+                    setPanelTab("inspector");
+                    setPanelOpen(true);
+                }}
+            >
+                <WorkspaceIcon name="shield" />
+            </button>
+            <button
+                type="button"
+                className="rail-button"
+                aria-pressed={bottomTab === "backtest"}
+                aria-label="回测"
+                title="回测"
+                onClick={() => {
+                    setBottomTab("backtest");
+                    setBottomCollapsed(false);
+                }}
+            >
+                <WorkspaceIcon name="runs" />
+            </button>
+        </div>
+    );
+    const toolbar = (
+        <div className="workspace-chart-toolbar" role="toolbar" aria-label="图表工作条">
+            <button
+                type="button"
+                className="chart-region__symbol-search"
+                aria-label="搜索商品"
+                title={realInstrument?.instrument_id}
+                onClick={openSearch}
+            >
+                <span aria-hidden="true">⌕</span> {realInstrument?.display_symbol ?? "搜索商品"}
+            </button>
+            <div className="chart-region__controls">
+                <div className="chart-region__search">
+                    <select
+                        className="chart-region__timeframe"
+                        aria-label="时间周期"
+                        value={preset && !customBarOpen ? String(duration) : "custom"}
+                        disabled={marketData.reference === null}
+                        onChange={(event) => {
+                            if (event.target.value === "custom") setCustomBarOpen(true);
+                            else {
+                                setCustomBarOpen(false);
+                                void marketData.selectBarDuration(Number(event.target.value));
+                            }
+                        }}
+                    >
+                        {realBarPresets.map((minutes) => (
+                            <option
+                                key={minutes}
+                                value={minutes}
+                                disabled={
+                                    marketData.barCapability === null ||
+                                    minutes < marketData.barCapability.minimum_window_minutes ||
+                                    minutes > marketData.barCapability.maximum_window_minutes
+                                }
+                            >
+                                {minutes < 60
+                                    ? `${String(minutes)} 分钟`
+                                    : `${String(minutes / 60)} 小时`}
+                            </option>
+                        ))}
+                        <option value="custom">自定义…</option>
+                    </select>
+                    {customBarOpen || !preset ? (
+                        <form
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                const minutes = Number(customBarDuration);
+                                if (
+                                    Number.isInteger(minutes) &&
+                                    minutes >=
+                                        (marketData.barCapability?.minimum_window_minutes ?? 1) &&
+                                    minutes <=
+                                        (marketData.barCapability?.maximum_window_minutes ?? 0)
+                                )
+                                    void marketData.selectBarDuration(minutes);
+                            }}
+                        >
+                            <input
+                                aria-label="自定义周期分钟数"
+                                type="number"
+                                min="1"
+                                max={marketData.barCapability?.maximum_window_minutes ?? 240}
+                                step="1"
+                                required
+                                value={customBarDuration}
+                                onChange={(event) => {
+                                    setCustomBarDuration(event.target.value);
+                                }}
+                            />
+                            <button type="submit">应用</button>
+                        </form>
+                    ) : null}
+                </div>
+            </div>
+            <details
+                className="chart-region__chart-type"
+                onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                        event.currentTarget.open = false;
+                        event.currentTarget.querySelector("summary")?.focus();
+                    }
+                }}
+            >
+                <summary aria-label="图表类型" title="图表类型">
+                    <WorkspaceIcon name={chartType === "CANDLESTICK" ? "candles" : "line"} />
+                    <WorkspaceIcon name="down" />
+                </summary>
+                <div className="chart-type-options">
+                    {(
+                        [
+                            { value: "CANDLESTICK", label: "蜡烛图", icon: "candles" },
+                            { value: "LINE", label: "收盘线", icon: "line" }
+                        ] as const
+                    ).map((item) => (
+                        <button
+                            type="button"
+                            key={item.value}
+                            aria-label={item.label}
+                            title={item.label}
+                            aria-pressed={chartType === item.value}
+                            onClick={(event) => {
+                                setChartType(item.value);
+                                const menu = event.currentTarget.closest("details");
+                                if (menu) {
+                                    menu.open = false;
+                                    menu.querySelector("summary")?.focus();
+                                }
+                            }}
+                        >
+                            <WorkspaceIcon name={item.icon} />
+                        </button>
+                    ))}
+                </div>
+            </details>
+            <div className="workspace-study-picker" ref={setPickerHost} />
+            <div className="workspace-management-host" ref={setManagementHost} />
+            <details
+                className="workspace-settings"
+                onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                        event.currentTarget.open = false;
+                        event.currentTarget.querySelector("summary")?.focus();
+                    }
+                }}
+            >
+                <summary aria-label="设置" title="设置">
+                    <WorkspaceIcon name="settings" />
+                </summary>
+                <div className="workspace-settings__menu">
+                    <details className="chart-region__settings">
+                        <summary>行情设置</summary>
+                        <label className="chart-region__source">
+                            <span className="visually-hidden">数据源</span>
+                            <select
+                                aria-label="数据源"
+                                value={marketData.sourceId}
+                                onChange={(event) => {
+                                    marketData.selectSource(event.target.value);
+                                }}
+                            >
+                                <option value="">未选择数据源</option>
+                                {marketData.selectableSources.map((item) => (
+                                    <option
+                                        key={marketDataSourceChoiceKey(item)}
+                                        value={marketDataSourceChoiceKey(item)}
+                                    >
+                                        {item.display_name} ·{" "}
+                                        {item.is_current_revision
+                                            ? "当前 Revision"
+                                            : "历史 Revision"}{" "}
+                                        · {item.integration_revision_fingerprint.slice(0, 8)} ·{" "}
+                                        {item.new_work_status === "AVAILABLE"
+                                            ? "可采集"
+                                            : "仅封存历史"}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </details>
+                    <details className="workspace-indicator-status">
+                        <summary>指标状态</summary>
+                        <div ref={setStudyStatusHost} />
+                    </details>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setManagerOpen(true);
+                        }}
+                    >
+                        管理数据源
+                    </button>
+                </div>
+            </details>
+        </div>
+    );
+
     return (
         <section
             className="chart-workspace"
             aria-label="图表工作区"
-            data-tools-collapsed={toolsCollapsed}
+            data-external-rail={railHost !== null}
+            data-tools-collapsed="true"
             data-panel-open={panelOpen}
             data-bottom-collapsed={bottomCollapsed}
         >
@@ -264,174 +478,19 @@ export function WorkspacePage() {
                         <span className="visually-hidden">{tool.label}</span>
                     </button>
                 ))}
-                <button
-                    type="button"
-                    className="rail-button rail-toggle"
-                    aria-expanded={!toolsCollapsed}
-                    aria-label={toolsCollapsed ? "展开工具条" : "收起工具条"}
-                    onClick={() => {
-                        setToolsCollapsed(!toolsCollapsed);
-                    }}
-                >
-                    <WorkspaceIcon name={toolsCollapsed ? "expand" : "collapse"} />
-                </button>
             </div>
             <section className="chart-region" aria-label="主图">
-                <header className="chart-region__header">
+                {toolbarHost === null ? toolbar : createPortal(toolbar, toolbarHost)}
+                <header className="chart-region__header" hidden={credentials.localSession}>
                     {!credentials.localSession ? (
                         <details>
                             <summary>本地只读访问</summary>
                             <LocalReadAccess />
                         </details>
                     ) : null}
-                    <button
-                        type="button"
-                        className="chart-region__symbol-search"
-                        aria-label="搜索商品"
-                        title={realInstrument?.instrument_id}
-                        onClick={openSearch}
-                    >
-                        <span aria-hidden="true">⌕</span>{" "}
-                        {realInstrument?.display_symbol ?? "搜索商品"}
-                    </button>
-                    <div className="chart-region__controls">
-                        <div className="chart-region__search">
-                            <select
-                                className="chart-region__timeframe"
-                                aria-label="时间周期"
-                                value={preset && !customBarOpen ? String(duration) : "custom"}
-                                disabled={marketData.reference === null}
-                                onChange={(event) => {
-                                    if (event.target.value === "custom") setCustomBarOpen(true);
-                                    else {
-                                        setCustomBarOpen(false);
-                                        void marketData.selectBarDuration(
-                                            Number(event.target.value)
-                                        );
-                                    }
-                                }}
-                            >
-                                {realBarPresets.map((minutes) => (
-                                    <option
-                                        key={minutes}
-                                        value={minutes}
-                                        disabled={
-                                            marketData.barCapability === null ||
-                                            minutes <
-                                                marketData.barCapability.minimum_window_minutes ||
-                                            minutes >
-                                                marketData.barCapability.maximum_window_minutes
-                                        }
-                                    >
-                                        {formatBarSemantic(marketDataBarSemantic(minutes))}
-                                    </option>
-                                ))}
-                                <option value="custom">自定义…</option>
-                            </select>
-                            {customBarOpen || !preset ? (
-                                <form
-                                    onSubmit={(event) => {
-                                        event.preventDefault();
-                                        const minutes = Number(customBarDuration);
-                                        if (
-                                            Number.isInteger(minutes) &&
-                                            minutes >=
-                                                (marketData.barCapability?.minimum_window_minutes ??
-                                                    1) &&
-                                            minutes <=
-                                                (marketData.barCapability?.maximum_window_minutes ??
-                                                    0)
-                                        )
-                                            void marketData.selectBarDuration(minutes);
-                                    }}
-                                >
-                                    <input
-                                        aria-label="自定义周期分钟数"
-                                        type="number"
-                                        min="1"
-                                        max={
-                                            marketData.barCapability?.maximum_window_minutes ?? 240
-                                        }
-                                        step="1"
-                                        required
-                                        value={customBarDuration}
-                                        onChange={(event) => {
-                                            setCustomBarDuration(event.target.value);
-                                        }}
-                                    />
-                                    <button type="submit">应用</button>
-                                </form>
-                            ) : null}
-                        </div>
-                        <select
-                            className="chart-region__chart-type"
-                            aria-label="图表类型"
-                            value={chartType}
-                            onChange={(event) => {
-                                setChartType(event.target.value as FinancialChartType);
-                            }}
-                        >
-                            <option value="CANDLESTICK">蜡烛图</option>
-                            <option value="LINE">收盘线</option>
-                        </select>
-                    </div>
-                    <span className="chart-region__spacer">
-                        <details className="chart-region__settings">
-                            <summary>行情设置</summary>
-                            <label className="chart-region__source">
-                                <span className="visually-hidden">数据源</span>
-                                <select
-                                    aria-label="数据源"
-                                    value={marketData.sourceId}
-                                    onChange={(event) => {
-                                        marketData.selectSource(event.target.value);
-                                    }}
-                                >
-                                    <option value="">未选择数据源</option>
-                                    {marketData.selectableSources.map((item) => (
-                                        <option
-                                            key={marketDataSourceChoiceKey(item)}
-                                            value={marketDataSourceChoiceKey(item)}
-                                        >
-                                            {item.display_name} ·{" "}
-                                            {item.is_current_revision
-                                                ? "当前 Revision"
-                                                : "历史 Revision"}{" "}
-                                            · {item.integration_revision_fingerprint.slice(0, 8)} ·{" "}
-                                            {item.new_work_status === "AVAILABLE"
-                                                ? "可采集"
-                                                : "仅封存历史"}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        </details>
-                        <DataSourceEntry
-                            overview={dataSources}
-                            onManage={() => {
-                                setManagerOpen(true);
-                            }}
-                        />
-                        {marketData.status === "ready" ? (
-                            <span className="real-tag" data-testid="market-data-source-tag">
-                                临时行情 · 仅内存
-                            </span>
-                        ) : null}
-                        <button
-                            type="button"
-                            className="panel-toggle"
-                            ref={panelToggle}
-                            aria-expanded={panelOpen}
-                            aria-label={panelOpen ? "关闭上下文面板" : "打开上下文面板"}
-                            onClick={() => {
-                                setPanelOpen(!panelOpen);
-                            }}
-                        >
-                            <WorkspaceIcon name="menu" />
-                        </button>
-                    </span>
                 </header>
                 <ChartStudies
+                    toolbarTarget={pickerHost}
                     context={studyContext}
                     restoration={studyRestoration}
                     {...(credentials.capture().bearer === null && !credentials.localSession
@@ -463,82 +522,39 @@ export function WorkspacePage() {
                             workspaceConfiguration !== null &&
                             !sameChartBinding(
                                 workspaceConfiguration,
-                                workspace.book?.configuration
+                                workspace.activeWorkspace?.configuration
                             );
                         return (
                             <>
-                                <div
-                                    className="workspace-configuration"
-                                    aria-label="默认工作区配置"
-                                >
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            workspace.book === null ||
-                                            workspaceConfiguration === null ||
-                                            workspace.busy ||
-                                            workspace.pending !== null ||
-                                            !configurationReady ||
-                                            !workspaceDirty
-                                        }
-                                        onClick={() => {
-                                            if (workspaceConfiguration !== null)
-                                                void workspace.save(workspaceConfiguration);
-                                        }}
-                                    >
-                                        保存默认工作区
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={workspace.busy || workspace.pending !== null}
-                                        onClick={() => void workspace.reload()}
-                                    >
-                                        载入已保存工作区
-                                    </button>
-                                    {workspace.pending === null ? null : (
-                                        <button
-                                            type="button"
-                                            disabled={workspace.busy}
-                                            onClick={() => void workspace.resolvePending()}
-                                        >
-                                            核对原保存提交
-                                        </button>
-                                    )}
-                                    <span>
-                                        {workspace.busy
-                                            ? "正在处理保存配置…"
-                                            : workspace.book === null
-                                              ? "保存配置尚未读取"
-                                              : workspaceDirty
-                                                ? "有未保存配置"
-                                                : "配置与已保存版本一致"}
-                                    </span>
-                                    {workspace.message === null ? null : (
-                                        <p role="status">{workspace.message}</p>
-                                    )}
-                                    {restoreNotice === null ? null : (
-                                        <p role="alert">{restoreNotice}</p>
-                                    )}
-                                </div>
-
-                                {instances.length === 0 ? null : (
-                                    <p
-                                        className="chart-region__overlay-note"
-                                        data-testid="real-overlay-note"
-                                    >
-                                        {instances.length === 0
-                                            ? CATALOG_NOTE
-                                            : instances.some(
-                                                    (instance) =>
-                                                        instance.selection.source ===
-                                                        "CHART_STUDY_TRANSIENT"
-                                                )
-                                              ? "图表指标 · 仅供观察，不是正式研究结果"
-                                              : "指标尚未接入计算"}
-                                    </p>
+                                {managementHost === null ? (
+                                    <WorkspaceLibraryControls
+                                        workspace={workspace}
+                                        configuration={workspaceConfiguration}
+                                        ready={configurationReady}
+                                        dirty={workspaceDirty}
+                                        notice={restoreNotice}
+                                    />
+                                ) : (
+                                    createPortal(
+                                        <WorkspaceLibraryControls
+                                            workspace={workspace}
+                                            configuration={workspaceConfiguration}
+                                            ready={configurationReady}
+                                            dirty={workspaceDirty}
+                                            notice={restoreNotice}
+                                        />,
+                                        managementHost
+                                    )
                                 )}
+
                                 <p
                                     className="chart-region__status"
+                                    hidden={
+                                        marketData.status === "ready" &&
+                                        marketData.realtimeStatus === "ready" &&
+                                        olderHistoryCopy === null &&
+                                        !marketData.pageReloadRequired
+                                    }
                                     role="status"
                                     data-status={marketData.status}
                                     data-temporary-window-fingerprint={
@@ -569,51 +585,9 @@ export function WorkspacePage() {
                                         </button>
                                     ) : null}
                                 </p>
-                                <div
-                                    className="chart-observation"
-                                    data-testid="market-data-observation"
-                                    data-observation-mode={observationMode}
-                                    data-bar-start-ns={observation?.barStartNs ?? ""}
-                                    data-chart-context-key={marketData.chartContextKey ?? ""}
-                                >
-                                    <span>
-                                        {observation == null
-                                            ? "UTC —"
-                                            : new Date(observation.time * 1000)
-                                                  .toISOString()
-                                                  .replace("T", " ")
-                                                  .replace(".000Z", " UTC")}
-                                    </span>
-                                    {(["open", "high", "low", "close", "volume"] as const).map(
-                                        (field) => (
-                                            <span key={field}>
-                                                {
-                                                    {
-                                                        open: "O",
-                                                        high: "H",
-                                                        low: "L",
-                                                        close: "C",
-                                                        volume: "V"
-                                                    }[field]
-                                                }{" "}
-                                                <span data-observation-field={field}>
-                                                    {observation?.[field] ?? "—"}
-                                                </span>
-                                            </span>
-                                        )
-                                    )}
-                                    <span>
-                                        {observationMode === "crosshair"
-                                            ? "十字线"
-                                            : observationMode === "preview"
-                                              ? "实时预览"
-                                              : observationMode === "latest-closed"
-                                                ? "最新已关闭"
-                                                : "不可用"}
-                                    </span>
-                                </div>
                                 <div className="chart-region__body">
                                     <TransientStudyPriceChart
+                                        statusTarget={studyStatusHost}
                                         context={studyContext}
                                         pageId={marketData.pageId}
                                         onTransientRevalidated={onTransientRevalidated}
@@ -631,7 +605,6 @@ export function WorkspacePage() {
                                         selectedStudyId={selectedId}
                                         incarnationKey={incarnationKey}
                                         chartType={chartType}
-                                        onSelection={setSelection}
                                         barSemantic={marketData.barSemantic}
                                         bars={marketData.bars}
                                         liveBar={marketData.liveBar}
@@ -721,52 +694,7 @@ export function WorkspacePage() {
                     )}
                 </div>
             </aside>
-            <div
-                className="workspace-tray"
-                role="toolbar"
-                aria-label="工作区面板"
-                aria-orientation="vertical"
-            >
-                <button
-                    type="button"
-                    className="rail-button"
-                    aria-pressed={panelTab === "watchlist"}
-                    aria-label="自选"
-                    title="自选"
-                    onClick={() => {
-                        setPanelTab("watchlist");
-                        setPanelOpen(true);
-                    }}
-                >
-                    <WorkspaceIcon name="results" />
-                </button>
-                <button
-                    type="button"
-                    className="rail-button"
-                    aria-pressed={panelTab === "inspector"}
-                    aria-label="检查器"
-                    title="检查器"
-                    onClick={() => {
-                        setPanelTab("inspector");
-                        setPanelOpen(true);
-                    }}
-                >
-                    <WorkspaceIcon name="shield" />
-                </button>
-                <button
-                    type="button"
-                    className="rail-button"
-                    aria-pressed={bottomTab === "backtest"}
-                    aria-label="回测"
-                    title="回测"
-                    onClick={() => {
-                        setBottomTab("backtest");
-                        setBottomCollapsed(false);
-                    }}
-                >
-                    <WorkspaceIcon name="runs" />
-                </button>
-            </div>
+            {railHost === null ? tray : createPortal(tray, railHost)}
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">
                     <div className="panel-tabs" role="group" aria-label="下方面板视图">

@@ -141,6 +141,7 @@ it("confirms independent instances; cancel/edit has a single state source and st
     expect(first).toHaveAttribute("data-configuration", original);
     await user.click(within(first).getByRole("button", { name: "编辑 SMA" }));
     expect(screen.getByRole("combobox", { name: "位置", hidden: true })).not.toBeVisible();
+    expect(screen.getByRole("group", { name: "颜色" })).toBeVisible();
     await user.click(screen.getByText("高级选项"));
     expect(screen.queryByRole("textbox", { name: "颜色" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "颜色" })).getAllByRole("button")).toHaveLength(
@@ -706,6 +707,11 @@ it("does not offer a descriptor numeric output excluded by the transient capabil
         />
     );
     const user = userEvent.setup();
+    const series = capability.presentation.series[0];
+    if (!series) throw new Error("Missing series");
+    expect(screen.getByRole("button", { name: `${series.label} 红色` })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: `${series.label} 红色` }));
+    expect(screen.getByLabelText(`${series.label}颜色`)).toHaveValue("#c8332a");
     await user.click(screen.getByText("高级选项", { exact: true }));
     expect(screen.getByRole("checkbox", { name: "输出 value" })).toBeChecked();
     expect(screen.queryByRole("checkbox", { name: "输出 normalized_atr" })).not.toBeInTheDocument();

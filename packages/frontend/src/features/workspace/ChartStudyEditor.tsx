@@ -147,10 +147,12 @@ export function ChartStudyEditor({
     }, [returnFocus]);
 
     useEffect(() => {
-        const node = advanced.current;
-        if (!validPresentation(presentation) && node !== null && !node.open) {
-            node.open = true;
-            node.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+        if (!validPresentation(presentation)) {
+            const invalid = dialog.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+            if (invalid) {
+                if (advanced.current?.contains(invalid)) advanced.current.open = true;
+                invalid.focus();
+            }
         }
     }, [presentation]);
 
@@ -405,15 +407,69 @@ export function ChartStudyEditor({
                             )
                         )}
                 </fieldset>
+                {selection.source === "CHART_STUDY_TRANSIENT" ? (
+                    <fieldset disabled={status !== "editing"}>
+                        <legend>曲线颜色</legend>
+                        {selection.capability.presentation.series.map((series) => {
+                            const style = presentation.seriesStyles?.[series.output_name] ?? {
+                                color: series.color,
+                                visible: true
+                            };
+                            const setColor = (color: string) => {
+                                setPresentation((previous) => ({
+                                    ...previous,
+                                    seriesStyles: {
+                                        ...previous.seriesStyles,
+                                        [series.output_name]: {
+                                            ...(previous.seriesStyles?.[series.output_name] ??
+                                                style),
+                                            color
+                                        }
+                                    }
+                                }));
+                            };
+                            return (
+                                <div key={series.output_name}>
+                                    <StudyColorPalette
+                                        label={series.label}
+                                        value={style.color}
+                                        onChange={setColor}
+                                    />
+                                    <label>
+                                        {series.label}颜色
+                                        <input
+                                            type="color"
+                                            aria-label={`${series.label}颜色`}
+                                            value={style.color}
+                                            onChange={(event) => {
+                                                setColor(event.target.value);
+                                            }}
+                                        />
+                                    </label>
+                                </div>
+                            );
+                        })}
+                    </fieldset>
+                ) : (
+                    <fieldset disabled={status !== "editing"}>
+                        <StudyColorPalette
+                            label="颜色"
+                            value={presentation.color}
+                            onChange={(color) => {
+                                setPresentation((previous) => ({ ...previous, color }));
+                            }}
+                        />
+                    </fieldset>
+                )}
                 <details
                     ref={advanced}
                     className="chart-study-editor__advanced"
                     onToggle={(event) => {
-                        if (!event.currentTarget.open && !validPresentation(presentation)) {
+                        const invalid =
+                            event.currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]');
+                        if (!event.currentTarget.open && invalid) {
                             event.currentTarget.open = true;
-                            event.currentTarget
-                                .querySelector<HTMLElement>('[aria-invalid="true"]')
-                                ?.focus();
+                            invalid.focus();
                         }
                     }}
                 >
@@ -484,26 +540,6 @@ export function ChartStudyEditor({
                                       <fieldset key={series.output_name}>
                                           <legend>{series.label}</legend>
                                           <label>
-                                              颜色
-                                              <input
-                                                  type="color"
-                                                  aria-label={`${series.label}颜色`}
-                                                  value={style.color}
-                                                  onChange={(event) => {
-                                                      setPresentation((previous) => ({
-                                                          ...previous,
-                                                          seriesStyles: {
-                                                              ...previous.seriesStyles,
-                                                              [series.output_name]: {
-                                                                  ...style,
-                                                                  color: event.target.value
-                                                              }
-                                                          }
-                                                      }));
-                                                  }}
-                                              />
-                                          </label>
-                                          <label>
                                               显示
                                               <input
                                                   type="checkbox"
@@ -550,39 +586,6 @@ export function ChartStudyEditor({
                                 <option value="SEPARATE_PANE">独立窗格</option>
                             </select>
                         </label>
-                        <div
-                            className="study-color-picker"
-                            role="group"
-                            aria-label="颜色"
-                            tabIndex={-1}
-                            aria-invalid={!/^#[0-9a-fA-F]{6}$/.test(presentation.color)}
-                        >
-                            <span>颜色 · {studyColorName(presentation.color)}</span>
-                            <div className="study-color-options">
-                                {studyColors.map((choice) => (
-                                    <button
-                                        key={choice.value}
-                                        type="button"
-                                        aria-label={choice.name}
-                                        title={choice.name}
-                                        aria-pressed={
-                                            presentation.color.toLowerCase() === choice.value
-                                        }
-                                        style={{ backgroundColor: choice.value }}
-                                        onClick={() => {
-                                            setPresentation((previous) => ({
-                                                ...previous,
-                                                color: choice.value
-                                            }));
-                                        }}
-                                    >
-                                        {presentation.color.toLowerCase() === choice.value
-                                            ? "✓"
-                                            : ""}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                         <label>
                             <span>线宽（1–5）</span>
                             <input
@@ -673,5 +676,46 @@ export function ChartStudyEditor({
             </form>
         </dialog>,
         document.body
+    );
+}
+
+function StudyColorPalette({
+    label,
+    value,
+    onChange
+}: {
+    readonly label: string;
+    readonly value: string;
+    readonly onChange: (color: string) => void;
+}) {
+    return (
+        <div
+            className="study-color-picker"
+            role="group"
+            aria-label={label === "颜色" ? label : `${label}配色`}
+            tabIndex={-1}
+            aria-invalid={!/^#[0-9a-fA-F]{6}$/.test(value)}
+        >
+            <span>
+                {label} · {studyColorName(value)}
+            </span>
+            <div className="study-color-options">
+                {studyColors.map((choice) => (
+                    <button
+                        key={choice.value}
+                        type="button"
+                        aria-label={label === "颜色" ? choice.name : `${label} ${choice.name}`}
+                        title={choice.name}
+                        aria-pressed={value.toLowerCase() === choice.value}
+                        style={{ backgroundColor: choice.value }}
+                        onClick={() => {
+                            onChange(choice.value);
+                        }}
+                    >
+                        {value.toLowerCase() === choice.value ? "✓" : ""}
+                    </button>
+                ))}
+            </div>
+        </div>
     );
 }

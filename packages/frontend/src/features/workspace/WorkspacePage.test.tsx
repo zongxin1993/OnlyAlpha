@@ -1,3 +1,4 @@
+import { requiredValue } from "../../test/requiredValue";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationApiClient } from "../../api/integrations/client";
@@ -9,6 +10,8 @@ import {
     operationalStatus
 } from "../../test/integrationClient";
 import { marketDataClient } from "../../test/marketDataClient";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { WorkstationShell } from "../../app/shell/WorkstationShell";
 import { WorkspacePage } from "./WorkspacePage";
 
 vi.mock("../../charts/lightweight/PriceChart", () => ({
@@ -24,7 +27,12 @@ beforeEach(() => {
                 new Response(
                     JSON.stringify(
                         url === "/api/v2/workspace"
-                            ? { schema_version: 2, version: 0, configuration: null }
+                            ? {
+                                  schema_version: 3,
+                                  version: 0,
+                                  active_workspace_id: null,
+                                  workspaces: []
+                              }
                             : { schema_version: 2, version: 0, lists: [] }
                     )
                 )
@@ -64,7 +72,7 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
     expect(container.querySelector(".chart-workspace")).toHaveAttribute(
         "data-tools-collapsed",
-        "false"
+        "true"
     );
     expect(container.querySelector(".chart-workspace")).toHaveAttribute(
         "data-bottom-collapsed",
@@ -72,21 +80,69 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
     );
 });
 
-it("collapses the tool rail and the bottom panel without losing the chart", async () => {
+it("keeps both rails compact without an expansion control and retains the bottom panel", async () => {
     const user = userEvent.setup();
     const { container } = renderWorkspace();
     const workspace = container.querySelector(".chart-workspace");
-    await user.click(screen.getByRole("button", { name: "收起工具条" }));
     expect(workspace).toHaveAttribute("data-tools-collapsed", "true");
-    expect(screen.getByRole("button", { name: "展开工具条" })).toHaveAttribute(
-        "aria-expanded",
-        "false"
-    );
+    expect(screen.queryByRole("button", { name: /展开工具条|收起工具条/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "展开下方面板" }));
     expect(workspace).toHaveAttribute("data-bottom-collapsed", "false");
     await user.click(screen.getByRole("button", { name: "收起下方面板" }));
     expect(workspace).toHaveAttribute("data-bottom-collapsed", "true");
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
+});
+
+it("orders the live chart controls beside the brand icon in the top workspace bar", async () => {
+    const router = createMemoryRouter([
+        { element: <WorkstationShell />, children: [{ path: "/", element: <WorkspacePage /> }] }
+    ]);
+    render(
+        <AppProviders
+            integrationClient={integrationClient()}
+            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+        >
+            <RouterProvider router={router} />
+        </AppProviders>
+    );
+    const toolbar = await screen.findByRole("toolbar", { name: "图表工作条" });
+    expect(toolbar.closest(".workspace-topbar")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "OnlyAlpha 工作台" })).toHaveTextContent(/^OA$/);
+    expect(
+        Array.from(toolbar.querySelectorAll("button, select, summary")).map(
+            (node) => node.getAttribute("aria-label") ?? node.textContent
+        )
+    ).toEqual([
+        "搜索商品",
+        "时间周期",
+        "图表类型",
+        "蜡烛图",
+        "收盘线",
+        "指标",
+        "因子",
+        "保存工作区",
+        "载入工作区",
+        "设置",
+        "行情设置",
+        "数据源",
+        "指标状态",
+        "管理数据源"
+    ]);
+    expect(within(toolbar).getByRole("option", { name: "1 分钟" })).toHaveValue("1");
+    expect(within(toolbar).getByRole("option", { name: "1 小时" })).toHaveValue("60");
+    await userEvent.click(
+        within(toolbar).getByText("", { selector: "summary[aria-label=图表类型]" })
+    );
+    expect(within(toolbar).getByRole("button", { name: "蜡烛图" })).toHaveAttribute(
+        "aria-pressed",
+        "true"
+    );
+    await userEvent.click(within(toolbar).getByRole("button", { name: "收盘线" }));
+    expect(screen.getByTestId("price-chart")).toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: "收盘线", hidden: true })).toHaveAttribute(
+        "aria-pressed",
+        "true"
+    );
 });
 
 it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
@@ -114,10 +170,7 @@ it("never presents absent API proof as synthetic business facts or success", asy
             "尚未配置可用的行情来源，请先添加行情来源。"
         );
     });
-    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
+    expect(screen.queryByTestId("market-data-observation")).not.toBeInTheDocument();
     expect(
         screen.queryByText(/synthetic|1486\.20|run-0f3a91|MA 20|20 日动量/)
     ).not.toBeInTheDocument();
@@ -137,32 +190,26 @@ const configuredClient = () =>
         getOperationalStatus: () => Promise.resolve(operationalStatus({ status: "UNKNOWN" }))
     });
 
-it("shows the data source entry with an unverified count that is not an error", async () => {
+it("hides the source badge and exposes market settings through the gear", async () => {
     renderWorkspace(configuredClient());
-    const trigger = await screen.findByRole("button", { name: /^数据源/ });
-    expect(await within(trigger).findByText("1 未验证")).toBeInTheDocument();
-    expect(trigger.querySelector(".state-mark--unverified")).not.toBeNull();
-    expect(trigger.querySelector(".state-mark--degraded")).toBeNull();
-    expect(trigger.querySelector(".state-mark--failed")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^数据源/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await userEvent.click(screen.getByText("行情设置"));
+    expect(screen.getByRole("combobox", { name: "数据源" })).toBeInTheDocument();
 });
 
-it("opens a quick status Popover that never claims a workspace source", async () => {
+it("opens the manager modal from settings and closes it with Escape", async () => {
     const user = userEvent.setup();
     renderWorkspace(configuredClient());
-    await user.click(await screen.findByRole("button", { name: /^数据源/ }));
-    const popover = screen.getByRole("dialog", { name: "数据源状态" });
-    expect(within(popover).getByText("Fixture Source")).toBeInTheDocument();
-    expect(within(popover).getByText("未验证")).toBeInTheDocument();
-    expect(within(popover).getByText(/尚未有 canonical 来源绑定/)).toBeInTheDocument();
-    expect(within(popover).queryByText(/历史：/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/synthetic/)).not.toBeInTheDocument();
-});
-
-it("opens the manager modal from the Popover and closes it with Escape", async () => {
-    const user = userEvent.setup();
-    renderWorkspace(configuredClient());
-    await user.click(await screen.findByRole("button", { name: /^数据源/ }));
-    await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await user.click(
+        within(requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))).getByRole(
+            "button",
+            {
+                name: "管理数据源"
+            }
+        )
+    );
     const modal = screen.getByRole("dialog", { name: "管理数据源" });
     expect(within(modal).getByRole("tab", { name: /已配置/ })).toHaveAttribute(
         "aria-selected",
@@ -188,9 +235,11 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
         </AppProviders>,
         { container }
     );
-    const trigger = await screen.findByRole("button", { name: /^数据源/ });
+    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    const trigger = within(
+        requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))
+    ).getByRole("button", { name: "管理数据源" });
     await user.click(trigger);
-    await user.click(screen.getByRole("button", { name: "管理数据源…" }));
     expect(screen.getByRole("dialog", { name: "管理数据源" })).toHaveFocus();
     expect(document.getElementById("root")).toHaveAttribute("inert");
     await user.keyboard("{Escape}");
@@ -207,9 +256,12 @@ it("starts the narrow workspace unobstructed and restores focus after closing it
         const user = userEvent.setup();
         const { container } = renderWorkspace();
         const workspace = container.querySelector(".chart-workspace");
-        const toggle = screen.getByRole("button", { name: "打开上下文面板" });
+        const toggle = within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole(
+            "button",
+            { name: "自选" }
+        );
         expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(toggle).toHaveAttribute("aria-expanded", "false");
+        expect(toggle).toHaveAttribute("aria-pressed", "true");
         expect(screen.getByRole("button", { name: "因子" })).toBeEnabled();
         await user.click(toggle);
         expect(workspace).toHaveAttribute("data-panel-open", "true");

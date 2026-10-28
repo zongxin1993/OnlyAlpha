@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
     useEffect,
     useEffectEvent,
@@ -111,8 +112,10 @@ export function TransientStudyPriceChart({
     pageId,
     onTransientRevalidated,
     continuityReady = true,
+    statusTarget,
     ...chart
 }: ComponentProps<typeof PriceChart> & {
+    readonly statusTarget?: HTMLElement | null;
     readonly context: ChartStudyContext | null;
     readonly dataGeneration: string | null;
     readonly expectedSourceId: string | null;
@@ -801,64 +804,78 @@ export function TransientStudyPriceChart({
         FORBIDDEN: "无权访问指标",
         UNSUPPORTED: "当前图表不支持此指标"
     };
+    const attention =
+        (state.key === key &&
+            [
+                "REJECTED_CONFIG",
+                "INPUT_INCOMPLETE",
+                "STALE",
+                "UNAVAILABLE",
+                "INVALID",
+                "UNAUTHORIZED",
+                "FORBIDDEN",
+                "UNSUPPORTED"
+            ].includes(active.status)) ||
+        active.failed.length > 0;
+    const queryStatus = hasTransient ? (
+        <div className="transient-study-chart__status">
+            <div
+                role="status"
+                data-testid="chart-study-query-status"
+                data-query-status={active.status}
+            >
+                <span>{statusCopy[active.status] ?? "指标暂不可用"} · 仅供图表观察</span>
+                {active.evidence.length === 0 ? null : (
+                    <span data-testid="chart-study-input-status">仅计算已收盘 K 线</span>
+                )}
+                <details className="transient-study-chart__details">
+                    <summary>指标查询详情</summary>
+                    <p>
+                        {active.status === "INPUT_INCOMPLETE"
+                            ? "临时闭合 K 线不足"
+                            : active.status === "WAITING_FOR_CLOSED_WINDOW"
+                              ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
+                              : active.status}{" "}
+                        · DISPLAY_ONLY · 不是 Research Result
+                        {active.rejected.length === 0 ? null : ` · ${active.rejected.join("；")}`}
+                        {active.evidence.some((row) =>
+                            row.points.some((point) => point.readiness === "PARTIAL")
+                        )
+                            ? " · PARTIAL · 有限历史初始化窗口"
+                            : null}
+                    </p>
+                </details>
+            </div>
+            {["UNAVAILABLE", "INVALID", "STALE", "INPUT_INCOMPLETE"].includes(active.status) ? (
+                <button
+                    type="button"
+                    onClick={() => {
+                        setRetry({ id: null });
+                    }}
+                >
+                    重新查询指标
+                </button>
+            ) : null}
+            {active.failed.map((id) => (
+                <button
+                    type="button"
+                    key={id}
+                    onClick={() => {
+                        setRetry({ id });
+                    }}
+                >
+                    重试指标 {id}
+                </button>
+            ))}
+        </div>
+    ) : null;
     return (
         <div className="transient-study-chart">
-            {hasTransient ? (
-                <div className="transient-study-chart__status">
-                    <div
-                        role="status"
-                        data-testid="chart-study-query-status"
-                        data-query-status={active.status}
-                    >
-                        <span>{statusCopy[active.status] ?? "指标暂不可用"} · 仅供图表观察</span>
-                        {active.evidence.length === 0 ? null : (
-                            <span data-testid="chart-study-input-status">仅计算已收盘 K 线</span>
-                        )}
-                        <details className="transient-study-chart__details">
-                            <summary>指标查询详情</summary>
-                            <p>
-                                {active.status === "INPUT_INCOMPLETE"
-                                    ? "临时闭合 K 线不足"
-                                    : active.status === "WAITING_FOR_CLOSED_WINDOW"
-                                      ? "等待 K 线时间窗口就绪 · 将自动重新查询一次"
-                                      : active.status}{" "}
-                                · DISPLAY_ONLY · 不是 Research Result
-                                {active.rejected.length === 0
-                                    ? null
-                                    : ` · ${active.rejected.join("；")}`}
-                                {active.evidence.some((row) =>
-                                    row.points.some((point) => point.readiness === "PARTIAL")
-                                )
-                                    ? " · PARTIAL · 有限历史初始化窗口"
-                                    : null}
-                            </p>
-                        </details>
-                    </div>
-                    {["UNAVAILABLE", "INVALID", "STALE", "INPUT_INCOMPLETE"].includes(
-                        active.status
-                    ) ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setRetry({ id: null });
-                            }}
-                        >
-                            重新查询指标
-                        </button>
-                    ) : null}
-                    {active.failed.map((id) => (
-                        <button
-                            type="button"
-                            key={id}
-                            onClick={() => {
-                                setRetry({ id });
-                            }}
-                        >
-                            重试指标 {id}
-                        </button>
-                    ))}
-                </div>
-            ) : null}
+            {attention || statusTarget === undefined
+                ? queryStatus
+                : statusTarget === null
+                  ? null
+                  : createPortal(queryStatus, statusTarget)}
             <div className="transient-study-chart__plot">
                 <PriceChart {...chart} studyEvidence={active.evidence} />
             </div>

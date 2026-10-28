@@ -222,6 +222,10 @@ Chart presentation admission 在 Ledger 变更前校验时间与有限数值；O
 OHLCV 字符串及 closed/preview 状态，renderer number 仅是显式有损投影。图表类型是浏览器展示偏好，不参与 Product query、
 chart context 或 Stream identity。十字线只选择当前 context 内的精确 Bar identity，读数始终从当前 projection 派生，
 不得把 renderer `seriesData` 当作行情事实；没有真实 Bar 时显示 unavailable，不用 synthetic 数值补齐。
+OHLCV 与同一精确时间点的已准入指标数值仅在光标选中实际 Bar 时以同一个图内便签显示；指标文字与该输出曲线共用颜色解析（含逐输出覆盖与透明度），缺点、PARTIAL、PRE_READY、过期及来源区分仍明确，不插值、不读取 renderer 数值。跨 pane 使用真实指针坐标，离开或切换 context/incarnation 立即隐藏。
+显示时区选择位于时间轴右侧，只修改 Intl/IANA 显示规则（包括夏令时），不改变纳秒 identity、Query、Stream 或计算输入。
+顶部工作条集中商品、周期、图形下拉、指标、因子、保存/载入及设置；产品导航与上下文面板入口统一位于右侧图标栏。
+行情设置与数据源管理仍通过顶栏右端的正式设置入口访问，不展示单独数据源徽标。正常指标查询状态收进设置的“指标状态”；需要恢复的查询错误仍在主图提供操作。常规已连接行情状态不占用图表行，异常、加载和恢复提示保留。周期与图形选择为独立控件，图形菜单纵向排列；配置颜色在普通参数区可编辑，当前工作区名称只在保存／载入界面维护。
 
 
 ## 商品发现与自选报价
@@ -261,22 +265,31 @@ Provider evidence observer 收到解码后的原始 JSON bytes；JSON 无效时�
 省略未消费的 permissionSets，不改变商品、市场状态、价格步长或数量规则。单来源预算包含轻量进程启动、
 Provider 网络往返、解码和投影，仍服从搜索整体截止；Web transport deadline 不授予服务端额外时间。
 
-### Default workspace configuration
+### Named workspace configuration library
 
-The Owner may explicitly save one default workspace through `PUT /api/v2/workspace` and restore it through
-`GET /api/v2/workspace`. This configuration contains only the exact Source reference (including expected type), instrument,
-Bar semantic and ordered Study kind/type/version, tagged parameter values, selected outputs and existing presentation settings.
-It contains no market Bars, preview, calculated values, capability/grant, Runtime binding, credentials, viewport or Research Evidence.
-Saving configuration does not authorize Source work or collection. No automatic save is implied by ordinary chart interaction.
+The Owner explicitly saves and selects named workspaces through `PUT /api/v2/workspace`; `GET /api/v2/workspace` returns the
+bounded library and its active workspace UUID. The owner-approved workflow asks for a name when saving. A matching existing
+name requires explicit confirmation and targets that workspace's stable UUID; a new name creates a new workspace. Labels do
+not select execution or authorize access. Ambiguous duplicate labels require an explicit existing selection, never first-match
+substitution. Refresh/restart restores the most recently explicitly saved or loaded workspace. Ordinary chart edits never save
+implicitly. A user-selected load is itself a retained, queryable configuration Command, followed by normal exact restore.
 
-The existing global Product Command Admission and Receipt own save identity and exact replay. The expected workspace version
-provides compare-and-swap against the sole namespace head; an accepted save appends an immutable configuration revision.
-`GET /api/v2/workspace/commands/{command_id}` resolves the original save. Response loss remains UNKNOWN until that original
-identity is proved, and never authorizes a second save. A conflicting version retains the current edits until explicit reload.
-The browser stores only the pending operational command ID in session storage, never a second durable configuration copy.
+Current wire schema 3 represents `{version, active_workspace_id, workspaces}`. Each entry has a UUID, a name of 1–120 characters
+and the existing exact Source/instrument/Bar semantic/ordered Study configuration. The active entry is derived; no second
+canonical configuration copy is stored. At most 32 workspaces share the unchanged 64 KiB request budget and existing per-Study
+bounds. Names are presentation intent and may participate in configuration-management Command/history hashes; they never
+change algorithm or market identities, values or scientific results. No market Bars, preview, calculation values, grants,
+Runtime bindings, credentials or Research Evidence belong to this library.
 
-Restore revalidates the exact Source/instrument/semantic and fresh exact Study kind/type/version capabilities; missing or
-unsupported references are visible and never upgraded or replaced automatically. Values are fetched again through the temporary
-path and Study values are recomputed from closed inputs. Configuration publication does not preserve a temporary window across restart.
-One request is bounded to 64 KiB and 32 Study intents, parameters and outputs per Study; these are presentation resource limits.
-Migration 0054 adds this configuration family and extends the existing global Command vocabulary; it does not transform market facts.
+Reuse the global `SAVE_WORKSPACE` Product Command Admission and Receipt, expected-version CAS and an append-only aggregate
+revision. A single current library head belongs to the existing semantic namespace. Save/select results are atomic; response
+loss stays UNKNOWN until the original Command is proved. A concurrent revision retains current edits and requires explicit
+refresh/selection, never an automatic overwrite. `/api/v2/workspace/commands/{command_id}` proves the original accepted library,
+even after a newer selection. The browser persists only that pending operational Command ID, never a durable library copy.
+
+Migration 0057 introduces `workspace_library_revision` and `workspace_library_head` as the sole current schema-3 owner. Earlier
+default-workspace tables/receipts remain immutable historical facts, with no current read/write consumer, automatic adoption,
+conversion or compatibility loader. This development cutover does not delete unrelated data or reinterpret old fingerprints.
+The configuration and Source/Study validation remain unchanged: restoring must reprove exact references and current capability;
+missing/unsupported references remain explicit, never upgraded. Values are fetched/recomputed through the temporary display
+path, and a saved workspace never preserves a temporary window across restart.

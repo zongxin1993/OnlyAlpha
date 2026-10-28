@@ -469,9 +469,8 @@ impl Host {
             )?;
             let id = CommandId::new(&dto.command_id).map_err(|_| invalid())?;
             // Configuration is an intent, never a Source grant, captured input or calculation proof.
-            let proposed = WorkspaceBook::new(
-                u64::try_from(dto.expected_version).map_err(|_| invalid())?,
-                Some(serde_json::to_value(dto.configuration).map_err(|_| invalid())?),
+            let proposed = WorkspaceBook::from_record(
+                &json!({"version":dto.expected_version,"active_workspace_id":dto.active_workspace_id,"workspaces":dto.workspaces}),
             )?;
             let mut authority = self.writer.lock().await;
             let authority = authority
@@ -489,7 +488,7 @@ impl Host {
                 .await?
         };
         let mut body = value.to_record();
-        body["schema_version"] = json!(2);
+        body["schema_version"] = json!(3);
         Ok(Json(body).into_response())
     }
 }

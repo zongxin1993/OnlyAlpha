@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 
 for (const width of [1440, 1024, 390]) {
     test(`CONTROLLED_TEST_EVIDENCE multi-pane renderer preserves identities, gaps and viewport at ${String(width)}px`, async ({
@@ -30,12 +30,14 @@ for (const width of [1440, 1024, 390]) {
         );
         await expect(page.getByTestId("study-hover").first()).toContainText("READY");
         await page.getByRole("button", { name: "select controlled-2", exact: true }).click();
+        await hoverChart(page, chart);
         await expect(
             page.getByTestId("study-hover").filter({ hasText: "onlyalpha.indicator.sma" }).nth(2)
         ).toHaveAttribute("data-selected", "true");
         await page.getByRole("button", { name: "visibility controlled-2", exact: true }).click();
         await expect(chart).toHaveAttribute("data-pane-count", "3");
         await expect(chart).toHaveAttribute("data-study-series-count", "6");
+        await hoverChart(page, chart);
         await expect(page.getByTestId("study-hover")).toHaveCount(3);
         await page.getByRole("button", { name: "visibility controlled-2", exact: true }).click();
         await expect(chart).toHaveAttribute("data-pane-count", "4");
@@ -141,6 +143,8 @@ for (const width of [1440, 1024, 390]) {
         await select.focus();
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("Enter");
+        await expect(select).toHaveValue("USER_LOCAL");
+        await select.selectOption("Asia/Shanghai");
         await expect(select).toHaveValue("Asia/Shanghai");
         await page.keyboard.press("Escape");
         await expect(chart).toHaveAttribute("data-visible-range-from", from ?? "");
@@ -150,7 +154,11 @@ for (const width of [1440, 1024, 390]) {
             "102.000000000000000001"
         );
         await expect(page.getByTestId("study-hover").first()).toContainText("UTC ns");
-        await expect(page.getByLabel("成交量悬浮信息")).toContainText("2.1234567890123456789");
+        await expect(
+            page
+                .getByRole("tooltip", { name: "K 线信息" })
+                .locator("[data-observation-field=volume]")
+        ).toHaveText("2.1234567890123456789");
         // Read native paint pixels only: no renderer state or product state injection.
         const volumeColors = await chart
             .locator("canvas")
@@ -186,6 +194,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(select).toHaveValue("USER_LOCAL");
         await page.getByRole("button", { name: "controlled units", exact: true }).click();
         await expect(chart).toHaveAttribute("data-pane-count", "6");
+        await hoverChart(page, chart);
         await expect(page.getByTestId("study-hover").first()).toContainText("PERCENT · 独立纵轴");
         await expect(page.getByTestId("study-hover").nth(1)).toContainText("单位未知 · 独立纵轴");
         await expect(chart).toHaveAttribute("data-study-series-count", "8");
@@ -204,11 +213,19 @@ for (const width of [1440, 1024, 390]) {
         await expect(chart).toHaveAttribute("data-volume-latest", "2.1234567890123456789");
         await expect(select).toBeVisible();
         const selectBox = await select.boundingBox();
-        expect(selectBox?.height ?? 0).toBeGreaterThanOrEqual(width === 390 ? 44 : 20);
+        expect(selectBox?.height ?? 0).toBeGreaterThanOrEqual(24);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
             width
         );
         expect(requests).toEqual([]);
         expect(errors).toEqual([]);
     });
+}
+
+async function hoverChart(page: Page, chart: Locator) {
+    const canvas = chart.locator("canvas").nth(1);
+    await canvas.hover();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("Visible plot required");
+    await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.5);
 }

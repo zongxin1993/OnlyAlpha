@@ -1,16 +1,13 @@
 import { z } from "zod";
 import type { LocalReadCredentials } from "../marketData/localReadCredentials";
-import {
-    workspaceBookSchema,
-    type WorkspaceBook,
-    type WorkspaceConfiguration
-} from "./http.generated";
+import { workspaceBookSchema, type WorkspaceBook } from "./http.generated";
 export type { WorkspaceBook, WorkspaceConfiguration, WorkspaceStudy } from "./http.generated";
 export interface WorkspaceSave {
-    readonly schema_version: 2;
+    readonly schema_version: 3;
     readonly command_id: string;
     readonly expected_version: number;
-    readonly configuration: WorkspaceConfiguration;
+    readonly active_workspace_id: string | null;
+    readonly workspaces: WorkspaceBook["workspaces"];
 }
 export class WorkspaceWebError extends Error {
     constructor(

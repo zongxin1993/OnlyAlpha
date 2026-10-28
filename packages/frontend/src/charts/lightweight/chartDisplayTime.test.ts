@@ -1,5 +1,5 @@
 import { TickMarkType, type UTCTimestamp } from "lightweight-charts";
-import { chartTimeFormatters, readDisplayTimezone } from "./chartDisplayTime";
+import { chartTimeFormatters, readDisplayTimezone, displayTimezones } from "./chartDisplayTime";
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -47,4 +47,12 @@ it("restores only the bounded display preference and handles denied reads", () =
         zone: "UTC",
         notice: "无法读取时区偏好；仅本次显示生效"
     });
+});
+
+it("supports each representative IANA zone including fractional offsets", () => {
+    for (const [zone] of displayTimezones)
+        expect(chartTimeFormatters(zone).timeFormatter(1767222000 as UTCTimestamp)).not.toBe("");
+    expect(
+        chartTimeFormatters("Asia/Kathmandu").timeFormatter(1767222000 as UTCTimestamp)
+    ).toContain("04:45:00");
 });

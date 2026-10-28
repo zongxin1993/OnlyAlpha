@@ -86,10 +86,15 @@ class NoopResizeObserver {
 const chartMocks = vi.hoisted(() => {
     const pricePane = {
         paneIndex: () => 0,
+        getHTMLElement: () => document.body,
         setPreserveEmptyPane: vi.fn(),
         setStretchFactor: vi.fn()
     };
-    const volumePane = { paneIndex: () => 1, setStretchFactor: vi.fn() };
+    const volumePane = {
+        paneIndex: () => 1,
+        getHTMLElement: () => document.body,
+        setStretchFactor: vi.fn()
+    };
     const range = { value: { from: 30, to: 60 } as { from: number; to: number } | null };
     const visible = {
         handler: null as ((range: { from: number; to: number } | null) => void) | null
@@ -137,6 +142,7 @@ const chartMocks = vi.hoisted(() => {
         )
     };
     const created = {
+        chartElement: vi.fn(() => document.createElement("div")),
         applyOptions: vi.fn(),
         removePane: vi.fn(),
         addPane: () => volumePane,
@@ -229,6 +235,7 @@ const dialogDescriptors = {
 };
 
 beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", NoopResizeObserver);
     vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     vi.stubGlobal(
         "fetch",
@@ -237,7 +244,12 @@ beforeEach(() => {
                 new Response(
                     JSON.stringify(
                         url === "/api/v2/workspace"
-                            ? { schema_version: 2, version: 0, configuration: null }
+                            ? {
+                                  schema_version: 3,
+                                  version: 0,
+                                  active_workspace_id: null,
+                                  workspaces: []
+                              }
                             : url === "/api/v2/watchlists"
                               ? { schema_version: 2, version: 0, lists: [] }
                               : { error: { code: "UNAVAILABLE" } }
@@ -379,7 +391,9 @@ it("refreshes chart sources after returning from management without restarting t
     });
     expect(screen.getByRole("button", { name: "搜索商品" })).toBeEnabled();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "管理数据源" }));
+    await user.click(
+        within(screen.getByLabelText("行情空态")).getByRole("button", { name: "管理数据源" })
+    );
     available = [source];
     await user.click(
         within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
@@ -428,8 +442,15 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(2);
     });
-    await user.click(screen.getByRole("button", { name: "数据源" }));
-    await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await user.click(
+        within(requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))).getByRole(
+            "button",
+            {
+                name: "管理数据源"
+            }
+        )
+    );
     await user.click(
         within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
             name: "关闭"
@@ -488,8 +509,12 @@ it.each(["name", "revision"])(
             display_name: "Updated source",
             ...(change === "revision" ? { integration_revision_fingerprint: "c".repeat(64) } : {})
         };
-        await user.click(screen.getByRole("button", { name: "数据源" }));
-        await user.click(screen.getByRole("button", { name: "管理数据源…" }));
+        await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+        await user.click(
+            within(
+                requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))
+            ).getByRole("button", { name: "管理数据源" })
+        );
         await user.click(
             within(screen.getByRole("dialog", { name: "管理数据源" })).getByRole("button", {
                 name: "关闭"
@@ -539,6 +564,7 @@ it.each(["name", "revision"])(
             expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
                 marketDataSourceChoiceKey(source)
             );
+            expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
             expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
         }
         expect(listInstruments).toHaveBeenCalledTimes(3);
@@ -658,7 +684,8 @@ it("preserves configuration-only discovery in Shipping Workspace without a local
     const instance = await screen.findByTestId("chart-study-instance");
     expect(instance).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
     expect(instance).toHaveTextContent("已配置，尚未接入后端计算");
-    expect(screen.getByTestId("real-overlay-note")).toHaveTextContent("指标尚未接入计算");
+    expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
+    expect(screen.getByText("已配置，尚未接入后端计算")).toBeInTheDocument();
     expect(screen.queryByTestId("chart-study-query-status")).not.toBeInTheDocument();
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-study-series-count", "0");
     expect(reads).toEqual([
@@ -710,6 +737,7 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
         bar_semantic: marketDataBarSemantic(15)
     });
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
+    expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
@@ -736,15 +764,17 @@ it("keeps the default chart incarnation when reselecting its source, instrument 
         expect(streams.requests).toHaveLength(1);
     });
     const user = userEvent.setup();
-    const observation = screen.getByTestId("market-data-observation");
-    const context = observation.getAttribute("data-chart-context-key");
+    const observation = screen.getByTestId("price-chart");
+    const subscription = streams.requests[0];
     await user.selectOptions(await sourceControl(user), marketDataSourceChoiceKey(source));
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "15");
     await user.type(await searchInput(user), "BTCUSDT{Enter}");
     await user.click(await screen.findByRole("button", { name: /查看 BTCUSDT/ }));
     expect(queryBars).toHaveBeenCalledTimes(1);
     expect(streams.requests).toHaveLength(1);
-    expect(observation).toHaveAttribute("data-chart-context-key", context);
+    expect(streams.requests[0]).toBe(subscription);
+    expect(screen.getByTestId("price-chart")).toBe(observation);
+    expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
 });
 
@@ -781,7 +811,9 @@ it.each([
         expect(queryBars).not.toHaveBeenCalled();
         expect(streams.requests).toHaveLength(0);
         expect(renderedPrices()).toEqual([]);
-        expect(screen.getByRole("button", { name: "管理数据源" })).toBeInTheDocument();
+        expect(
+            within(screen.getByLabelText("行情空态")).getByRole("button", { name: "管理数据源" })
+        ).toBeInTheDocument();
         expect(screen.queryByText(/synthetic/)).not.toBeInTheDocument();
     }
 );
@@ -927,10 +959,7 @@ it("defaults discard a delayed bootstrap response after an explicit source chang
     expect(screen.getByRole("combobox", { name: "数据源" })).toHaveValue(
         marketDataSourceChoiceKey(marketDataSource({ integration_id: "other-source" }))
     );
-    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
+    expect(screen.queryByRole("tooltip", { name: "K 线信息" })).not.toBeInTheDocument();
 });
 
 it("defaults fence the aborted workspace bootstrap before starting one Source discovery in StrictMode", async () => {
@@ -1145,7 +1174,7 @@ it("resolves crosshair time to current exact identity and unsubscribes on destru
     expect(chartMocks.created.unsubscribeCrosshairMove).toHaveBeenCalledExactlyOnceWith(handler);
 });
 
-it("shows exact Workspace observations and changes only browser chart preference", async () => {
+it("shows exact candle notes only under the pointer and preserves query and renderer through chart-type changes", async () => {
     const user = userEvent.setup();
     const first = projectBars(marketDataBars().bars)[0];
     if (first === undefined) throw new Error("fixture requires a first Bar");
@@ -1158,67 +1187,53 @@ it("shows exact Workspace observations and changes only browser chart preference
     });
     const acquisition = vi.spyOn(client, "createAcquisition");
     renderWorkspace(client);
-    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "unavailable"
-    );
-    expect(screen.getByRole("combobox", { name: "图表类型" })).toHaveValue("CANDLESTICK");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     await selectSource(user);
     await selectBtcInstrument(user);
     await waitFor(() => {
-        expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-            "data-observation-mode",
-            "latest-closed"
-        );
+        expect(renderedPrices()).not.toEqual([]);
     });
-    expect(screen.getByTestId("market-data-observation")).toHaveTextContent("C 102.50");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     const requests = queryBars.mock.calls.length;
-    await user.selectOptions(screen.getByRole("combobox", { name: "图表类型" }), "LINE");
+    await user.click(screen.getByText("", { selector: "summary[aria-label=图表类型]" }));
+    await user.click(screen.getByRole("button", { name: "收盘线" }));
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-chart-type", "LINE");
     expect(queryBars).toHaveBeenCalledTimes(requests);
     expect(acquisition).not.toHaveBeenCalled();
-    const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
-    const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
-    // Context is refreshed through the existing chart's committed live ref.
-    // Retained presentation intent must not remount or duplicate subscriptions.
-    expect(activeHandler).toBe(retiredHandler);
     expect(chartMocks.created.subscribeCrosshairMove).toHaveBeenCalledTimes(1);
     expect(chartMocks.created.unsubscribeCrosshairMove).not.toHaveBeenCalled();
-    const handler = activeHandler as (event: object) => void;
+    const move = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
     act(() => {
-        handler({ time: first.time, point: { x: 10, y: 10 } });
+        move({ time: first.time, point: { x: 10, y: 10 } });
     });
-    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "crosshair"
+    expect(screen.getByRole("tooltip", { name: "K 线信息" })).toHaveAttribute(
+        "data-bar-start-ns",
+        first.barStartNs
     );
-    expect(screen.getByTestId("market-data-observation")).toHaveTextContent("C 101.00");
+    expect(
+        screen.getByRole("tooltip").querySelector("[data-observation-field=close]")
+    ).toHaveTextContent("101.00");
     act(() => {
-        handler({});
+        move({});
     });
-    expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-        "data-observation-mode",
-        "latest-closed"
-    );
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     act(() => {
-        handler({ time: first.time, point: { x: 10, y: 10 } });
+        move({ time: first.time, point: { x: 10, y: 10 } });
     });
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "5");
     await waitFor(() => {
-        expect(screen.getByTestId("market-data-observation")).toHaveAttribute(
-            "data-observation-mode",
-            "latest-closed"
-        );
+        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     });
-    expect(screen.getByRole("combobox", { name: "图表类型" })).toHaveValue("LINE");
 });
 
-it("derives selected preview updates from identity and falls back on mouse leave", async () => {
+it("updates the hovered exact preview and clears its note on leave or source change", async () => {
     const user = userEvent.setup();
     renderWorkspace(
         marketDataClient({
             listInstruments: () => Promise.resolve([marketDataInstrument()]),
-            queryBars: (_reference, query) => Promise.resolve(marketDataBarsForQuery(query))
+            queryBars: (_r, q) => Promise.resolve(marketDataBarsForQuery(q))
         })
     );
     await selectSource(user);
@@ -1227,7 +1242,7 @@ it("derives selected preview updates from identity and falls back on mouse leave
         expect(streams.callbacks).toHaveLength(1);
     });
     const original = marketDataBars().bars[0];
-    if (original === undefined) throw new Error("fixture requires a Bar");
+    if (!original) throw new Error("fixture requires a Bar");
     const bar = {
         ...original,
         bar_start_ns: "1767225720000000000",
@@ -1245,56 +1260,41 @@ it("derives selected preview updates from identity and falls back on mouse leave
         bar_semantic: marketDataBarSemantic(1),
         bar
     };
-    act(() => {
-        streams.callbacks[0]?.(event);
-    });
-    const observation = screen.getByTestId("market-data-observation");
-    expect(observation).toHaveAttribute("data-observation-mode", "preview");
-    expect(observation).toHaveTextContent("实时预览");
-    expect(observation).toHaveTextContent("103.000000000000000001");
-    const activeHandler = chartMocks.created.subscribeCrosshairMove.mock.calls.at(-1)?.[0];
-    const retiredHandler = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0];
-    // Context is refreshed through the existing chart's committed live ref.
-    // Retained presentation intent must not remount or duplicate subscriptions.
-    expect(activeHandler).toBe(retiredHandler);
-    expect(chartMocks.created.subscribeCrosshairMove).toHaveBeenCalledTimes(1);
-    expect(chartMocks.created.unsubscribeCrosshairMove).not.toHaveBeenCalled();
-    const move = activeHandler as (event: object) => void;
+    act(() => streams.callbacks[0]?.(event));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    const move = chartMocks.created.subscribeCrosshairMove.mock.calls[0]?.[0] as (
+        event: object
+    ) => void;
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
-    expect(observation).toHaveAttribute("data-observation-mode", "crosshair");
-    act(() => {
-        streams.callbacks[0]?.({ ...event, bar: { ...bar, close: "104.000000000000000001" } });
-    });
-    expect(observation).toHaveTextContent("104.000000000000000001");
-    await user.unhover(screen.getByTestId("price-chart"));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("103.000000000000000001");
+    act(() =>
+        streams.callbacks[0]?.({ ...event, bar: { ...bar, close: "104.000000000000000001" } })
+    );
+    expect(screen.getByRole("tooltip")).toHaveTextContent("104.000000000000000001");
     act(() => {
         move({});
     });
-    expect(observation).toHaveAttribute("data-observation-mode", "preview");
-    act(() => {
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    act(() =>
         streams.callbacks[0]?.({
             ...event,
             event: "BAR_CLOSED",
-            timing: null,
             sequence: "29453762",
             bar: { ...bar, closed: true }
-        });
-    });
-    expect(observation).toHaveAttribute("data-observation-mode", "latest-closed");
-    expect(observation).toHaveTextContent("103.000000000000000001");
+        })
+    );
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("103.000000000000000001");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("已关闭 K 线");
     await user.selectOptions(await sourceControl(user), "");
-    const unavailableObservation = screen.getByTestId("market-data-observation");
-    expect(observation).toBe(unavailableObservation);
     act(() => {
         move({ time: projectMarketDataBar(bar).time, point: { x: 10, y: 10 } });
     });
-    expect(unavailableObservation).toHaveAttribute("data-observation-mode", "unavailable");
-    expect(unavailableObservation).toHaveAttribute("data-bar-start-ns", "");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 });
 
 it("conflicting closed history withdraws its fingerprint without starting acquisition", async () => {
@@ -1721,8 +1721,9 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     await selectBtcInstrument(user);
 
     await waitFor(() => {
-        expect(screen.getByTestId("market-data-source-tag")).toHaveTextContent("临时行情 · 仅内存");
+        expect(screen.getByTestId("market-data-status")).toHaveTextContent("行情已加载");
     });
+    expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
@@ -1862,6 +1863,7 @@ it("shows an honest partial temporary window and offers explicit re-read without
         expect(screen.getByTestId("market-data-status")).toHaveAttribute("data-status", "ready");
     });
     expect(acquisition).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
 });
 

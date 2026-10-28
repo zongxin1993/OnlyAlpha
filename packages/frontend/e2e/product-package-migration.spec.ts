@@ -2,13 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Real Shipping UI and canonical native owners; no mocked Product responses.
 async function openSources(page: Page) {
+    await page.getByLabel("设置", { exact: true }).click();
     await page
-        .locator(".data-source-entry")
-        .getByRole("button", { name: /数据源/ })
-        .click();
-    await page
-        .getByRole("dialog", { name: "数据源状态" })
-        .getByRole("button", { name: "管理数据源…" })
+        .locator(".workspace-settings")
+        .getByRole("button", { name: "管理数据源", exact: true })
         .click();
     return page.getByRole("dialog", { name: "管理数据源" });
 }

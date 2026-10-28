@@ -359,3 +359,23 @@ export function validPresentation(value: StudyPresentation): boolean {
         )
     );
 }
+
+/** Same per-output display color for the curve and its exact-value label. */
+export function studySeriesColor(instance: ChartStudyInstance, outputName: string): string {
+    const style = instance.presentation;
+    const outputs = instance.configuration.outputNames.filter(
+        (name) => style.seriesStyles?.[name]?.visible !== false
+    );
+    const metadata =
+        instance.selection.source === "CHART_STUDY_TRANSIENT"
+            ? instance.selection.capability.presentation.series.find(
+                  (row) => row.output_name === outputName
+              )
+            : undefined;
+    const color =
+        style.seriesStyles?.[outputName]?.color ??
+        (outputs.length === 1 ? style.color : (metadata?.color ?? style.color));
+    return `${color}${Math.round(style.opacity * 255)
+        .toString(16)
+        .padStart(2, "0")}`;
+}

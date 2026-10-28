@@ -7,7 +7,11 @@ import {
     type LineWidth,
     type Time
 } from "lightweight-charts";
-import { validPresentation, type ChartStudyInstance } from "../../features/workspace/chartStudy";
+import {
+    studySeriesColor,
+    validPresentation,
+    type ChartStudyInstance
+} from "../../features/workspace/chartStudy";
 import { StudyBandFill, bandPolygons } from "./studyBandFill";
 import type { StudySeriesProjection, StudySeriesView } from "./studySeriesProjection";
 
@@ -96,14 +100,7 @@ export class StudySeriesRenderer {
                         curve = undefined;
                     }
                     const style = instance.presentation;
-                    const baseColor =
-                        style.seriesStyles?.[output.name]?.color ??
-                        (outputs.length === 1
-                            ? style.color
-                            : (output.metadata?.color ?? style.color));
-                    const color = `${baseColor}${Math.round(style.opacity * 255)
-                        .toString(16)
-                        .padStart(2, "0")}`;
+                    const color = studySeriesColor(instance, output.name);
                     if (curve === undefined) {
                         const options = { lastValueVisible: false, priceLineVisible: false, color };
                         curve = {
