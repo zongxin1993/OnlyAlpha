@@ -284,3 +284,25 @@ def test_build_selection_rejects_incomplete_or_substituted_dependencies(source_r
     refs.write_text(json.dumps(selected))
     with pytest.raises(ValueError, match="RELEASE_(SOURCE|INPUT)"):
         release_inputs.verify(root, path, digest, source_bundles=refs)
+
+
+def test_agent_source_bundle_owns_only_agent_with_locked_context(source_repo, tmp_path):
+    root, _ = source_repo
+    p = root / "pyproject.toml"
+    p.write_text(p.read_text().replace("members=[", 'members=["packages/agent",'))
+    agent = root / "packages/agent"
+    agent.mkdir()
+    (agent / "pyproject.toml").write_text('[project]\nname="onlyalpha-agent"\nversion="0.1.0"\n')
+    (agent / "entry.py").write_text('print("agent")')
+    git(root, "add", ".")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "independent agent")
+    revision = git(root, "rev-parse", "HEAD")
+    bundle = tmp_path / "agent.zip"
+    sha = release_sources.export(root, "agent", revision, bundle)
+    manifest = release_sources.verify(root, "agent", bundle, sha)
+    assert manifest["version"] == "0.1.0" and manifest["workspace"] == {}
+    assert "uv.lock" in manifest["context"]
+    assert not any(p.startswith(("crates/", "packages/backend/", "packages/frontend/")) for p in manifest["files"])
+    (agent / "entry.py").write_text("changed")
+    with pytest.raises(ValueError, match="RELEASE_SOURCE_CONTENT_MISMATCH"):
+        release_sources.verify(root, "agent", bundle, sha)

@@ -23,6 +23,11 @@ Correctness
 
 OnlyAlpha 使用一套 canonical Domain 与 Trading Kernel，不按市场复制 Engine、Runtime 或经济 Manager。
 
+已确认的目标包边界是 `packages/backend`、`packages/frontend` 与独立 Python LangGraph `packages/agent`，
+加上可复用 Rust lib 集合，形成四条主发布线。聊天/编排调用 Agent API；正式因子确认与 Research 授权直接提交 backend。
+详见 [ADR 0146](docs/adr/0146-independent-agent-product-and-python-langgraph.md) 和
+[Agent 架构](docs/agent-service-architecture.md)。这是迁移目标，不表示当前 C2 已从 backend 拆出。
+
 ```text
 Human → Web ───────────────┐
                           ├→ Versioned Product API → Stateful Kernel
@@ -195,7 +200,8 @@ uv run --no-sync python -m scripts.dev stop
 ```
 
 启动工具通过唯一 dev 验证环境构建 Rust 服务、Web 资源和隔离算法环境，然后运行 Rust HTTP/WebSocket 后端。
-Python 仅用于构建工具和隔离的因子/指标算法执行。当前阶段提供工作台 K 线、指标和因子元数据看板；
+当前 backend 运行中的 Python 仅用于构建工具和隔离的因子/指标算法执行；目标独立 Agent 使用自己的 Python 环境。
+当前工作台提供 K 线、指标和因子元数据看板；
 研究、独立数据页、策略、回测和系统页明确标记为未实现。历史不足会明确显示，不会用测试 fixture 补齐。
 普通启动保留已有数据，不初始化数据库或自动采集。
 

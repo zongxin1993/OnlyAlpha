@@ -21,7 +21,7 @@ impl PluginProjection {
         public_api_version: &str,
         capabilities: Vec<String>,
     ) -> Result<Self, Error> {
-        if !matches!(category, Category::DataSource | Category::Broker)
+        if !matches!(category, Category::DataSource | Category::Broker | Category::AgentProvider)
             || !stable(implementation_id)
             || !nonblank(implementation_version)
             // Preserve the existing Plugin API 1.1 supported requirements.

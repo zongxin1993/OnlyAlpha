@@ -1,6 +1,7 @@
 # Release units and compatibility
 
-[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) records the owner-selected release model;
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) records the original owner-selected release model,
+refined by [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) for the independent Agent;
 [repository architecture](repository-product-architecture.md) defines ownership. AGENTS.md governs execution/validation.
 This document explains release policy, not implementation status or a second version/acceptance ledger.
 
@@ -13,10 +14,13 @@ Keep one repository and root Cargo workspace; independent versions do not requir
 | Reusable Rust libraries | Root `Cargo.toml` workspace package version, inherited by the selected library set | `libs-vX.Y.Z` |
 | Backend, all roles and bundled Python base resources | `packages/backend/Cargo.toml` package version, independent of workspace version | `backend-vX.Y.Z` |
 | Frontend | `packages/frontend/package.json`; lock root must match | `frontend-vX.Y.Z` |
+| Agent | Target `packages/agent/pyproject.toml`; its installation closure has one matching lock authority | `agent-vX.Y.Z` |
 | Concrete plugin distribution | Its own package metadata; multi-language projections of one distribution derive from one selected authority | unambiguous `plugin-<name>-v<distribution-version>` |
 
 The selected reusable library set comprises the twenty Kernel crates and the six non-Kernel libraries in the architecture.
-Do not inherit the library version into backend or plugin manifests. Internal Python executor/SDK wheels derive their
+Do not inherit the library version into backend or plugin manifests. The four main lines are libraries, backend, frontend
+and agent; plugin distributions remain additional existing units.
+Agent is a product, not a per-worker release. Internal Python executor/SDK wheels derive their
 constituent version/provenance from backend; they are not independent worker product release lines. Independently distributed
 algorithm plugins retain their own distribution metadata. Fixtures keep their existing independent versions.
 
@@ -67,11 +71,25 @@ Private Factor/Strategy Draft/Revision remains DB-native under ADR 0129. Exact a
 isolated environments through existing artifact/Catalog/Generation admission. Keep base runtime and author code identities
 separate; changing a Factor does not require a backend release. Retain the original exact environment for already-bound work.
 
+## Agent release composition
+
+Agent ships its own exact Python interpreter/dependency environment, model/literature adapters and workflow artifacts,
+separate from backend algorithm resources. Bind source content, lock/dependency hashes, framework/parser/model-adapter versions,
+target and non-secret configuration through existing artifact provenance; do not add a second version ledger or resolve latest
+on startup. Backend builds do not import Agent source; Agent uses formal backend contracts rather than private Rust/Python imports.
+
+A new session pins an exact workflow implementation and supported checkpoint/environment identity independently of the package
+version. Upgrade changes new-session selection only. Retain required trusted artifacts/readers for active sessions; missing
+ones pause visibly, without new-workflow substitution, budget reset or replay of unknown effects. Restoring that exact artifact
+may resume; a changed workflow needs an explicit linked new session and applicable confirmations/mandate. This adds no historical
+development-format shim or arbitrary rolling-upgrade promise. Backend Generation remains backend-owned.
+
 ## Compatibility and activation
 
 | Domain | Governing rule |
 |---|---|
-| Frontend/backend | Default tested pair; different versions allowed only for explicitly verified Product API combinations. Clear unsupported UI/startup feedback, no guessing or fallback. No arbitrary mixed-version or rolling-upgrade promise. |
+| Frontend/backend | Default tested combination; different versions allowed only for explicitly verified Product API combinations. Clear unsupported UI/startup feedback, no guessing or fallback. No arbitrary mixed-version or rolling-upgrade promise. |
+| Frontend/agent and agent/backend | Explicit API/capability combinations with authentication/permission checks. Default delivery selects a tested backend/frontend/agent combination and exact library inputs; no complete cross-product matrix is implied. Agent absence cannot stop accepted backend Research/trading. |
 | Libraries/backend/plugins | Exact build selection plus public API/SPI/capability checks. Equal versions alone do not prove compatibility; independent versions alone do not prove incompatibility. |
 | Provider/Calculation/private assets | Existing semantic version, Provider content, implementation fingerprint, Catalog and StrategyRevision authorities; software releases do not rewrite them. |
 | Persistence/checkpoints | Owning schema, integrity and recovery contracts; apply supported history/upgrade gates. Disposable local dev data follows AGENTS.md, not a fabricated migration PASS. |
@@ -85,7 +103,7 @@ for retired development versions or new legacy loaders; actual supported contrac
 ## Release tooling and current path mapping
 
 `version_sync.py` validates the independent release graph. It requires `--unit` for version mutation/suggestions; the old
-whole-repository `set` is removed. Units are `libs`, `backend`, `frontend` and `plugin-<name>`, discovered from actual workspace
+whole-repository `set` is removed. Current units are `libs`, `backend`, `frontend` and `plugin-<name>`, discovered from actual workspace
 manifests. Backend and Rust plugins have explicit versions; libraries inherit the workspace version. Python backend resources
 are projections of backend, Python/Rust plugin metadata share that plugin's authority, and internal dependencies pin their
 actual target distribution version. Fixture versions remain independent. No version is advanced merely by this cutover.
@@ -233,3 +251,15 @@ transitions, historical label/merge proof, immutable tag conflicts, partial retr
 artifact/source-composition and API-pair proofs remain phase 6; source tags alone never establish them. Run relevant local checks
 through the single dev environment and retain results. The [work program](repository-migration-work-program.md) supplies
 sequence, not a second gate authority.
+
+ADR 0146 adds the target `agent` selector and release composition obligations. The current tooling description above is source
+navigation, not proof that Agent selection exists. Its manifest/lock/build/install/publisher consumers must change atomically
+in the [A1 release-unit phase](repository-migration-work-program.md#independent-agent-product-migration), without placeholders,
+forced unrelated bumps or automatic publication.
+
+The independent Agent implementation uses `packages/agent/pyproject.toml` as its version authority and the selected Agent
+closure of the root `uv.lock`. Existing metadata/version/source/publisher consumers recognize `agent` and `agent-vX.Y.Z`.
+ADR 0146's explicit initial inventory addition admits only `agent=0.1.0`, without an automatic initial tag/release; all later
+changes use the existing selected version-transition rules. Other additions/removals remain rejected. Backend runtime source
+selection does not pull Agent into its algorithm closure. See [Agent installation](../packages/agent/README.md) for independent
+locked installation and exact workflow continuation. This wiring does not publish, deploy or switch the Shipping UI.

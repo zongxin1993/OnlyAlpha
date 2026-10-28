@@ -1,6 +1,9 @@
 # Rust Product backend construction
 
-Organization and release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md), [repository architecture](repository-product-architecture.md) and [work program](repository-migration-work-program.md) select one backend package with internal business/worker modules, one frontend package and reusable versioned libraries. The capability dependency order below remains; source navigation is not migration status.
+Organization and release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md),
+[repository architecture](repository-product-architecture.md) and [work program](repository-migration-work-program.md) select
+backend business/worker modules, frontend and reusable versioned libraries;
+[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) adds the independent Python LangGraph Agent product. The capability dependency order below remains; source navigation is not migration status.
 
 ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicator execution. The Constitution and existing owning Contracts define semantics. A library build does not admit a Product writer or certify a migrated Web flow.
 
@@ -10,7 +13,7 @@ ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicat
 2. **Product ingress and node lifecycle:** native HTTP/WebSocket service, owner authentication, Source grants/revocation, local-session security, existing versioned wire Contracts, configuration, health, shutdown and recovery. A reverse proxy to Python does not satisfy this boundary.
 3. **Integration and market inputs:** Integration types/Drafts/secrets/revisions/lifecycle/probes and native provider adapters; immutable acquisition, physical proofs, history/range/latest/quote reads, live continuity and stream backpressure. Preserve the normal configure-source and chart journeys.
 4. **Workspace and calculations:** owning watchlist revisions/global receipts, chart catalog/readiness and transient chart studies. Native orchestration consumes bounded isolated Python algorithm workers; DISPLAY_ONLY remains distinct from Research Evidence.
-5. **Research and private assets:** DB-native Factor authoring and stable Python API validation, Calculation catalog/Definition resolution, immutable Dataset, Research Run/Attempt fencing/cancel/recovery, outputs/statistics/artifacts, Qualification and Search/Agent API clients. Python workers own algorithms only; Rust owns admission, scheduling, stores and publication.
+5. **Research and private assets:** DB-native Factor authoring and stable Python API validation, Calculation catalog/Definition resolution, immutable Dataset, Research Run/Attempt fencing/cancel/recovery, outputs/statistics/artifacts, Qualification and Search/Agent API clients. Backend Python workers own algorithms only; Rust owns formal admission, scheduling, stores and publication. Independent Agent Python owns chat/model/workflow provenance through its own API, not backend business.
 6. **Strategy and Runtime Generation:** exact frozen Strategy source/identity, promotion, artifacts/distributions, builds/installation, binding/draining/new-work activation, historical exact readers and worker lifecycle. Preserve ADR 0117 and existing Python-authored Factor assets.
 7. **Trading Product composition:** existing Rust Kernel/Replay Driver plus native Product Backtest admission/worker/reconciliation/result reads and SIM/LIVE continuous drivers. Preserve shared semantics, UNKNOWN, cancellation, risk reduction, durable history and explicit human LIVE authority.
 8. **Aggregate maintained Python backend retirement:** verify the whole remaining consumer closure after eligible per-capability removal. Each earlier capability already includes removal of its replaced Python implementation and current caller/build/deployment closure when its owning gates permit; do not postpone all cleanup to this last step. Extract only the minimal Python algorithm SDK/worker closure. Validate the whole existing Web workflow set without Python business services, then complete applicable migration/upgrade and milestone gates.
@@ -23,6 +26,16 @@ catalog/workspace consumers; capture submission labels when each native Research
 deferred execution capabilities just to rename their placeholders. Follow the bounded [display migration sequence](repository-migration-work-program.md#product-display-migration)
 with eligible Python retirement, no old-development-data compatibility work and no new alias/version infrastructure.
 
+## Selected conversational Research follow-up
+
+[ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md) and
+[Conversational Factor Research](conversational-factor-research.md) select the next human-led Research product direction after
+Private Factor authoring/catalog presentation. This is a target, not a claim that the current native command surface serves it.
+Deliver only the complete Rust business/Research/evidence/admission consumer closure needed by that Shipping Web flow; do not
+require a whole-backend rewrite or substitute transient chart studies. Reuse existing authoring, source grants and Command/Receipt
+boundaries. Migrate useful Python assertions and retire implementations only when their actual consumers and admission dependencies
+permit. Follow the [bounded migration sequence](repository-migration-work-program.md#conversational-factor-research-follow-up).
+
 ## First native Shipping slice
 
 The 0.11.0 slice is the existing chart workstation: Source management and
@@ -33,8 +46,9 @@ unimplemented state. Their broader API commands are not enabled by the
 existence of native libraries. This sequencing does not reduce the permanent
 product goals.
 
-The serving executable and business orchestration are Rust. Python is admitted
-only in the exact isolated Factor/Indicator algorithm installation. Build,
+The serving executable and business orchestration are Rust. Within the backend, Python is admitted
+only in the exact isolated Factor/Indicator algorithm installation. The separately versioned Agent selected by ADR 0146 may
+use Python LangGraph and its own environment; this does not create a Python backend business fallback. Build,
 validation and explicitly retained reference tooling are separate from the
 maintained runtime; they do not provide a Python service fallback. Historical
 facts, keys, original identities and owning readers remain required through
@@ -44,9 +58,11 @@ upgrades, without old-version execution or schema fallbacks.
 
 The target follows [repository architecture](repository-product-architecture.md): shared metadata/Integration contracts,
 protocol bindings, Trading persistence, algorithm bridge and backtest driver are reusable libraries under `crates/`.
-Product business and storage, HTTP/security/startup, Generation/Agent and worker composition are modules in `packages/backend`;
-Shipping Web is `packages/frontend`. Preserve transport → Application → owning library/store direction inside the package.
-Python contains only the minimal admitted algorithm runtime/SDK; moving old business source there is not migration.
+Product business and storage, HTTP/security/startup, Generation and backend worker composition are modules in `packages/backend`;
+Shipping Web is `packages/frontend`; independent Agent chat/model/research orchestration belongs in `packages/agent` under
+[Agent service architecture](agent-service-architecture.md). Preserve transport → Application → owning library/store direction inside the package.
+Backend Python contains only the minimal admitted algorithm runtime/SDK; moving old canonical business there or into Agent is
+not Rust migration. Eligible Agent orchestration/model/literature code is legitimate Python, with its own audited caller closure.
 
 The paragraphs below describe existing source locations for navigation until their atomic migration, not target independent packages.
 

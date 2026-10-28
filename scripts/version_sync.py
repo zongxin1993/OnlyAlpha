@@ -226,6 +226,8 @@ def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
 def _python_unit(distribution: WorkspaceDistribution, root: Path) -> str:
     if distribution.path.relative_to(root).parts[0] == "plugs":
         return "plugin-" + distribution.name.removeprefix("onlyalpha-plugin-")
+    if distribution.path.relative_to(root).as_posix() == "packages/agent/pyproject.toml":
+        return "agent"
     return "backend"
 
 
@@ -425,7 +427,7 @@ def release_selections_from_context(context: Mapping[str, Any]) -> dict[str, str
         if not name.startswith("release:"):
             continue
         match = re.fullmatch(
-            r"release:(libs|backend|frontend|plugin-[a-z0-9]+(?:-[a-z0-9]+)*):(patch|minor|major)", name
+            r"release:(libs|backend|frontend|agent|plugin-[a-z0-9]+(?:-[a-z0-9]+)*):(patch|minor|major)", name
         )
         if match is None or match[1] in selections:
             raise VersionSyncError("conflicting or unknown release labels")
@@ -455,14 +457,15 @@ def read_git_release_transition(base_ref: str, root: Path = ROOT) -> tuple[dict[
 def validate_transitions(
     base: Mapping[str, str], candidate: Mapping[str, str], selections: Mapping[str, str]
 ) -> list[str]:
-    if base.keys() != candidate.keys():
-        raise VersionSyncError("release-unit inventory changed; explicit inventory migration is required")
+    from scripts.release_metadata import validate_inventory
+
+    introduced = validate_inventory(dict(base), dict(candidate))
     changed = {unit for unit in base if base[unit] != candidate[unit]}
     if changed != selections.keys():
         raise VersionSyncError(
             f"selected units must equal changed units: changed={sorted(changed)}, selected={sorted(selections)}"
         )
-    return [
+    return (["agent: initial 0.1.0 inventory established; no release selected"] if introduced else []) + [
         f"{unit}: " + check_release_transition(base[unit], candidate[unit], selections[unit])
         for unit in sorted(changed)
     ]

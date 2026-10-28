@@ -1,0 +1,63 @@
+.factor-chat-page {
+    padding: 1rem;
+    overflow: auto;
+    height: 100%;
+    min-width: 0;
+}
+.factor-chat-page header h1 {
+    margin: 0;
+}
+.factor-chat-actions,
+.factor-chat-models {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+.factor-chat-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+}
+.factor-chat-columns > section {
+    min-width: 0;
+    border: 1px solid #d7dfe5;
+    border-radius: 0.4rem;
+    padding: 1rem;
+}
+.factor-chat-page textarea {
+    width: 100%;
+    min-height: 6rem;
+    box-sizing: border-box;
+}
+.factor-chat-page pre,
+.factor-chat-page p,
+.factor-chat-page li {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.factor-chat-messages {
+    max-height: 50vh;
+    overflow: auto;
+}
+.factor-chat-messages article {
+    background: #f1f5f8;
+    padding: 0.7rem;
+    margin: 0.5rem 0;
+    border-radius: 0.4rem;
+}
+.factor-chat-messages .user {
+    background: #e6f0f8;
+}
+.factor-chat-page select {
+    max-width: 20rem;
+}
+@media (max-width: 700px) {
+    .factor-chat-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .factor-chat-page select {
+        max-width: 100%;
+    }
+}

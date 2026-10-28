@@ -5,6 +5,11 @@
 - Decision maker: repository owner, explicitly requesting all Web backend calls and backend business implementations move to Rust, and explicitly retaining isolated Python Factor/Indicator execution.
 - Related: PROJECT_CONSTITUTION.md; ADRs 0104, 0117, 0124, 0130, 0135, 0139, 0140.
 
+> **Partial supersession:** [ADR 0146](0146-independent-agent-product-and-python-langgraph.md) selects the independent
+> Python LangGraph Agent product, four main release lines and split frontend APIs. Earlier Agent-in-backend/Python-only-algorithms
+> placement statements below are historical decisions superseded only in that scope; canonical Rust business, semantic identity,
+> permission and Research/Evidence requirements remain. The new decision is documentation, not implementation evidence.
+
 ## Decision
 
 The maintained backend service and business implementation target is Rust. This includes the versioned Product HTTP/WebSocket service, Application admission/Commands/Queries, Research and trading orchestration, owning persistence, Runtime Generation lifecycle, recovery and provider/gateway implementations. Python remains an isolated algorithm implementation boundary for authored Factors/Indicators and their necessary mathematical helpers and authoring SDK. Python build/test tools are not backend services.

@@ -162,17 +162,6 @@ impl<'a> Factors<'a> {
         proposed: Option<Draft>,
         at: &str,
     ) -> Result<Value> {
-        let kind = match input["operation"].as_str() {
-            Some("SAVE") => CommandKind::SavePrivateFactorDraft,
-            Some("PUBLISH") => CommandKind::PublishPrivateFactorRevision,
-            Some("DISPLAY") => CommandKind::UpdatePrivateFactorDisplay,
-            _ => return Err(Error::Invalid),
-        };
-        let intent = fingerprint(
-            &json!({"contract":"ONLYALPHA_PRIVATE_FACTOR_AUTHORING_INTENT_V1","input":input}),
-        )?;
-        let admission =
-            Admission::new(command.clone(), kind, &intent).map_err(|_| Error::Invalid)?;
         let tx = self
             .client
             .build_transaction()
@@ -180,135 +169,156 @@ impl<'a> Factors<'a> {
             .start()
             .await
             .map_err(unavailable)?;
-        Commands::lock_command(&tx, command)
-            .await
-            .map_err(command_error)?;
-        if let Some(result) = bound(&tx, id, command, Some(&admission)).await? {
-            tx.commit().await.map_err(unavailable)?;
-            return Ok(result);
-        }
-        if proposed.is_some() {
-            let mut next_number = 0;
-            // Serialize only creation capacity checks, after the global Command
-            // lock and before any Asset row lock. Existing Assets need no slot.
-            if tx
-                .query_opt(
-                    "SELECT factor_id FROM private_factor_asset WHERE factor_id=$1",
-                    &[&id],
-                )
-                .await
-                .map_err(unavailable)?
-                .is_none()
-            {
-                tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('ONLYALPHA_PRIVATE_FACTOR_INVENTORY',0))", &[]).await.map_err(unavailable)?;
-                let slots = tx
-                    .query(
-                        "SELECT factor_id FROM private_factor_asset ORDER BY factor_id LIMIT 200",
-                        &[],
-                    )
-                    .await
-                    .map_err(unavailable)?;
-                next_number = slots.len() + 1;
-                if slots.len() == 200 && !slots.iter().any(|row| row.get::<_, String>(0) == id) {
-                    return Err(Error::Unavailable);
-                }
-            }
-            let created=tx.query_opt("INSERT INTO private_factor_asset(factor_id,schema_version) VALUES($1,1) ON CONFLICT DO NOTHING RETURNING factor_id",&[&id]).await.map_err(unavailable)?.is_some();
-            if created {
-                let names = if input["initial_display"].is_null() {
-                    display::defaults(next_number)
-                } else {
-                    input["initial_display"].clone()
-                };
-                let label = Display::create(id, &names)?;
-                let raw = label.record().to_string();
-                let pin = label.fingerprint()?;
-                tx.execute("INSERT INTO private_factor_display(factor_id,payload,fingerprint,schema_version) VALUES($1,$2::text::jsonb,$3,1)",&[&id,&raw,&pin]).await.map_err(unavailable)?;
-            } else if !input["initial_display"].is_null() {
-                return Err(Error::Invalid);
-            }
-        }
-        tx.query_opt(
-            "SELECT factor_id FROM private_factor_asset WHERE factor_id=$1 FOR UPDATE",
-            &[&id],
-        )
-        .await
-        .map_err(unavailable)?
-        .ok_or(Error::NotFound)?;
-        let current = state(&tx, id).await?;
-        let result = if kind == CommandKind::UpdatePrivateFactorDisplay {
-            if current["display_fingerprint"] != input["expected_display_fingerprint"] {
-                return Err(Error::DisplayConflict);
-            }
-            let previous = Display::new(current["display"].clone()).map_err(|_| Error::Corrupt)?;
-            let label = previous.update(
-                input["display_name"].as_str().ok_or(Error::Invalid)?,
-                input["usage_summary"].as_str().ok_or(Error::Invalid)?,
-            )?;
-            let pin = label.fingerprint()?;
-            let raw = label.record().to_string();
-            tx.execute("UPDATE private_factor_display SET payload=$2::text::jsonb,fingerprint=$3 WHERE factor_id=$1",&[&id,&raw,&pin]).await.map_err(unavailable)?;
-            state(&tx, id).await?;
-            json!({"draft":null,"draft_fingerprint":null,"revision":null,"display":label.record(),"display_fingerprint":pin,"display_version":null})
-        } else {
-            if current["draft_fingerprint"] != input["expected_draft_fingerprint"] {
-                return Err(Error::DraftConflict);
-            }
-            let draft = match proposed {
-                Some(draft) => draft,
-                None => Draft::new(current["draft"].clone()).map_err(|_| Error::Corrupt)?,
-            };
-            if current["current_revision_fingerprint"].as_str() != draft.base() {
-                return Err(Error::DraftConflict);
-            }
-            let pin = draft.fingerprint()?;
-            let revision = if kind == CommandKind::PublishPrivateFactorRevision {
-                draft.revision()?
-            } else {
-                Value::Null
-            };
-            if revision.is_null() {
-                let raw = draft.record().to_string();
-                let base = draft.base();
-                tx.execute("INSERT INTO private_factor_draft(factor_id,base_revision_fingerprint,payload,schema_version) VALUES($1,$2,$3::text::jsonb,1) ON CONFLICT(factor_id) DO UPDATE SET base_revision_fingerprint=EXCLUDED.base_revision_fingerprint,payload=EXCLUDED.payload",&[&id,&base,&raw]).await.map_err(unavailable)?;
-            } else {
-                let fp = revision["revision_fingerprint"]
-                    .as_str()
-                    .ok_or(Error::Corrupt)?;
-                let source = revision["source_text"].as_str().ok_or(Error::Corrupt)?;
-                let sha = revision["source_sha256"].as_str().ok_or(Error::Corrupt)?;
-                let base = draft.base();
-                let raw = revision.to_string();
-                tx.execute("INSERT INTO private_factor_revision(revision_fingerprint,factor_id,parent_revision_fingerprint,source_text,source_sha256,payload,schema_version) VALUES($1,$2,$3,$4,$5,$6::text::jsonb,1)",&[&fp,&id,&base,&source,&sha,&raw]).await.map_err(unavailable)?;
-                tx.execute("UPDATE private_factor_asset SET current_revision_fingerprint=$2 WHERE factor_id=$1",&[&id,&fp]).await.map_err(unavailable)?;
-            }
-            // Acceptance must never commit a state that the owning reader rejects.
-            // This also checks PostgreSQL's expanded JSONB representation, not just
-            // the compact request bytes. Any failure rolls back the whole effect.
-            let after = state(&tx, id).await?;
-            json!({"draft":draft.record(),"draft_fingerprint":pin,"revision":revision,"display":after["display"],"display_fingerprint":after["display_fingerprint"],"display_version":if kind==CommandKind::PublishPrivateFactorRevision {after["revisions"].as_array().and_then(|v|v.last()).map(|v|v["display_version"].clone())}else{None}})
-        };
-        let record = json!({"schema_version":1,"command_id":command.value(),"factor_id":id,"input":input,"result":result});
-        let identity = outcome_fingerprint(&record)?;
-        Commands::admit_exact_in_transaction(&tx, &admission)
-            .await
-            .map_err(command_error)?;
-        let raw = record.to_string();
-        tx.execute("INSERT INTO private_factor_authoring_outcome(command_id,factor_id,fingerprint,payload,schema_version) VALUES($1::text::uuid,$2,$3,$4::text::jsonb,1)",&[&command.value(),&id,&identity,&raw]).await.map_err(unavailable)?;
-        let receipt = Receipt::new(
-            admission,
-            Outcome::new(OutcomeKind::PrivateFactorAuthoring, &identity)
-                .map_err(|_| Error::Invalid)?,
-            at,
-        )
-        .map_err(|_| Error::Invalid)?;
-        Commands::put_verified_receipt_in_transaction(&tx, &receipt)
-            .await
-            .map_err(command_error)?;
+        let result = apply_in_transaction(&tx, command, id, input, proposed, at).await?;
         tx.commit().await.map_err(unavailable)?;
-        Ok(public(&record))
+        Ok(result)
     }
 }
+/// Participates in the existing owning transaction; caller supplies only validated authoring intent.
+pub(crate) async fn apply_in_transaction(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    id: &str,
+    input: Value,
+    proposed: Option<Draft>,
+    at: &str,
+) -> Result<Value> {
+    let kind = match input["operation"].as_str() {
+        Some("SAVE") => CommandKind::SavePrivateFactorDraft,
+        Some("PUBLISH") => CommandKind::PublishPrivateFactorRevision,
+        Some("DISPLAY") => CommandKind::UpdatePrivateFactorDisplay,
+        _ => return Err(Error::Invalid),
+    };
+    let intent = fingerprint(
+        &json!({"contract":"ONLYALPHA_PRIVATE_FACTOR_AUTHORING_INTENT_V1","input":input}),
+    )?;
+    let admission = Admission::new(command.clone(), kind, &intent).map_err(|_| Error::Invalid)?;
+    Commands::lock_command(tx, command)
+        .await
+        .map_err(command_error)?;
+    if let Some(result) = bound(tx, id, command, Some(&admission)).await? {
+        return Ok(result);
+    }
+    if proposed.is_some() {
+        let mut next_number = 0;
+        // Serialize only creation capacity checks, after the global Command
+        // lock and before any Asset row lock. Existing Assets need no slot.
+        if tx
+            .query_opt(
+                "SELECT factor_id FROM private_factor_asset WHERE factor_id=$1",
+                &[&id],
+            )
+            .await
+            .map_err(unavailable)?
+            .is_none()
+        {
+            tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('ONLYALPHA_PRIVATE_FACTOR_INVENTORY',0))", &[]).await.map_err(unavailable)?;
+            let slots = tx
+                .query(
+                    "SELECT factor_id FROM private_factor_asset ORDER BY factor_id LIMIT 200",
+                    &[],
+                )
+                .await
+                .map_err(unavailable)?;
+            next_number = slots.len() + 1;
+            if slots.len() == 200 && !slots.iter().any(|row| row.get::<_, String>(0) == id) {
+                return Err(Error::Unavailable);
+            }
+        }
+        let created=tx.query_opt("INSERT INTO private_factor_asset(factor_id,schema_version) VALUES($1,1) ON CONFLICT DO NOTHING RETURNING factor_id",&[&id]).await.map_err(unavailable)?.is_some();
+        if created {
+            let names = if input["initial_display"].is_null() {
+                display::defaults(next_number)
+            } else {
+                input["initial_display"].clone()
+            };
+            let label = Display::create(id, &names)?;
+            let raw = label.record().to_string();
+            let pin = label.fingerprint()?;
+            tx.execute("INSERT INTO private_factor_display(factor_id,payload,fingerprint,schema_version) VALUES($1,$2::text::jsonb,$3,1)",&[&id,&raw,&pin]).await.map_err(unavailable)?;
+        } else if !input["initial_display"].is_null() {
+            return Err(Error::Invalid);
+        }
+    }
+    tx.query_opt(
+        "SELECT factor_id FROM private_factor_asset WHERE factor_id=$1 FOR UPDATE",
+        &[&id],
+    )
+    .await
+    .map_err(unavailable)?
+    .ok_or(Error::NotFound)?;
+    let current = state(tx, id).await?;
+    let result = if kind == CommandKind::UpdatePrivateFactorDisplay {
+        if current["display_fingerprint"] != input["expected_display_fingerprint"] {
+            return Err(Error::DisplayConflict);
+        }
+        let previous = Display::new(current["display"].clone()).map_err(|_| Error::Corrupt)?;
+        let label = previous.update(
+            input["display_name"].as_str().ok_or(Error::Invalid)?,
+            input["usage_summary"].as_str().ok_or(Error::Invalid)?,
+        )?;
+        let pin = label.fingerprint()?;
+        let raw = label.record().to_string();
+        tx.execute("UPDATE private_factor_display SET payload=$2::text::jsonb,fingerprint=$3 WHERE factor_id=$1",&[&id,&raw,&pin]).await.map_err(unavailable)?;
+        state(tx, id).await?;
+        json!({"draft":null,"draft_fingerprint":null,"revision":null,"display":label.record(),"display_fingerprint":pin,"display_version":null})
+    } else {
+        if current["draft_fingerprint"] != input["expected_draft_fingerprint"] {
+            return Err(Error::DraftConflict);
+        }
+        let draft = match proposed {
+            Some(draft) => draft,
+            None => Draft::new(current["draft"].clone()).map_err(|_| Error::Corrupt)?,
+        };
+        if current["current_revision_fingerprint"].as_str() != draft.base() {
+            return Err(Error::DraftConflict);
+        }
+        let pin = draft.fingerprint()?;
+        let revision = if kind == CommandKind::PublishPrivateFactorRevision {
+            draft.revision()?
+        } else {
+            Value::Null
+        };
+        if revision.is_null() {
+            let raw = draft.record().to_string();
+            let base = draft.base();
+            tx.execute("INSERT INTO private_factor_draft(factor_id,base_revision_fingerprint,payload,schema_version) VALUES($1,$2,$3::text::jsonb,1) ON CONFLICT(factor_id) DO UPDATE SET base_revision_fingerprint=EXCLUDED.base_revision_fingerprint,payload=EXCLUDED.payload",&[&id,&base,&raw]).await.map_err(unavailable)?;
+        } else {
+            let fp = revision["revision_fingerprint"]
+                .as_str()
+                .ok_or(Error::Corrupt)?;
+            let source = revision["source_text"].as_str().ok_or(Error::Corrupt)?;
+            let sha = revision["source_sha256"].as_str().ok_or(Error::Corrupt)?;
+            let base = draft.base();
+            let raw = revision.to_string();
+            tx.execute("INSERT INTO private_factor_revision(revision_fingerprint,factor_id,parent_revision_fingerprint,source_text,source_sha256,payload,schema_version) VALUES($1,$2,$3,$4,$5,$6::text::jsonb,1)",&[&fp,&id,&base,&source,&sha,&raw]).await.map_err(unavailable)?;
+            tx.execute("UPDATE private_factor_asset SET current_revision_fingerprint=$2 WHERE factor_id=$1",&[&id,&fp]).await.map_err(unavailable)?;
+        }
+        // Acceptance must never commit a state that the owning reader rejects.
+        // This also checks PostgreSQL's expanded JSONB representation, not just
+        // the compact request bytes. Any failure rolls back the whole effect.
+        let after = state(tx, id).await?;
+        json!({"draft":draft.record(),"draft_fingerprint":pin,"revision":revision,"display":after["display"],"display_fingerprint":after["display_fingerprint"],"display_version":if kind==CommandKind::PublishPrivateFactorRevision {after["revisions"].as_array().and_then(|v|v.last()).map(|v|v["display_version"].clone())}else{None}})
+    };
+    let record = json!({"schema_version":1,"command_id":command.value(),"factor_id":id,"input":input,"result":result});
+    let identity = outcome_fingerprint(&record)?;
+    Commands::admit_exact_in_transaction(tx, &admission)
+        .await
+        .map_err(command_error)?;
+    let raw = record.to_string();
+    tx.execute("INSERT INTO private_factor_authoring_outcome(command_id,factor_id,fingerprint,payload,schema_version) VALUES($1::text::uuid,$2,$3,$4::text::jsonb,1)",&[&command.value(),&id,&identity,&raw]).await.map_err(unavailable)?;
+    let receipt = Receipt::new(
+        admission,
+        Outcome::new(OutcomeKind::PrivateFactorAuthoring, &identity).map_err(|_| Error::Invalid)?,
+        at,
+    )
+    .map_err(|_| Error::Invalid)?;
+    Commands::put_verified_receipt_in_transaction(tx, &receipt)
+        .await
+        .map_err(command_error)?;
+    Ok(public(&record))
+}
+
 fn outcome_fingerprint(record: &Value) -> Result<String> {
     fingerprint(
         &json!({"contract":"ONLYALPHA_PRIVATE_FACTOR_AUTHORING_OUTCOME_V1","outcome":record}),
@@ -317,7 +327,7 @@ fn outcome_fingerprint(record: &Value) -> Result<String> {
 fn public(record: &Value) -> Value {
     json!({"schema_version":1,"command_id":record["command_id"],"factor_id":record["factor_id"],"result":record["result"]})
 }
-async fn bound(
+pub(crate) async fn bound(
     tx: &Transaction<'_>,
     id: &str,
     command: &CommandId,
@@ -467,7 +477,7 @@ async fn bound(
     }
     Ok(Some(public(&value)))
 }
-async fn state(tx: &Transaction<'_>, id: &str) -> Result<Value> {
+pub(crate) async fn state(tx: &Transaction<'_>, id: &str) -> Result<Value> {
     let asset=tx.query_opt("SELECT current_revision_fingerprint,schema_version FROM private_factor_asset WHERE factor_id=$1",&[&id]).await.map_err(unavailable)?.ok_or(Error::NotFound)?;
     if asset
         .try_get::<_, i32>("schema_version")

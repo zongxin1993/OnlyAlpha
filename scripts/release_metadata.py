@@ -69,6 +69,11 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
                 units["plugin-" + package["name"].removeprefix("onlyalpha-plugin-")] = resolved_version(value)
         python = tomllib.loads(raw(Path("pyproject.toml")))
         for member in python["tool"]["uv"]["workspace"]["members"]:
+            if member == "packages/agent":
+                package = tomllib.loads(raw(Path(member) / "pyproject.toml"))["project"]
+                if package["name"] != "onlyalpha-agent":
+                    raise VersionSyncError("invalid Agent distribution authority")
+                units["agent"] = package["version"]
             if Path(member).parts[0] == "plugs":
                 package = tomllib.loads(raw(Path(member) / "pyproject.toml"))["project"]
                 unit = "plugin-" + package["name"].removeprefix("onlyalpha-plugin-")
@@ -78,3 +83,20 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
         return dict(sorted(units.items()))
     except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError) as error:
         raise VersionSyncError("cannot establish exact release-unit metadata") from error
+
+
+def validate_inventory(base: dict[str, str], candidate: dict[str, str]) -> bool:
+    """ADR 0146's sole inventory introduction, not a publication or arbitrary inventory override.
+
+    The initial 0.1.0 establishes the line. Later version transitions use normal
+    explicit selections. Removal, other additions and other initial versions fail closed.
+    """
+    if base.keys() == candidate.keys():
+        return False
+    if (
+        candidate.keys() - base.keys() == {"agent"}
+        and not base.keys() - candidate.keys()
+        and candidate["agent"] == "0.1.0"
+    ):
+        return True
+    raise VersionSyncError("release-unit inventory changed; explicit inventory migration is required")

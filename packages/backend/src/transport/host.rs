@@ -334,6 +334,12 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
+        if path.starts_with("/api/v2/factor-chat/")
+            || path == "/api/v2/factor-chats"
+            || path.starts_with("/api/v2/factor-chats/")
+        {
+            return self.factor_chat(request, human, deadline).await;
+        }
         if path == "/api/v2/market-data/acquisitions" && request.method() == Method::POST {
             return self.acquisition(request, human, deadline).await;
         }

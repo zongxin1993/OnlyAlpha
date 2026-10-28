@@ -6,7 +6,7 @@ module.exports = async function publish({ github, context, core, plan }) {
             !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(
                 item.version,
             ) ||
-            !/^(libs|backend|frontend|plugin-[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(item.unit) ||
+            !/^(libs|backend|frontend|agent|plugin-[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(item.unit) ||
             item.tag !== `${item.unit}-v${item.version}` ||
             !/^[0-9a-f]{40}$/.test(item.sha) ||
             item.sha === "0".repeat(40)

@@ -107,7 +107,7 @@ fn every_plugin_projection_dimension_must_match_the_actual_descriptor() {
 #[test]
 fn malformed_projection_and_unsupported_plugin_api_cannot_be_registered() {
     for (category, id, version, api, capabilities) in [
-        (Category::AgentProvider, "controlled", "1", "1.1", vec![]),
+        (Category::AgentProvider, "invalid id", "1", "1.1", vec![]),
         (Category::DataSource, "bad..id", "1", "1.1", vec![]),
         (Category::DataSource, "controlled", "\u{1c}", "1.1", vec![]),
         (Category::DataSource, "controlled", "1", "1.2", vec![]),

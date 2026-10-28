@@ -171,3 +171,38 @@ def test_frontend_release_does_not_publish_unchanged_libraries(repository: Path)
     assert plan_releases(repository, before, after) == [
         {"unit": "frontend", "previous_version": "0.9.0", "version": "0.9.1", "tag": "frontend-v0.9.1", "sha": after}
     ]
+
+
+def test_initial_agent_inventory_does_not_publish_and_later_bump_is_exact(repository: Path) -> None:
+    before = commit(repository, "0.9.12")
+    manifest = repository / "packages/agent/pyproject.toml"
+    manifest.parent.mkdir()
+    manifest.write_text('[project]\nname="onlyalpha-agent"\nversion="0.1.0"\n')
+    root = repository / "pyproject.toml"
+    root.write_text(root.read_text().replace("members=[]", 'members=["packages/agent"]'))
+
+    def save():
+        git(repository, "add", ".")
+        git(
+            repository,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "Agent version",
+        )
+        return git(repository, "rev-parse", "HEAD")
+
+    initial = save()
+    assert plan_releases(repository, before, initial) == []
+    manifest.write_text(manifest.read_text().replace("0.1.0", "0.1.1"))
+    after = save()
+    assert plan_releases(repository, initial, after) == [
+        {"unit": "agent", "previous_version": "0.1.0", "version": "0.1.1", "tag": "agent-v0.1.1", "sha": after}
+    ]
+    root.write_text(root.read_text().replace('members=["packages/agent"]', "members=[]"))
+    removed = save()
+    with pytest.raises(ValueError, match="inventory"):
+        plan_releases(repository, after, removed)

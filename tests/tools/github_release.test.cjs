@@ -153,3 +153,16 @@ test("malformed plan does not write to GitHub", async () => {
     );
     assert.equal(f.state.creates, 0);
 });
+
+test("Agent release uses its exact independent tag and commit", async () => {
+    const f = fixture();
+    await publish({
+        github: { rest: { git: f.git, repos: f.repos } },
+        context: { repo: {} },
+        core: { notice: () => {} },
+        plan: [{ ...item, unit: "agent", tag: "agent-v0.1.1", previous_version: "0.1.0", version: "0.1.1" }],
+    });
+    assert.equal(f.state.creates, 1);
+    assert.equal(f.state.releaseCreates, 1);
+    assert.equal(f.state.release.tag_name, "agent-v0.1.1");
+});

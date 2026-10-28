@@ -59,6 +59,7 @@ dev = [
     "onlyalpha-authoring-execution-worker",
     "onlyalpha-runtime-generation-manager",
     "onlyalpha-agent-orchestrator",
+    "onlyalpha-agent",
     "grpcio-tools==1.73.1",
     "types-grpcio==1.0.0.20250703",
     "types-protobuf==6.30.2.20250809",
@@ -87,6 +88,7 @@ members = [
     "packages/onlyalpha-authoring-execution-worker",
     "packages/onlyalpha-runtime-generation-manager",
     "packages/onlyalpha-agent-orchestrator",
+    "packages/agent",
 ]
 
 [build-system]
@@ -156,6 +158,7 @@ onlyalpha-calculation-worker = { workspace = true }
 onlyalpha-authoring-execution-worker = { workspace = true }
 onlyalpha-runtime-generation-manager = { workspace = true }
 onlyalpha-agent-orchestrator = { workspace = true }
+onlyalpha-agent = { workspace = true }
 onlyalpha-plugin-binance-spot = { workspace = true }
 onlyalpha-plugin-binance-usdm = { workspace = true }
 onlyalpha-plugin-binance = { workspace = true }
@@ -180,6 +183,7 @@ testpaths = [
     "packages/onlyalpha-runtime-generation-manager/tests",
     "packages/backend/tests/application",
     "packages/onlyalpha-agent-orchestrator/tests",
+    "packages/agent/tests",
 ]
 markers = [
     "unit: isolated unit test",

@@ -11,3 +11,5 @@ fn is_sha256_hex(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 pub mod workers;
+
+pub mod adapters;

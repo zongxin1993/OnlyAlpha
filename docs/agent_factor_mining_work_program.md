@@ -10,6 +10,10 @@
 
 ## 1. Purpose
 
+The current selected delivery direction is [human-led conversational Factor Research](conversational-factor-research.md), followed
+by separately authorized bounded automatic mining under ADR 0145. Sections 14–15 distinguish this product order from the original
+long-term search capability decomposition. This work program does not assert that a formal native Research path is already enabled.
+
 OnlyAlpha already has the core boundaries required for controlled autonomous research:
 
 ```text
@@ -424,7 +428,8 @@ Different roles may use different model classes and token budgets, but all forma
 
 Every candidate search/evaluation must have an explicit Experiment context.
 
-The Experiment is mutable workflow provenance and must remain distinct from formal Factor/Provider/Strategy identities.
+Under ADR 0120, a formal Search Experiment accumulates immutable plans/results and must remain distinct from Factor/Provider/
+Strategy identities. Editable Agent working context is not authority to overwrite those experiment facts.
 
 A reproducible experiment or experiment iteration should eventually bind, as applicable:
 
@@ -592,6 +597,12 @@ Exact statistical policy belongs to future accepted design, but the boundary is 
 ---
 
 ## 11. Factor Pool architecture
+
+Do not confuse a mathematical Factor Pool with the user's candidate-management views. Under
+[ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md), research history retains all candidates/attempts,
+the daily entry shows pending review, and collection is an explicit human preference over the same assets. Scientific screening
+compares declared research conditions and evidence; it does not create a second asset registry, qualification flag or stage-one
+composite leaderboard. Full pool evaluation below is later research capability, not a prerequisite for the first chat slice.
 
 OnlyAlpha factor discovery must not optimize only independent single-factor score.
 
@@ -956,85 +967,76 @@ RL is not required for initial Agent Factor Mining success.
 
 ## 14. Deliberate sequencing
 
-The intended order is:
+[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) adds an independent Python LangGraph Agent. Execute
+the [A1–A4 extraction](repository-migration-work-program.md#independent-agent-product-migration) around existing C2 before
+extending C3; A5 constructs one real Research and A6 closes eligible consumers/retirement. The Agent owns chat/model/tool
+provenance and Agent call budget; backend retains formal Search/Research budgets, consent, admission and Evidence. Framework
+checkpoints never replace those facts. This sequence does not claim current C2 or old Python orchestrator completion.
+
+[ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md) selects a human-led conversational product slice
+before autonomous batch mining. The complete interaction/authorization/evidence design is owned by
+[Conversational Factor Research](conversational-factor-research.md); the repository's bounded implementation order and proof
+are in [the migration follow-up](repository-migration-work-program.md#conversational-factor-research-follow-up).
+
+The product delivery order is:
 
 ```text
-B2.5 Evidence-backed Qualification
-        ↓
-B3.0 Rich Research Evidence
-        ↓
-B3.1 Experiment/Search provenance
-        ↓
-B3.2 Symbolic Factor Search MVP
-        ↓
-B3.3 Parameter/feedback loop
-        ↓
-B3.4 LLM Agent Orchestrator MVP
-        ↓
-B3.5 Novelty / Experiment Memory
-        ↓
-B3.6 Factor Code Generation / Admission
-        ↓
-B3.7 Factor Pool Search
-        ↓
-B3.8 Literature / RAG
-        ↓
-B3.9 learned / RL search if justified
+Stage one: one hypothesis in chat
+→ exact Factor preview and confirmation
+→ suggested research conditions and separate one-run confirmation
+→ real admitted Research / immutable Evidence / report
+→ human review and collection; one improvement draft, no automatic rerun
+
+Stage two: explicit bounded mining mandate
+→ authorized generation / search / Research / refinement
+→ condition-grouped evidence screening and explainable review shortlist
 ```
 
-This order is intentional.
+This replaces the earlier assumption that symbolic search, parameter feedback and a full experiment-memory/pool pipeline must all
+precede the first chat product. It does not relax their scientific or provenance prerequisites. Stage one must deliver the minimum
+B3.0 Evidence and B3.1 exact lineage/decision consumers needed by its real Research path, plus safe Factor generation/admission.
+Existing Rust authoring and chart studies alone do not satisfy that gate. A missing primitive/admission capability must be handled
+in its owning boundary, not hidden by a conversational UI or substituted with model-generated statistics.
 
-It ensures that when an LLM is introduced, deterministic search, Evidence, provenance, and Qualification already exist. When code generation is introduced, graph reuse and database-native private-asset admission already exist. When RAG is introduced, the system already knows how to avoid duplicate experiments. When RL is introduced, there is already a trustworthy historical dataset of structured search decisions and outcomes.
+B3 milestone labels above retain their capability meanings, not an unconditional total delivery order. B3.4's human-facing proposal
+and interpretation work and the required B3.6 authoring/admission subset can be selected for stage one; the autonomous loops remain
+stage two. Do not prebuild the whole future code-generation platform or allow arbitrary source execution to meet a UI milestone.
+B3.2 symbolic search and B3.3 parameter feedback are bounded automatic-search methods, not prerequisites to a human asking about one
+Factor. B3.5 memory, B3.7 pool selection, B3.8 literature and B3.9 learned/RL search follow actual stage-two needs.
+
+Before stage two, exact experiment provenance, policy/holdout governance, admitted capabilities, durable search budgets and
+recoverable task/Command boundaries must be ready. Literature retrieval requires authorized sources and recorded provenance;
+learned/RL search additionally needs trustworthy structured search history and a justified current use case. No new delivery order
+waives existing Brief, Qualification, source-admission or immutable-input contracts.
 
 ---
 
 ## 15. First end-to-end MVP definition
 
-The first useful Factor Mining MVP should be intentionally small.
+### Stage one: conversational Factor Research
 
-Input:
+Input is a human's natural-language hypothesis, with chart context only as a suggestion. The user sees name, purpose, calculation
+logic and formula, confirms the exact Factor, negotiates the Agent's Research proposal and separately confirms one run through chat.
+The system returns real Research evidence and a readable report, retaining the candidate and all runs in history. The user can
+collect, observe or archive it. Weak results may trigger one explained improvement draft, but running it requires both confirmations
+again. The normal Shipping Web path, original-command recovery and truthful unavailable/cancel states are mandatory.
 
-```text
-one manually supplied structured hypothesis
-one fixed Dataset/Universe/Target specification
-existing admitted Operator/Indicator Catalog
-```
+This MVP does not require background mining, paper search/RAG, a full-pool ranker, a composite total score, automatic reruns,
+Backtest, SIM/LIVE, a new multi-agent runtime or speculative tools. It does require a genuine Rust-owned Product/Research vertical
+slice and the exact admission/evidence dependencies actually used; a mock report or display-only chart query is not closure.
 
-System:
+### Stage two: bounded automatic-search MVP
 
-```text
-Catalog query
-→ generate 10–100 bounded legal graph candidates
-→ deterministic duplicate removal
-→ OnlyAlpha Research
-→ immutable factor Evidence
-→ exact Qualification
-→ next-round bounded proposal
-```
+The earlier symbolic-search MVP remains an automatic-search milestone: one explicit human-approved hypothesis/search mandate,
+fixed Dataset/Universe/Target and admitted Operator/Indicator Catalog; bounded legal graph generation and deterministic deduplication;
+formal Research, immutable Evidence and applicable exact policy assessment; complete candidate/iteration/failure lineage, consumed
+budget and stop conditions. Candidate counts are bounded by the mandate, not a universal 10–100 default.
 
-Output:
-
-```text
-qualified/rejected candidate identities
-exact Evidence references
-complete Experiment lineage
-search budget
-rejection reasons
-```
-
-The MVP explicitly does **not** require:
-
-```text
-paper search
-RAG
-new Factor Python code
-multi-agent runtime
-Factor Pool RL
-strategy generation
-SIM/LIVE
-```
-
-If this MVP cannot be made deterministic, reproducible and explainable, adding more LLM autonomy is prohibited.
+Output is a small review shortlist grouped by comparable conditions, evidence tier and declared ordering reasons, with all attempts
+in history. Human collection is separate from scientific Qualification and Promotion. Parameter feedback may automate another round
+only within the mandate and holdout rules. Paper search, arbitrary new code, learned/RL pool search and strategy/runtime progression
+are not prerequisites for this small automatic-search milestone. If it cannot be reproducible, bounded and explainable, expanding
+its autonomy is prohibited.
 
 ---
 
@@ -1145,7 +1147,10 @@ OnlyAlpha-Agent
 → high-change research orchestration, search methods, literature/knowledge adapters
 ```
 
-OnlyAlpha-Agent should depend on the formal public API/client and authoring workflows, not on private internal Kernel implementation imports.
+`packages/agent` is the independently released Python LangGraph product selected by ADR 0146; it depends on formal public
+API/client contracts and authoring workflows, not private Kernel/backend imports or business tables. Model configuration,
+literature adapters and Agent provenance move there; formal Search/Research/Novelty/admission facts remain backend-owned.
+New sessions bind exact workflow/environment versions; missing old implementations pause existing sessions without substitution.
 
 The implemented PA-1 foundation covers database-native identity, Draft/Revision publication, exact durable reads and DB-native Research
 Authoring Provenance. Private Factor native validation/materialization and exact Runtime binding are implemented through Revision-derived

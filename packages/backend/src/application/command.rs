@@ -76,6 +76,7 @@ macro_rules! text_enum {
     };
 }
 text_enum!(CommandKind, InvalidCommandKind, {
+    FactorChat => "FACTOR_CHAT",
     CreateResearchRun => "CREATE_RESEARCH_RUN", CancelResearchRun => "CANCEL_RESEARCH_RUN",
     FreezeStrategy => "FREEZE_STRATEGY", PromoteStrategy => "PROMOTE_STRATEGY",
     CreateBacktestRun => "CREATE_BACKTEST_RUN", CancelBacktestRun => "CANCEL_BACKTEST_RUN",
@@ -91,6 +92,7 @@ text_enum!(CommandKind, InvalidCommandKind, {
     UpdatePrivateFactorDisplay => "UPDATE_PRIVATE_FACTOR_DISPLAY",
 });
 text_enum!(OutcomeKind, InvalidOutcomeKind, {
+    FactorChatEvent => "FACTOR_CHAT_EVENT",
     ResearchRun => "RESEARCH_RUN", Strategy => "STRATEGY", StrategyPromotion => "STRATEGY_PROMOTION",
     BacktestRun => "BACKTEST_RUN", QualificationDecision => "QUALIFICATION_DECISION", SearchExperiment => "SEARCH_EXPERIMENT",
     Integration => "INTEGRATION", IntegrationRevision => "INTEGRATION_REVISION",

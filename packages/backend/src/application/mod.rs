@@ -13,3 +13,5 @@ pub mod source_access;
 pub mod strategy_projection;
 pub mod watchlists;
 pub mod workspace;
+
+pub mod factor_chat;

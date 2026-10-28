@@ -10,3 +10,5 @@ pub mod watchlist_postgres;
 pub mod workspace_postgres;
 
 pub mod private_factor_postgres;
+
+pub mod factor_chat;

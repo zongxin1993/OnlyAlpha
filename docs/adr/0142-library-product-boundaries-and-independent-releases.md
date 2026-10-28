@@ -7,6 +7,11 @@
 - Owning architecture: [Repository and product boundaries](../repository-product-architecture.md).
 - Construction sequence: [Repository migration work program](../repository-migration-work-program.md).
 
+> **Partial supersession:** [ADR 0146](0146-independent-agent-product-and-python-langgraph.md) selects the independent
+> Python LangGraph Agent product, four main release lines and split frontend APIs. Earlier Agent-in-backend/Python-only-algorithms
+> placement statements below are historical decisions superseded only in that scope; canonical Rust business, semantic identity,
+> permission and Research/Evidence requirements remain. The new decision is documentation, not implementation evidence.
+
 ## Decision and rationale
 
 Keep one repository and one root Cargo workspace. `crates/` contains reusable Rust libraries; `packages/backend/` and

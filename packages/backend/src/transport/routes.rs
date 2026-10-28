@@ -38,6 +38,11 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
     let router=OpenApiRouter::<Arc<Host>>::new()
  .routes(routes!(market_data_stream_upgrade))
  .routes(routes!(temporary_market_data_stream_upgrade))
+ .routes(routes!(factor_chat_providers))
+ .routes(routes!(factor_chat_list))
+ .routes(routes!(factor_chat_read))
+ .routes(routes!(factor_chat_command))
+ .routes(routes!(factor_chat_observe))
  .routes(routes!(admit_agent_session_v2))
  .routes(routes!(advance_agent_session_once_v2))
  .routes(routes!(creation_context_api_v2_backtest_creation_context_get))
@@ -210,6 +215,7 @@ pub fn navigation(method: &Method, path: &str) -> bool {
     matches!(*method, Method::GET | Method::HEAD)
         && [
             "/",
+            "/factor-research",
             "/research",
             "/research/new",
             "/research/analysis",
@@ -1246,4 +1252,26 @@ async fn private_factor_authoring_command(
     request: Request<Body>,
 ) -> Response {
     verify::<Option<PrivateFactorAuthoringReceiptDto>>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-chat/providers",security(("LocalDeveloperCookie"=[])),responses((status=200,body=crate::transport::host_factor_chat::FactorChatProvidersDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn factor_chat_providers(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    host.dispatch(request).await
+}
+#[utoipa::path(get,path="/api/v2/factor-chats",security(("LocalDeveloperCookie"=[])),responses((status=200,body=crate::transport::host_factor_chat::FactorChatListDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn factor_chat_list(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    host.dispatch(request).await
+}
+#[utoipa::path(get,path="/api/v2/factor-chats/{conversation_id}",security(("LocalDeveloperCookie"=[])),params(("conversation_id"=String,Path)),responses((status=200,body=crate::transport::host_factor_chat::FactorChatStateDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn factor_chat_read(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    host.dispatch(request).await
+}
+#[utoipa::path(post,path="/api/v2/factor-chats/{conversation_id}/commands",security(("LocalDeveloperCookie"=[])),params(("conversation_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::host_factor_chat::FactorChatCommandDto,responses((status=200,body=crate::transport::host_factor_chat::FactorChatCommandOutcomeDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn factor_chat_command(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    host.dispatch(request).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-chats/{conversation_id}/commands/{command_id}",security(("LocalDeveloperCookie"=[])),params(("conversation_id"=String,Path),("command_id"=String,Path)),responses((status=200,body=crate::transport::host_factor_chat::FactorChatObservationDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn factor_chat_observe(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    host.dispatch(request).await
 }

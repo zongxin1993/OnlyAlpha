@@ -8,6 +8,7 @@ export interface WorkspaceShellSlots {
 }
 const products = [
     { to: "/", label: "工作台", icon: "results" },
+    { to: "/factor-research", label: "因子研究", icon: "research" },
     { to: "/research/new", label: "研究 · 未实现", icon: "research" },
     { to: "/data/inputs", label: "数据 · 未实现", icon: "data" },
     { to: "/strategies", label: "策略 · 未实现", icon: "library" },

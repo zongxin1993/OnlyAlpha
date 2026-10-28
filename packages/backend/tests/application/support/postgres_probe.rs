@@ -479,6 +479,54 @@ async fn credential(
     })
 }
 
+async fn factor_chat(request: &Value, client: &mut tokio_postgres::Client) -> Value {
+    use onlyalpha_backend::persistence::factor_chat::Chats;
+    let result: Result<Value, &'static str> = async {
+        let mut store = Chats::new(client);
+        let conversation = request["conversation_id"].as_str().ok_or("id")?;
+        let actor = request["actor"].as_str().unwrap_or("local-developer");
+        let command = CommandId::new(request["command_id"].as_str().ok_or("command")?)
+            .map_err(|_| "command")?;
+        match request["action"].as_str() {
+            Some("begin") => {
+                let (v, dispatch) = store
+                    .begin(
+                        conversation,
+                        &command,
+                        request["input"].clone(),
+                        actor,
+                        "2026-10-28T00:00:00Z",
+                    )
+                    .await?;
+                Ok(json!({"view":v,"dispatch":dispatch}))
+            }
+            Some("abandon") => {
+                store
+                    .abandon(
+                        conversation,
+                        &command,
+                        request["input"].clone(),
+                        actor,
+                        "2026-10-28T00:00:00Z",
+                    )
+                    .await
+            }
+            Some("finish") => {
+                store
+                    .finish(conversation, &command, request["response"].clone(), actor)
+                    .await
+            }
+            Some("read") => store.read(conversation, actor).await,
+            _ => Err("action"),
+        }
+    }
+    .await;
+    match result {
+        Ok(v) => v,
+        Err(e) => json!({"error":e}),
+    }
+}
+
 async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) -> Value {
     use onlyalpha_backend::persistence::private_factor_postgres::Factors;
     if matches!(
@@ -585,6 +633,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let r=if matches!(op,"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(receipt(&request)?)} else {None};
   let outcome:Result<Value,Error>=async {
    Ok(match op {
+    "factor-chat"=>factor_chat(&request,&mut client).await,
     "factor-authoring"=>factor_authoring(&request,&mut client).await,
     value if value.starts_with("workspace-")=>match workspace(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     value if value.starts_with("watchlist-")=>match watchlist(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},

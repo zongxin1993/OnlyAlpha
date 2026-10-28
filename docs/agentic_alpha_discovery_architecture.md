@@ -4,6 +4,16 @@
 >
 > This document refines the LLM/Agent direction in `docs/strategy_product_architecture.md`. It does not claim autonomous factor mining, Research → Backtest promotion, Sim promotion, or Live deployment is currently implemented. Each executable milestone must be redesigned against then-current repository truth and frozen by ADR before implementation.
 
+## Independent Agent product placement
+
+[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) and
+[Agent service architecture](agent-service-architecture.md) select `packages/agent`, Python LangGraph, isolated owning storage
+and independent deployment/release. Agent owns ADR 0123 orchestration/model/tool provenance; backend owns ADRs 0120–0122
+Search facts/budgets, Research/Evidence/Qualification, formal proposal acceptance and authorization. ADR 0127 Experiment Memory
+query/index and formal Novelty Decisions remain backend-owned; Agent notes/literature retrieval are distinct derived context. Frontend chat calls Agent; Factor confirmation and
+Research authorization call backend directly. Exact session workflow binding survives upgrades; absent artifacts pause rather
+than select latest. These are target boundaries, not evidence that current Human-only C2 or denied Agent routes implement them.
+
 ## 1. Product target
 
 OnlyAlpha can evolve from a human-operated quantitative research workstation into a controlled **Autonomous Alpha Research Platform** without turning an LLM into Research or Trading authority.
@@ -622,6 +632,17 @@ This provides an auditable answer to:
 Graphviz remains read-only presentation; the canonical Definition/Graph authorities remain server/domain values.
 
 ## 21. Long-term Web product shape
+
+The selected near-term interaction and two-stage boundary are owned by
+[Conversational Factor Research](conversational-factor-research.md) and
+[ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md). Stage one is a persistent chat/current-preview split,
+exact Factor confirmation followed by separate one-run Research confirmation, real evidence/report and human candidate disposition.
+An improvement draft never authorizes an automatic rerun. Stage two automates mining only under an explicit bounded mandate,
+with complete history and condition-grouped, evidence-tiered review reasons. Collection is management preference, not Qualification
+or Promotion. These targets do not claim present implementation or enable Research through display-only chart studies.
+
+The mature Research → Backtest → SIM chain elsewhere in this reference remains a later, separately authorized delivery direction;
+it is not part of these two stages' execution scope. The permanent human LIVE boundary is unchanged.
 
 The persistent Scientific Quant Workstation can gradually support:
 

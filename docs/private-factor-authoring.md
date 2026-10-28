@@ -4,6 +4,18 @@ This Product capability derives from ADRs 0104, 0124, 0129 and 0142. PostgreSQL 
 immutable Revisions. The backend owns authoring Commands; Web submits intent and displays returned facts. Authoring never
 executes source, admits a Calculation, activates a Generation, qualifies a Factor or starts Research/Backtest.
 
+## Conversational consumer boundary
+
+[Conversational Factor Research](conversational-factor-research.md) and
+[ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md) define a planned alternative authoring consumer:
+chat-generated drafts with readable formula/logic previews and separate Factor and Research confirmations.
+[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) places chat/model orchestration in independent Agent;
+Web submits formal acceptance directly to backend against its validated immutable proposal snapshot. It reuses this
+Draft/Revision/display Authority and leaves manual forms/advanced details available. A saved or published draft, collected asset
+or confirmed preview does not acquire execution admission. Research must bind exact admitted immutable content through its own
+formal path. Candidate/common/history are views of existing identities, not a parallel source store. This target does not claim
+that chat, code validation or Research execution is enabled by the current authoring implementation.
+
 ## Content and concurrency
 
 Asset IDs retain `private.factor.<name>` and are independent of human names. The current Product contract applies

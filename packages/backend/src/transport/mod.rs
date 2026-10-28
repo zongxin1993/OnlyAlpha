@@ -16,3 +16,5 @@ pub mod web_assets;
 pub mod wire;
 
 mod host_private_factors;
+
+pub mod host_factor_chat;

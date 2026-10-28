@@ -27,7 +27,13 @@ instruments through the existing DataSource create/admission context.
 
 `AGENT_PROVIDER` does not extend `OnlyPluginType` or add a Plugin entry-point group. The Product catalog publishes the stable
 `openai.compatible.agent_provider` component contract, while executable parsing, Probe transport, Model Profile binding, and model I/O
-remain inside the independently deployable Agent component. Agent node control and Product API bootstrap tokens are infrastructure
+belong to the owning Agent/provider boundary. [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) selects
+Agent-owned model profiles/secrets/adapters and no parallel active backend model authority after cutover. Existing shared public
+Integration schemas/identity validation may be reused through formal contracts, without cross-service secret-table access.
+Before that migration, backend-hosted C2 under ADRs 0142/0145 installs the restricted model adapter in the backend product,
+reuses Integration credentials, and pins the selected configuration Revision for Human-led authoring. It exposes no model Probe
+or autonomous Agent control permission. The older independently deployable Agent remains a migration consumer, not a fallback
+for this native path. Agent node control and Product API bootstrap tokens are infrastructure
 credentials and are never fields of this product Integration.
 
 The Integration Type catalog is an in-memory deterministic projection of declared contracts on already registered factories. It is not

@@ -45,7 +45,7 @@ def _safe_name(name: str) -> bool:
 
 
 def _workspace(root: Path, unit: str) -> dict[str, Any]:
-    if unit == "frontend" or (
+    if unit in {"frontend", "agent"} or (
         unit.startswith("plugin-") and not (root / "plugs" / ("onlyalpha-" + unit) / "Cargo.toml").is_file()
     ):
         return {}
@@ -64,7 +64,7 @@ def _paths(root: Path, unit: str, inputs: dict[str, str]) -> set[str]:
     members = _workspace_packages(root)
     if unit == "libs":
         prefixes = [path.as_posix() + "/" for path, _ in members.values() if path.parts[0] == "crates"]
-    elif unit in {"backend", "frontend"}:
+    elif unit in {"backend", "frontend", "agent"}:
         prefixes = [f"packages/{unit}/"]
     else:
         prefixes = ["plugs/onlyalpha-" + unit + "/"]
@@ -73,6 +73,8 @@ def _paths(root: Path, unit: str, inputs: dict[str, str]) -> set[str]:
         raise ValueError("RELEASE_SOURCE_EMPTY_UNIT")
     if "LICENSE" in inputs:
         selected.add("LICENSE")
+    if unit == "agent":
+        selected.update(name for name in inputs if name.startswith("contracts/agent-api/"))
     if unit == "libs":
         selected.update(name for name in inputs if name.startswith("contracts/gateway/"))
         selected.update(

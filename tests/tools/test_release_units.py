@@ -125,3 +125,24 @@ def test_invalid_inherited_version_never_substitutes_library_version(graph: Path
     path.write_text('[package]\nname="onlyalpha-backend"\nversion=' + table + "\n")
     with pytest.raises(release.VersionSyncError):
         release.load_release_units(graph)
+
+
+def test_agent_is_an_independent_python_release_unit(graph: Path) -> None:
+    path = graph / "pyproject.toml"
+    path.write_text(path.read_text().replace("members = [", 'members = ["packages/agent", '))
+    write(
+        graph, "packages/agent/pyproject.toml", '[project]\nname="onlyalpha-agent"\nversion="0.1.0"\ndependencies=[]\n'
+    )
+    assert release.load_release_units(graph)["agent"] == "0.1.0"
+    release.check_versions(graph, test_distribution_paths=())
+    release.rewrite_unit(graph, "agent", "0.1.1", test_distribution_paths=())
+    assert release.load_release_units(graph)["agent"] == "0.1.1"
+    assert release.load_release_units(graph)["backend"] == "0.7.0"
+
+
+def test_only_explicit_initial_agent_inventory_is_admitted() -> None:
+    base = {"libs": "0.4.0", "backend": "0.7.0", "frontend": "0.9.0"}
+    assert release.validate_transitions(base, {**base, "agent": "0.1.0"}, {})
+    for candidate in ({**base, "agent": "0.2.0"}, {**base, "other": "0.1.0"}, {"agent": "0.1.0"}):
+        with pytest.raises(release.VersionSyncError, match="inventory"):
+            release.validate_transitions(base, candidate, {})

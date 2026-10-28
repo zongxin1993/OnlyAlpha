@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.release_metadata import validate_inventory
 from scripts.version_sync import load_release_units, next_release_version  # noqa: E402
 
 
@@ -31,9 +32,10 @@ def plan_releases(root: Path, before: str, after: str) -> list[dict[str, str]]:
     releases = []
     for commit in commits:
         candidate = load_release_units(root, commit)
-        if candidate.keys() != previous.keys():
-            raise ValueError("Release-unit inventory changed without an explicit inventory migration")
+        validate_inventory(previous, candidate)
         for unit, version in candidate.items():
+            if unit not in previous:
+                continue  # Initial Agent inventory is not an automatic release.
             old = previous[unit]
             if version == old:
                 continue

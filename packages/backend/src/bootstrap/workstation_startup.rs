@@ -291,6 +291,8 @@ impl Running {
         );
         let catalog = Arc::new(
             AuthoringCatalog::new(vec![
+                crate::adapters::agent_model::registration(WORK)
+                    .map_err(|_| Failure::unavailable("AGENT_CATALOG_INVALID"))?,
                 onlyalpha_plugin_binance::spot_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
                 onlyalpha_plugin_binance::usdm_authoring(WORK)

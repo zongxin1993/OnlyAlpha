@@ -445,5 +445,4 @@ impl<'a> PrivateAssets<'a> {
 }
 
 #[cfg(test)]
-#[path = "private_assets/authoring_tests.rs"]
 mod authoring_tests;
