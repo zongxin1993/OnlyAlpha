@@ -52,7 +52,7 @@ test("exact Factor reads reject missing content, mismatches and missing revision
     await expect(
         page
             .getByRole("dialog", { name: "指标 / 因子目录" })
-            .getByRole("button", { name: /Retained native metadata/ })
+            .getByRole("button", { name: /私有因子 1 · 第 2 版/ })
     ).toBeVisible();
     const path = (revision: string) =>
         `/api/v2/private-assets/factors/${first.factor_id}/revisions/${revision}`;

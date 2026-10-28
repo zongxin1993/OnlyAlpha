@@ -1,3 +1,4 @@
+import { factorDisplaySchema } from "./display";
 import { nativeErrorSchema } from "../errors.generated";
 import { z } from "zod";
 import type { components } from "../research/generated";
@@ -19,13 +20,46 @@ const entry = z.strictObject({
     category: z.string().nullable(),
     tags: z.array(z.string().min(1))
 });
+const presentation = z.strictObject({
+    locator: locator.extend({ private_asset_kind: z.literal("FACTOR") }),
+    display: factorDisplaySchema,
+    display_fingerprint: fingerprint,
+    display_version: z.number().int().min(1).max(200)
+});
 export const registry = z
     .strictObject({
         schema_version: z.literal(1),
         registry_fingerprint: fingerprint,
-        entries: z.array(entry)
+        entries: z.array(entry),
+        factor_presentations: z.array(presentation)
     })
     .superRefine((value, context) => {
+        const factors = value.entries.filter(
+            (item) => item.locator.private_asset_kind === "FACTOR"
+        );
+        const labels = new Map(
+            value.factor_presentations.map((item) => [item.locator.private_asset_id, item])
+        );
+        if (
+            labels.size !== value.factor_presentations.length ||
+            factors.length !== labels.size ||
+            factors.some((item) => {
+                const label = labels.get(item.locator.private_asset_id);
+                return (
+                    label?.display.factor_id !== item.locator.private_asset_id ||
+                    label.locator.revision_fingerprint !== item.locator.revision_fingerprint ||
+                    label.locator.content_fingerprint !== item.locator.content_fingerprint
+                );
+            }) ||
+            value.factor_presentations.some(
+                (item, index) =>
+                    index > 0 &&
+                    item.locator.private_asset_id <=
+                        (value.factor_presentations[index - 1]?.locator.private_asset_id ?? "")
+            )
+        ) {
+            context.addIssue({ code: "custom", message: "PRIVATE_FACTOR_PRESENTATION_INVALID" });
+        }
         const keys = value.entries.map(
             (item) => `${item.locator.private_asset_kind}:${item.locator.private_asset_id}`
         );

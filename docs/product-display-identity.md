@@ -99,8 +99,8 @@ annotations do not retroactively mutate a prior artifact.
 ## Existing description and development cutover
 
 Current Factor Draft/Revision `description`, `economic_rationale` and other content metadata participate in the existing
-Revision preimage; the current UI also uses `description` as the authoring name. This is observational truth, not the target
-rename contract. Introduce the owning mutable display metadata explicitly. Do not silently make `description` mutable, remove
+Revision preimage. The native authoring editor uses separate current display metadata; directory consumers must use the same
+owning projection rather than treating `description` as a current name. Maintain that display metadata explicitly. Do not silently make `description` mutable, remove
 it from the current hash or copy each renamed display value into later Revision payloads. Editing version-bound description
 is still content editing under its owning contract. Expose one ordinary naming operation; keep version-bound annotations
 clearly separate so users are not editing two competing names.

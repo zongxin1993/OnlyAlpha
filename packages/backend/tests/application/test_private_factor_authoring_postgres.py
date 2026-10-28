@@ -600,6 +600,7 @@ def test_forked_history_never_gets_display_ordinals_or_accepts_rename(native_pro
             (pin, factor_id, orphan["source_text"], orphan["source_sha256"], json.dumps(orphan)),
         )
     assert call(native_probe, factor_id, "read") == {"error": "PRIVATE_ASSET_CORRUPT"}
+    assert call(native_probe, factor_id, "registry") == {"error": "PRIVATE_ASSET_CORRUPT"}
     assert call(
         native_probe,
         factor_id,
@@ -608,3 +609,154 @@ def test_forked_history_never_gets_display_ordinals_or_accepts_rename(native_pro
         display_name="New",
         usage_summary="Summary",
     ) == {"error": "PRIVATE_ASSET_CORRUPT"}
+
+
+def test_published_catalog_presentation_preserves_registry_and_exact_inputs(native_probe, database):
+    import hashlib
+
+    first_id = "private.factor.a"
+    second_id = "private.factor.b"
+    draft_id = "private.factor.draft_only"
+    for factor_id in (second_id, first_id, draft_id):
+        saved = call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+        if factor_id != draft_id:
+            call(native_probe, factor_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    registry = call(native_probe, first_id, "registry")
+    assert [v["locator"]["private_asset_id"] for v in registry["entries"]] == [first_id, second_id]
+    labels = registry["factor_presentations"]
+    assert [v["locator"] for v in labels] == [v["locator"] for v in registry["entries"]]
+    assert all(v["display_version"] == 1 for v in labels)
+    canonical = json.dumps(
+        {"contract": "ONLYALPHA_PRODUCT_ASSET_REGISTRY_V1", "entries": registry["entries"]},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == registry["registry_fingerprint"]
+    original_locator = labels[0]["locator"]
+    exact = call(
+        native_probe,
+        first_id,
+        "exact",
+        revision_fingerprint=original_locator["revision_fingerprint"],
+        content_fingerprint=original_locator["content_fingerprint"],
+    )
+    state = call(native_probe, first_id, "read")
+    call(
+        native_probe,
+        first_id,
+        "display",
+        expected=state["display_fingerprint"],
+        display_name="价格动量",
+        usage_summary="观察价格变化",
+    )
+    renamed = call(native_probe, first_id, "registry")
+    assert renamed["entries"] == registry["entries"]
+    assert renamed["registry_fingerprint"] == registry["registry_fingerprint"]
+    assert renamed["factor_presentations"][0]["display"]["display_name"] == "价格动量"
+    assert renamed["factor_presentations"][0]["display"]["usage_summary"] == "观察价格变化"
+    assert renamed["factor_presentations"][0]["locator"] == original_locator
+    changed = {
+        **state["draft"],
+        "base_revision_fingerprint": original_locator["revision_fingerprint"],
+        "source_text": "def calculate(api, inputs, parameters):\n    return {'value': inputs['close'] * 2}\n",
+    }
+    saved = call(native_probe, first_id, "save", draft=changed, expected=state["draft_fingerprint"])
+    call(native_probe, first_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    advanced = call(native_probe, first_id, "registry")
+    assert advanced["factor_presentations"][0]["display_version"] == 2
+    # Disposable old search cache is not required by the live Rust query owner.
+    with psycopg.connect(database) as connection:
+        connection.execute("DROP TABLE private_asset_search_projection_active")
+        connection.execute("DROP TABLE private_asset_search_projection_revision")
+    assert call(native_probe, first_id, "registry") == advanced
+    assert (
+        call(
+            native_probe,
+            first_id,
+            "exact",
+            revision_fingerprint=original_locator["revision_fingerprint"],
+            content_fingerprint=original_locator["content_fingerprint"],
+        )
+        == exact
+    )
+    assert call(
+        native_probe,
+        first_id,
+        "exact",
+        revision_fingerprint=original_locator["revision_fingerprint"],
+        content_fingerprint="0" * 64,
+    ) == {"error": "PRIVATE_ASSET_EXACT_READ_MISMATCH"}
+    assert call(
+        native_probe,
+        first_id,
+        "exact",
+        revision_fingerprint="0" * 64,
+        content_fingerprint=original_locator["content_fingerprint"],
+    ) == {"error": "PRIVATE_ASSET_EXACT_REVISION_UNAVAILABLE"}
+    assert call(native_probe, first_id, "registry-withdrawn") == {"error": "PRIVATE_ASSET_ACCESS_DENIED"}
+
+
+def test_catalog_missing_display_is_unavailable_not_description_or_absence(native_probe, database):
+    factor_id = "private.factor.missing_label"
+    saved = call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+    published = call(native_probe, factor_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    with psycopg.connect(database) as connection:
+        connection.execute("DELETE FROM private_factor_display WHERE factor_id=%s", (factor_id,))
+    assert call(native_probe, factor_id, "registry") == {"error": "PRIVATE_FACTOR_DISPLAY_UNAVAILABLE"}
+    exact = published["result"]["revision"]
+    assert (
+        call(
+            native_probe,
+            factor_id,
+            "exact",
+            revision_fingerprint=exact["revision_fingerprint"],
+            content_fingerprint=exact["source_sha256"],
+        )
+        == exact
+    )
+
+
+def test_catalog_aggregate_proof_budget_never_returns_partial_absence(native_probe, database):
+    import hashlib
+
+    for factor_id in ("private.factor.budget_a", "private.factor.budget_b"):
+        saved = call(native_probe, factor_id, "save", draft=draft(factor_id), expected=None)
+        revision = call(native_probe, factor_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+            "revision"
+        ]
+        with psycopg.connect(database) as connection:
+            for number in range(17):
+                body = {
+                    **revision,
+                    "parent_revision_fingerprint": revision["revision_fingerprint"],
+                    "description": str(number) + "x" * 250000,
+                }
+                del body["revision_fingerprint"]
+                raw = json.dumps(
+                    {"contract": "ONLYALPHA_PRIVATE_FACTOR_REVISION_V1", **body},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                pin = hashlib.sha256(raw.encode()).hexdigest()
+                revision = {**body, "revision_fingerprint": pin}
+                connection.execute(
+                    "INSERT INTO private_factor_revision(revision_fingerprint,factor_id,parent_revision_fingerprint,source_text,source_sha256,payload,schema_version) VALUES(%s,%s,%s,%s,%s,%s::jsonb,1)",
+                    (
+                        pin,
+                        factor_id,
+                        body["parent_revision_fingerprint"],
+                        body["source_text"],
+                        body["source_sha256"],
+                        json.dumps(revision),
+                    ),
+                )
+            connection.execute(
+                "UPDATE private_factor_asset SET current_revision_fingerprint=%s WHERE factor_id=%s", (pin, factor_id)
+            )
+            size = connection.execute(
+                "SELECT sum(octet_length(payload::text)) FROM private_factor_revision WHERE factor_id=%s", (factor_id,)
+            ).fetchone()[0]
+            assert size < 8 * 1024 * 1024
+    assert call(native_probe, "private.factor.budget_a", "registry") == {"error": "PRIVATE_ASSET_AUTHORITY_UNAVAILABLE"}

@@ -17,11 +17,6 @@ from onlyalpha.application import (
     OnlyCalculationEquivalenceCertificationApplicationService,
     OnlyProductCommandId,
 )
-from onlyalpha.application.private_asset_product import (
-    OnlyPrivateAssetProductService,
-    OnlyProductAssetSearchProjectionService,
-    OnlyProductAssetSearchQueryV1,
-)
 from onlyalpha.application.private_strategy_research import OnlyPrivateStrategyResearchApplicationService
 from onlyalpha.application.product_boundary import (
     OnlySubmitPrivateStrategyResearch,
@@ -43,7 +38,6 @@ from onlyalpha.kernel import OnlyAlphaKernelHost
 from onlyalpha.market_data.resolution import OnlyBarConstructionRecipe, OnlyBarConstructionRequirement
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
-    OnlyPostgresPrivateAssetProductProjectionStore,
     OnlyPostgresPrivateAssetStore,
     OnlyPostgresPrivateStrategyResearchCompositionStore,
     OnlyPostgresProductCommandAuthority,
@@ -547,35 +541,19 @@ def test_private_strategy_production_chain_is_exact_and_generation_bound(postgre
     )
     factor_reference = imported["factor.simple_momentum"]
     strategy_reference = imported["strategy.simple_momentum"]
-    product_assets = OnlyPrivateAssetProductService(assets)
-    product_search = OnlyProductAssetSearchProjectionService(
-        product_assets,
-        OnlyPostgresPrivateAssetProductProjectionStore(postgres_dsn),
-        lambda: NOW,
+    # Existing exact imported references prepare the historical reference chain.
+    # Product search is not an admission or execution authority.
+    references = OnlyPrivateAssetRevisionBindingResolver(assets)
+    factor_read = references.resolve_factor_revision(factor_reference)
+    assert factor_read.revision_fingerprint == factor_reference.private_asset_revision_fingerprint
+    assert factor_read.source_sha256 == references.resolve(factor_reference).private_asset_content_fingerprint
+    strategy_read = assets.load_strategy_revision(
+        strategy_reference.private_asset_id, strategy_reference.private_asset_revision_fingerprint
     )
-    product_search.rebuild()
-    # Historical reference metadata setup, not current Research/Strategy HTTP admission.
-    factor_search = product_search.search(
-        OnlyProductAssetSearchQueryV1(text=factor_reference.private_asset_id, kind=OnlyPrivateAssetKind.FACTOR)
+    assert strategy_read.revision_fingerprint == strategy_reference.private_asset_revision_fingerprint
+    assert (
+        strategy_read.definition_fingerprint == references.resolve(strategy_reference).private_asset_content_fingerprint
     )
-    factor_exact = factor_search.results[0].locator
-    factor_locator = factor_exact.to_dict()
-    assert factor_locator["revision_fingerprint"] == factor_reference.private_asset_revision_fingerprint
-    factor_read = product_assets.read_exact(factor_exact)
-    assert factor_read.source_sha256 == factor_locator["content_fingerprint"]
-    strategy_search = product_search.search(
-        OnlyProductAssetSearchQueryV1(text=strategy_reference.private_asset_id, kind=OnlyPrivateAssetKind.STRATEGY)
-    )
-    strategy_exact = strategy_search.results[0].locator
-    strategy_locator = strategy_exact.to_dict()
-    discovered_strategy_reference = OnlyPrivateAssetRevisionReferenceV1(
-        OnlyPrivateAssetKind.STRATEGY,
-        strategy_locator["private_asset_id"],
-        strategy_locator["revision_fingerprint"],
-    )
-    assert discovered_strategy_reference == strategy_reference
-    strategy_read = product_assets.read_exact(strategy_exact)
-    assert strategy_read.definition_fingerprint == strategy_locator["content_fingerprint"]
     generation, authoring = _generation(
         assets,
         factor_reference,

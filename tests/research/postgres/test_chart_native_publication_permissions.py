@@ -37,6 +37,9 @@ _FORWARD = (
     "0052_watchlist_member_sources",
     "0053_backtest_native_specification",
     "0054_default_workspace_configuration",
+    "0055_private_factor_authoring",
+    "0056_private_factor_display",
+    "0057_named_workspace_configuration",
 )
 _GROUPS = ("onlyalpha_chart_input_reader", "onlyalpha_chart_execution_controller")
 _UNSAFE_ROLE_MUTATIONS = {
@@ -385,6 +388,10 @@ def test_attempt_writer_cannot_slip_between_history_check_and_guard_installation
                 ("watchlist_revision", []),
                 ("workspace_head", []),
                 ("workspace_revision", []),
+                ("private_factor_authoring_outcome", []),
+                ("private_factor_display", []),
+                ("workspace_library_head", []),
+                ("workspace_library_revision", []),
             )
         )
     )
@@ -423,6 +430,10 @@ def test_forward_migration_preserves_exact_queued_and_direct_cancelled_bytes(
                 ("watchlist_revision", []),
                 ("workspace_head", []),
                 ("workspace_revision", []),
+                ("private_factor_authoring_outcome", []),
+                ("private_factor_display", []),
+                ("workspace_library_head", []),
+                ("workspace_library_revision", []),
             )
         )
     )
@@ -536,6 +547,10 @@ def test_migration_ddl_and_ledger_failure_roll_back_roles_acl_and_guard(
                     ("watchlist_revision", []),
                     ("workspace_head", []),
                     ("workspace_revision", []),
+                    ("private_factor_authoring_outcome", []),
+                    ("private_factor_display", []),
+                    ("workspace_library_head", []),
+                    ("workspace_library_revision", []),
                 )
             )
         )

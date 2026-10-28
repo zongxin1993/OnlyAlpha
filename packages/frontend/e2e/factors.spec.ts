@@ -28,10 +28,11 @@ test("workstation discovers installed calculations and reads exact private Facto
     await expect(board.getByText(/Outputs:/).first()).toBeVisible();
     await board
         .getByRole("searchbox", { name: "Search calculations and private Factors" })
-        .fill("Retained native metadata");
+        .fill("私有因子 1");
     await expect(board.getByText("No registered calculations match this search.")).toBeVisible();
-    await board.getByRole("button", { name: /Retained native metadata/ }).click();
+    await board.getByRole("button", { name: /私有因子 1 · 第 2 版/ }).click();
     const metadata = board.getByRole("article", { name: "Exact Factor metadata" });
+    await metadata.getByText("版本技术信息与精确身份", { exact: true }).click();
     await expect(metadata.getByText("Explicit saved hypothesis")).toBeVisible();
     await expect(metadata.getByText("Factor API", { exact: true })).toBeVisible();
     await expect(metadata.getByText("Revision", { exact: true })).toBeVisible();

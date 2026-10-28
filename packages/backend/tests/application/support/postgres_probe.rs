@@ -481,6 +481,45 @@ async fn credential(
 
 async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) -> Value {
     use onlyalpha_backend::persistence::private_factor_postgres::Factors;
+    if matches!(
+        request["action"].as_str(),
+        Some("registry" | "exact" | "registry-withdrawn")
+    ) {
+        use onlyalpha_backend::application::{
+            private_assets::PrivateAssets, source_access::Authority,
+        };
+        use sha2::{Digest, Sha256};
+        let token = "a".repeat(64);
+        let owner = Authority::new(
+            "technical-factor-reader",
+            &Sha256::digest(token.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+            vec![],
+        )
+        .unwrap();
+        let session = owner.authenticate(&format!("Bearer {token}")).unwrap();
+        if request["action"] == "registry-withdrawn" {
+            owner.withdraw();
+        }
+        let result = if request["action"] == "exact" {
+            PrivateAssets::new(client)
+                .factor_revision(
+                    &session,
+                    request["factor_id"].as_str().unwrap(),
+                    request["revision_fingerprint"].as_str().unwrap(),
+                    request["content_fingerprint"].as_str().unwrap(),
+                )
+                .await
+        } else {
+            PrivateAssets::new(client).current_registry(&session).await
+        };
+        return match result.and_then(|value| value.into_parts().map(|parts| parts.0)) {
+            Ok(value) => value,
+            Err(error) => json!({"error":error.code()}),
+        };
+    }
     let mut store = Factors::new(client);
     let id = request["factor_id"].as_str().unwrap();
     let command = CommandId::new(request["command_id"].as_str().unwrap()).unwrap();

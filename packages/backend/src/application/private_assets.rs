@@ -308,6 +308,20 @@ impl<'a> PrivateAssets<'a> {
         crate::persistence::postgres::bounds(&tx)
             .await
             .map_err(|_| Error::Unavailable)?;
+        // Bound all additional state verification before materializing histories. The
+        // existing response-work budget below remains independent and unchanged.
+        let proof=tx.query_one("SELECT COALESCE(sum(n),0)::bigint AS bytes FROM (SELECT octet_length(r.payload::text)::bigint AS n FROM private_factor_revision r JOIN private_factor_asset a ON a.factor_id=r.factor_id WHERE a.current_revision_fingerprint IS NOT NULL UNION ALL SELECT octet_length(d.payload::text)::bigint AS n FROM private_factor_display d JOIN private_factor_asset a ON a.factor_id=d.factor_id WHERE a.current_revision_fingerprint IS NOT NULL UNION ALL SELECT octet_length(d.payload::text)::bigint AS n FROM private_factor_draft d JOIN private_factor_asset a ON a.factor_id=d.factor_id WHERE a.current_revision_fingerprint IS NOT NULL) proof_work",&[]).await.map_err(|_|Error::Unavailable)?;
+        if usize::try_from(
+            proof
+                .try_get::<_, i64>("bytes")
+                .map_err(|_| Error::Corrupt)?,
+        )
+        .map_err(|_| Error::Corrupt)?
+            > WORK
+        {
+            return Err(Error::Unavailable);
+        }
+        let mut factor_presentations = vec![];
         let mut entries = vec![];
         let mut bytes = 0usize;
         for (kind, sql) in [
@@ -361,6 +375,17 @@ impl<'a> PrivateAssets<'a> {
                     "definition_fingerprint"
                 };
                 entries.push(json!({"locator":{"private_asset_kind":kind,"private_asset_id":value[owner],"revision_fingerprint":value["revision_fingerprint"],"content_fingerprint":value[content]},"semantic_version":value["semantic_version"],"description":value["description"],"category":if kind=="FACTOR"{value["category"].clone()}else{Value::Null},"tags":value["tags"]}));
+                if kind == "FACTOR" {
+                    let locator = &entries.last().ok_or(Error::Corrupt)?["locator"];
+                    factor_presentations.push(
+                        crate::persistence::private_factor_postgres::catalog_presentation(
+                            &tx,
+                            text(&value[owner], false)?,
+                            locator,
+                        )
+                        .await?,
+                    );
+                }
             }
         }
         tx.commit().await.map_err(|_| Error::Unavailable)?;
@@ -368,7 +393,7 @@ impl<'a> PrivateAssets<'a> {
         let registry =
             fp(&json!({"contract":"ONLYALPHA_PRODUCT_ASSET_REGISTRY_V1","entries":entries}))?;
         Ok(AuthorizedAsset {
-            payload: json!({"schema_version":1,"registry_fingerprint":registry,"entries":entries}),
+            payload: json!({"schema_version":1,"registry_fingerprint":registry,"entries":entries,"factor_presentations":factor_presentations}),
             fence: AssetFence {
                 session: session.clone(),
             },

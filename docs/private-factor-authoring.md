@@ -84,6 +84,46 @@ The client retains separate content and display edit bases: saving display metad
 must not advance the content CAS token to a concurrently changed Draft. UNKNOWN metadata updates use the same retained-ID
 query path as content; no blind retry or invented success is permitted.
 
+## Published Factor directory and exact details
+
+The existing `GET /api/v2/private-assets` response keeps its immutable-content `entries` and
+`ONLYALPHA_PRODUCT_ASSET_REGISTRY_V1` preimage unchanged. Its separate required `factor_presentations` array contains one
+entry per published Factor, sorted by Factor ID: the same exact `locator`, owning `display` record and `display_fingerprint`,
+and backend-derived `display_version`. It contains no Strategy presentation or draft-only Factor. This is a read projection,
+not a second current-name Authority, stored search index or new identity. Renaming changes this presentation, not the Registry
+fingerprint, Revision/source/API fingerprints or publication count.
+
+A single repeatable-read query transaction obtains the current Registry and reuses the authoring owner's verified state for
+Factor presentation. Whole linear history must prove the ordinal and current locator; missing display or corrupt/forked history
+is explicit unavailability/corruption, never a guessed description, partial list or successful no-match. Additional aggregate
+proof work (published Factor history, display and saved-Draft payloads) is bounded to 8 MiB before materialization. The existing
+8 MiB Registry response-work and per-object limits remain; exhaustion is explicit unavailable. Session/withdrawal fences and
+no-store behavior remain mandatory.
+
+Shipping directory/search/details present current names and purposes first, with published 第 N 版 labels. Search filters the
+existing bounded, fully validated live inventory by name/usage and existing technical/category/tag text; it does not call or
+implement the deferred `/private-assets/search` service. A query failure is distinct from a successful empty filter result.
+Client validation requires a complete, unique presentation-to-Factor-locator join; it never fills missing labels from content.
+
+Selecting a directory item retains its exact locator and backend-provided ordinal. Later metadata refresh associates a current
+name/usage through stable Factor ID only. A newer head may be shown as separate current context but cannot replace the selected
+Revision, its ordinal or source content. If current display cannot be refreshed, say so explicitly while retaining exact selected
+content; cached display is not presented as a successful current lookup. Version annotations and exact IDs/fingerprints remain
+under technical details. The exact Revision endpoint and its immutable response are unchanged.
+
+Legacy Python Product query/search-projection code and its re-export can retire once their current caller closure is removed.
+Preserve Registry identity/order/draft exclusion, exact/no-latest/mismatch/failure, projection-only Authority and search-result
+semantics at the native owner/client boundaries. Disposable persisted-search-cache rebuild/staleness tests retire with that
+unused implementation; do not build a new cache to preserve them. Existing migration ledger/tables/facts are not removed.
+Still-used Private Asset models/Store, Revision binding, algorithm SDK and execution/Generation/reference consumers remain.
+Reference-chain preparation uses its existing exact imported Revision references, never Product search as execution authority.
+
+Acceptance requires ordinary Web creation/publication, directory discovery by name and purpose, exact selection, rename and a
+second publication without retargeting an already open detail, plus reload/restart and clear error/empty states. Prove stable
+original Registry/content pins after rename, full-history and aggregate-budget rejection, exact-read mismatch/missing behavior,
+complete client joins, and no current import of retired modules. Validate only these owners and their direct consumers; no
+public catalog/workspace/Research execution, compatibility shim, new tools or automatic dev/release deployment is introduced.
+
 ## Structured contract editing target
 
 [ADR 0144](adr/0144-private-factor-forms-and-lossless-contract-editing.md) records the owner-approved editing decision.

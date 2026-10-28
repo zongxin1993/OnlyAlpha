@@ -281,3 +281,118 @@ test("native private Factor contract forms preserve raw contracts and independen
         )
     ).toBe(false);
 });
+
+test("native private Factor directory keeps selected exact version through rename and publication", async ({
+    page
+}, testInfo) => {
+    const evidence = process.env.ONLYALPHA_BROWSER_RESTART_EVIDENCE;
+    if (!evidence) throw new Error("canonical native harness evidence required");
+    const proof = evidence + ".catalog";
+    const forbidden: string[] = [];
+    page.on("request", (request) => {
+        if (
+            request.url().includes("/private-assets/search") ||
+            (request.method() !== "GET" &&
+                /\/api\/v2\/(research\/runs|backtest|strategy-freezes|research\/runtime-generations)/.test(
+                    request.url()
+                ))
+        )
+            forbidden.push(request.url());
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "因子", exact: true }).click();
+    const detail = page.getByRole("article", { name: "Exact Factor metadata" });
+    const search = page.getByRole("searchbox");
+    const openEditor = async () => {
+        await page.getByRole("button", { name: "创建 / 编辑私有因子" }).click();
+        return page.getByRole("dialog", { name: "私有 Factor 草稿与历史" });
+    };
+    if (process.env.ONLYALPHA_BROWSER_RESTART_PHASE === "restored") {
+        const expected = z
+            .object({
+                oldPin: z.string().regex(/^[0-9a-f]{64}$/),
+                newPin: z.string().regex(/^[0-9a-f]{64}$/)
+            })
+            .parse(JSON.parse(await readFile(proof, "utf8")));
+        await search.fill("目录更名趋势");
+        await page.getByRole("button", { name: /目录更名趋势 · 第 2 版/ }).click();
+        await expect(detail.getByRole("heading")).toHaveText("目录更名趋势 · 第 2 版");
+        await expect(detail.getByText("跟踪价格变化的目录用途", { exact: true })).toBeVisible();
+        await detail.getByText("版本技术信息与精确身份", { exact: true }).click();
+        await expect(detail.locator("dd").first()).toHaveText(expected.newPin);
+        const view = await openEditor();
+        await view.getByRole("button", { name: "目录更名趋势 · 第 2 版", exact: true }).click();
+        await view.getByRole("button", { name: "查看第 1 版", exact: true }).click();
+        const history = view.getByRole("region", { name: "历史内容版本" });
+        await history.getByText("精确身份", { exact: true }).click();
+        await expect(history.locator("code")).toHaveText(expected.oldPin);
+        expect(forbidden).toEqual([]);
+        return;
+    }
+    let view = await openEditor();
+    await view.getByRole("button", { name: "新建因子" }).click();
+    await view.getByLabel("因子名称", { exact: true }).fill("目录价格趋势");
+    await view.getByLabel("用途说明").fill("初始目录用途");
+    await view.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await expect(view.getByRole("status").filter({ hasText: /^草稿已保存$/ })).toBeVisible();
+    await view.getByRole("button", { name: "发布内容版本", exact: true }).click();
+    await expect(view.getByRole("status").filter({ hasText: "内容版本已发布" })).toBeVisible();
+    await view.getByRole("button", { name: "关闭", exact: true }).click();
+    await search.fill("初始目录用途");
+    await page.getByRole("button", { name: /目录价格趋势 · 第 1 版/ }).click();
+    await expect(detail.getByRole("heading")).toHaveText("目录价格趋势 · 第 1 版");
+    await detail.getByText("版本技术信息与精确身份", { exact: true }).click();
+    await expect(detail.locator("dd").first()).toHaveText(/^[0-9a-f]{64}$/);
+    const oldPin = await detail.locator("dd").first().innerText();
+    const oldSource = await detail.locator("dd").nth(1).innerText();
+    view = await openEditor();
+    await view.getByRole("button", { name: "目录价格趋势 · 第 1 版", exact: true }).click();
+    await view.getByLabel("因子名称", { exact: true }).fill("目录更名趋势");
+    await view.getByLabel("用途说明").fill("跟踪价格变化的目录用途");
+    await view.getByRole("button", { name: "保存名称和用途", exact: true }).click();
+    await expect(view.getByRole("status").filter({ hasText: "名称和用途已保存" })).toBeVisible();
+    await view.getByRole("button", { name: "关闭", exact: true }).click();
+    await expect(detail.getByRole("heading")).toHaveText("目录更名趋势 · 第 1 版");
+    await expect(detail.locator("dd").first()).toHaveText(oldPin);
+    await expect(detail.locator("dd").nth(1)).toHaveText(oldSource);
+    await search.fill("目录更名趋势");
+    await expect(page.getByRole("button", { name: /目录更名趋势 · 第 1 版/ })).toBeVisible();
+    view = await openEditor();
+    await view.getByRole("button", { name: "目录更名趋势 · 第 1 版", exact: true }).click();
+    await view
+        .getByLabel("Python 源码")
+        .fill(
+            "def calculate(api, inputs, parameters):\n    return {'value': inputs['close'] * 3}\n"
+        );
+    await view.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await expect(view.getByRole("status").filter({ hasText: /^草稿已保存$/ })).toBeVisible();
+    await view.getByRole("button", { name: "发布内容版本", exact: true }).click();
+    await expect(view.getByRole("status").filter({ hasText: "内容版本已发布" })).toBeVisible();
+    await view.getByRole("button", { name: "关闭", exact: true }).click();
+    await expect(detail.getByRole("heading")).toHaveText("目录更名趋势 · 第 1 版");
+    await expect(detail.getByText("当前已发布第 2 版；此处仍查看已选定的第 1 版。")).toBeVisible();
+    await expect(detail.locator("dd").first()).toHaveText(oldPin);
+    await page.getByRole("button", { name: /目录更名趋势 · 第 2 版/ }).click();
+    await expect(detail.getByRole("heading")).toHaveText("目录更名趋势 · 第 2 版");
+    await detail.getByText("版本技术信息与精确身份", { exact: true }).click();
+    await expect(detail.locator("dd").first()).toHaveText(/^[0-9a-f]{64}$/);
+    const newPin = await detail.locator("dd").first().innerText();
+    expect(newPin).not.toBe(oldPin);
+    await search.fill("不存在的目录搜索词");
+    await expect(
+        page.getByText("No published private Factor metadata matches this search.")
+    ).toBeVisible();
+    await search.fill("跟踪价格变化的目录用途");
+    const selected = page.getByRole("button", { name: /目录更名趋势 · 第 2 版/ });
+    await selected.focus();
+    await page.keyboard.press("Enter");
+    await expect(selected).toHaveAttribute("aria-pressed", "true");
+    await page.screenshot({ path: testInfo.outputPath("private-factor-catalog.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    ).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("private-factor-catalog-mobile.png") });
+    await writeFile(proof, JSON.stringify({ oldPin, newPin }));
+    expect(forbidden).toEqual([]);
+});

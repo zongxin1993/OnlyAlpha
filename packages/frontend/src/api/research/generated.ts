@@ -2646,6 +2646,7 @@ export interface components {
         };
         PrivateAssetRegistryDto: {
             entries: components["schemas"]["PrivateAssetRegistryEntryDto"][];
+            factor_presentations: components["schemas"]["PrivateFactorCatalogPresentationDto"][];
             registry_fingerprint: string;
             schema_version?: components["schemas"]["Version1"] | null;
         };
@@ -2696,6 +2697,13 @@ export interface components {
             factor_id: string;
             revisions: components["schemas"]["PrivateFactorPublishedRevisionDto"][];
             schema_version: components["schemas"]["Version1"];
+        };
+        PrivateFactorCatalogPresentationDto: {
+            display: components["schemas"]["PrivateFactorDisplayDto"];
+            display_fingerprint: string;
+            /** Format: int32 */
+            display_version: number;
+            locator: components["schemas"]["PrivateAssetLocatorDto"];
         };
         PrivateFactorDisplayDto: {
             display_name: string;

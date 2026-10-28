@@ -38,6 +38,14 @@ export function FactorExplorerPage() {
         },
         enabled: selected !== null
     });
+    const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+    const presentations = new Map(
+        assets.data?.factor_presentations.map((item) => [item.locator.private_asset_id, item]) ?? []
+    );
+    const currentPresentation =
+        selected === null || assets.isError
+            ? undefined
+            : presentations.get(selected.private_asset_id);
     const needle = search.trim().toLocaleLowerCase();
     const calculations =
         catalog.data?.calculations.filter((item) =>
@@ -49,7 +57,7 @@ export function FactorExplorerPage() {
         assets.data?.entries.filter(
             (item) =>
                 item.locator.private_asset_kind === "FACTOR" &&
-                `${item.locator.private_asset_id} ${item.description} ${item.category ?? ""} ${item.tags.join(" ")}`
+                `${presentations.get(item.locator.private_asset_id)?.display.display_name ?? ""} ${presentations.get(item.locator.private_asset_id)?.display.usage_summary ?? ""} ${item.locator.private_asset_id} ${item.description} ${item.category ?? ""} ${item.tags.join(" ")}`
                     .toLocaleLowerCase()
                     .includes(needle)
         ) ?? [];
@@ -81,7 +89,7 @@ export function FactorExplorerPage() {
                 onChange={(event) => {
                     setSearch(event.target.value);
                 }}
-                placeholder="Type, version, description or tag…"
+                placeholder="Type, name, purpose, description or tag…"
             />
             <section aria-labelledby="registered-calculations">
                 <h2 id="registered-calculations">Registered calculations</h2>
@@ -186,26 +194,36 @@ export function FactorExplorerPage() {
                     <p>No published private Factor metadata matches this search.</p>
                 ) : (
                     <div className="factor-catalog-items">
-                        {factors.map((item) => (
-                            <button
-                                type="button"
-                                key={`${item.locator.private_asset_id}:${item.locator.revision_fingerprint}`}
-                                aria-pressed={
-                                    selected?.revision_fingerprint ===
-                                        item.locator.revision_fingerprint &&
-                                    selected.private_asset_id === item.locator.private_asset_id
-                                }
-                                onClick={() => {
-                                    setSelected(item.locator);
-                                }}
-                            >
-                                <strong>
-                                    {item.locator.private_asset_id} @{item.semantic_version}
-                                </strong>
-                                <span>{item.description}</span>
-                                <span>Authoring metadata · chart execution unavailable</span>
-                            </button>
-                        ))}
+                        {factors.map((item) => {
+                            const label = presentations.get(item.locator.private_asset_id);
+                            if (label === undefined)
+                                return (
+                                    <p role="alert" key={item.locator.private_asset_id}>
+                                        因子展示信息不可用，请重新载入目录。
+                                    </p>
+                                );
+                            return (
+                                <button
+                                    type="button"
+                                    key={`${item.locator.private_asset_id}:${item.locator.revision_fingerprint}`}
+                                    aria-pressed={
+                                        selected?.revision_fingerprint ===
+                                            item.locator.revision_fingerprint &&
+                                        selected.private_asset_id === item.locator.private_asset_id
+                                    }
+                                    onClick={() => {
+                                        setSelected(item.locator);
+                                        setSelectedVersion(label.display_version);
+                                    }}
+                                >
+                                    <strong>
+                                        {label.display.display_name} · 第 {label.display_version} 版
+                                    </strong>
+                                    <span>{label.display.usage_summary}</span>
+                                    <span>作者内容 · 尚未验证或执行</span>
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
                 {selected === null ? (
@@ -221,33 +239,59 @@ export function FactorExplorerPage() {
                 ) : (
                     <article aria-label="Exact Factor metadata">
                         <h3>
-                            {exact.data.factor_id} @{exact.data.semantic_version}
+                            {currentPresentation?.display.display_name ?? "所选私有因子"} · 第{" "}
+                            {selectedVersion} 版
                         </h3>
-                        <p>{exact.data.description}</p>
-                        <p>{exact.data.economic_rationale}</p>
-                        <dl>
-                            <dt>Revision</dt>
-                            <dd>{exact.data.revision_fingerprint}</dd>
-                            <dt>Source content</dt>
-                            <dd>{exact.data.source_sha256}</dd>
-                            <dt>Factor API</dt>
-                            <dd>
-                                {exact.data.factor_api_version} ·{" "}
-                                {exact.data.factor_api_contract_fingerprint}
-                            </dd>
-                            <dt>Inputs</dt>
-                            <dd>
-                                <pre>{JSON.stringify(exact.data.input_contract, null, 2)}</pre>
-                            </dd>
-                            <dt>Parameters</dt>
-                            <dd>
-                                <pre>{JSON.stringify(exact.data.parameter_contract, null, 2)}</pre>
-                            </dd>
-                            <dt>Outputs</dt>
-                            <dd>
-                                <pre>{JSON.stringify(exact.data.output_contract, null, 2)}</pre>
-                            </dd>
-                        </dl>
+                        {currentPresentation === undefined ? (
+                            <p role="alert">
+                                当前名称和用途不可用，请重试目录读取；所选精确内容未被替换。
+                            </p>
+                        ) : (
+                            <p>{currentPresentation.display.usage_summary}</p>
+                        )}
+                        {assets.isFetching && <p role="status">正在刷新当前名称和用途…</p>}
+                        {currentPresentation !== undefined &&
+                            currentPresentation.locator.revision_fingerprint !==
+                                selected.revision_fingerprint && (
+                                <p>
+                                    当前已发布第 {currentPresentation.display_version}{" "}
+                                    版；此处仍查看已选定的第 {selectedVersion} 版。
+                                </p>
+                            )}
+                        <details>
+                            <summary>版本技术信息与精确身份</summary>
+                            <p>
+                                内部标识：{exact.data.factor_id} · 算法语义版本{" "}
+                                {exact.data.semantic_version}
+                            </p>
+                            <p>版本内容说明：{exact.data.description}</p>
+                            <p>{exact.data.economic_rationale}</p>
+                            <dl>
+                                <dt>Revision</dt>
+                                <dd>{exact.data.revision_fingerprint}</dd>
+                                <dt>Source content</dt>
+                                <dd>{exact.data.source_sha256}</dd>
+                                <dt>Factor API</dt>
+                                <dd>
+                                    {exact.data.factor_api_version} ·{" "}
+                                    {exact.data.factor_api_contract_fingerprint}
+                                </dd>
+                                <dt>Inputs</dt>
+                                <dd>
+                                    <pre>{JSON.stringify(exact.data.input_contract, null, 2)}</pre>
+                                </dd>
+                                <dt>Parameters</dt>
+                                <dd>
+                                    <pre>
+                                        {JSON.stringify(exact.data.parameter_contract, null, 2)}
+                                    </pre>
+                                </dd>
+                                <dt>Outputs</dt>
+                                <dd>
+                                    <pre>{JSON.stringify(exact.data.output_contract, null, 2)}</pre>
+                                </dd>
+                            </dl>
+                        </details>
                     </article>
                 )}
             </section>

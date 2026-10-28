@@ -2535,6 +2535,7 @@ strict_object!(PrivateAssetLocatorDto);
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PrivateAssetRegistryDto {
+    pub factor_presentations: Vec<PrivateFactorCatalogPresentationDto>,
     pub entries: Vec<PrivateAssetRegistryEntryDto>,
     #[schema(pattern = "^[0-9a-f]{64}$")]
     pub registry_fingerprint: String,
@@ -2542,6 +2543,18 @@ pub struct PrivateAssetRegistryDto {
     pub schema_version: Option<Version1>,
 }
 strict_object!(PrivateAssetRegistryDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateFactorCatalogPresentationDto {
+    pub locator: PrivateAssetLocatorDto,
+    pub display: PrivateFactorDisplayDto,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub display_fingerprint: String,
+    #[schema(minimum = 1, maximum = 200)]
+    pub display_version: u16,
+}
+strict_object!(PrivateFactorCatalogPresentationDto);
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]

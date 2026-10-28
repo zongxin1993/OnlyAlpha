@@ -579,3 +579,26 @@ async fn state(tx: &Transaction<'_>, id: &str) -> Result<Value> {
         json!({"schema_version":1,"factor_id":id,"current_revision_fingerprint":head,"draft":draft,"draft_fingerprint":pin,"revisions":revisions,"display":label.record(),"display_fingerprint":label_pin}),
     )
 }
+
+// Product presentation is a projection of the same verified owner state, never a new identity.
+pub(crate) async fn catalog_presentation(
+    tx: &Transaction<'_>,
+    id: &str,
+    locator: &Value,
+) -> Result<Value> {
+    let value = state(tx, id).await?;
+    let published = value["revisions"]
+        .as_array()
+        .and_then(|rows| rows.last())
+        .ok_or(Error::Corrupt)?;
+    if locator["private_asset_kind"] != "FACTOR"
+        || locator["private_asset_id"] != id
+        || published["revision"]["revision_fingerprint"] != locator["revision_fingerprint"]
+        || published["revision"]["source_sha256"] != locator["content_fingerprint"]
+    {
+        return Err(Error::Corrupt);
+    }
+    Ok(
+        json!({"locator":locator,"display":value["display"],"display_fingerprint":value["display_fingerprint"],"display_version":published["display_version"]}),
+    )
+}

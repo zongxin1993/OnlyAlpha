@@ -119,6 +119,10 @@ def test_postgres_schema_is_control_catalog_authority_not_high_volume_semantic_s
         "watchlist_head",
         "workspace_revision",
         "workspace_head",
+        "private_factor_authoring_outcome",
+        "private_factor_display",
+        "workspace_library_revision",
+        "workspace_library_head",
     ]
     vocabulary_migration = "\n".join(
         Path(path).read_text()

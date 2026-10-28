@@ -6,15 +6,8 @@ const sha = z.string().regex(/^[0-9a-f]{64}$/);
 export const factorDraftSchema = revision
     .omit({ revision_fingerprint: true, parent_revision_fingerprint: true, source_sha256: true })
     .extend({ base_revision_fingerprint: sha.nullable() });
-export const displayFieldsSchema = z.strictObject({
-    display_name: z.string().min(1),
-    usage_summary: z.string().min(1)
-});
-export const factorDisplaySchema = displayFieldsSchema.extend({
-    schema_version: z.literal(1),
-    factor_id: z.string(),
-    edit_number: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)
-});
+export { displayFieldsSchema, factorDisplaySchema } from "./display";
+import { displayFieldsSchema, factorDisplaySchema } from "./display";
 const published = z.strictObject({ display_version: z.number().int().min(1).max(200), revision });
 const result = z.strictObject({
     draft: factorDraftSchema.nullable(),

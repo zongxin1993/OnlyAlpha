@@ -4683,6 +4683,12 @@
             },
             "type": "array"
           },
+          "factor_presentations": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateFactorCatalogPresentationDto"
+            },
+            "type": "array"
+          },
           "registry_fingerprint": {
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
@@ -4699,6 +4705,7 @@
           }
         },
         "required": [
+          "factor_presentations",
           "entries",
           "registry_fingerprint"
         ],
@@ -4940,6 +4947,34 @@
           "revisions",
           "display",
           "display_fingerprint"
+        ],
+        "type": "object"
+      },
+      "PrivateFactorCatalogPresentationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "display": {
+            "$ref": "#/components/schemas/PrivateFactorDisplayDto"
+          },
+          "display_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "display_version": {
+            "format": "int32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/PrivateAssetLocatorDto"
+          }
+        },
+        "required": [
+          "locator",
+          "display",
+          "display_fingerprint",
+          "display_version"
         ],
         "type": "object"
       },
