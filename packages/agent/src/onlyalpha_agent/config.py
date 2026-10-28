@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -13,10 +13,18 @@ class Settings:
     encryption_key: bytes
     signing_key: bytes
     origin: str = "http://127.0.0.1:5173"
+    backend_url: str | None = None
+    backend_credential: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if len(self.encryption_key) != 32 or len(self.signing_key) != 32 or self.encryption_key == self.signing_key:
             raise ValueError("AGENT_SEPARATE_KEYS_REQUIRED")
+        if (self.backend_url is None) != (self.backend_credential is None):
+            raise ValueError("AGENT_BACKEND_CONFIGURATION_INVALID")
+        if self.backend_url is not None and self.backend_credential is not None:
+            from .backend import Connection
+
+            Connection(self.backend_url, self.backend_credential)
         if not self.dsn or not self.origin.startswith(("https://", "http://127.0.0.1:")):
             raise ValueError("AGENT_CONFIGURATION_INVALID")
 
@@ -33,4 +41,8 @@ class Settings:
             key("ONLYALPHA_AGENT_KEY_FILE"),
             key("ONLYALPHA_AGENT_ACCESS_KEY_FILE"),
             os.environ["ONLYALPHA_AGENT_ORIGIN"],
+            os.environ.get("ONLYALPHA_AGENT_BACKEND_URL"),
+            key("ONLYALPHA_AGENT_BACKEND_CREDENTIAL_FILE").decode().strip()
+            if "ONLYALPHA_AGENT_BACKEND_CREDENTIAL_FILE" in os.environ
+            else None,
         )

@@ -1,4 +1,4 @@
-"""Agent-owned database. Backend facts and receipts are accessed only through future scoped APIs."""
+"""Agent-owned facts; backend effects and receipts are observed through scoped APIs."""
 
 from __future__ import annotations
 
@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS agent_event (
 CREATE TABLE IF NOT EXISTS agent_result (
  command uuid PRIMARY KEY REFERENCES agent_event, fingerprint text NOT NULL, payload jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS agent_revocation (owner text NOT NULL, token_id text NOT NULL, PRIMARY KEY(owner,token_id));
+CREATE TABLE IF NOT EXISTS agent_backend_plan (
+ command uuid PRIMARY KEY REFERENCES agent_command DEFERRABLE INITIALLY DEFERRED,
+ session uuid NOT NULL REFERENCES agent_session, backend_command uuid NOT NULL UNIQUE,
+ fingerprint text NOT NULL, payload jsonb NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_backend_result (
+ command uuid PRIMARY KEY REFERENCES agent_backend_plan, fingerprint text NOT NULL, payload jsonb NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_backend_observation (
+ command uuid NOT NULL REFERENCES agent_backend_plan, ordinal integer NOT NULL CHECK(ordinal BETWEEN 1 AND 100),
+ fingerprint text NOT NULL, payload jsonb NOT NULL, PRIMARY KEY(command,ordinal));
 CREATE OR REPLACE FUNCTION agent_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN RAISE EXCEPTION 'AGENT_IMMUTABLE_FACT'; END $$;
 """
@@ -71,6 +80,9 @@ class Store:
             WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema'
             AND c.relkind IN ('r','p','v','m','f')""").fetchall()
         allowed = {
+            "agent_backend_observation",
+            "agent_backend_plan",
+            "agent_backend_result",
             "agent_schema",
             "agent_command",
             "agent_model",
@@ -95,6 +107,9 @@ class Store:
             with self.conn.transaction():
                 self.conn.execute(SCHEMA)
                 for table in (
+                    "agent_backend_observation",
+                    "agent_backend_plan",
+                    "agent_backend_result",
                     "agent_command",
                     "agent_model",
                     "agent_session",
@@ -337,3 +352,139 @@ class Store:
                 raise Conflict("AGENT_RESULT_CONFLICT")
             return
         self.conn.execute("INSERT INTO agent_result VALUES(%s,%s,%s)", (command, digest(value), Jsonb(value)))
+
+    def prepare_backend(
+        self, sid: str, owner: str, command: str, expected: str, binding: str, context: dict[str, Any]
+    ) -> tuple[dict[str, Any], bool]:
+        from uuid import UUID
+
+        with self.command(command, owner, {"operation": "stage", "session": sid, "expected": expected}) as old:
+            if old is not None:
+                return self.backend_plan(command), False
+            s = self.session(sid, owner)
+            current = self.view(sid, owner, s["workflow"])
+            if current["head"] != expected or current["status"] != "READY" or current["candidate"] is None:
+                raise Conflict("AGENT_PROPOSAL_HEAD_CONFLICT")
+            row = self.conn.execute(
+                "SELECT command FROM agent_event WHERE fingerprint=%s AND session=%s", (expected, sid)
+            ).fetchone()
+            if row is None:
+                raise Conflict("AGENT_PROPOSAL_ORIGIN_UNAVAILABLE")
+            recorded = self.conn.execute(
+                "SELECT fingerprint FROM agent_result WHERE command=%s", (row["command"],)
+            ).fetchone()
+            if recorded is None:
+                raise Conflict("AGENT_PROPOSAL_ORIGIN_UNAVAILABLE")
+            backend_command = str(
+                UUID(
+                    bytes=bytes.fromhex(digest({"agent_command": command, "purpose": "register-factor-proposal"}))[:16],
+                    version=4,
+                )
+            )
+            body = {
+                "schema_version": 1,
+                "origin": {
+                    "session_id": sid,
+                    "event_fingerprint": expected,
+                    "result_fingerprint": recorded["fingerprint"],
+                    "workflow_fingerprint": s["workflow"],
+                    "model_revision": s["model"],
+                },
+                "candidate": current["candidate"],
+                "expected_draft_fingerprint": context["draft_fingerprint"],
+                "expected_display_fingerprint": context["display_fingerprint"],
+                "expected_proposal_fingerprint": context["proposal_fingerprint"],
+            }
+            plan = {
+                "schema_version": 1,
+                "session": sid,
+                "owner": owner,
+                "backend_command": backend_command,
+                "binding": binding,
+                "body": body,
+            }
+            fp = digest(plan)
+            self.outcome = {"backend_plan": fp}
+            self.conn.execute(
+                "INSERT INTO agent_backend_plan VALUES(%s,%s,%s,%s,%s)",
+                (command, sid, backend_command, fp, Jsonb(plan)),
+            )
+        return plan, True
+
+    def backend_plan(self, command: str) -> dict[str, Any]:
+        row = self.conn.execute(
+            "SELECT fingerprint,payload FROM agent_backend_plan WHERE command=%s", (command,)
+        ).fetchone()
+        if row is None or digest(row["payload"]) != row["fingerprint"]:
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        receipt = self.conn.execute("SELECT owner,outcome FROM agent_command WHERE id=%s", (command,)).fetchone()
+        if (
+            receipt is None
+            or receipt["owner"] != row["payload"]["owner"]
+            or receipt["outcome"] != {"backend_plan": row["fingerprint"]}
+        ):
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        return cast(dict[str, Any], row["payload"])
+
+    def backend_recorded(self, command: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT fingerprint,payload FROM agent_backend_result WHERE command=%s", (command,)
+        ).fetchone()
+        if row is None:
+            return None
+        if digest(row["payload"]) != row["fingerprint"]:
+            raise Conflict("AGENT_BACKEND_RESULT_CORRUPT")
+        self.validate_backend_receipt(command, row["payload"])
+        return cast(dict[str, Any], row["payload"])
+
+    def validate_backend_receipt(self, command: str, receipt: dict[str, Any]) -> None:
+        plan = self.backend_plan(command)
+        if (
+            receipt.get("schema_version") != 1
+            or receipt.get("command_id") != plan["backend_command"]
+            or not isinstance(receipt.get("operation_fingerprint"), str)
+            or not isinstance(receipt.get("effect"), dict)
+            or not isinstance(receipt["effect"].get("proposal_fingerprint"), str)
+        ):
+            raise Conflict("AGENT_BACKEND_RECEIPT_INVALID")
+        import re
+
+        if (
+            set(receipt) != {"schema_version", "command_id", "operation_fingerprint", "effect"}
+            or set(receipt["effect"]) != {"proposal_fingerprint"}
+            or any(
+                re.fullmatch(r"[0-9a-f]{64}", v) is None
+                for v in [receipt["operation_fingerprint"], receipt["effect"]["proposal_fingerprint"]]
+            )
+        ):
+            raise Conflict("AGENT_BACKEND_RECEIPT_INVALID")
+
+    def backend_finish(self, command: str, receipt: dict[str, Any]) -> None:
+        self.validate_backend_receipt(command, receipt)
+        old = self.backend_recorded(command)
+        if old is not None:
+            if old != receipt:
+                raise Conflict("AGENT_BACKEND_RESULT_CONFLICT")
+            return
+        self.conn.execute(
+            "INSERT INTO agent_backend_result VALUES(%s,%s,%s)", (command, digest(receipt), Jsonb(receipt))
+        )
+
+    def backend_observation(self, command: str, phase: str, outcome: str) -> None:
+        count = self.conn.execute(
+            "SELECT count(*) AS n FROM agent_backend_observation WHERE command=%s", (command,)
+        ).fetchone()
+        if count is None or count["n"] >= 100:
+            raise Conflict("AGENT_BACKEND_OBSERVATION_CAPACITY")
+        v = {"command": command, "ordinal": count["n"] + 1, "phase": phase, "outcome": outcome}
+        self.conn.execute(
+            "INSERT INTO agent_backend_observation VALUES(%s,%s,%s,%s)", (command, v["ordinal"], digest(v), Jsonb(v))
+        )
+
+    def backend_rejected(self, command: str) -> bool:
+        row = self.conn.execute(
+            "SELECT fingerprint,payload FROM agent_backend_observation WHERE command=%s AND ordinal=1", (command,)
+        ).fetchone()
+        if row is not None and digest(row["payload"]) != row["fingerprint"]:
+            raise Conflict("AGENT_BACKEND_OBSERVATION_CORRUPT")
+        return bool(row and row["payload"]["phase"] == "SUBMIT" and row["payload"]["outcome"] == "REJECTED")

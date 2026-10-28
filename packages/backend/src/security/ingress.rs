@@ -82,6 +82,7 @@ pub(crate) enum Release {
     Chart(ChartFence),
     Asset(AssetFence),
     Generation(Session),
+    Proposal(Session, onlyalpha_domain::time::OnlyUtcDateTime),
 }
 impl Release {
     fn active(&self) -> bool {
@@ -91,6 +92,7 @@ impl Release {
             Self::Chart(p) => p.check().is_ok(),
             Self::Asset(p) => p.check().is_ok(),
             Self::Generation(s) => s.check_active().is_ok(),
+            Self::Proposal(s, expiry) => s.check_active().is_ok() && crate::transport::host::now().is_ok_and(|at|at<*expiry),
         }
     }
     pub(crate) fn attach(self, response: &mut Response) {
@@ -247,6 +249,8 @@ enum Proof {
     Source(Session),
     Human(HumanSession),
     Bootstrap,
+    // Route/body-capacity context only, not an authenticated principal. Owning DB grants decide.
+    Proposal(crate::security::proposal_access::Presented),
 }
 enum Mode {
     Private(Configuration),
@@ -267,7 +271,7 @@ impl Mode {
             (Self::Developer(access), Proof::Human(session)) => {
                 access.check_session(session).is_ok()
             }
-            (Self::Developer(access), Proof::Bootstrap) => access.check_active().is_ok(),
+            (Self::Developer(access), Proof::Bootstrap | Proof::Proposal(_)) => access.check_active().is_ok(),
             _ => false,
         }
     }
@@ -797,6 +801,7 @@ impl LocalIngress {
             Proof::Human(session) => {
                 request.extensions_mut().insert(session.clone());
             }
+            Proof::Proposal(presented) => {request.extensions_mut().insert(presented.clone());}
             Proof::Bootstrap => {}
         }
         let permit = Arc::new(permit);
@@ -920,6 +925,7 @@ impl LocalIngress {
             HumanAdmission::Owner(session) => (Proof::Human(session), None),
             HumanAdmission::Navigation(cookie) => (Proof::Bootstrap, Some(cookie)),
             HumanAdmission::Health => (Proof::Bootstrap, None),
+            HumanAdmission::Proposal(presented) => (Proof::Proposal(presented),None),
         };
         self.dispatch(
             id,

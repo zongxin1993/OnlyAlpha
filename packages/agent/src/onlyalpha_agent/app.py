@@ -1,4 +1,4 @@
-"""Versioned A2 Agent API. No Human confirmation, backend submission or Research routes."""
+"""Versioned Agent API with scoped proposal staging, never Human approval or Research execution."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,7 +14,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import model, workflow
+from . import backend, model, workflow
 from .config import Settings
 from .security import Denied, Principal, authenticate
 from .store import Conflict, Missing, Store
@@ -77,6 +77,21 @@ class SessionInput(Closed):
 class MessageInput(Closed):
     expected: str | None
     text: str = Field(min_length=1, max_length=8000)
+
+
+class ProposalInput(Closed):
+    expected: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class BackendProposalView(Closed):
+    status: Literal["REGISTERED", "OUTCOME_UNKNOWN", "BINDING_UNAVAILABLE", "REJECTED"]
+    backend_command: str
+    receipt: dict[str, Any] | None
+
+
+class BackendObservationView(Closed):
+    backend_command: str
+    backend_snapshot: dict[str, Any]
 
 
 class ModelView(Closed):
@@ -305,6 +320,108 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/api/v1/agent/sessions/{sid}/resume", response_model=SessionView)
     def resume(sid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
         return turn(str(sid), p, None, None)
+
+    @app.post("/api/v1/agent/sessions/{sid}/proposals", response_model=BackendProposalView)
+    def stage_proposal(
+        sid: UUID4,
+        body: ProposalInput,
+        request: Request,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+        p: Annotated[Principal, Depends(principal)],
+    ) -> Any:
+        require(p, "chat:write", True)
+        if settings.backend_url is None or settings.backend_credential is None:
+            raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+        connection = backend.Connection(settings.backend_url, settings.backend_credential)
+        cid = command(request)
+        with Store(settings) as store, store.session_lock(str(sid)):
+            current = store.view(str(sid), p.subject, app.state.workflow)
+            if current["status"] == "WORKFLOW_UNAVAILABLE":
+                raise HTTPException(409, "AGENT_WORKFLOW_UNAVAILABLE")
+            old = store.conn.execute("SELECT 1 FROM agent_backend_plan WHERE command=%s", (cid,)).fetchone()
+            if old is None:
+                try:
+                    context = backend.request(connection, "GET", "/api/v2/factor-proposal-context/" + str(sid))
+                except (backend.Unknown, backend.Rejected) as error:
+                    raise HTTPException(503, "AGENT_BACKEND_CONTEXT_UNAVAILABLE") from error
+                if context.get("owner") != p.subject:
+                    raise HTTPException(403, "AGENT_BACKEND_OWNER_MISMATCH")
+            else:
+                context = {}
+            plan, accepted = store.prepare_backend(
+                str(sid), p.subject, cid, body.expected, connection.fingerprint(), context
+            )
+            result = {"status": "OUTCOME_UNKNOWN", "backend_command": plan["backend_command"], "receipt": None}
+            if plan["binding"] != connection.fingerprint():
+                return {**result, "status": "BINDING_UNAVAILABLE"}
+            if store.backend_rejected(cid):
+                return {**result, "status": "REJECTED"}
+            stored = store.backend_recorded(cid)
+            if stored is not None:
+                checkpoint_proposal(store, str(sid), cid)
+                return {**result, "status": "REGISTERED", "receipt": stored}
+            try:
+                if accepted:
+                    receipt = backend.request(
+                        connection, "POST", "/api/v2/factor-proposals", plan["body"], plan["backend_command"]
+                    )
+                else:
+                    receipt = backend.request(
+                        connection, "GET", "/api/v2/factor-proposals/commands/" + plan["backend_command"]
+                    )
+                try:
+                    store.backend_finish(cid, receipt)
+                except Conflict as error:
+                    if str(error) != "AGENT_BACKEND_RECEIPT_INVALID":
+                        raise
+                    store.backend_observation(cid, "SUBMIT" if accepted else "QUERY", "INVALID_RESPONSE")
+                    return result
+                checkpoint_proposal(store, str(sid), cid)
+                return {**result, "status": "REGISTERED", "receipt": receipt}
+            except backend.Unknown:
+                store.backend_observation(cid, "SUBMIT" if accepted else "QUERY", "UNKNOWN")
+                return result
+            except backend.Rejected:
+                store.backend_observation(cid, "SUBMIT" if accepted else "QUERY", "REJECTED")
+                # A failed observation cannot prove that the original submission had no effect.
+                return {**result, "status": "REJECTED" if accepted else "OUTCOME_UNKNOWN"}
+
+    def checkpoint_proposal(store: Store, sid: str, cid: str) -> None:
+        # Durable backend receipts precede this recoverable cursor. This graph cannot submit effects.
+        workflow.proposal_graph(store, cid, PostgresSaver(store.conn)).invoke(
+            {"session": sid, "command": cid, "outcome": {}},
+            {"configurable": {"thread_id": sid + "/proposal/" + cid}},
+            durability="sync",
+        )
+
+    @app.get("/api/v1/agent/sessions/{sid}/proposals/{cid}", response_model=BackendObservationView)
+    def proposal_status(sid: UUID4, cid: UUID4, p: Annotated[Principal, Depends(principal)]) -> dict[str, Any]:
+        require(p, "chat:read")
+        with Store(settings) as store:
+            store.session(str(sid), p.subject)
+            plan = store.backend_plan(str(cid))
+            if plan["owner"] != p.subject or plan["session"] != str(sid):
+                raise HTTPException(404, "AGENT_NOT_FOUND")
+            if settings.backend_url is None or settings.backend_credential is None:
+                raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+            connection = backend.Connection(settings.backend_url, settings.backend_credential)
+            if connection.fingerprint() != plan["binding"]:
+                raise HTTPException(409, "AGENT_BACKEND_BINDING_UNAVAILABLE")
+            receipt = store.backend_recorded(str(cid))
+            if receipt is None:
+                raise HTTPException(409, "AGENT_BACKEND_OUTCOME_UNKNOWN")
+            fp = receipt["effect"]["proposal_fingerprint"]
+            try:
+                view = backend.request(connection, "GET", "/api/v2/factor-proposals/" + fp)
+                if (
+                    view.get("fingerprint") != fp
+                    or view.get("snapshot", {}).get("owner") != p.subject
+                    or type(view.get("is_current")) is not bool
+                ):
+                    raise backend.Unknown()
+            except (backend.Unknown, backend.Rejected) as error:
+                raise HTTPException(503, "AGENT_BACKEND_OBSERVATION_UNAVAILABLE") from error
+            return {"backend_command": plan["backend_command"], "backend_snapshot": view}
 
     @app.put("/api/v1/agent/access/revocations/{token_id}", response_model=RevocationView)
     def revoke(token_id: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:

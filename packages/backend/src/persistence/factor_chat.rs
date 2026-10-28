@@ -66,7 +66,7 @@ async fn rejection(
 pub fn factor_id(conversation: &str) -> String {
     format!("private.factor.chat_{}", conversation.replace('-', ""))
 }
-fn child(command: &CommandId, purpose: &str) -> Result<CommandId> {
+pub(crate) fn child(command: &CommandId, purpose: &str) -> Result<CommandId> {
     let h = hash(&json!({"parent":command.value(),"purpose":purpose}))?;
     let mut b = h.into_bytes();
     b[12] = b'4';

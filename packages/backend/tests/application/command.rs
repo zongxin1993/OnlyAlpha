@@ -77,11 +77,21 @@ fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
 }
 #[test]
 fn all_existing_command_and_outcome_families_are_supported_without_new_identities() {
-    assert_eq!(CommandKind::ALL.len(), 23);
+    // C2 chat plus A3's four scoped proposal commands extend the existing vocabulary.
+    assert_eq!(CommandKind::ALL.len(), 28);
+    for (name, kind) in [
+        ("FACTOR_CHAT", CommandKind::FactorChat),
+        ("CREATE_PROPOSAL_GRANT", CommandKind::CreateProposalGrant),
+        ("REVOKE_PROPOSAL_GRANT", CommandKind::RevokeProposalGrant),
+        ("STAGE_FACTOR_PROPOSAL", CommandKind::StageFactorProposal),
+        ("CONFIRM_FACTOR_PROPOSAL", CommandKind::ConfirmFactorProposal),
+    ] {
+        assert_eq!(name.parse::<CommandKind>().unwrap(), kind);
+    }
     for kind in CommandKind::ALL {
         assert_eq!(kind.as_str().parse::<CommandKind>().unwrap(), *kind);
     }
-    assert_eq!(OutcomeKind::ALL.len(), 12);
+    assert_eq!(OutcomeKind::ALL.len(), 14);
     for kind in OutcomeKind::ALL {
         assert_eq!(kind.as_str().parse::<OutcomeKind>().unwrap(), *kind);
         let uuid = matches!(

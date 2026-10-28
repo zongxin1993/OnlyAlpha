@@ -479,6 +479,25 @@ async fn credential(
     })
 }
 
+async fn factor_proposal(request:&Value,client:&mut tokio_postgres::Client)->Value {
+ use onlyalpha_backend::{persistence::factor_proposals::Proposals,security::proposal_access::Presented};
+ let result=async {
+ let command=CommandId::new(request["command_id"].as_str().ok_or("command")?).map_err(|e|e.code())?;
+ let actor=request["actor"].as_str().ok_or("actor")?;let at=request["at"].as_str().ok_or("at")?;
+ let credential=request["token"].as_str().map(Presented::parse).transpose()?;
+ let c=credential.as_ref();let body=request["body"].clone();let mut p=Proposals::new(client);
+ match request["action"].as_str(){
+ Some("grant") if c.is_none()=>p.grant(&command,actor,serde_json::from_value(body).map_err(|_|"input")?,at).await,
+ Some("revoke") if c.is_none()=>p.revoke(&command,actor,body["grant_id"].as_str().ok_or("input")?,at).await,
+ Some("stage")=>p.stage(&command,c.ok_or("credential")?,serde_json::from_value(body).map_err(|_|"input")?,at).await,
+ Some("confirm") if c.is_none()=>p.confirm(&command,actor,body["proposal_fingerprint"].as_str().ok_or("input")?,at).await,
+ Some("context")=>p.context(c.ok_or("credential")?,request["session_id"].as_str().ok_or("session")?,at).await,
+ Some("read")=>p.read(request["fingerprint"].as_str().ok_or("fingerprint")?,actor,c,at).await,
+ Some("observe")=>p.observe(&CommandId::new(request["observed_command"].as_str().ok_or("command")?).map_err(|e|e.code())?,actor,c,at).await,
+ _=>Err("FACTOR_PROPOSAL_DENIED")}
+ }.await;
+ result.unwrap_or_else(|e|json!({"error":e}))
+}
 async fn factor_chat(request: &Value, client: &mut tokio_postgres::Client) -> Value {
     use onlyalpha_backend::persistence::factor_chat::Chats;
     let result: Result<Value, &'static str> = async {
@@ -633,6 +652,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let r=if matches!(op,"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(receipt(&request)?)} else {None};
   let outcome:Result<Value,Error>=async {
    Ok(match op {
+    "factor-proposal"=>factor_proposal(&request,&mut client).await,
     "factor-chat"=>factor_chat(&request,&mut client).await,
     "factor-authoring"=>factor_authoring(&request,&mut client).await,
     value if value.starts_with("workspace-")=>match workspace(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},

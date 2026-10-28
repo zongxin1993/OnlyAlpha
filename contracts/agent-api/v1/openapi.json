@@ -1,6 +1,64 @@
 {
   "components": {
     "schemas": {
+      "BackendObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "backend_command": {
+            "title": "Backend Command",
+            "type": "string"
+          },
+          "backend_snapshot": {
+            "additionalProperties": true,
+            "title": "Backend Snapshot",
+            "type": "object"
+          }
+        },
+        "required": [
+          "backend_command",
+          "backend_snapshot"
+        ],
+        "title": "BackendObservationView",
+        "type": "object"
+      },
+      "BackendProposalView": {
+        "additionalProperties": false,
+        "properties": {
+          "backend_command": {
+            "title": "Backend Command",
+            "type": "string"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt"
+          },
+          "status": {
+            "enum": [
+              "REGISTERED",
+              "OUTCOME_UNKNOWN",
+              "BINDING_UNAVAILABLE",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "backend_command",
+          "receipt"
+        ],
+        "title": "BackendProposalView",
+        "type": "object"
+      },
       "ChatMessage": {
         "additionalProperties": false,
         "properties": {
@@ -212,6 +270,21 @@
           "items"
         ],
         "title": "ModelsView",
+        "type": "object"
+      },
+      "ProposalInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected"
+        ],
+        "title": "ProposalInput",
         "type": "object"
       },
       "RevocationView": {
@@ -747,6 +820,125 @@
           }
         ],
         "summary": "Message"
+      }
+    },
+    "/api/v1/agent/sessions/{sid}/proposals": {
+      "post": {
+        "operationId": "stage_proposal_api_v1_agent_sessions__sid__proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendProposalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stage Proposal"
+      }
+    },
+    "/api/v1/agent/sessions/{sid}/proposals/{cid}": {
+      "get": {
+        "operationId": "proposal_status_api_v1_agent_sessions__sid__proposals__cid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendObservationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Proposal Status"
       }
     },
     "/api/v1/agent/sessions/{sid}/resume": {

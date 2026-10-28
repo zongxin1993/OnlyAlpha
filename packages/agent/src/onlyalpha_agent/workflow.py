@@ -15,10 +15,13 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 PROMPT = (
-    "Clarify one quantitative factor idea. Reply in Chinese as JSON with exactly message and candidate. "
-    "candidate is null, or {name,purpose,hypothesis,expression}. expression uses only OHLCV inputs, "
-    "integer constants, add/sub/mul/div; history may use lag or mean periods 1..10000. "
-    "Never return code or claim approval, Research execution or scientific results. Ask when unclear."
+    "Clarify ONE factor hypothesis. Reply in Chinese as JSON with exactly message and candidate. "
+    "candidate is null, or an object with exactly name,purpose,hypothesis,expression. "
+    "expression is a bounded arithmetic tree: {input: close|open|high|low|volume}, {integer: integer}, "
+    "or {op: add|sub|mul|div,left:expression,right:expression}. Integers are within +/-1000000. "
+    "History uses {input:close,lag:20} or {input:volume,mean:20}; periods 1..10000. Max depth 8. "
+    "Only declared closed-bar dependencies; no code, imports, arrays, tools or execution grants. "
+    "Ask when unclear. Human confirmation is separate; never claim approval, Research or scientific results."
 )
 
 
@@ -97,4 +100,18 @@ def graph(store: Any, command: str, invoke: Any, checkpointer: Any) -> Any:
     builder.add_node("model", model)
     builder.add_edge(START, "model")
     builder.add_edge("model", END)
+    return builder.compile(checkpointer=checkpointer)
+
+
+def proposal_graph(store: Any, command: str, checkpointer: Any) -> Any:
+    def observe(state: Turn) -> dict[str, Any]:
+        recorded = store.backend_recorded(command)
+        if recorded is None:
+            raise ValueError("AGENT_BACKEND_OUTCOME_UNKNOWN")
+        return {"outcome": recorded}
+
+    builder = StateGraph(Turn)
+    builder.add_node("recorded_proposal", observe)
+    builder.add_edge(START, "recorded_proposal")
+    builder.add_edge("recorded_proposal", END)
     return builder.compile(checkpointer=checkpointer)

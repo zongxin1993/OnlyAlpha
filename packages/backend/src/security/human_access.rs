@@ -32,6 +32,8 @@ pub enum Admission {
     Navigation(HeaderValue),
     Health,
     Owner(Session),
+    /// No authenticated identity: the backend must validate the presented grant.
+    Proposal(crate::security::proposal_access::Presented),
 }
 impl Access {
     /// Generate a node-local operational credential using OS entropy. This
@@ -96,6 +98,11 @@ impl Access {
             || path.split('/').any(|part| matches!(part, "." | ".."))
         {
             return Err(Error::Forbidden);
+        }
+        if request.headers().contains_key("authorization") && crate::security::proposal_access::service_route(request.method(), &path) {
+            if request.uri().query().is_some() || request.headers().get_all("host").iter().count()!=1 {return Err(Error::Forbidden)}
+            self.check_active()?;
+            return crate::security::proposal_access::Presented::request(request.headers(),request.method(),&path).map(Admission::Proposal).map_err(|_|Error::Unauthorized);
         }
         let headers = request.headers();
         let origin = single(headers, "origin")?;

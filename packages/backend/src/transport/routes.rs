@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use std::sync::{Arc, OnceLock};
 use utoipa::openapi::{
     Info, OpenApi, OpenApiVersion,
-    security::{ApiKey, ApiKeyValue, SecurityScheme},
+    security::{ApiKey, ApiKeyValue, SecurityScheme, Http, HttpAuthScheme},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 async fn verify<T: DeserializeOwned>(response: Response) -> Response {
@@ -38,6 +38,13 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
     let router=OpenApiRouter::<Arc<Host>>::new()
  .routes(routes!(market_data_stream_upgrade))
  .routes(routes!(temporary_market_data_stream_upgrade))
+ .routes(routes!(proposal_grant))
+ .routes(routes!(proposal_revoke))
+ .routes(routes!(proposal_stage))
+ .routes(routes!(proposal_context))
+ .routes(routes!(proposal_read))
+ .routes(routes!(proposal_confirm))
+ .routes(routes!(proposal_observe))
  .routes(routes!(factor_chat_providers))
  .routes(routes!(factor_chat_list))
  .routes(routes!(factor_chat_read))
@@ -153,6 +160,7 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
     let (router, mut document) = router.split_for_parts();
     document.openapi = OpenApiVersion::Version31;
     document.info = Info::new("OnlyAlpha Product API", "2");
+    document.components.get_or_insert_with(Default::default).add_security_scheme("AgentProposalBearer", SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)));
     document
         .components
         .get_or_insert_default()
@@ -1274,4 +1282,39 @@ async fn factor_chat_command(State(host): State<Arc<Host>>, request: Request<Bod
 #[utoipa::path(get,path="/api/v2/factor-chats/{conversation_id}/commands/{command_id}",security(("LocalDeveloperCookie"=[])),params(("conversation_id"=String,Path),("command_id"=String,Path)),responses((status=200,body=crate::transport::host_factor_chat::FactorChatObservationDto),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn factor_chat_observe(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
     host.dispatch(request).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-proposal-grants",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_proposals::GrantInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_grant(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-proposal-grants/revocations",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_proposals::RevokeInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_revoke(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-proposals",security(("AgentProposalBearer"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_proposals::StageInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_stage(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-proposal-context/{session_id}",security(("AgentProposalBearer"=[])),params(("session_id"=String,Path)),responses((status=200,body=crate::application::factor_proposals::Context),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_context(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Context>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-proposals/{fingerprint}",security(("LocalDeveloperCookie"=[]),("AgentProposalBearer"=[])),params(("fingerprint"=String,Path)),responses((status=200,body=crate::application::factor_proposals::ProposalView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_read(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::ProposalView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-proposals/{fingerprint}/confirmation",security(("LocalDeveloperCookie"=[])),params(("fingerprint"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::application::factor_proposals::ConfirmInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_confirm(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-proposals/commands/{command_id}",security(("LocalDeveloperCookie"=[]),("AgentProposalBearer"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn proposal_observe(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
 }

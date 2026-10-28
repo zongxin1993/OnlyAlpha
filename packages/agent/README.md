@@ -41,3 +41,23 @@ Sessions pin exact workflow code, installed dependency files, interpreter, check
 A PostgreSQL advisory session lock fences concurrent service instances. Immutable call plans and command receipts commit before external I/O; usage derives from those plans. Full frozen model requests and bounded results are durable facts; checkpoint state contains references/results without keys. Recorded results repair checkpoint loss without another model call. An accepted call lacking a provable result remains `OUTCOME_UNKNOWN`; restart, resume and repeated messages never resend it or reset budget. Resume reuses the original workflow only. Checkpoints do not grant consent or scientific qualification.
 
 Old Rust C2 and legacy Python consumers remain until A3/A4 and retirement gates replace their actual consumers. A2 does not migrate or delete their stored development data, reset dev services, publish or deploy.
+
+## Scoped backend proposal staging (A3)
+
+Set `ONLYALPHA_AGENT_BACKEND_URL` and `ONLYALPHA_AGENT_BACKEND_CREDENTIAL_FILE` together to enable proposal staging. The protected
+credential file uses mode 0600 and contains only the separately provisioned `oa-proposal-v1.<grant UUID>.<32-byte hex secret>`
+credential for a backend-owned, Human-authorized proposal grant. The backend stores its digest and explicit scope/limit/expiry;
+no backend Cookie, database credential or model key belongs in this file. There is no automatic grant, configuration fallback or
+remote plaintext allowance. The existing backend deployment/transport constraints remain in force.
+
+A Human-authenticated Agent API call to `POST /api/v1/agent/sessions/{id}/proposals` names the exact current model-event `expected`
+fingerprint and an Agent idempotency key. Backend-provided owner must match that user. The local call plan freezes the candidate,
+origin, current backend bases, credential/endpoint binding and distinct backend Command ID before its one submission. Repeating the
+same Agent request queries that original Command when uncertain; it never automatically sends it again. `REGISTERED` means only that
+backend retained an unadmitted snapshot. It is not Factor confirmation, publication, execution or scientific qualification.
+
+`GET /api/v1/agent/sessions/{id}/proposals/{local_command}` reads confirmation/current-head information from the owning backend afresh.
+An unavailable backend is reported as unavailable; local history is still readable. Exact receipts and classified observations are
+Agent provenance, not another current Factor store. Credential changes pause original binding reconciliation; do not mint another
+Command to disguise UNKNOWN. Model-call budgets are separate from backend grant usage. Only the frontend's direct backend Human
+command can confirm; this client exposes no confirmation or Research operation. The current C2 UI is unchanged until A4.

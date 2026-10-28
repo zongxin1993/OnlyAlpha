@@ -55,6 +55,7 @@ pub struct Host {
     pub(crate) metadata: Router,
     pub(crate) assets: Router,
     pub(crate) issuer: Mutex<Issuer>,
+    pub(crate) proposal_fence: Mutex<Issuer>,
     pub(crate) revoker: OnceLock<SourceRevoker>,
     pub(crate) ready: AtomicBool,
     pub(crate) socket_slots: Arc<tokio::sync::Semaphore>,
@@ -295,6 +296,10 @@ impl Host {
                 Err(Failure::unavailable("PRODUCT_NODE_NOT_READY"))
             };
         }
+        if request.extensions().get::<crate::security::proposal_access::Presented>().is_some() {
+            let deadline=request.extensions().get::<RequestDeadline>().ok_or(Failure::unavailable("REQUEST_DEADLINE_UNAVAILABLE"))?.0;
+            return self.factor_proposals(request,None,deadline).await;
+        }
         let human = request
             .extensions()
             .get::<human_access::Session>()
@@ -334,6 +339,9 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
+        if path.starts_with("/api/v2/factor-proposal") {
+            return self.factor_proposals(request,Some(human),deadline).await;
+        }
         if path.starts_with("/api/v2/factor-chat/")
             || path == "/api/v2/factor-chats"
             || path.starts_with("/api/v2/factor-chats/")

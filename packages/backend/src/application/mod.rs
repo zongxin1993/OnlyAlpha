@@ -15,3 +15,5 @@ pub mod watchlists;
 pub mod workspace;
 
 pub mod factor_chat;
+
+pub mod factor_proposals;

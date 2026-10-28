@@ -465,6 +465,7 @@ impl Running {
             metadata,
             assets,
             issuer: Mutex::new(issuer),
+            proposal_fence: Mutex::new(crate::transport::host::issue(Vec::new())?),
             revoker: OnceLock::new(),
             ready: AtomicBool::new(false),
             socket_slots: Arc::new(tokio::sync::Semaphore::new(8)),

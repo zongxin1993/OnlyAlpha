@@ -192,3 +192,68 @@ Only modified modules and direct consumers are verified, through the existing fo
 business behavior changes. Preserve existing guards, deterministic fault tests, bounded independent review and scoped Python
 retirement. No whole-repository flow, extra generic tooling, code migration, installation, publication or deployment is
 authorized by this design document.
+
+## A3 proposal API and acceptance boundary
+
+The scoped Product seam is `/api/v2/factor-proposals`. An Agent registers an unadmitted immutable snapshot; only a separately
+verified backend Human session can confirm it. A3 retains the serving C2 page/model/chat path. These interfaces are technical
+prerequisites for A4, not an alternative normal Human workflow or an A4 Shipping UI acceptance claim.
+
+A Human-authorized grant is registered at `POST /api/v2/factor-proposal-grants` and revoked at
+`POST /api/v2/factor-proposal-grants/revocations`. Both use global Command identities. Grant input includes a UUID, service
+subject, SHA-256 of a separately provisioned credential, a finite proposal limit and UTC expiry; owner comes from authenticated
+backend Human identity, never the request body. Credential provisioning is infrastructure work: a CSPRNG secret is delivered
+only to the Agent deployment, not through browser/model output. The credential is `oa-proposal-v1.<grant UUID>.<32-byte hex
+secret>`; its digest includes the entire audience-prefixed credential. Agent-audience JWTs, backend Human Cookies and model keys
+are not interchangeable with it. No default grant/secret or automatic enrollment is installed.
+
+This grant permits only registration and scoped context/snapshot/original-command queries. It owns no Source-data, Research,
+confirmation, Generation or trading permission. Objects are confined to the backend-derived Factor namespace for the authenticated
+owner, service subject and Agent chat session. The backend counts registered snapshots per grant independently of Agent model-call
+usage; replay does not consume a second slot. Every request verifies the owning grant, expiry and revocation. Revocation cuts off
+existing proposal responses through the retained ingress physical write fence; conservatively it invalidates all in-flight proposal
+responses on this node. Human access to already registered owned input does not require a live Agent or active Agent grant.
+The presented credential in ingress is untrusted routing/capacity context, not a Human/Source proof; only the owning database
+transaction grants service access. Existing Human Cookie, Source and denied `/api/v2/agent`/LIVE boundaries remain.
+
+`GET /api/v2/factor-proposal-context/{session_id}` returns the granted owner/service and exact current Authoring/display/proposal
+bases. `POST /api/v2/factor-proposals` binds these bases and the exact Agent session, model occurrence/result, model revision and
+workflow fingerprints. Backend derives the restricted V1 expression's formula, declared dependencies and Factor source together
+using the existing authoring logic. Arbitrary model code, extra candidate fields or unsupported expressions are refused. The
+snapshot retains this complete input with Agent origin; registration creates no Factor, Revision, execution admission or Evidence.
+It is not an ADR 0123 Research Session/Decision or an alternate Factor registry.
+
+`GET /api/v2/factor-proposals/{fingerprint}` returns the exact snapshot, whether it remains the current registered input and any
+confirmed owning receipt. A newer registration must match the prior registered head and supersedes it. Only
+`POST /api/v2/factor-proposals/{fingerprint}/confirmation` with a backend Human session can confirm; the body must name that exact
+fingerprint. Confirmation rechecks the current head and exact draft/display bases, rejects intervening edits/publication, and
+atomically records the existing Authoring save/display effects and global receipt. It does not publish a Factor Revision or execute
+anything. Original command queries at `/api/v2/factor-proposals/commands/{command_id}` reconcile exact identities; receipt/effect
+records are append-only and checked against the retained request, global Command and owning Authoring bindings.
+A confirmation query proves the Human operation family, exact target and deterministic mandatory save child; an unrelated valid
+receipt is not confirmation. The mutable head must match the unique terminal snapshot in its complete verified supersession chain.
+A missing, foreign or rolled-back projection is unavailable/corrupt, not certified absence or a proved non-current snapshot.
+
+In Agent API, `POST /api/v1/agent/sessions/{session_id}/proposals` stages the exact current model occurrence. Its independent local
+idempotency key is durably linked to a distinct backend Command before submission. Backend context owner must equal the authenticated
+Agent user. Connection/credential binding is frozen with the plan; credential rotation cannot silently resubmit an old operation.
+Only a newly committed plan may send its one POST. Lost acknowledgement or process failure leaves UNKNOWN; replay queries the original
+backend Command and reuses a verified receipt, never makes a new identity or automatically resends. The receipt is recorded before
+the synchronous LangGraph checkpoint; repairing that checkpoint only loads the exact recorded occurrence and cannot submit effects.
+Reading a cached receipt rechecks its Command relation as well as its digest. Observed refusal/uncertainty is
+recorded separately from a successful owning receipt. `GET .../proposals/{local_command_id}` queries the registered snapshot from the
+backend afresh for confirmation status; cached Agent chat/receipt data does not become current backend truth. Backend outage leaves
+ordinary Agent history readable but blocks staging/authoritative status observation.
+
+Agent settings use an explicit `ONLYALPHA_AGENT_BACKEND_URL` and protected
+`ONLYALPHA_AGENT_BACKEND_CREDENTIAL_FILE`; neither is a model setting or a backend Human credential. Protected remote transport is
+required; the existing backend physical deployment gate is not broadened by this client. No proxy trust or new server topology is
+implicitly enabled. A4 must provide the coherent sign-in/configuration experience and invalidate pending UI input before editing;
+private chat text alone does not mutate a backend-registered snapshot. Delayed UI responses must use the exact registered head.
+
+Migration 0059 extends backend-owned Command kinds and adds grant/snapshot/operation facts plus a replaceable current-head projection.
+It is transactional under the existing migration entry: any failure rolls back schema changes, and confirmation failure rolls back
+all Authoring/Command effects. Existing facts and fingerprints are not rewritten. Agent adds only its own backend-call plans,
+observations and receipt references to its separate store. Startup/tests never migrate backend data through Agent credentials.
+Old C2 writers and still-consumed Python implementations remain until A4/A6 retirement conditions are met; A3 does not introduce
+fallbacks, historical-development-data loaders, publication or deployment.
