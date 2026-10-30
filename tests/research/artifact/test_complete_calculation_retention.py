@@ -6,10 +6,10 @@ from dataclasses import replace
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactRole
 
 from onlyalpha.calculation import OnlyCalculationBackendKind
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.distribution import OnlyDistributionArtifactRole
 from onlyalpha.generation_identity import (
     OnlyRuntimeGenerationManifest,
     OnlyRuntimeGenerationValidationEvidence,

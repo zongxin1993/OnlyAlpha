@@ -49,6 +49,9 @@ def build(
     directory.mkdir(parents=True)
     (directory / "bin").mkdir()
     shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
+    from scripts.embed_build_provenance import resolve_build_provenance_bytes
+
+    (directory / "source-provenance.json").write_bytes(resolve_build_provenance_bytes(ROOT))
     artifact = install(directory / "wheels", directory / "algorithms")
     from scripts.build_agent_service import install as install_agent
 

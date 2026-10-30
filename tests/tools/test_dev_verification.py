@@ -1015,3 +1015,143 @@ def test_native_plugin_manifests_are_environment_inputs(tmp_path: Path) -> None:
     assert str(manifest.relative_to(tmp_path)) in before
     manifest.write_text(manifest.read_text() + "build=false\n")
     assert dev_verification.environment_inputs(tmp_path) != before
+
+
+OP = "00000000-0000-4000-8000-000000000001"
+
+
+def test_controlled_https_requires_exact_module_and_both_explicit_selectors():
+    command = ["python", "-m", "scripts.native_web_e2e", "--retained-market-input", "--controlled-source-https"]
+    assert dev_verification.controlled_https_command(command)
+    for altered in [
+        command[1:],
+        ["python", "-c", "pass", *command[3:]],
+        command[:-1],
+        command + ["--controlled-source-https"],
+    ]:
+        assert not dev_verification.controlled_https_command(altered)
+
+
+@pytest.mark.parametrize("original", [b"127.0.0.1 localhost\n", b"127.0.0.1 localhost"])
+def test_controlled_hosts_mapping_preserves_every_original_byte(original):
+    mapped = dev_verification.controlled_hosts_bytes(original, OP)
+    assert mapped.startswith(original)
+    assert mapped.endswith(b"127.0.0.1 data-api.binance.vision # onlyalpha-dev-controlled-https:" + OP.encode() + b"\n")
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        b"1.2.3.4 data-api.binance.vision\n",
+        b"1.2.3.4 example DATA-API.BINANCE.VISION\n",
+        b"# onlyalpha-dev-controlled-https:old\n",
+    ],
+)
+def test_existing_mapping_or_any_original_marker_is_never_reinterpreted(original):
+    with pytest.raises(ValueError, match="EXISTING_MAPPING_REFUSED"):
+        dev_verification.controlled_hosts_bytes(original, OP)
+
+
+def test_inside_requires_the_same_exact_operation_mapping_only():
+    mapped = dev_verification.controlled_hosts_bytes(b"127.0.0.1 localhost\n", OP)
+    assert dev_verification.controlled_https_mapping(mapped, OP)
+    assert not dev_verification.controlled_https_mapping(mapped, "00000000-0000-4000-8000-000000000002")
+    assert not dev_verification.controlled_https_mapping(mapped + b"1.2.3.4 data-api.binance.vision\n", OP)
+    assert not dev_verification.controlled_https_mapping(b"127.0.0.1 localhost\n", OP)
+
+
+def _controlled_root_receipt(operation, action):
+    return {
+        "operation_id": operation,
+        "action": action,
+        "completed": True,
+        "device": 1,
+        "inode": 2,
+        "original_sha256": "a" * 64,
+        "mapped_sha256": "b" * 64,
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"device": True},
+        {"inode": 0},
+        {"original_sha256": "BAD"},
+        {"mapped_sha256": "A" * 64},
+        {"completed": False},
+        {"extra": "refused"},
+        {"operation_id": "00000000-0000-4000-8000-000000000002"},
+        {"action": "begin"},
+    ],
+)
+def test_controlled_root_proof_requires_exact_typed_fields(change):
+    operation = "00000000-0000-4000-8000-000000000001"
+    proof = _controlled_root_receipt(operation, "restore")
+    dev_verification.validate_controlled_proof(proof, operation, "restore")
+    with pytest.raises(ValueError, match="COMPLETION_UNPROVEN"):
+        dev_verification.validate_controlled_proof({**proof, **change}, operation, "restore")
+
+
+@pytest.mark.parametrize("failure", ["begin", "inside", "restore"])
+def test_controlled_https_unproven_resource_or_inside_retains_host_pending(monkeypatch, tmp_path, failure):
+    original_container = _container
+    monkeypatch.setattr(sys.modules[__name__], "_container", lambda root: {**original_container(root), "Id": "c" * 64})
+    _host(
+        monkeypatch,
+        tmp_path,
+        [
+            "--controlled-source-https",
+            "run",
+            "--",
+            "python",
+            "-m",
+            "scripts.native_web_e2e",
+            "--retained-market-input",
+            "--controlled-source-https",
+        ],
+    )
+    check_output = subprocess.check_output
+    run = subprocess.run
+    root_actions = []
+
+    def output(command, **kwargs):
+        if command[:4] != ["docker", "exec", "--user", "0"]:
+            return check_output(command, **kwargs)
+        action = command[-1].removeprefix("controlled-https-")
+        root_actions.append(action)
+        operation = command[command.index("--operation-id") + 1]
+        proof = _controlled_root_receipt(operation, action)
+        if action == failure:
+            proof["completed"] = False
+        return json.dumps(proof)
+
+    def inside(command, **kwargs):
+        result = run(command, **kwargs)
+        if "inside" in command:
+            path = tmp_path / "test-results/dev-verification/last-outcome.json"
+            outcome = json.loads(path.read_text())
+            cut = json.loads((tmp_path / ".test-cache/dev-source-cut" / dev_verification.CUT_METADATA).read_text())
+            import hashlib
+
+            outcome["source_sha256"] = hashlib.sha256(json.dumps(cut["inputs"], sort_keys=True).encode()).hexdigest()
+            if failure == "inside":
+                outcome["completed"] = False
+            path.write_text(json.dumps(outcome))
+        return result
+
+    monkeypatch.setattr(subprocess, "check_output", output)
+    monkeypatch.setattr(subprocess, "run", inside)
+    with pytest.raises(ValueError, match="COMPLETION_UNPROVEN"):
+        dev_verification.main()
+    pending = dev_verification.HOST_STATE / "dev-verification.pending.json"
+    assert pending.exists() and json.loads(pending.read_text())["completed"] is False
+    assert root_actions == (["begin", "restore"] if failure == "restore" else ["begin"])
+    if failure != "begin":
+        operation = json.loads(pending.read_text())["operation_id"]
+        receipt = json.loads(
+            (tmp_path / "test-results/dev-verification" / (operation + "-controlled-https-begin.json")).read_text()
+        )
+        assert receipt["container_id"] == "c" * 64
+        assert receipt["image_id"] == "sha256:" + "a" * 64
+        assert len(receipt["source_sha256"]) == 64

@@ -19,6 +19,10 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+)
 from onlyalpha_plugin_indicators.provider import (
     quant_asset_provider as indicator_provider,
 )
@@ -65,7 +69,6 @@ from onlyalpha.persistence.postgres.research_source_cut_store import (
     OnlyPostgresResearchSourceCutAuthority,
 )
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
@@ -73,7 +76,6 @@ from onlyalpha.quant_assets import (
     OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateFactorAsset,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetCatalogManager,
     only_quant_asset_distribution_artifact_manifest,

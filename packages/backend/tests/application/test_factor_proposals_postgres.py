@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import psycopg
@@ -16,7 +18,16 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 AT = "2026-10-28T00:00:00Z"
 
 
-def call(probe, action, *, command=None, actor="owner", token=None, body=None, **values):
+def call(
+    probe: Path,
+    action: str,
+    *,
+    command: str | None = None,
+    actor: str = "owner",
+    token: str | None = None,
+    body: dict[str, Any] | None = None,
+    **values: Any,
+) -> dict[str, Any]:
     request = {
         "op": "factor-proposal",
         "action": action,
@@ -30,10 +41,10 @@ def call(probe, action, *, command=None, actor="owner", token=None, body=None, *
     result = subprocess.run(
         [str(probe)], input=json.dumps(request), text=True, capture_output=True, check=True, timeout=20
     )
-    return json.loads(result.stdout)
+    return cast(dict[str, Any], json.loads(result.stdout))
 
 
-def grant(probe, dsn):
+def grant(probe: Path, dsn: str, *, owner: str = "owner") -> tuple[str, str]:
     OnlyPostgresMigrationAuthority(dsn).migrate()
     gid = str(uuid4())
     token = "oa-proposal-v1." + gid + "." + "a" * 64
@@ -45,12 +56,12 @@ def grant(probe, dsn):
         "proposal_limit": 3,
         "expires_at": "2027-01-01T00:00:00Z",
     }
-    result = call(probe, "grant", body=body)
+    result = call(probe, "grant", body=body, actor=owner)
     assert "error" not in result, result
     return gid, token
 
 
-def proposal(probe, token, sid=None):
+def proposal(probe: Path, token: str, sid: str | None = None) -> dict[str, Any]:
     sid = sid or str(uuid4())
     context = call(probe, "context", token=token, session_id=sid)
     assert "error" not in context, context

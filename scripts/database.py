@@ -29,7 +29,12 @@ from onlyalpha.persistence.postgres import (
     only_discover_postgres_migrations,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreIdentity
+from onlyalpha.research.operations.deployment import (
+    OnlyResearchDeploymentError,
+    OnlyResearchDeploymentErrorCode,
+    OnlyResearchSemanticStoreId,
+    OnlyResearchSemanticStoreIdentity,
+)
 from onlyalpha.research.run import OnlyResearchRunId
 
 ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"
@@ -215,22 +220,70 @@ def _validate(dsn: str, run_id: str | None) -> None:
             raise RuntimeError("market-data catalog schema is missing")
 
 
-def _initialize_deployment(dsn: str, user_data_root: Path) -> str:
+def _selected_native_backend(explicit: Path | None) -> Path:
+    selected = explicit
+    if selected is None:
+        root = os.environ.get("ONLYALPHA_NATIVE_ARTIFACT_ROOT")
+        if root is None:
+            raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_BACKEND_REQUIRED")
+        selected = Path(root) / "bin" / "onlyalpha-backend"
+    if (
+        not selected.is_absolute()
+        or selected.is_symlink()
+        or not selected.is_file()
+        or not os.access(selected, os.X_OK)
+    ):
+        raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_BACKEND_UNAVAILABLE")
+    return selected
+
+
+def _native_research_namespace(backend: Path, user_data_root: Path, *, fresh: bool) -> OnlyResearchSemanticStoreId:
+    command = "--initialize-fresh-research-namespace" if fresh else "--verify-research-namespace"
+    result = subprocess.run(
+        [str(backend), command, str(user_data_root)], check=True, capture_output=True, text=True, timeout=30
+    )
+    payload = json.loads(result.stdout)
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "semantic_store_id", "profile", "policy"}
+        or payload["schema_version"] != 1
+    ):
+        raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_RESPONSE_INVALID")
+    identity = OnlyResearchSemanticStoreId(payload["semantic_store_id"])
+    if OnlyResearchSemanticStoreIdentity(user_data_root / "research").load_verified() != identity:
+        raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_RESPONSE_MISMATCH")
+    return identity
+
+
+def _initialize_deployment(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str:
     _verifier(dsn).assert_compatible()
     only_assert_supported_postgres_server(dsn)
+    if not user_data_root.is_absolute():
+        raise ValueError("RESEARCH_NAMESPACE_ABSOLUTE_ROOT_REQUIRED")
+    backend = _selected_native_backend(native_backend)
     layout = OnlyUserDataLayout(user_data_root)
-    identity = OnlyResearchSemanticStoreIdentity(layout.research_root).initialize()
-    OnlyPostgresResearchDeploymentStore(dsn).initialize(identity)
-    for root in (
-        layout.research_dataset_root,
-        layout.research_calculation_result_root,
-        layout.research_statistics_result_root,
-        layout.research_result_root,
-        layout.research_artifact_root,
-        layout.research_dataset_economic_binding_root,
-        layout.backtest_evidence_root,
-    ):
-        root.mkdir(parents=True, exist_ok=True)
+    binding = OnlyPostgresResearchDeploymentStore(dsn)
+    try:
+        expected = binding.load_semantic_store_id()
+    except OnlyResearchDeploymentError as error:
+        if error.code != OnlyResearchDeploymentErrorCode.DEPLOYMENT_BINDING_MISSING:
+            raise
+        expected = None
+    try:
+        layout.research_root.lstat()
+        fresh = False
+    except FileNotFoundError:
+        if expected is not None:
+            raise RuntimeError("RESEARCH_NAMESPACE_EXISTING_HISTORY_UNAVAILABLE") from None
+        fresh = True
+    user_data_root.mkdir(parents=True, exist_ok=True)
+    identity = _native_research_namespace(backend, user_data_root, fresh=fresh)
+    if expected is not None and identity != expected:
+        raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
+    binding.initialize(identity)
+    if _native_research_namespace(backend, user_data_root, fresh=False) != identity:
+        raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
+    layout.backtest_evidence_root.mkdir(parents=True, exist_ok=True)
     return str(identity)
 
 
@@ -243,6 +296,7 @@ def main() -> int:
     commands.add_parser("migrate")
     initialize = commands.add_parser("initialize-deployment")
     initialize.add_argument("--user-data-root", type=Path, required=True)
+    initialize.add_argument("--native-backend", type=Path)
     validate = commands.add_parser("validate")
     validate.add_argument("--run-id")
     backup = commands.add_parser("backup")
@@ -273,7 +327,7 @@ def main() -> int:
         print(json.dumps({"applied": authority.migrate()}, sort_keys=True))
         return 0
     if args.command == "initialize-deployment":
-        store_id = _initialize_deployment(dsn, args.user_data_root)
+        store_id = _initialize_deployment(dsn, args.user_data_root, args.native_backend)
         print(json.dumps({"deployment": "BOUND", "semantic_store_id": store_id}, sort_keys=True))
         return 0
     if args.command == "validate":

@@ -16,18 +16,22 @@ from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.quant_assets import (
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    _ADAPTER_FINGERPRINTS,
     OnlyPrivateFactorAdapterV1,
     OnlyPrivateFactorExecutableClosureV1,
     OnlyPrivateFactorIsolatedProgramHost,
-    OnlyPrivateFactorProviderSnapshotEntryV1,
-    OnlyPrivateFactorProviderSnapshotV1,
     OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    only_private_factor_backend_registrations,
+    only_validate_private_factor_revision,
+)
+
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.quant_assets import (
     OnlyPrivateFactorRevision,
     OnlyPrivateFactorSnapshotProviderSource,
-    OnlyPrivateFactorSourceArtifactManifestV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
@@ -43,10 +47,9 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateAssetRevisionNotFoundError,
     OnlyPrivateAssetRevisionReferenceV1,
 )
-from onlyalpha.quant_assets.private_factor_execution import (
-    _ADAPTER_FINGERPRINTS,
-    only_private_factor_backend_registrations,
-    only_validate_private_factor_revision,
+from onlyalpha.quant_assets.private_factor_provider_snapshot import (
+    OnlyPrivateFactorProviderSnapshotEntryV1,
+    OnlyPrivateFactorProviderSnapshotV1,
 )
 from onlyalpha.research.provenance import (
     OnlyResearchAuthoringProvenance,

@@ -156,10 +156,31 @@
             ],
             "title": "Expected"
           },
+          "factor_proposal_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Proposal Fingerprint"
+          },
           "text": {
             "maxLength": 8000,
             "minLength": 1,
             "title": "Text",
+            "type": "string"
+          },
+          "topic": {
+            "default": "FACTOR",
+            "enum": [
+              "FACTOR",
+              "STUDY"
+            ],
+            "title": "Topic",
             "type": "string"
           }
         },
@@ -410,6 +431,16 @@
             "title": "Execution Admitted",
             "type": "boolean"
           },
+          "factor_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "head": {
             "anyOf": [
               {
@@ -440,7 +471,29 @@
             "title": "Model Revision",
             "type": "string"
           },
-          "proposal": {
+          "status": {
+            "enum": [
+              "READY",
+              "FAILED",
+              "OUTCOME_UNKNOWN",
+              "WORKFLOW_UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "study": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study"
+          },
+          "study_reference": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ProposalReference"
@@ -450,14 +503,12 @@
               }
             ]
           },
-          "status": {
+          "topic": {
             "enum": [
-              "READY",
-              "FAILED",
-              "OUTCOME_UNKNOWN",
-              "WORKFLOW_UNAVAILABLE"
+              "FACTOR",
+              "STUDY"
             ],
-            "title": "Status",
+            "title": "Topic",
             "type": "string"
           },
           "workflow": {
@@ -475,7 +526,10 @@
           "messages",
           "status",
           "candidate",
-          "proposal",
+          "factor_reference",
+          "study_reference",
+          "topic",
+          "study",
           "execution_admitted"
         ],
         "title": "SessionView",

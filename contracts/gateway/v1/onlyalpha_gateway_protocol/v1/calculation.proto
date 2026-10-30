@@ -29,6 +29,12 @@ message CalculationNode { bytes request_json = 1; }
 message BacktestExternal { bytes request_json = 1; }
 // Pure transient chart batch; no Runtime/Trading/Research publication authority.
 message ChartBatch { bytes request_json = 1; }
+// Installed Factor source/Definition resolution only. No Run or publication authority.
+message ResearchResolve { bytes request_json = 1; }
+// Pure managed graph values. Backend alone owns Run permission and Evidence.
+message ResearchEvaluate { bytes request_json = 1; }
+// Actual installed algorithm ABI observations only; no Runtime or Research grant.
+message ResearchPrepare { bytes request_json = 1; }
 message CalculationRequest {
   uint32 protocol_version = 1;
   string generation = 2;
@@ -45,6 +51,9 @@ message CalculationRequest {
     CalculationNode node = 18;
     BacktestExternal replay = 19;
     ChartBatch chart = 20;
+    ResearchResolve research_resolve = 21;
+    ResearchEvaluate research_evaluate = 22;
+    ResearchPrepare research_prepare = 23;
   }
 }
 message CalculationError { string code = 1; }

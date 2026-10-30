@@ -20,11 +20,25 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 1rem;
 }
-.factor-chat-columns > section {
+.factor-chat-columns > section,
+.factor-chat-context > section {
     min-width: 0;
     border: 1px solid #d7dfe5;
     border-radius: 0.4rem;
     padding: 1rem;
+}
+.factor-chat-context {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+    align-content: start;
+}
+.factor-chat-page dd {
+    margin-inline: 0;
+    overflow-wrap: anywhere;
+}
+.factor-chat-page dt {
+    font-weight: 600;
 }
 .factor-chat-page textarea {
     width: 100%;

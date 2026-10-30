@@ -21,6 +21,11 @@ from dataclasses import asdict, dataclass
 from threading import BoundedSemaphore
 from typing import Protocol, cast
 
+from onlyalpha_gateway_protocol.distribution import (
+    OnlyArtifactCalculationImplementation,
+    OnlyDistributionArtifactManifest,
+)
+
 from onlyalpha.application.runtime_generation import OnlyRuntimeWorkBindingEvidence
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -31,7 +36,6 @@ from onlyalpha.calculation.definition import (
 from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.calculation.registry import OnlyCalculationRegistry, OnlyTradingCalculationBackendResolver
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import OnlyArtifactCalculationImplementation, OnlyDistributionArtifactManifest
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 
 from .artifact_store import OnlyLocalImmutableArtifactStore

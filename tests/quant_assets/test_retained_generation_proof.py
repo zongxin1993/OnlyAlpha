@@ -6,15 +6,15 @@ from copy import deepcopy
 from dataclasses import replace
 
 import pytest
-
-from onlyalpha.calculation.predicate import only_predicate_type_definitions
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactCalculationImplementation,
     OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
+
+from onlyalpha.calculation.predicate import only_predicate_type_definitions
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.generation_identity import (
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,

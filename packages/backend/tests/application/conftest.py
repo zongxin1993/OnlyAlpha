@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import subprocess
@@ -16,6 +17,7 @@ __all__ = ["postgres_dsn"]
 
 
 @pytest.fixture(scope="session")
+@functools.cache
 def native_probe() -> Path:
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 

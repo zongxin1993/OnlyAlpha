@@ -63,7 +63,7 @@ impl Presented {
 }
 pub(crate) fn service_route(method: &Method, path: &str) -> bool {
     if method == Method::POST {
-        return path == "/api/v2/factor-proposals";
+        return matches!(path, "/api/v2/factor-proposals" | "/api/v2/factor-studies");
     }
     if method != Method::GET {
         return false;
@@ -73,6 +73,15 @@ pub(crate) fn service_route(method: &Method, path: &str) -> bool {
     }
     if let Some(s) = path.strip_prefix("/api/v2/factor-proposals/commands/") {
         return CommandId::new(s).is_ok();
+    }
+    if let Some(s) = path.strip_prefix("/api/v2/factor-study-context/") {
+        return crate::is_sha256_hex(s);
+    }
+    if let Some(s) = path.strip_prefix("/api/v2/factor-studies/commands/") {
+        return CommandId::new(s).is_ok();
+    }
+    if let Some(s) = path.strip_prefix("/api/v2/factor-studies/") {
+        return crate::is_sha256_hex(s);
     }
     path.strip_prefix("/api/v2/factor-proposals/")
         .is_some_and(crate::is_sha256_hex)
@@ -92,8 +101,11 @@ mod tests {
         );
         for (method, path, allowed) in [
             (Method::POST, "/api/v2/factor-proposals", true),
+            (Method::POST, "/api/v2/factor-studies", true),
             (Method::POST, "/api/v2/factor-proposals/", false),
             (Method::POST, "/api/v2/factor-proposal-grants", false),
+            (Method::POST, "/api/v2/factor-study-grants", false),
+            (Method::POST, "/api/v2/factor-study-preparations", false),
             (Method::POST, "/api/v2/research/commands", false),
             (Method::GET, "/api/v2/agent/sessions", false),
         ] {
@@ -106,6 +118,23 @@ mod tests {
                 .unwrap();
             assert_eq!(matches!(a.admit(&r), Ok(Admission::Proposal(_))), allowed);
         }
+        let pin = "a".repeat(64);
+        for path in [
+            format!("/api/v2/factor-study-context/{pin}"),
+            format!("/api/v2/factor-studies/{pin}"),
+            "/api/v2/factor-studies/commands/12345678-1234-4234-8234-123456789abc".into(),
+        ] {
+            assert!(service_route(&Method::GET, &path));
+            assert!(!service_route(&Method::POST, &path));
+        }
+        assert!(!service_route(
+            &Method::POST,
+            &format!("/api/v2/factor-studies/{pin}/confirmation")
+        ));
+        assert!(!service_route(
+            &Method::POST,
+            &format!("/api/v2/factor-studies/{pin}/withdrawal")
+        ));
         let r = http::Request::builder()
             .method(Method::POST)
             .uri("/api/v2/factor-proposals")

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ModelSettings } from "./ModelSettings";
+import { ResearchStudyPanel, type ResearchStudyActions } from "./ResearchStudyPanel";
 import {
     ChatRequestError,
     commandSchema,
@@ -13,15 +14,19 @@ import {
     savedAccess,
     sessionSchema,
     sessionsSchema,
+    studySchema,
+    studyContextSchema,
     type Access,
     type Chat,
     type Model,
-    type Proposal
+    type Proposal,
+    type Study
 } from "./api";
 import "./factorChat.css";
 const currentKey = "onlyalpha.agent.chat.selected";
 const pendingKey = "onlyalpha.agent.chat.pending";
 const linksKey = "onlyalpha.agent.chat.proposals";
+const studyLinksKey = "onlyalpha.agent.chat.studies";
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const grantInput = z.strictObject({
     schema_version: z.literal(1),
@@ -30,6 +35,23 @@ const grantInput = z.strictObject({
     credential_sha256: sha,
     proposal_limit: z.number().int(),
     expires_at: z.string()
+});
+const studyGrantInput = z.strictObject({
+    schema_version: z.literal(1),
+    factor_proposal_fingerprint: sha,
+    grant_id: z.uuid(),
+    proposal_limit: z.literal(10)
+});
+const studyMessage = z.strictObject({
+    resource: z.uuid(),
+    command: z.uuid(),
+    binding: sha,
+    body: z.strictObject({
+        expected: sha.nullable(),
+        text: z.literal("请建议当前因子的研究条件"),
+        topic: z.literal("STUDY"),
+        factor_proposal_fingerprint: sha
+    })
 });
 const pendingFields = {
     resource: z.uuid(),
@@ -41,10 +63,25 @@ const pendingSchema = z.discriminatedUnion("kind", [
     z.strictObject({ ...pendingFields, kind: z.literal("grant"), body: grantInput }),
     z.strictObject({
         ...pendingFields,
-        kind: z.enum(["model", "create", "message", "stage", "confirm", "withdraw"])
+        kind: z.literal("study-grant"),
+        body: studyGrantInput,
+        message: studyMessage
+    }),
+    z.strictObject({
+        ...pendingFields,
+        kind: z.enum([
+            "model",
+            "create",
+            "message",
+            "stage",
+            "confirm",
+            "withdraw",
+            "study-withdraw"
+        ])
     })
 ]);
 type Pending = z.infer<typeof pendingSchema>;
+const backendKinds = ["confirm", "withdraw", "grant", "study-grant", "study-withdraw"];
 const linkSchema = z.record(z.string(), z.strictObject({ fingerprint: sha, head: sha }));
 function pendingValue(): Pending | null {
     try {
@@ -53,9 +90,9 @@ function pendingValue(): Pending | null {
         return null;
     }
 }
-function links() {
+function links(key = linksKey) {
     try {
-        return linkSchema.parse(JSON.parse(localStorage.getItem(linksKey) ?? "{}"));
+        return linkSchema.parse(JSON.parse(localStorage.getItem(key) ?? "{}"));
     } catch {
         return {};
     }
@@ -84,7 +121,15 @@ const messages: Record<string, string> = {
     MODEL_OUTCOME_UNKNOWN: "模型结果未知；不会重复调用。",
     MODEL_RESPONSE_INVALID: "模型返回的内容不符合受支持契约，请明确调整想法。",
     AGENT_UNAUTHORIZED: "助手登录已失效，请点击“重新连接助手”后核对原操作。",
-    AGENT_COMMAND_ABANDONED: "此操作已明确放弃，不会迟到执行。"
+    AGENT_COMMAND_ABANDONED: "此操作已明确放弃，不会迟到执行。",
+    AGENT_STUDY_CONTEXT_UNAVAILABLE:
+        "研究建议的权限或数据源上下文不可用，未消耗新的模型调用。请核对登记许可和数据源设置。",
+    AGENT_FACTOR_REFERENCE_CONFLICT: "当前因子已经变化，请重新载入并确认因子。",
+    AGENT_BACKEND_OUTCOME_UNKNOWN: "原提案登记结果未知，当前对话只读；请核对原操作。",
+    FACTOR_STUDY_PROPOSAL_STALE: "研究方案已被更新，请重新载入后核对。",
+    FACTOR_STUDY_PROPOSAL_ALREADY_WITHDRAWN: "研究方案已撤回，请继续讨论新条件。",
+    FACTOR_STUDY_GRANT_REQUIRED: "请先明确允许助手登记本因子的研究条件建议。",
+    FACTOR_STUDY_GRANT_CONFLICT: "研究建议许可已存在，请重新载入实际许可后继续。"
 };
 const readable = (e: unknown) => {
     const s = e instanceof Error ? e.message : String(e);
@@ -124,6 +169,8 @@ export function FactorChatPage() {
     const [budget, setBudget] = useState(20);
     const [pending, setPending] = useState<Pending | null>(pendingValue);
     const [proposal, setProposal] = useState<Proposal | null>(null);
+    const [study, setStudy] = useState<Study | null>(null);
+    const [editingFactor, setEditingFactor] = useState(false);
     const [connection, setConnection] = useState<z.infer<typeof connectionSchema> | null>(null);
     const [agentReady, setAgentReady] = useState(false);
     const [backendError, setBackendError] = useState("");
@@ -131,11 +178,15 @@ export function FactorChatPage() {
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
     const generation = useRef(0);
-    const approvalText = ["确认因子", "确认当前因子"].includes(text.trim());
-    const dirty = text.trim() !== "" && !approvalText;
+    const researchAction = useRef<ResearchStudyActions>(null);
+    const [researchFeedback, setResearchFeedback] = useState("");
+    const topic = editingFactor ? "FACTOR" : (chat?.topic ?? "FACTOR");
+    const approvalText = topic === "FACTOR" && ["确认因子", "确认当前因子"].includes(text.trim());
+    const researchApprovalText = !editingFactor && text.trim() === "确认本次研究";
+    const dirty = text.trim() !== "" && !approvalText && !researchApprovalText;
     function remember(input: Pending | null) {
         const p =
-            input !== null && !["confirm", "withdraw", "grant"].includes(input.kind)
+            input !== null && !backendKinds.includes(input.kind)
                 ? { ...input, binding: input.binding ?? access?.binding }
                 : input;
         if (p === null) sessionStorage.removeItem(pendingKey);
@@ -187,34 +238,65 @@ export function FactorChatPage() {
         await Promise.all([a, b]);
         if (tag !== generation.current) return;
         const owned = current as Chat | null;
-        const ref = owned?.proposal;
-        const saved = links()[selected];
-        const fp = ref?.fingerprint ?? saved?.fingerprint;
-        const head = ref?.head ?? saved?.head;
-        if (fp === undefined || head === undefined || (owned !== null && owned.head !== head)) {
-            setProposal(null);
-            return;
-        }
-        try {
-            const view = await request(`/api/v2/factor-proposals/${fp}`, proposalSchema);
-            if (tag !== generation.current) return;
-            if (
-                view.fingerprint !== fp ||
-                view.snapshot.origin.session_id !== selected ||
-                view.snapshot.origin.event_fingerprint !== head
-            )
-                throw new Error("登记提案与当前对话不匹配，请核对原操作");
-            setProposal(view);
-            localStorage.setItem(
-                linksKey,
-                JSON.stringify({ ...links(), [selected]: { fingerprint: fp, head } })
-            );
-        } catch (e) {
-            if (tag === generation.current) {
-                setProposal(null);
-                setBackendError("backend 暂不可用：登记提案无法核对，" + readable(e));
+        const factorRef = owned === null ? links()[selected] : owned.factor_reference;
+        const studyRef = owned === null ? links(studyLinksKey)[selected] : owned.study_reference;
+        if (factorRef?.fingerprint) {
+            try {
+                const view = await request(
+                    `/api/v2/factor-proposals/${factorRef.fingerprint}`,
+                    proposalSchema
+                );
+                if (tag !== generation.current) return;
+                if (
+                    view.fingerprint !== factorRef.fingerprint ||
+                    view.snapshot.origin.session_id !== selected ||
+                    view.snapshot.origin.event_fingerprint !== factorRef.head
+                )
+                    throw new Error("登记提案与原对话不匹配，请核对原操作");
+                setProposal(view);
+                localStorage.setItem(
+                    linksKey,
+                    JSON.stringify({
+                        ...links(),
+                        [selected]: { fingerprint: factorRef.fingerprint, head: factorRef.head }
+                    })
+                );
+            } catch (e) {
+                if (tag === generation.current) {
+                    setProposal(null);
+                    setBackendError("backend 暂不可用：因子提案无法核对，" + readable(e));
+                }
             }
-        }
+        } else setProposal(null);
+        if (studyRef?.fingerprint) {
+            try {
+                const view = await request(
+                    `/api/v2/factor-studies/${studyRef.fingerprint}`,
+                    studySchema
+                );
+                if (tag !== generation.current) return;
+                if (
+                    view.fingerprint !== studyRef.fingerprint ||
+                    view.snapshot.origin.session_id !== selected ||
+                    view.snapshot.origin.event_fingerprint !== studyRef.head ||
+                    view.snapshot.factor_proposal_fingerprint !== factorRef?.fingerprint
+                )
+                    throw new Error("研究方案与原因子/对话不匹配，请核对原操作");
+                setStudy(view);
+                localStorage.setItem(
+                    studyLinksKey,
+                    JSON.stringify({
+                        ...links(studyLinksKey),
+                        [selected]: { fingerprint: studyRef.fingerprint, head: studyRef.head }
+                    })
+                );
+            } catch (e) {
+                if (tag === generation.current) {
+                    setStudy(null);
+                    setBackendError("backend 暂不可用：研究方案无法核对，" + readable(e));
+                }
+            }
+        } else setStudy(null);
     }, []);
     useEffect(() => {
         const sequence = generation;
@@ -239,16 +321,19 @@ export function FactorChatPage() {
         return access;
     }
     async function stage(s: Chat) {
-        if (s.head === null || s.candidate === null || s.status !== "READY") return;
-        if (s.proposal?.fingerprint) return;
+        const content = s.topic === "STUDY" ? s.study : s.candidate;
+        const reference = s.topic === "STUDY" ? s.study_reference : s.factor_reference;
+        if (s.head === null || content === null || s.status !== "READY") return;
+        if (reference?.head === s.head && reference.fingerprint) return;
+        const original = reference?.head === s.head;
         const p: Pending = {
             kind: "stage",
             resource: s.id,
-            command: s.proposal?.command ?? crypto.randomUUID()
+            command: original ? reference.command : crypto.randomUUID()
         };
         remember(p);
         const r = await request(
-            s.proposal === null
+            !original
                 ? `/api/v1/agent/sessions/${s.id}/proposals`
                 : `/api/v1/agent/sessions/${s.id}/proposals/${p.command}/resume`,
             registrationSchema,
@@ -265,6 +350,7 @@ export function FactorChatPage() {
         remember(null);
     }
     async function create() {
+        setEditingFactor(false);
         const id = crypto.randomUUID();
         const m = models.find((v) => v.id === selectedModel);
         if (m === undefined) throw new Error("请先配置模型");
@@ -283,13 +369,19 @@ export function FactorChatPage() {
         await refresh();
     }
     async function backendSubmission(p: Pending) {
-        if (!["confirm", "withdraw", "grant"].includes(p.kind))
-            throw new Error("原操作类型不可提交");
+        if (!backendKinds.includes(p.kind)) throw new Error("原操作类型不可提交");
         let path: string;
         let body: object;
         if (p.kind === "grant") {
             path = "/api/v2/factor-proposal-grants";
             body = p.body;
+        } else if (p.kind === "study-grant") {
+            path = "/api/v2/factor-study-grants";
+            body = p.body;
+        } else if (p.kind === "study-withdraw") {
+            if (p.fingerprint === undefined) throw new Error("原研究方案身份不可用");
+            path = `/api/v2/factor-studies/${p.fingerprint}/withdrawal`;
+            body = { schema_version: 1, study_proposal_fingerprint: p.fingerprint };
         } else {
             const fp = p.fingerprint;
             if (fp === undefined) throw new Error("原提案身份不可用");
@@ -310,7 +402,11 @@ export function FactorChatPage() {
                     "FACTOR_PROPOSAL_ALREADY_WITHDRAWN",
                     "FACTOR_PROPOSAL_AUTHORING_CONFLICT",
                     "FACTOR_PROPOSAL_GRANT_CONFLICT",
-                    "FACTOR_PROPOSAL_INVALID"
+                    "FACTOR_PROPOSAL_INVALID",
+                    "FACTOR_STUDY_PROPOSAL_STALE",
+                    "FACTOR_STUDY_PROPOSAL_ALREADY_WITHDRAWN",
+                    "FACTOR_STUDY_GRANT_CONFLICT",
+                    "FACTOR_STUDY_PROPOSAL_INVALID"
                 ].includes(e.message)
             )
                 remember(null);
@@ -318,14 +414,20 @@ export function FactorChatPage() {
         }
         if (
             receipt.command_id !== p.command ||
-            (p.kind === "grant"
-                ? receipt.effect.grant_id !== p.resource
-                : receipt.effect.proposal_fingerprint !== p.fingerprint)
+            (p.kind === "study-grant"
+                ? receipt.effect.study_grant_id !== p.resource
+                : p.kind === "grant"
+                  ? receipt.effect.grant_id !== p.resource
+                  : receipt.effect.proposal_fingerprint !== p.fingerprint)
         )
             throw new Error("原操作回执身份不匹配");
     }
     async function repeatBackend(p: Pending) {
         await backendSubmission(p);
+        if (p.kind === "study-grant") {
+            await sendStudyMessage(p.message);
+            return;
+        }
         remember(null);
         if (p.kind === "confirm") setText("");
         await refresh();
@@ -341,6 +443,81 @@ export function FactorChatPage() {
         remember(p);
         await repeatBackend(p);
     }
+    async function sendStudyMessage(message: z.infer<typeof studyMessage>) {
+        if (auth().binding !== message.binding)
+            throw new Error("原助手连接绑定不可用，请恢复原连接后核对。");
+        remember({
+            kind: "message",
+            resource: message.resource,
+            command: message.command,
+            binding: message.binding
+        });
+        const result = await request(
+            `/api/v1/agent/sessions/${message.resource}/messages`,
+            sessionSchema,
+            message.body,
+            message.command,
+            auth()
+        );
+        remember(null);
+        setEditingFactor(false);
+        setText("");
+        await stage(result);
+        await refresh();
+    }
+    async function beginStudy() {
+        if (
+            chat === null ||
+            proposal?.confirmation == null ||
+            !proposal.is_current ||
+            proposal.withdrawn
+        )
+            throw new Error("请先确认当前因子");
+        await withdrawStudy(chat.id);
+        const context = await request(
+            `/api/v2/factor-study-context/${proposal.fingerprint}`,
+            studyContextSchema
+        );
+        if (
+            context.factor_proposal_fingerprint !== proposal.fingerprint ||
+            context.factor.draft_fingerprint !== proposal.snapshot.preview.draft_fingerprint
+        )
+            throw new Error("研究上下文与已确认因子不匹配");
+        if (["EXPIRED", "REVOKED"].includes(context.supported_profile.study_grant_state))
+            throw new Error("原助手登记许可已到期或撤销，请核对服务连接后重新授权。");
+        const message: z.infer<typeof studyMessage> = {
+            resource: chat.id,
+            command: crypto.randomUUID(),
+            binding: auth().binding,
+            body: {
+                expected: chat.head,
+                text: "请建议当前因子的研究条件",
+                topic: "STUDY",
+                factor_proposal_fingerprint: proposal.fingerprint
+            }
+        };
+        if (context.supported_profile.study_grant_id !== null) {
+            if (context.supported_profile.remaining_proposals === 0)
+                throw new Error("本因子的研究条件建议额度已用完，请核对研究历史。");
+            await sendStudyMessage(message);
+            return;
+        }
+        const id = crypto.randomUUID();
+        const p: Pending = {
+            kind: "study-grant",
+            resource: id,
+            command: crypto.randomUUID(),
+            message,
+            body: {
+                schema_version: 1,
+                factor_proposal_fingerprint: proposal.fingerprint,
+                grant_id: id,
+                proposal_limit: 10
+            }
+        };
+        remember(p);
+        await repeatBackend(p);
+    }
     async function returnToHistory() {
         // This is navigation only, never abandonment/cancellation of an accepted plan.
         // The Agent retains the exact original plan; reopening it stays blocked for reconciliation.
@@ -349,9 +526,19 @@ export function FactorChatPage() {
         setText("");
         setChat(null);
         setProposal(null);
+        setStudy(null);
         await refresh();
     }
     async function send() {
+        if (researchApprovalText) {
+            setText("");
+            if (researchAction.current === null) {
+                setError("请先登记研究条件并准备研究环境。");
+                return;
+            }
+            await researchAction.current.confirmResearch();
+            return;
+        }
         if (approvalText) {
             await confirm();
             return;
@@ -359,7 +546,8 @@ export function FactorChatPage() {
         if (chat === null) return;
         const s = chat;
         generation.current++;
-        if (proposal !== null && !proposal.withdrawn) {
+        await withdrawStudy(s.id);
+        if (topic === "FACTOR" && proposal !== null && proposal.is_current && !proposal.withdrawn) {
             const p: Pending = {
                 kind: "withdraw",
                 resource: s.id,
@@ -370,45 +558,78 @@ export function FactorChatPage() {
             await backendSubmission(p);
             remember(null);
         }
-        setProposal(null);
+        if (topic === "FACTOR") setProposal(null);
         const p: Pending = { kind: "message", resource: s.id, command: crypto.randomUUID() };
         remember(p);
         const result = await request(
             `/api/v1/agent/sessions/${s.id}/messages`,
             sessionSchema,
-            { expected: s.head, text },
+            topic === "STUDY"
+                ? {
+                      expected: s.head,
+                      text,
+                      topic: "STUDY",
+                      factor_proposal_fingerprint: proposal?.fingerprint
+                  }
+                : { expected: s.head, text },
             p.command,
             auth()
         );
         remember(null);
+        setEditingFactor(false);
         setText("");
         await stage(result);
         await refresh();
+    }
+    async function withdrawStudy(sid: string) {
+        if (study === null || !study.is_current || study.withdrawn) return;
+        const p: Pending = {
+            kind: "study-withdraw",
+            resource: sid,
+            command: crypto.randomUUID(),
+            fingerprint: study.fingerprint
+        };
+        remember(p);
+        await backendSubmission(p);
+        remember(null);
+        setStudy(null);
     }
     async function recover() {
         let p = pendingValue();
         if (p?.binding !== undefined && p.binding !== auth().binding)
             throw new Error("原助手连接绑定不可用，请恢复原连接后核对；不会切换目标或重发。");
-        if (p === null && chat?.proposal?.fingerprint === null) {
-            p = { kind: "stage", resource: chat.id, command: chat.proposal.command };
+        const registration =
+            chat?.factor_reference?.fingerprint === null
+                ? chat.factor_reference
+                : chat?.study_reference?.fingerprint === null
+                  ? chat.study_reference
+                  : null;
+        if (p === null && registration !== null && chat !== null) {
+            p = { kind: "stage", resource: chat.id, command: registration.command };
             remember(p);
         }
         if (p === null) {
             await refresh();
             return;
         }
-        if (["confirm", "withdraw", "grant"].includes(p.kind)) {
+        if (backendKinds.includes(p.kind)) {
             const receipt = await request(
-                `/api/v2/factor-proposals/commands/${p.command}`,
+                `/api/v2/${p.kind.startsWith("study-") ? "factor-studies" : "factor-proposals"}/commands/${p.command}`,
                 operation
             );
             if (
                 receipt.command_id !== p.command ||
-                (p.kind === "grant"
-                    ? receipt.effect.grant_id !== p.resource
-                    : receipt.effect.proposal_fingerprint !== p.fingerprint)
+                (p.kind === "study-grant"
+                    ? receipt.effect.study_grant_id !== p.resource
+                    : p.kind === "grant"
+                      ? receipt.effect.grant_id !== p.resource
+                      : receipt.effect.proposal_fingerprint !== p.fingerprint)
             )
                 throw new Error("原操作回执身份不匹配");
+            if (p.kind === "study-grant") {
+                await sendStudyMessage(p.message);
+                return;
+            }
             remember(null);
             await refresh();
             return;
@@ -460,7 +681,7 @@ export function FactorChatPage() {
         const p = pendingValue();
         if (p?.binding !== undefined && p.binding !== auth().binding)
             throw new Error("原助手连接绑定不可用");
-        if (p === null || ["confirm", "withdraw", "grant"].includes(p.kind)) return;
+        if (p === null || backendKinds.includes(p.kind)) return;
         const o = await request(
             `/api/v1/agent/commands/${p.command}/abandon`,
             commandSchema,
@@ -498,7 +719,13 @@ export function FactorChatPage() {
         await refresh();
     }
     const disabled = busy || pending !== null;
-    const registrationPending = chat?.proposal?.fingerprint === null;
+    const pendingRegistration =
+        chat?.factor_reference?.fingerprint === null
+            ? chat.factor_reference
+            : chat?.study_reference?.fingerprint === null
+              ? chat.study_reference
+              : null;
+    const registrationPending = pendingRegistration !== null;
     const blocked =
         chat?.status === "OUTCOME_UNKNOWN" ||
         chat?.status === "WORKFLOW_UNAVAILABLE" ||
@@ -508,7 +735,7 @@ export function FactorChatPage() {
         <section className="factor-chat-page" aria-label="聊天因子研究">
             <header>
                 <h1>因子研究</h1>
-                <p>先讨论并确认因子；本阶段不会运行 Research。</p>
+                <p>先确认因子，再讨论并单独确认研究条件；助手建议不会直接启动研究。</p>
                 <p>支持 OHLCV 四则运算、历史延迟和滚动均值。模型建议不代表科学结论。</p>
             </header>
             <div className="factor-chat-actions">
@@ -644,7 +871,9 @@ export function FactorChatPage() {
                         onChange={(e) => {
                             localStorage.setItem(currentKey, e.target.value);
                             setText("");
+                            setEditingFactor(false);
                             setProposal(null);
+                            setStudy(null);
                             void act(() => refresh());
                         }}
                     >
@@ -665,7 +894,7 @@ export function FactorChatPage() {
             {pending !== null && (
                 <>
                     <p role="status">原操作结果待核对，不会自动重发或创建新身份。</p>
-                    {!["confirm", "withdraw", "grant"].includes(pending.kind) && (
+                    {!backendKinds.includes(pending.kind) && (
                         <button
                             disabled={busy}
                             onClick={() => {
@@ -675,7 +904,7 @@ export function FactorChatPage() {
                             放弃未接受的操作
                         </button>
                     )}
-                    {["confirm", "withdraw", "grant"].includes(pending.kind) && (
+                    {backendKinds.includes(pending.kind) && (
                         <button
                             disabled={busy}
                             onClick={() => {
@@ -684,7 +913,7 @@ export function FactorChatPage() {
                         >
                             {pending.kind === "confirm"
                                 ? "再次提交同一确认"
-                                : pending.kind === "withdraw"
+                                : pending.kind === "withdraw" || pending.kind === "study-withdraw"
                                   ? "再次提交同一撤回"
                                   : "再次提交同一授权"}
                         </button>
@@ -713,6 +942,7 @@ export function FactorChatPage() {
             <div className="factor-chat-columns">
                 <section aria-label="因子讨论">
                     <h2>讨论想法</h2>
+                    {researchFeedback !== "" && <p role="status">{researchFeedback}</p>}
                     <div className="factor-chat-messages" aria-live="polite">
                         {chat?.messages.map((m, i) => (
                             <article key={i} className={m.role}>
@@ -750,13 +980,17 @@ export function FactorChatPage() {
                                     </button>
                                     <details>
                                         <summary>原登记操作详情</summary>
-                                        <code>{chat.proposal?.command}</code>
+                                        <code>{pendingRegistration.command}</code>
                                     </details>
                                 </>
                             )}
                             {chat.status === "READY" &&
-                                chat.candidate !== null &&
-                                chat.proposal === null &&
+                                (chat.topic === "STUDY"
+                                    ? chat.study !== null
+                                    : chat.candidate !== null) &&
+                                (chat.topic === "STUDY"
+                                    ? chat.study_reference?.head
+                                    : chat.factor_reference?.head) !== chat.head &&
                                 pending === null && (
                                     <button
                                         disabled={busy || connection?.grant_state !== "ACTIVE"}
@@ -767,7 +1001,9 @@ export function FactorChatPage() {
                                             });
                                         }}
                                     >
-                                        登记当前因子预览
+                                        {chat.topic === "STUDY"
+                                            ? "登记当前研究方案"
+                                            : "登记当前因子预览"}
                                     </button>
                                 )}
                             <form
@@ -781,89 +1017,218 @@ export function FactorChatPage() {
                                     <textarea
                                         value={text}
                                         maxLength={8000}
-                                        disabled={disabled || !agentReady || blocked}
+                                        disabled={
+                                            disabled || (!agentReady && study === null) || blocked
+                                        }
                                         onChange={(e) => {
                                             setText(e.target.value);
                                         }}
                                     />
                                 </label>
+                                <p>
+                                    当前讨论：
+                                    {topic === "STUDY"
+                                        ? "研究条件（保留已确认因子）"
+                                        : "因子计算内容"}
+                                </p>
                                 <button
                                     disabled={
                                         disabled ||
-                                        !agentReady ||
+                                        (!agentReady && !researchApprovalText) ||
                                         blocked ||
+                                        (topic === "STUDY" &&
+                                            (proposal?.confirmation === null ||
+                                                proposal === null ||
+                                                !proposal.is_current ||
+                                                proposal.withdrawn)) ||
                                         text.trim() === "" ||
-                                        (!approvalText && connection?.grant_state !== "ACTIVE")
+                                        (!approvalText &&
+                                            !researchApprovalText &&
+                                            connection?.grant_state !== "ACTIVE")
                                     }
                                 >
                                     {busy ? "处理中…" : "发送"}
                                 </button>
-                                <p>确认预览时可发送“确认因子”。修改想法后需要重新确认。</p>
+                                <p>
+                                    {topic === "STUDY"
+                                        ? "修改条件后需要重新准备。环境就绪后可发送“确认本次研究”，直接提交 backend，不会调用模型。"
+                                        : "确认预览时可发送“确认因子”。修改计算内容后需要重新确认。"}
+                                </p>
                             </form>
                         </>
                     )}
                 </section>
-                <section aria-label="因子预览">
-                    <h2>因子预览</h2>
-                    {proposal === null || preview === undefined ? (
-                        <p>澄清想法并登记后，预览会出现在这里。</p>
-                    ) : (
-                        <>
-                            <h3>{preview.name}</h3>
-                            <p>{preview.purpose}</p>
-                            <h4>预测假设</h4>
-                            <p>{preview.hypothesis}</p>
-                            <h4>计算逻辑与公式</h4>
-                            <pre>{preview.formula}</pre>
-                            <p>仅使用已收盘数据；缺失值与除零按现有契约处理。</p>
-                            <h4>所需数据</h4>
-                            <ul>
-                                {Object.entries(preview.dependencies).map(([key, v]) => (
-                                    <li key={key}>{dependency(v)}</li>
-                                ))}
-                            </ul>
-                            <details>
-                                <summary>高级详情：代码与契约</summary>
-                                <pre>{preview.draft.source_text}</pre>
-                                <pre>
-                                    {JSON.stringify(
-                                        {
-                                            dependencies: preview.dependencies,
-                                            input: preview.draft.input_contract,
-                                            parameter: preview.draft.parameter_contract,
-                                            output: preview.draft.output_contract
-                                        },
-                                        null,
-                                        2
+                <div className="factor-chat-context">
+                    <section aria-label="因子预览">
+                        <h2>因子预览</h2>
+                        {proposal === null || preview === undefined ? (
+                            <p>澄清想法并登记后，预览会出现在这里。</p>
+                        ) : (
+                            <>
+                                <h3>{preview.name}</h3>
+                                <p>{preview.purpose}</p>
+                                <h4>预测假设</h4>
+                                <p>{preview.hypothesis}</p>
+                                <h4>计算逻辑与公式</h4>
+                                <pre>{preview.formula}</pre>
+                                <p>仅使用已收盘数据；缺失值与除零按现有契约处理。</p>
+                                <h4>所需数据</h4>
+                                <ul>
+                                    {Object.entries(preview.dependencies).map(([key, v]) => (
+                                        <li key={key}>{dependency(v)}</li>
+                                    ))}
+                                </ul>
+                                <details>
+                                    <summary>高级详情：代码与契约</summary>
+                                    <pre>{preview.draft.source_text}</pre>
+                                    <pre>
+                                        {JSON.stringify(
+                                            {
+                                                dependencies: preview.dependencies,
+                                                input: preview.draft.input_contract,
+                                                parameter: preview.draft.parameter_contract,
+                                                output: preview.draft.output_contract
+                                            },
+                                            null,
+                                            2
+                                        )}
+                                    </pre>
+                                </details>
+                                <p role="status">
+                                    {proposal.confirmation !== null
+                                        ? "计算内容已确认并保存"
+                                        : proposal.withdrawn || !proposal.is_current
+                                          ? "此提案已撤回或更新，不能确认"
+                                          : "待确认当前因子"}
+                                    {dirty && topic === "FACTOR"
+                                        ? "；正在编辑新想法，旧预览不可确认"
+                                        : ""}
+                                </p>
+                                <button
+                                    disabled={
+                                        disabled ||
+                                        dirty ||
+                                        proposal.withdrawn ||
+                                        !proposal.is_current ||
+                                        proposal.confirmation !== null ||
+                                        backendError !== ""
+                                    }
+                                    onClick={() => {
+                                        void act(() => confirm());
+                                    }}
+                                >
+                                    确认当前因子
+                                </button>
+                                {proposal.confirmation !== null &&
+                                    proposal.is_current &&
+                                    !proposal.withdrawn && (
+                                        <>
+                                            <p>
+                                                讨论研究条件将允许助手为这个因子登记最多10次研究方案建议，并自动发送一次“请建议当前因子的研究条件”。已有许可会复用。此许可不允许准备、启用或运行研究。
+                                            </p>
+                                            <button
+                                                disabled={
+                                                    disabled ||
+                                                    blocked ||
+                                                    !agentReady ||
+                                                    dirty ||
+                                                    backendError !== ""
+                                                }
+                                                onClick={() => {
+                                                    void act(beginStudy);
+                                                }}
+                                            >
+                                                讨论研究条件
+                                            </button>
+                                            <button
+                                                disabled={disabled || blocked || !agentReady}
+                                                onClick={() => {
+                                                    setEditingFactor(true);
+                                                    setText("");
+                                                }}
+                                            >
+                                                修改因子
+                                            </button>
+                                        </>
                                     )}
-                                </pre>
-                            </details>
-                            <p role="status">
-                                {proposal.confirmation !== null
-                                    ? "计算内容已确认并保存"
-                                    : proposal.withdrawn || !proposal.is_current
-                                      ? "此提案已撤回或更新，不能确认"
-                                      : "待确认当前因子"}
-                                {dirty ? "；正在编辑新想法，旧预览不可确认" : ""}
+                            </>
+                        )}
+                    </section>
+                    <section aria-label="研究方案">
+                        <h2>研究方案</h2>
+                        {study === null ? (
+                            <p>
+                                确认因子后选择“讨论研究条件”，Agent会建议数据、周期和样本范围。没有可用数据源时先澄清；不会虚构已准备数据。
                             </p>
-                            <button
-                                disabled={
-                                    disabled ||
-                                    dirty ||
-                                    proposal.withdrawn ||
-                                    !proposal.is_current ||
-                                    proposal.confirmation !== null ||
-                                    backendError !== ""
-                                }
-                                onClick={() => {
-                                    void act(() => confirm());
-                                }}
-                            >
-                                确认当前因子
-                            </button>
-                        </>
-                    )}
-                </section>
+                        ) : (
+                            <>
+                                <h3>{preview?.name ?? "当前因子"} · 研究条件</h3>
+                                <dl>
+                                    <dt>建议商品</dt>
+                                    <dd>
+                                        {study.snapshot.advice.source.instrument_id}
+                                        （准备时验证实际可用性）
+                                    </dd>
+                                    <dt>数据来源</dt>
+                                    <dd>详见下方研究环境的数据来源</dd>
+                                    <dt>K线周期</dt>
+                                    <dd>{study.snapshot.advice.timeframe_minutes} 分钟</dd>
+                                    <dt>预测期限</dt>
+                                    <dd>未来 {study.snapshot.advice.horizon_bars} 根K线</dd>
+                                    <dt>开发样本（UTC）</dt>
+                                    <dd>
+                                        {study.snapshot.advice.start_at} 至{" "}
+                                        {study.snapshot.advice.development_end_at}
+                                    </dd>
+                                    <dt>固定样本外区间（UTC）</dt>
+                                    <dd>
+                                        {study.snapshot.advice.development_end_at} 至{" "}
+                                        {study.snapshot.advice.end_at}
+                                    </dd>
+                                    <dt>保留样本（UTC）</dt>
+                                    <dd>
+                                        {study.snapshot.advice.protected_start_at} 至{" "}
+                                        {study.snapshot.advice.protected_end_at}（本次研究不读取）
+                                    </dd>
+                                    <dt>序列依赖修正</dt>
+                                    <dd>
+                                        期望区块长度 {study.snapshot.advice.expected_block_length}{" "}
+                                        根；重采样 {study.snapshot.advice.replicates} 次；置信水平{" "}
+                                        {study.snapshot.advice.confidence_bps / 100}%
+                                    </dd>
+                                </dl>
+                                <p>{study.snapshot.advice.rationale}</p>
+                                <p role="status">
+                                    {study.withdrawn || !study.is_current
+                                        ? "研究方案已撤回或更新，请重新讨论条件。"
+                                        : "研究条件建议已登记；请准备并启用研究环境，再单独确认本次研究。"}
+                                    {dirty && topic === "STUDY"
+                                        ? "正在修改条件，当前方案不可用于新的确认。"
+                                        : ""}
+                                </p>
+                                <ResearchStudyPanel
+                                    key={study.fingerprint}
+                                    study={study}
+                                    actionRef={researchAction}
+                                    newWorkBlocked={
+                                        disabled ||
+                                        blocked ||
+                                        dirty ||
+                                        editingFactor ||
+                                        proposal?.confirmation == null ||
+                                        !proposal.is_current ||
+                                        proposal.withdrawn
+                                    }
+                                    onSystemFeedback={setResearchFeedback}
+                                />
+                                <details>
+                                    <summary>研究方案高级详情</summary>
+                                    <pre>{JSON.stringify(study.snapshot.advice, null, 2)}</pre>
+                                </details>
+                            </>
+                        )}
+                    </section>
+                </div>
             </div>
         </section>
     );

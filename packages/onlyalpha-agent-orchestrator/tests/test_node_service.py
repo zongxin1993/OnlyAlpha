@@ -21,13 +21,13 @@ from onlyalpha_agent_orchestrator.provider_integration import (
     OnlyResolvedAgentProviderRuntimeV1,
 )
 from onlyalpha_agent_orchestrator.semantic_bundle import load_production_semantic_bundle_v1
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactSourceProvenanceAuthority
 
 import onlyalpha.research.agent.workflow as workflow_module
 from onlyalpha.application.integration_configuration import OnlyIntegrationId
 from onlyalpha.application.integration_runtime import OnlyIntegrationRuntimeBindingV1
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.plugin.integration import OnlyIntegrationCategory
 from onlyalpha.research.agent.model import (
     OnlyAgentBudgetV1,

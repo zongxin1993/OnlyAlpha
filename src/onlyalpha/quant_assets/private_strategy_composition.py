@@ -18,6 +18,7 @@ from onlyalpha.quant_assets.private import (
     OnlyPrivateFactorRevision,
     OnlyPrivateStrategyRevision,
 )
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotEntryV1
 from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
 from onlyalpha.research.definition.model import (
     OnlyResearchDatasetSelection,
@@ -28,7 +29,6 @@ from onlyalpha.research.run import OnlyResearchRun
 from onlyalpha.research.run.generation import OnlyResearchDefinitionRuntimeResolutionV1
 from onlyalpha.runtime.generation import OnlyRuntimeGenerationManifest
 
-from .private_factor_execution import OnlyPrivateFactorProviderSnapshotEntryV1
 from .private_strategy import (
     OnlyPrivateStrategyDefinitionV1,
     OnlyPrivateStrategyFactorRevisionDependencyV1,

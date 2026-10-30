@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import hashlib
 
-from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactAssetIdentity,
     OnlyArtifactCalculationImplementation,
     OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
+
+from onlyalpha.canonical import only_canonical_fingerprint
 
 from .catalog import OnlyQuantAssetProvider
 

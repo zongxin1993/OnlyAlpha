@@ -1,0 +1,365 @@
+{
+  "candidate": {
+    "expression": {
+      "left": {
+        "left": {
+          "left": {
+            "input": "close"
+          },
+          "op": "div",
+          "right": {
+            "input": "close",
+            "lag": 20
+          }
+        },
+        "op": "sub",
+        "right": {
+          "integer": 1
+        }
+      },
+      "op": "mul",
+      "right": {
+        "left": {
+          "input": "volume"
+        },
+        "op": "div",
+        "right": {
+          "input": "volume",
+          "mean": 20
+        }
+      }
+    },
+    "hypothesis": "放量时历史动量可能持续",
+    "name": "放量动量",
+    "purpose": "观察放量与动量的关系"
+  },
+  "draft": {
+    "base_revision_fingerprint": null,
+    "category": "chat",
+    "description": "放量时历史动量可能持续",
+    "economic_rationale": "放量时历史动量可能持续",
+    "factor_api_contract_fingerprint": "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9",
+    "factor_api_version": 1,
+    "factor_id": "private.factor.volume_momentum",
+    "input_contract": {
+      "close": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "close_lag_20": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "volume": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "volume_mean_20": {
+        "missing": true,
+        "type": "DECIMAL"
+      }
+    },
+    "output_contract": {
+      "value": {
+        "missing": true,
+        "type": "DECIMAL"
+      }
+    },
+    "parameter_contract": {
+      "literal_1": {
+        "default": "1",
+        "required": false,
+        "type": "DECIMAL"
+      }
+    },
+    "schema_version": 1,
+    "semantic_version": "1",
+    "source_text": "def calculate(api, inputs, parameters):\n    return {'value': api.mul(api.sub(api.div(inputs['close'], inputs['close_lag_20']), parameters['literal_1']), api.div(inputs['volume'], inputs['volume_mean_20']))}\n",
+    "tags": []
+  },
+  "graph": {
+    "nodes": [
+      {
+        "alias": null,
+        "definition": {
+          "extensions": {},
+          "factor_kind": null,
+          "input_bindings": {
+            "value": {
+              "node_fingerprint": null,
+              "output_name": "value",
+              "source": "close"
+            }
+          },
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "INDICATOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 28,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "parameters": {
+            "period": {
+              "type": "INTEGER",
+              "value": 20
+            }
+          },
+          "schema_version": 2,
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "onlyalpha.operator.delay",
+          "warmup": {
+            "initialization": "UPSTREAM",
+            "minimum_observations": 21,
+            "pre_ready_output": "NULL",
+            "ready_condition": "complete inclusive declared window is available"
+          }
+        }
+      },
+      {
+        "alias": null,
+        "definition": {
+          "extensions": {},
+          "factor_kind": null,
+          "input_bindings": {
+            "value": {
+              "node_fingerprint": null,
+              "output_name": "value",
+              "source": "volume"
+            }
+          },
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "INDICATOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 28,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "parameters": {
+            "period": {
+              "type": "INTEGER",
+              "value": 20
+            }
+          },
+          "schema_version": 2,
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "onlyalpha.operator.rolling_mean",
+          "warmup": {
+            "initialization": "UPSTREAM",
+            "minimum_observations": 20,
+            "pre_ready_output": "NULL",
+            "ready_condition": "complete declared input window is available"
+          }
+        }
+      },
+      {
+        "alias": null,
+        "definition": {
+          "extensions": {},
+          "factor_kind": "TIME_SERIES",
+          "input_bindings": {
+            "close": {
+              "node_fingerprint": null,
+              "output_name": "value",
+              "source": "close"
+            },
+            "close_lag_20": {
+              "node_fingerprint": "4262d346437dc887136659d5ce9dd0430f64e52b7f868f1fbb8c7cc43ca20144",
+              "output_name": "value",
+              "source": null
+            },
+            "volume": {
+              "node_fingerprint": null,
+              "output_name": "value",
+              "source": "volume"
+            },
+            "volume_mean_20": {
+              "node_fingerprint": "c6ed1f4dcf9f61ca5a8e2e92405d267b608282a09165e93f43e8fa49fd595ff8",
+              "output_name": "value",
+              "source": null
+            }
+          },
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "close",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "close_lag_20",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "volume",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "volume_mean_20",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "FACTOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 38,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "FACTOR_VALUE",
+              "unit": null
+            }
+          ],
+          "parameters": {
+            "literal_1": {
+              "type": "DECIMAL",
+              "value": "1"
+            }
+          },
+          "schema_version": 2,
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "private.factor.volume_momentum",
+          "warmup": {
+            "initialization": "STATELESS",
+            "minimum_observations": 1,
+            "pre_ready_output": "NULL",
+            "ready_condition": "point inputs are available"
+          }
+        }
+      }
+    ],
+    "schema_version": 1
+  },
+  "graph_fingerprint": "140c811853b2156e256414d38326d8afe77ec26de7e9bb9935094e1a208eb137",
+  "required_history_bars": 20,
+  "revision": {
+    "category": "chat",
+    "description": "放量时历史动量可能持续",
+    "economic_rationale": "放量时历史动量可能持续",
+    "factor_api_contract_fingerprint": "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9",
+    "factor_api_version": 1,
+    "factor_id": "private.factor.volume_momentum",
+    "input_contract": {
+      "close": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "close_lag_20": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "volume": {
+        "missing": true,
+        "type": "DECIMAL"
+      },
+      "volume_mean_20": {
+        "missing": true,
+        "type": "DECIMAL"
+      }
+    },
+    "output_contract": {
+      "value": {
+        "missing": true,
+        "type": "DECIMAL"
+      }
+    },
+    "parameter_contract": {
+      "literal_1": {
+        "default": "1",
+        "required": false,
+        "type": "DECIMAL"
+      }
+    },
+    "parent_revision_fingerprint": null,
+    "revision_fingerprint": "0a8c9287ff9e8db1fe01dd2b76460cafcefd010dcbf4ca328b39df3293900e7f",
+    "schema_version": 1,
+    "semantic_version": "1",
+    "source_sha256": "720491785cf05e09d85a24b5052699a5ae0d0d07ec2c66c678aed2b4445bb27d",
+    "source_text": "def calculate(api, inputs, parameters):\n    return {'value': api.mul(api.sub(api.div(inputs['close'], inputs['close_lag_20']), parameters['literal_1']), api.div(inputs['volume'], inputs['volume_mean_20']))}\n",
+    "tags": []
+  },
+  "root_fingerprint": "efae74769451c961282fd5227eb28a64ec7b090f635d8b83e10a6850880bf9e0"
+}

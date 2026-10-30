@@ -40,6 +40,18 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(temporary_market_data_stream_upgrade))
         .routes(routes!(agent_browser_access))
  .routes(routes!(agent_connection))
+ .routes(routes!(study_preparation_context))
+ .routes(routes!(study_preparation_create))
+ .routes(routes!(study_preparation_observe))
+ .routes(routes!(study_preparation_resume))
+ .routes(routes!(study_preparation_cancel))
+ .routes(routes!(study_preparation_confirm))
+ .routes(routes!(study_grant))
+ .routes(routes!(study_stage))
+ .routes(routes!(study_context))
+ .routes(routes!(study_read))
+ .routes(routes!(study_withdraw))
+ .routes(routes!(study_observe))
  .routes(routes!(proposal_grant))
  .routes(routes!(proposal_revoke))
  .routes(routes!(proposal_stage))
@@ -834,20 +846,22 @@ async fn submit_private_strategy_research_v2(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/research/runs/{run_id}", operation_id = "get_run_api_v2_research_runs__run_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get,path="/api/v2/research/runs/{run_id}",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::FactorResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn get_run_api_v2_research_runs_run_id_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::FactorResearchRunView>(host.dispatch(request).await)
+        .await
 }
 
-#[utoipa::path(post, path = "/api/v2/research/runs/{run_id}/cancellation", operation_id = "cancel_run_api_v2_research_runs__run_id__cancellation_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path),("Idempotency-Key" = Option<String>, Query)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(post,path="/api/v2/research/runs/{run_id}/cancellation",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchCancellationInput,responses((status=200,body=crate::transport::research_wire::FactorResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn cancel_run_api_v2_research_runs_run_id_cancellation_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::FactorResearchRunView>(host.dispatch(request).await)
+        .await
 }
 
 #[utoipa::path(get, path = "/api/v2/research/runs/{run_id}/execution-evidence", operation_id = "get_run_execution_evidence_api_v2_research_runs__run_id__execution_evidence_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
@@ -1313,4 +1327,100 @@ async fn agent_connection(State(host): State<Arc<Host>>, request: Request<Body>)
 #[utoipa::path(post,path="/api/v2/factor-proposals/{fingerprint}/withdrawal",security(("LocalDeveloperCookie"=[])),params(("fingerprint"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::application::factor_proposals::ConfirmInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn proposal_withdraw(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
     verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-grants",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_studies::GrantInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_grant(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-studies",security(("AgentProposalBearer"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_studies::StageInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_stage(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-study-context/{fingerprint}",security(("AgentProposalBearer"=[]),("LocalDeveloperCookie"=[])),params(("fingerprint"=String,Path)),responses((status=200,body=crate::application::factor_studies::Context),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_context(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_studies::Context>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-studies/{fingerprint}",security(("LocalDeveloperCookie"=[]),("AgentProposalBearer"=[])),params(("fingerprint"=String,Path)),responses((status=200,body=crate::application::factor_studies::View),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_read(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_studies::View>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-studies/{fingerprint}/withdrawal",security(("LocalDeveloperCookie"=[])),params(("fingerprint"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::application::factor_studies::SelectionInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_withdraw(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-studies/commands/{command_id}",security(("LocalDeveloperCookie"=[]),("AgentProposalBearer"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_observe(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-study-preparation-context/{fingerprint}",security(("LocalDeveloperCookie"=[])),params(("fingerprint"=String,Path)),responses((status=200,body=crate::transport::research_wire::FactorResearchPreparationContext),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_context(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchPreparationContext>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-preparations",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_studies::PrepareInput,responses((status=200,body=crate::transport::research_wire::FactorResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_create(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-study-preparations/commands/{command_id}",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::FactorResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_observe(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-preparations/{command_id}/resume",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::FactorResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_resume(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-preparations/{command_id}/cancellation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::FactorResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_cancel(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-preparations/{command_id}/confirmation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchConfirmationInput,responses((status=200,body=crate::transport::research_wire::FactorResearchConfirmationOutcome),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_preparation_confirm(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::FactorResearchConfirmationOutcome>(
+        host.dispatch(request).await,
+    )
+    .await
 }

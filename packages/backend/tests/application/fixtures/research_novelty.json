@@ -1,0 +1,364 @@
+{
+  "command_id": "11111111-1111-4111-8111-111111111111",
+  "group": {
+    "disposition": "ACTIONABLE",
+    "group_fingerprint": "7a4e8c9340543d295fa4e90552de2f8b999b5a2b5d9360fe37ca453bde9f2509",
+    "members": [
+      {
+        "decision": {
+          "canonical_intent_fingerprint": "efcd719f71a47f5c33267bbf7536d59a48d98ce384ec8801ba8555cbfda3d99b",
+          "decision_fingerprint": "156b51bf9deebecfa35467ece71eca5b38161cf135e06f7701623ed0a27422e0",
+          "derived_policy_condition": "CERTIFIED_NO_MATCH",
+          "ordered_proof_references": [
+            "cf476cbb04b45c04b387a02ac6c222030a8056b007d4ff7a43d99888e7a4edd0"
+          ],
+          "outcome": "ADMIT",
+          "policy_fingerprint": "27644cdd917dce4b74d475dc61828307d9ce9c9610f9dd733d4f9f9997897812",
+          "policy_id": "native",
+          "policy_version": "1",
+          "product_command_id": "11111111-1111-4111-8111-111111111111",
+          "reason_codes": [
+            "CERTIFIED_EVALUATION_ABSENCE"
+          ],
+          "schema_version": 2,
+          "subject_fingerprint": "3c96cc914cbff4d53590dcb6fc122c9cefb299bc3d01c10f02fcb79c1e31cbeb",
+          "subject_type": "EXACT_EVALUATION",
+          "witness_fingerprint": "237af503dda14acb7f144debd538cf31c8c2e4cd19faec7454824a969dd0640c"
+        },
+        "witness": {
+          "negative_evidence": null,
+          "negative_evidence_failure_code": null,
+          "policy_fingerprint": "27644cdd917dce4b74d475dc61828307d9ce9c9610f9dd733d4f9f9997897812",
+          "policy_id": "native",
+          "policy_version": "1",
+          "projection_logical_digest": "c6f35e0c4f45697e969166b9747737e8ff6afd65c0e9710dc5e3f75522646051",
+          "projection_revision_fingerprint": "bf72073d3abe1e011ffbddaade0bec4250d9e2cff63741affcefedef1bda006e",
+          "projection_schema_version": 7,
+          "projector_algorithm_version": 7,
+          "proofs": [
+            {
+              "proof": {
+                "failure_code": null,
+                "ordered_matches": [],
+                "projection_logical_digest": "c6f35e0c4f45697e969166b9747737e8ff6afd65c0e9710dc5e3f75522646051",
+                "projection_revision_fingerprint": "bf72073d3abe1e011ffbddaade0bec4250d9e2cff63741affcefedef1bda006e",
+                "proof_status": "CERTIFIED_NO_MATCH",
+                "query_fingerprint": "ea73e2101038e96e591ee0601909b85f54f42fc8ceac6c738a94a84308ec64b0",
+                "result_fingerprint": "cf476cbb04b45c04b387a02ac6c222030a8056b007d4ff7a43d99888e7a4edd0",
+                "source_manifest_fingerprint": "4cac83481dae616478ac0bc4d4e4040423e98fb54feaf0a111121299270606e3"
+              },
+              "query": {
+                "exact_selector": {
+                  "intent_subject": {
+                    "authoring_generation_fingerprint": null,
+                    "candidate_fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "candidate_node_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "catalog_generation_fingerprint": "8888888888888888888888888888888888888888888888888888888888888888",
+                    "dataset_snapshot_fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+                    "graph_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "output_name": "value",
+                    "result_plan_fingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+                    "runtime_generation_fingerprint": "9999999999999999999999999999999999999999999999999999999999999999",
+                    "schema_version": 1,
+                    "specification_fingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+                    "statistics_fingerprints": [
+                      "7777777777777777777777777777777777777777777777777777777777777777"
+                    ]
+                  },
+                  "selector_schema_version": 1
+                },
+                "projection_revision_fingerprint": "bf72073d3abe1e011ffbddaade0bec4250d9e2cff63741affcefedef1bda006e",
+                "query_fingerprint": "ea73e2101038e96e591ee0601909b85f54f42fc8ceac6c738a94a84308ec64b0",
+                "query_kind": "EVALUATION_INTENT_EXACT",
+                "query_schema_version": 3
+              },
+              "role": "EVALUATION"
+            }
+          ],
+          "schema_version": 2,
+          "source_manifest": {
+            "cuts": [
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "62d639990b0a72579eb89fba6d3cd0f55c42531044dc77c3f67a73ff41c76aca",
+                "enumeration_contract_version": 1,
+                "source_family": "AGENT_PROVENANCE",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "0359512dba841c7cb191c1c49457bbdce9f23f2b54f3846ea44886c38c8a7df4",
+                "enumeration_contract_version": 1,
+                "source_family": "PRODUCT_COMMAND_ADMISSION",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "207c1471c190b70fbb34f83a3cc1ef6f2bcec25adb1cca6ff2d502bef7ebecc1",
+                "enumeration_contract_version": 1,
+                "source_family": "PRODUCT_COMMAND_RECEIPT",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "8359a6c41c06af081f095429b1db7dfe8f91fd1917f2e0685d185d365c2fe14d",
+                "enumeration_contract_version": 1,
+                "source_family": "QUALIFICATION_DECISION",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "6053a0845fec558648fc9ef920633c7635f457b9caf51d4261475acd9dd51434",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_ATTEMPT",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "4f1ba8f37955a890847dfc318889375d1df4cc6a9556075ae8ede0ddf726bebd",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_FACTOR_PAIR_STATISTICS",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "001ad011639340a60b4568556f1389ebd52d6341658ab1e36fdfadf89867e799",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_RESULT",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "1cbe3f50d870b46816652e39dd9ccd0a31597d12d4a394e7c5a72f9ca0dee024",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_RUN",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "530933f21c215b04cb7ff415f5118455f0cc1a0349a5b39d39ba165f53f891d4",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_STATISTICS",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "e36ffe8465c363a9b4a5813cecbac53b513aa92791a29f0b8783347c2d116336",
+                "enumeration_contract_version": 1,
+                "source_family": "RESEARCH_SUMMARY_STATISTICS",
+                "source_schema_version": 1
+              },
+              {
+                "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+                "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+                "cut_fingerprint": "e86ae2787947384526180353bd7c5a49ef0f9fc41b1d7b780e437ad93ee34931",
+                "enumeration_contract_version": 1,
+                "source_family": "SEARCH_PROVENANCE",
+                "source_schema_version": 1
+              }
+            ],
+            "mandatory_family_set_version": 1,
+            "manifest_fingerprint": "4cac83481dae616478ac0bc4d4e4040423e98fb54feaf0a111121299270606e3",
+            "schema_version": 1
+          },
+          "subject": {
+            "canonical_intent_fingerprint": "efcd719f71a47f5c33267bbf7536d59a48d98ce384ec8801ba8555cbfda3d99b",
+            "product_command_id": "11111111-1111-4111-8111-111111111111",
+            "resolved_subject": {
+              "evaluation_subject": {
+                "authoring_generation_fingerprint": null,
+                "candidate_fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+                "candidate_node_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+                "catalog_generation_fingerprint": "8888888888888888888888888888888888888888888888888888888888888888",
+                "dataset_snapshot_fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+                "graph_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+                "output_name": "value",
+                "result_plan_fingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+                "runtime_generation_fingerprint": "9999999999999999999999999999999999999999999999999999999999999999",
+                "schema_version": 1,
+                "specification_fingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+                "statistics_fingerprints": [
+                  "7777777777777777777777777777777777777777777777777777777777777777"
+                ]
+              },
+              "qualification_binding": null,
+              "related_failures": [],
+              "subject_type": "EXACT_EVALUATION"
+            },
+            "subject_fingerprint": "3c96cc914cbff4d53590dcb6fc122c9cefb299bc3d01c10f02fcb79c1e31cbeb"
+          },
+          "witness_fingerprint": "237af503dda14acb7f144debd538cf31c8c2e4cd19faec7454824a969dd0640c"
+        }
+      }
+    ],
+    "product_command_id": "11111111-1111-4111-8111-111111111111",
+    "schema_version": 1,
+    "specification_fingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "subject_set_fingerprint": "e731f0d78a7ad5fb3556d18371e6daf02ba3f855b5259752d5d6b65416ea80ea"
+  },
+  "policy": {
+    "policy_fingerprint": "27644cdd917dce4b74d475dc61828307d9ce9c9610f9dd733d4f9f9997897812",
+    "policy_id": "native",
+    "policy_version": "1",
+    "rules": [
+      {
+        "condition": "CERTIFIED_NO_MATCH",
+        "outcome": "ADMIT"
+      },
+      {
+        "condition": "EXACT_COMPLETED_EVALUATION",
+        "outcome": "REUSE"
+      },
+      {
+        "condition": "EXACT_COMPLETED_NEGATIVE_EVIDENCE",
+        "outcome": "SUPPRESS"
+      },
+      {
+        "condition": "OPERATIONAL_FAILURE",
+        "outcome": "REVIEW"
+      },
+      {
+        "condition": "PROOF_INCOMPLETE",
+        "outcome": "FAIL_CLOSED"
+      },
+      {
+        "condition": "PROOF_UNAVAILABLE",
+        "outcome": "FAIL_CLOSED"
+      },
+      {
+        "condition": "SEARCH_OR_BUDGET_STOP",
+        "outcome": "REVIEW"
+      }
+    ],
+    "schema_version": 1
+  },
+  "projection": {
+    "logical_digest": "c6f35e0c4f45697e969166b9747737e8ff6afd65c0e9710dc5e3f75522646051",
+    "projection_schema_version": 7,
+    "projector_algorithm_version": 7,
+    "records": [],
+    "revision_fingerprint": "bf72073d3abe1e011ffbddaade0bec4250d9e2cff63741affcefedef1bda006e",
+    "source_manifest": {
+      "cuts": [
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "62d639990b0a72579eb89fba6d3cd0f55c42531044dc77c3f67a73ff41c76aca",
+          "enumeration_contract_version": 1,
+          "source_family": "AGENT_PROVENANCE",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "0359512dba841c7cb191c1c49457bbdce9f23f2b54f3846ea44886c38c8a7df4",
+          "enumeration_contract_version": 1,
+          "source_family": "PRODUCT_COMMAND_ADMISSION",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "207c1471c190b70fbb34f83a3cc1ef6f2bcec25adb1cca6ff2d502bef7ebecc1",
+          "enumeration_contract_version": 1,
+          "source_family": "PRODUCT_COMMAND_RECEIPT",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "8359a6c41c06af081f095429b1db7dfe8f91fd1917f2e0685d185d365c2fe14d",
+          "enumeration_contract_version": 1,
+          "source_family": "QUALIFICATION_DECISION",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "6053a0845fec558648fc9ef920633c7635f457b9caf51d4261475acd9dd51434",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_ATTEMPT",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "4f1ba8f37955a890847dfc318889375d1df4cc6a9556075ae8ede0ddf726bebd",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_FACTOR_PAIR_STATISTICS",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "001ad011639340a60b4568556f1389ebd52d6341658ab1e36fdfadf89867e799",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_RESULT",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "1cbe3f50d870b46816652e39dd9ccd0a31597d12d4a394e7c5a72f9ca0dee024",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_RUN",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "530933f21c215b04cb7ff415f5118455f0cc1a0349a5b39d39ba165f53f891d4",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_STATISTICS",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "e36ffe8465c363a9b4a5813cecbac53b513aa92791a29f0b8783347c2d116336",
+          "enumeration_contract_version": 1,
+          "source_family": "RESEARCH_SUMMARY_STATISTICS",
+          "source_schema_version": 1
+        },
+        {
+          "completeness_proof": "SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1",
+          "cut_boundary": "FILE_PUBLICATION_BARRIER_V1",
+          "cut_fingerprint": "e86ae2787947384526180353bd7c5a49ef0f9fc41b1d7b780e437ad93ee34931",
+          "enumeration_contract_version": 1,
+          "source_family": "SEARCH_PROVENANCE",
+          "source_schema_version": 1
+        }
+      ],
+      "mandatory_family_set_version": 1,
+      "manifest_fingerprint": "4cac83481dae616478ac0bc4d4e4040423e98fb54feaf0a111121299270606e3",
+      "schema_version": 1
+    }
+  },
+  "subject": {
+    "authoring_generation_fingerprint": null,
+    "candidate_fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+    "candidate_node_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+    "catalog_generation_fingerprint": "8888888888888888888888888888888888888888888888888888888888888888",
+    "dataset_snapshot_fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+    "graph_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+    "output_name": "value",
+    "result_plan_fingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+    "runtime_generation_fingerprint": "9999999999999999999999999999999999999999999999999999999999999999",
+    "schema_version": 1,
+    "specification_fingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "statistics_fingerprints": [
+      "7777777777777777777777777777777777777777777777777777777777777777"
+    ]
+  },
+  "subject_fingerprint": "f0f59b79098341937b2724a59233248902dd35416f46b1518d97bfccdbe3a9d5"
+}

@@ -6,22 +6,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from onlyalpha.calculation.definition import OnlyParameterSchema, only_calculation_execution_shape
-from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
-from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
-from onlyalpha.calculation.predicate import only_predicate_type_definitions
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json, only_canonical_payload
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactAssetIdentity,
     OnlyArtifactCalculationImplementation,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
+
+from onlyalpha.calculation.definition import OnlyParameterSchema, only_calculation_execution_shape
+from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
+from onlyalpha.calculation.implementation import OnlyCalculationImplementationManifest
+from onlyalpha.calculation.predicate import only_predicate_type_definitions
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json, only_canonical_payload
 from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest, OnlyRuntimeGenerationValidationEvidence
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
 
 from .catalog import OnlyDistributionProviderSource, _normalize_distribution
 from .exact_catalog import _validate_parameter_descriptor, only_project_exact_catalog_context
-from .private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
 
 
 @dataclass(frozen=True, slots=True)

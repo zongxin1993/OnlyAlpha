@@ -17,7 +17,7 @@ import importlib.abc
 import sys
 
 forbidden = ('onlyalpha.runtime', 'onlyalpha.application', 'onlyalpha_runtime_generation_manager',
-             'onlyalpha.quant_assets.private_factor_execution',
+             'onlyalpha_backend_algorithms.sdk.private_factor_execution',
              'onlyalpha.quant_assets.example_seed')
 
 class RejectExecution(importlib.abc.MetaPathFinder):
@@ -29,18 +29,19 @@ sys.meta_path.insert(0, RejectExecution())
 from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest
 from onlyalpha.quant_assets.retained_generation import OnlyRetainedRuntimeGenerationProofV1
 from onlyalpha.quant_assets.exact_catalog import only_project_exact_catalog_context
-from onlyalpha.quant_assets import OnlyPrivateFactorProviderSnapshotV1
-from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1 as Snapshot
-assert Snapshot is OnlyPrivateFactorProviderSnapshotV1
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
+assert OnlyPrivateFactorProviderSnapshotV1.__module__ == "onlyalpha.quant_assets.private_factor_provider_snapshot"
 assert not any(name.startswith(forbidden) for name in sys.modules)
 """
     completed = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_old_and_neutral_imports_are_the_same_canonical_class_objects() -> None:
+def test_retained_contract_consumers_share_canonical_class_objects() -> None:
+    from onlyalpha_backend_algorithms.sdk import private_factor_execution
+
     from onlyalpha import generation_identity
-    from onlyalpha.quant_assets import private_factor_execution, private_factor_provider_snapshot
+    from onlyalpha.quant_assets import private_factor_provider_snapshot
     from onlyalpha.runtime import generation
 
     for name in generation.__all__:
@@ -94,7 +95,9 @@ def test_private_snapshot_round_trip_preserves_existing_fingerprint_domain() -> 
     ),
 )
 def test_private_snapshot_entry_rejects_malformed_identity_proof(field):
-    from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotEntryV1
+    from onlyalpha.quant_assets.private_factor_provider_snapshot import (
+        OnlyPrivateFactorProviderSnapshotEntryV1,
+    )
 
     entry = OnlyPrivateFactorProviderSnapshotEntryV1(
         "private.factor.identity",
@@ -141,3 +144,10 @@ def test_private_snapshot_reader_does_not_normalize_noncanonical_retained_entrie
     payload["entries"].reverse()
     with pytest.raises(ValueError):
         OnlyPrivateFactorProviderSnapshotV1.from_dict(payload)
+
+
+def test_example_seed_public_lazy_exports_still_resolve() -> None:
+    from onlyalpha.quant_assets import OnlyPrivateAssetExampleBundleV1
+    from onlyalpha.quant_assets.example_seed import OnlyPrivateAssetExampleBundleV1 as Exact
+
+    assert OnlyPrivateAssetExampleBundleV1 is Exact

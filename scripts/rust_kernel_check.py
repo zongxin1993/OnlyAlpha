@@ -132,7 +132,7 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "4678100e7688bdc3dd71ef0c32dc7db79d2652c4a8ec476491837df6bc144324"
+REGISTRY_LOCK_SHA256 = "66424b34114d3adcb2a5a508e06bcd1ee349defe406e336982fd2328e30f7866"
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -299,6 +299,10 @@ BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
 
 
 BACKEND_DEPENDENCIES = {
+    "arrow-array": {"default-features": False, "version": "=59.3.2"},
+    "arrow-schema": {"default-features": False, "version": "=59.3.2"},
+    "parquet": {"default-features": False, "features": ["arrow", "zstd", "crc"], "version": "=59.3.2"},
+    "bigdecimal": {"default-features": False, "features": ["std"], "version": "=0.4.11"},
     "aes-gcm": {"default-features": False, "features": ["aes", "alloc", "zeroize"], "version": "=0.11.1"},
     "axum": {"default-features": False, "features": ["json"], "version": "=0.8.9"},
     "base64": {"default-features": False, "features": ["alloc"], "version": "=0.23.1"},
@@ -1067,6 +1071,18 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 _INFRASTRUCTURE_RESOURCES = {
+    "packages/backend/src/application/research_novelty.rs": {
+        "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
+    },
+    "packages/backend/src/persistence/research_novelty.rs": {
+        "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
+    },
+    "packages/backend/src/application/research_run.rs": {
+        "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
+    },
+    "packages/backend/src/persistence/research_preparation.rs": {
+        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+    },
     "packages/backend/src/application/chart/admission_tests.rs": {
         "admission-vector.json": "packages/backend/src/application/chart/admission-vector.json",
         "admission-definition.json": "packages/backend/src/application/chart/admission-definition.json",

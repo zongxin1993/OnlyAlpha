@@ -392,6 +392,28 @@ immutable facts 和历史恢复能力；不得提前删除现行实现、绕过 
 共享独立向量及 adversarial cases 验证两种实现的值、错误、规范化、序列化和适用状态/恢复语义。模块内小任务、类型数量或
 局部向量通过不能替代完整功能模块验收。审计结论和执行状态只留当前 Task / Review 上下文，不新增仓库质量或进度 Authority。
 
+
+### 3.6 根目录 `src/` 冻结与最终退役
+
+Owner 决定（2026-10-29）：仓库根目录 `src/` 是待退役的 Python 存量区，最终必须完整删除；不再是任何能力的长期归属。
+本规则只指根目录 `src/`，不指 `crates/**/src/` 或 `packages/**/src/`。
+
+- MUST NOT 在根目录 `src/` 下新增文件、Python 实现、函数、类、业务分支、公开能力或功能；不得以修复、过渡、兼容、
+  Reference、SDK 或“先补 Python 再移植”为由回填实现。新增后端能力及现有后端缺陷的正确实现直接落在 owning Rust 模块。
+- 存量 `src/` 只允许退役所需的删除和最小调用/导入/出口接线调整；这种调整必须实际缩小旧实现及其消费者闭包，不能增加
+  新实现、新功能、转发 facade、compatibility shim、动态加载旧代码或 Python backend fallback。
+- 每批迁移先审计真实职责与消费者，复用已有 Rust 能力，在正确 Rust owner 补齐缺口，迁移有效的独立断言并完成定向验收，
+  然后成套删除被替代的 Python 实现、导入/出口、依赖、entry points、打包、构建、部署及过时比较接线。不得只移动目录、
+  把旧后端改名为 SDK/worker/plugin 继续维护，或因 Rust crate 存在就提前删除仍有正式消费者的代码。
+- ADR 0146 的独立 Python Agent 和 ADR 0141/0142 允许的隔离算法、最小 authoring SDK、合适的插件及工程工具仍遵守其原有
+  职责边界，但当前维护源码必须归入相应 `packages/`、`plugs/` 或 `scripts/`；这些例外不允许在根目录 `src/` 继续开发，
+  也不允许把后端 Authority、编排、持久化、权限或恢复逻辑移入 Python 算法包来规避 Rust 目标。
+- 当前未提交改动同样适用；新增到 `src/` 的内容必须按真实职责撤回或完成正确迁移，不能将其当作冻结前存量。
+- 最终退役验收：根目录 `src/` 不存在；当前运行、安装、测试、构建、部署、发现及 entry-point 链路不再依赖它；必要的
+  数值/身份/序列化/权限/恢复断言在正确 owner 保留并通过。精确历史 artifact 的保留不等于保留当前源码或新增旧路径 loader。
+
+此规则不修改 Constitution，不降低 guard、确定性、唯一 Authority、UNKNOWN 或退役验收，也不扩大日常验证到全仓。
+
 ---
 
 ## 4. 验收模型：Risk-Tiered + Impact-Aware
@@ -818,11 +840,12 @@ READ PROJECT_CONSTITUTION.md
 ## Repository placement and naming
 
 Any concrete implementation loaded through the OnlyAlpha Plugin SPI MUST live under
-`plugs/onlyalpha-plugin-<NAME>/`. Any independently buildable, versioned, deployable
-non-plugin component MUST live under `packages/onlyalpha-<FUNC>-<NAME>/`. Stable,
-market-agnostic canonical semantics and the Plugin SPI belong under `src/onlyalpha/`.
-ADR 0139 additionally permits non-deployed Rust canonical semantic library modules under the `crates/onlyalpha-kernel/` umbrella,
-with independent crates such as `domain/` and `core/`; this does not move application components or concrete plugins into Core.
+`plugs/onlyalpha-plugin-<NAME>/`. Stable canonical semantics and reusable public libraries belong under `crates/`;
+Kernel libraries use the `crates/onlyalpha-kernel/` grouping, including `predicates/` rather than former `core/`.
+Product units are `packages/backend`, `packages/frontend` and `packages/agent`, under ADRs 0142/0146.
+Backend business and lifecycle are Rust. Existing Python `src/onlyalpha/` and legacy worker/manager package paths are
+migration observations, not authorization to add implementations there or create another product per worker.
+Root `src/` is frozen and must ultimately disappear under §3.6. Do not put Application, DB, process or provider rules in Kernel.
 
 Do not add `apps/<...>` or category-first wrappers such as `packages/provider`,
 `packages/market`, `packages/api`, `packages/protocol`, `packages/factor`,

@@ -151,7 +151,6 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.build_provenance.py", "onlyalpha", "build_provenance.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.canonical.py", "onlyalpha", "canonical.py"),
-    OnlyAgentWorkflowResourceSpecV1("onlyalpha.distribution.py", "onlyalpha", "distribution.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.__init__.py", "onlyalpha.plugin", "__init__.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.agent_provider.py", "onlyalpha.plugin", "agent_provider.py"),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.plugin.capabilities.py", "onlyalpha.plugin", "capabilities.py"),
@@ -205,6 +204,12 @@ ONLY_AGENT_WORKFLOW_RESOURCE_CLOSURE_V1 = (
         "onlyalpha.research.experiment.model.py", "onlyalpha.research.experiment", "model.py"
     ),
     OnlyAgentWorkflowResourceSpecV1("onlyalpha.research.source_cut.py", "onlyalpha.research", "source_cut.py"),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha_gateway_protocol.__init__.py", "onlyalpha_gateway_protocol", "__init__.py"
+    ),
+    OnlyAgentWorkflowResourceSpecV1(
+        "onlyalpha_gateway_protocol.distribution.py", "onlyalpha_gateway_protocol", "distribution.py"
+    ),
 )
 
 _ResourceReader = Callable[[str, str], bytes]

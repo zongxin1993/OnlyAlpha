@@ -99,11 +99,12 @@ def test_exact_artifact_inspection_never_uses_incomplete_or_wrong_selected_proof
 
 
 def _other_generation_publication(tmp_path, first, results, evidence_store):
-    from onlyalpha.distribution import (
+    from onlyalpha_gateway_protocol.distribution import (
         OnlyArtifactSourceProvenanceAuthority,
         OnlyDistributionArtifactManifest,
         OnlyDistributionArtifactRole,
     )
+
     from onlyalpha.quant_assets.retained_generation import OnlyRetainedRuntimeGenerationProofV1
     from onlyalpha.research.artifact import (
         OnlyParquetResearchCalculationArtifactStoreV2,

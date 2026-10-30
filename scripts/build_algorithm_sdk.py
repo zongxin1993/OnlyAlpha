@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import _decimal
 import argparse
+import ast
 import base64
 import csv
 import decimal
@@ -28,6 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK = (
     "canonical.py",
     "calculation/definition.py",
+    "calculation/compatibility.py",
+    "calculation/graph.py",
     "calculation/implementation.py",
     "calculation/decimal_execution.py",
     "calculation/chart_decimal.py",
@@ -36,6 +39,8 @@ SDK = (
     "algorithm/__init__.py",
     "algorithm/batch.py",
     "algorithm/private_factor.py",
+    "calculation/registry.py",
+    "quant_assets/private_factor_provider_snapshot.py",
     "algorithm/codec.py",
     "algorithm/type_declaration.py",
 )
@@ -47,7 +52,18 @@ INDICATORS = (
     "financial_semantics.py",
     "chart_factory.py",
 )
-WORKER = ("chart_worker.py", "chart_isolation.py")
+OPERATORS = ("metadata.py", "registration.py", "semantics.py", "research.py", "trading.py")
+WORKER = (
+    "chart_worker.py",
+    "chart_isolation.py",
+    "worker_io.py",
+    "research_worker.py",
+    "research_evaluation.py",
+    "research_preparation.py",
+    "sdk/__init__.py",
+    "sdk/private_factor_execution.py",
+    "sdk/private_factor_source.py",
+)
 
 
 def distribution_version(distribution: str) -> str:
@@ -99,8 +115,9 @@ def build(output: Path) -> list[Path]:
     sdk = {"onlyalpha/" + name: (ROOT / "src/onlyalpha" / name).read_bytes() for name in SDK}
     sdk["onlyalpha/__init__.py"] = b'"""Minimal mathematical authoring SDK; no business services."""\n'
     sdk["onlyalpha/calculation/__init__.py"] = (
-        b"from onlyalpha.calculation.definition import *\nfrom onlyalpha.calculation.decimal_execution import only_decimal_context, only_quantize_decimal\n"
+        b"from onlyalpha.calculation.definition import *\nfrom onlyalpha.calculation.decimal_execution import only_decimal_context, only_quantize_decimal, only_decimal_execution_semantic_dependency\nfrom onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1\n"
     )
+    sdk["onlyalpha/quant_assets/__init__.py"] = b'"""Pure immutable algorithm snapshot DTO only."""\n'
     plugin = {
         "onlyalpha_plugin_indicators/" + name: (
             ROOT / "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators" / name
@@ -108,6 +125,13 @@ def build(output: Path) -> list[Path]:
         for name in INDICATORS
     }
     plugin["onlyalpha_plugin_indicators/__init__.py"] = b'"""Installed pure Indicator algorithms."""\n'
+    operators = {
+        "onlyalpha_plugin_operators/" + name: (
+            ROOT / "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators" / name
+        ).read_bytes()
+        for name in OPERATORS
+    }
+    operators["onlyalpha_plugin_operators/__init__.py"] = b'"""Installed pure Operator algorithms."""\n'
     worker = {
         "onlyalpha_backend_algorithms/" + name: (
             ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms" / name
@@ -126,6 +150,7 @@ def build(output: Path) -> list[Path]:
     return [
         wheel(output, "onlyalpha", sdk, ()),
         wheel(output, "onlyalpha-plugin-indicators", plugin, ("onlyalpha", "pyarrow")),
+        wheel(output, "onlyalpha-plugin-operators", operators, ("onlyalpha", "pyarrow")),
         wheel(
             output,
             "onlyalpha-backend-algorithms",
@@ -193,6 +218,7 @@ def install(output: Path, destination: Path) -> str:
     runtime_files = {
         str(Path(path).resolve()): hashlib.sha256(Path(path).read_bytes()).hexdigest()
         for path in (
+            ast.__file__,
             decimal.__file__,
             _decimal.__file__,
             str(Path(sysconfig.get_config_var("LIBDIR")) / sysconfig.get_config_var("LDLIBRARY")),

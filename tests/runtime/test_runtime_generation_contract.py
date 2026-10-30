@@ -5,10 +5,8 @@ from onlyalpha_plugin_targets.registration import registrations as target_regist
 from onlyalpha_test_factor_provider.provider import quant_asset_provider
 
 from onlyalpha.calculation import only_calculation_distribution_artifact_manifest
-from onlyalpha.quant_assets import (
-    OnlyPrivateFactorProviderSnapshotEntryV1,
-    only_quant_asset_distribution_artifact_manifest,
-)
+from onlyalpha.quant_assets import only_quant_asset_distribution_artifact_manifest
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotEntryV1
 from onlyalpha.runtime.generation import (
     OnlyArtifactCalculationImplementation,
     OnlyArtifactSourceProvenanceAuthority,

@@ -180,6 +180,29 @@ No new code, package, database, dependency installation, data reset, deployment 
 | A5 — C3 one-run Research | Agent suggests real supported conditions; backend-registered proposal and separate direct Human Research authorization; complete only the necessary Rust admission/immutable-input/execution/statistics/report closure. | Real Shipping UI runs exactly one Research after both confirmations. Actual authoritative metrics and limitations, not chart/model results; edits invalidate appropriate approvals. Agent outage does not stop backend execution/observation/cancellation. Backend outage blocks formal progression; recovery reconciles original Command/task. Pin Dataset, Factor/source, model/workflow and relevant policies; retain failure/attempt/holdout/name facts. |
 | A6 — Consumer and retirement closure | At each preceding phase remove already-eligible superseded code/imports/packaging/tests; this final step verifies no missed active consumers. Split old Python orchestration from backend-owned Search/Research/permission facts and migrate each at its actual owner. | Useful independent identity, fault, access and recovery assertions survive in the correct owner. No runtime/build/discovery consumer of removed Rust C2 hosting or old Python implementation; no permanent dual writer, proxy or compatibility shim. Retain legitimate Python Agent/algorithms/SDK and still-required callers until replacement gates pass. Removed routes/config readers cannot be reached through another entry. No speculative repository-wide cleanup. |
 
+A5 proceeds through these dependency-sized deliveries, without treating a foundation as Product closure:
+
+1. Implement the internal Rust time-series Statistics executor and mandatory dependent uncertainty
+   under [ADR 0147](adr/0147-time-series-association-and-dependent-uncertainty.md). Prove numeric/rank,
+   paired stationary resampling, family-adjusted intervals, exact input identities and unavailable
+   states with independent vectors and bounded review. Do not repurpose cross-sectional IC V1.
+2. Close confirmed Factor → exact Revision/executable graph/admission and immutable Dataset binding,
+   including forecast/split boundaries, warmup and recorded source proofs; migrate the actual Python
+   consumer boundary and useful assertions, preserving exact execution/generation semantics.
+   [Factor input preparation](research-factor-input-preparation.md) first pins the exact content and
+   original Graph identities and derives the explicitly authorized event window. It is not an executable
+   grant or a Snapshot; the materializer and admission must prove their owning relations separately.
+   Bind the actual native Research input runtime and its tested exact Core through the existing
+   Artifact/Generation Authority, and verify installed semantic SDK resources without importing
+   Python business modules. This compatibility proof does not supply the separate Human/Run grant.
+3. Implement the minimum Rust one-run Command/claim/execution/cancel/recovery and immutable Evidence/
+   report chain. Missing receipt/proof is UNKNOWN or corruption, not certified absence/new identity.
+   Freeze and enforce comparison membership, trial lineage and protected-sample access at the owner.
+4. Extend Agent recommendations and Shipping Web's separate Human Research confirmation and report.
+   Real UI acceptance must exercise a supported run with uncertainty plus missing/insufficient data,
+   stale proposals, outage, restart, acknowledgement loss and cancellation races. No full-repository
+   validation or unrelated tooling is required; remove only Python whose real consumers have retired.
+
 The prospective confirmation/staging and service-auth contracts are frozen in each owning implementation task before mutation;
 this document selects no endpoint strings, token format, parser dependency, framework version or fake implementation. Use existing
 public contract export/versioning and release/build/verification entry points; extend only necessary consumers, not a new tools
@@ -206,6 +229,27 @@ release consumers and real Shipping UI for executable slices. Preserve guards, d
 Use the unique formal `onlyalpha-dev` entry and isolated test namespaces. No full-repository tests, extra tooling, automatic
 publication/deployment or new business scope are implied by a phase number. Stop when that phase's required behavior and real
 impact checks pass; do not silently proceed to the next phase without the corresponding authorized task.
+
+## Root `src/` freeze and exit order
+
+The owner decision of 2026-10-29 freezes root `src/`, including uncommitted additions. Follow AGENTS.md §3.6 and the
+[owning architecture](repository-product-architecture.md#root-python-source-retirement): no new files/implementations/functionality
+there; minimum retirement rewiring and deletion only. Backend capabilities and fixes go directly to Rust. Python Agent, isolated
+algorithms/minimum SDK and suitable tools keep only their already-authorized responsibilities outside root `src/`.
+
+Apply this order inside each already-planned capability, including A5; it does not open a separate broad cleanup project:
+
+1. Audit current source and tests, classify real backend versus legitimate algorithm/Agent/tool responsibilities and consumers.
+2. Reuse the owning Rust implementation or complete its missing canonical capability directly; do not first extend Python.
+3. Move actual callers and useful independent assertions to the replacement. Extract only necessary legitimate Python SDK parts
+   into their existing owning Product constituent; never relocate backend business as a substitute for Rust implementation.
+4. Validate only modified modules/direct consumers, including required identity, permission, determinism and recovery cases, then
+   remove the old implementations and obsolete imports/exports, dependencies, entry points, package/build/deploy/comparison wiring.
+5. The final aggregate gate requires root `src/` deleted and no active runtime/install/test/build/deploy/discovery dependency on it.
+   Retained exact historical artifacts do not authorize a current-source compatibility loader or Python backend fallback.
+
+Existing phase descriptions that inspect `src/onlyalpha/` identify migration inputs, not permission to continue development there.
+No full-repository test workflow, new tool framework, automatic release/deployment or Constitution change follows from this rule.
 
 ## Python cleanup is part of migration delivery
 

@@ -1,14 +1,17 @@
-"""Stable identities for immutable executable distribution artifacts."""
+"""Artifact wire records for build tools and transitional API consumers.
+
+Formal native Runtime admission is verified by the owning Rust backend.
+"""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
-
-from onlyalpha.canonical import only_canonical_fingerprint
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,255}$")
@@ -20,6 +23,7 @@ class OnlyDistributionArtifactRole(StrEnum):
     CALCULATION = "CALCULATION"
     SUPPORT = "SUPPORT"
     BACKTEST_RUNTIME = "BACKTEST_RUNTIME"
+    RESEARCH_RUNTIME = "RESEARCH_RUNTIME"
 
 
 class OnlyArtifactSourceProvenanceAuthority(StrEnum):
@@ -129,12 +133,17 @@ class OnlyDistributionArtifactManifest:
         normalized_version = self.distribution_version.replace("-", "_").lower()
         if not self.artifact_logical_name.lower().startswith(f"{normalized}-{normalized_version}-"):
             raise ValueError("RUNTIME_GENERATION_ARTIFACT_MANIFEST_INVALID")
-        if self.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME:
+        if self.role in {OnlyDistributionArtifactRole.BACKTEST_RUNTIME, OnlyDistributionArtifactRole.RESEARCH_RUNTIME}:
             target = self.native_target
+            distribution, prefix = (
+                ("onlyalpha-backtest-driver", "onlyalpha_backtest_driver")
+                if self.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME
+                else ("onlyalpha-backend", "onlyalpha_backend")
+            )
             if (
                 target is None
-                or self.distribution_name != "onlyalpha-backtest-driver"
-                or self.artifact_logical_name != f"onlyalpha_backtest_driver-{normalized_version}-{target}.elf"
+                or self.distribution_name != distribution
+                or self.artifact_logical_name != f"{prefix}-{normalized_version}-{target}.elf"
                 or self.source_provenance_authority is not OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT
                 or self.tested_core_execution_fingerprint is None
             ):
@@ -198,7 +207,11 @@ class OnlyDistributionArtifactManifest:
 
     @property
     def manifest_fingerprint(self) -> str:
-        return only_canonical_fingerprint(self.to_dict(include_fingerprint=False))
+        return hashlib.sha256(
+            json.dumps(
+                self.to_dict(include_fingerprint=False), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
 
     def to_dict(self, *, include_fingerprint: bool = True) -> dict[str, object]:
         result: dict[str, object] = {

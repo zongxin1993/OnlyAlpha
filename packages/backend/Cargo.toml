@@ -13,6 +13,10 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
+arrow-array = { version = "=59.3.2", default-features = false }
+arrow-schema = { version = "=59.3.2", default-features = false }
+parquet = { version = "=59.3.2", default-features = false, features = ["arrow", "zstd", "crc"] }
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
 onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
@@ -76,6 +80,10 @@ path = "src/main.rs"
 [[test]]
 name = "application_command"
 path = "tests/application/command.rs"
+
+[[test]]
+name = "application_time_series_statistics"
+path = "tests/application/time_series_statistics.rs"
 
 [[test]]
 name = "application_credentials"

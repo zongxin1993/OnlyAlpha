@@ -13,12 +13,12 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
-
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactRole,
 )
+from onlyalpha_runtime_generation_manager import OnlyRuntimeGenerationRegistry
+
 from onlyalpha.research.artifact import OnlyParquetResearchCalculationArtifactStoreV2
 from tests.runtime_support.chart_execution_host import exact_host_environment as exact_host_environment
 from tests.runtime_support.chart_execution_host import materialize_exact_host_environment
@@ -371,7 +371,7 @@ import importlib.abc, sys
 class NoExecutableAuthority(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.startswith(('onlyalpha.runtime', 'onlyalpha.application', 'onlyalpha_runtime_generation_manager',
-                                'onlyalpha.quant_assets.private_factor_execution')):
+                                'onlyalpha_backend_algorithms.sdk.private_factor_execution')):
             raise AssertionError('portable read imported executable Authority: ' + fullname)
 sys.meta_path.insert(0, NoExecutableAuthority())
 from pathlib import Path

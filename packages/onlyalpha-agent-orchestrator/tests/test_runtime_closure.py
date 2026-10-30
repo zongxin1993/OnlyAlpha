@@ -30,10 +30,10 @@ from onlyalpha_agent_orchestrator.closure import _build_agent_workflow_runtime_r
 from onlyalpha_agent_orchestrator.provenance import (
     OnlyAgentOrchestratorPackagedBuildProvenanceV1,
 )
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactSourceProvenanceAuthority
 
 import onlyalpha.research.agent.workflow as workflow_module
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
-from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.research.agent import (
     OnlyAgentContextError,
     OnlyAgentOrchestrationResourceKind,
@@ -356,6 +356,7 @@ print(json.dumps(sorted(
     name for name in sys.modules
     if name == "onlyalpha" or name.startswith("onlyalpha.")
     or name == "onlyalpha_agent_orchestrator" or name.startswith("onlyalpha_agent_orchestrator.")
+    or name == "onlyalpha_gateway_protocol" or name.startswith("onlyalpha_gateway_protocol.")
 )))
 """
     loaded = set(json.loads(subprocess.check_output([sys.executable, "-c", program], text=True)))
@@ -365,7 +366,8 @@ print(json.dumps(sorted(
         "onlyalpha.application.product_command_receipt",
         "onlyalpha.build_provenance",
         "onlyalpha.canonical",
-        "onlyalpha.distribution",
+        "onlyalpha_gateway_protocol",
+        "onlyalpha_gateway_protocol.distribution",
         "onlyalpha.research",
         "onlyalpha.research._durability",
         "onlyalpha.research.agent",

@@ -42,71 +42,20 @@ from .private import only_private_factor_revision_fingerprint as only_private_fa
 from .private import only_private_factor_source_sha256 as only_private_factor_source_sha256
 from .private import only_private_strategy_definition_fingerprint as only_private_strategy_definition_fingerprint
 from .private import only_private_strategy_revision_fingerprint as only_private_strategy_revision_fingerprint
-from .private_factor_provider_snapshot import (
-    OnlyPrivateFactorProviderSnapshotEntryV1 as OnlyPrivateFactorProviderSnapshotEntryV1,
-)
-from .private_factor_provider_snapshot import (
-    OnlyPrivateFactorProviderSnapshotV1 as OnlyPrivateFactorProviderSnapshotV1,
-)
 
 if TYPE_CHECKING:
     from .example_seed import OnlyPrivateAssetExampleBundleV1 as OnlyPrivateAssetExampleBundleV1
     from .example_seed import OnlyPrivateAssetExampleImporterV1 as OnlyPrivateAssetExampleImporterV1
     from .example_seed import only_load_private_asset_example_bundle as only_load_private_asset_example_bundle
-    from .private_factor_execution import ONLY_PRIVATE_FACTOR_API_V1 as ONLY_PRIVATE_FACTOR_API_V1
-    from .private_factor_execution import (
-        ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1 as ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1,
-    )
-    from .private_factor_execution import OnlyPrivateFactorAdapterV1 as OnlyPrivateFactorAdapterV1
-    from .private_factor_execution import OnlyPrivateFactorApiContractV1 as OnlyPrivateFactorApiContractV1
-    from .private_factor_execution import OnlyPrivateFactorExecutableClosureV1 as OnlyPrivateFactorExecutableClosureV1
-    from .private_factor_execution import OnlyPrivateFactorIsolatedProgramHost as OnlyPrivateFactorIsolatedProgramHost
-    from .private_factor_execution import (
-        OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1 as OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
-    )
-    from .private_factor_execution import (
-        OnlyPrivateFactorSourceArtifactManifestV1 as OnlyPrivateFactorSourceArtifactManifestV1,
-    )
-    from .private_factor_execution import (
-        OnlyPrivateFactorValidationDisposition as OnlyPrivateFactorValidationDisposition,
-    )
-    from .private_factor_execution import OnlyPrivateFactorValidationEvidenceV1 as OnlyPrivateFactorValidationEvidenceV1
-    from .private_factor_execution import OnlyPrivateFactorValidationPolicyV1 as OnlyPrivateFactorValidationPolicyV1
-    from .private_factor_execution import (
-        only_private_factor_backend_registrations as only_private_factor_backend_registrations,
-    )
-    from .private_factor_execution import only_private_factor_type_definition as only_private_factor_type_definition
-    from .private_factor_execution import only_validate_private_factor_revision as only_validate_private_factor_revision
 
 _LAZY_EXECUTION_EXPORTS = {
-    name: ("private_factor_execution", name)
+    name: ("example_seed", name)
     for name in (
-        "ONLY_PRIVATE_FACTOR_API_V1",
-        "ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1",
-        "OnlyPrivateFactorAdapterV1",
-        "OnlyPrivateFactorApiContractV1",
-        "OnlyPrivateFactorExecutableClosureV1",
-        "OnlyPrivateFactorIsolatedProgramHost",
-        "OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1",
-        "OnlyPrivateFactorSourceArtifactManifestV1",
-        "OnlyPrivateFactorValidationDisposition",
-        "OnlyPrivateFactorValidationEvidenceV1",
-        "OnlyPrivateFactorValidationPolicyV1",
-        "only_private_factor_backend_registrations",
-        "only_private_factor_type_definition",
-        "only_validate_private_factor_revision",
+        "OnlyPrivateAssetExampleBundleV1",
+        "OnlyPrivateAssetExampleImporterV1",
+        "only_load_private_asset_example_bundle",
     )
 }
-_LAZY_EXECUTION_EXPORTS.update(
-    {
-        name: ("example_seed", name)
-        for name in (
-            "OnlyPrivateAssetExampleBundleV1",
-            "OnlyPrivateAssetExampleImporterV1",
-            "only_load_private_asset_example_bundle",
-        )
-    }
-)
 
 _LAZY_STRATEGY_EXPORTS = {
     "PRIVATE_STRATEGY_DEFINITION_SCHEMA_VERSION": ("private_strategy", "PRIVATE_STRATEGY_DEFINITION_SCHEMA_VERSION"),

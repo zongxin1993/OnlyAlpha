@@ -12,6 +12,7 @@ use crate::transport::endpoint::Transport;
 use crate::transport::host::{self, Failure, Host, ROWS, WORK};
 use onlyalpha_calculation_bridge::ChartInstallation;
 use onlyalpha_integration_contract::source::{Clock, SourceError, Trust};
+use sha2::{Digest, Sha256};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -163,6 +164,81 @@ impl Database {
         .map_err(Failure::from)
     }
 }
+/// A read-only Research inventory session, bound to the original Node guard and semantic store.
+/// It owns no mutation Authority. Every Research write uses the original Host AuthoritySession.
+pub(crate) struct ResearchConnection {
+    owned: PendingRead,
+    namespace: crate::bootstrap::deployment::SemanticStoreId,
+    writer_pid: i32,
+    writer_live: tokio::sync::watch::Receiver<bool>,
+}
+impl ResearchConnection {
+    pub(crate) fn active(&self) -> bool {
+        driver_active(&self.writer_live) && driver_active(&self.owned.alive)
+    }
+    pub(crate) async fn client_mut(&mut self) -> Result<&mut Client, Failure> {
+        if !self.active() {
+            return Err(Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"));
+        }
+        let client = self
+            .owned
+            .client
+            .as_mut()
+            .ok_or(Failure::unavailable("POSTGRES_UNAVAILABLE"))?;
+        let proof = tokio::time::timeout(Duration::from_secs(5), client.query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND pid=$1 AND classid=1329199301::pg_catalog.oid AND objid=5::pg_catalog.oid AND objsubid=2 AND mode='ExclusiveLock' AND granted)",
+            &[&self.writer_pid],
+        )).await.map_err(|_|Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"))?
+            .map_err(|_|Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"))?;
+        if !proof
+            .try_get::<_, bool>(0)
+            .map_err(|_| Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"))?
+        {
+            return Err(Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"));
+        }
+        crate::bootstrap::deployment::verify_binding(client, &self.namespace)
+            .await
+            .map_err(|_| Failure::unavailable("SEMANTIC_STORE_BINDING_MISMATCH"))?;
+        Ok(client)
+    }
+    pub(crate) async fn close(&mut self) -> Result<(), Failure> {
+        self.owned.close().await
+    }
+}
+impl Database {
+    pub(crate) async fn research_connection(
+        &self,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        writer_pid: i32,
+        writer_live: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<ResearchConnection, Failure> {
+        if writer_pid <= 0 || !driver_active(&writer_live) {
+            return Err(Failure::unavailable("RESEARCH_NODE_AUTHORITY_UNAVAILABLE"));
+        }
+        let mut connection = ResearchConnection {
+            owned: connect(self, true).await?,
+            namespace: namespace.clone(),
+            writer_pid,
+            writer_live,
+        };
+        let observed = async {
+            let client = connection.client_mut().await?;
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                client.batch_execute("SET application_name = 'onlyalpha-research-inventory'"),
+            )
+            .await
+            .map_err(|_| Failure::unavailable("RESEARCH_INVENTORY_SESSION_UNAVAILABLE"))?
+            .map_err(|_| Failure::unavailable("RESEARCH_INVENTORY_SESSION_UNAVAILABLE"))
+        }
+        .await;
+        if let Err(error) = observed {
+            connection.close().await?;
+            return Err(error);
+        }
+        Ok(connection)
+    }
+}
 async fn connect(config: &Database, readonly: bool) -> Result<PendingRead, Failure> {
     // NoTls never silently falls back from SSLPrefer/Require. Independent exact
     // TCP peer + explicit endpoint/user/database + later semantic namespace proof.
@@ -255,6 +331,10 @@ impl Drop for Running {
             .ready
             .store(false, std::sync::atomic::Ordering::Release);
         self.host.chart_gate.close();
+        if !self.host.research_drained.load(Ordering::Acquire) {
+            self.host.stop_research_admission();
+            self.host.retain_research_owner();
+        }
         if let Some(driver) = self.reader_driver.take() {
             driver.abort();
         }
@@ -268,7 +348,8 @@ impl Running {
         if *shutdown.borrow() {
             return Err(Failure::unavailable("NATIVE_STARTUP_INTERRUPTED"));
         }
-        let agent_browser = crate::security::agent_browser::Issuer::load(&config.user_data).map_err(Failure::unavailable)?;
+        let agent_browser = crate::security::agent_browser::Issuer::load(&config.user_data)
+            .map_err(Failure::unavailable)?;
         let database = Database::from(&config);
         let inputs = StorageInputs::load(
             StorageRoots::open(&config.user_data).map_err(|e| Failure::unavailable(e.code()))?,
@@ -322,7 +403,22 @@ impl Running {
         if *shutdown.borrow() {
             return Err(Failure::unavailable("NATIVE_STARTUP_INTERRUPTED"));
         }
-        let access = crate::security::human_access::Access::generate()?;
+        let release_root = config
+            .algorithms
+            .parent()
+            .ok_or(Failure::unavailable("RESEARCH_RELEASE_UNAVAILABLE"))?
+            .to_path_buf();
+        let release_manifest = read_bounded(
+            &release_root.join("manifest.json"),
+            FilePolicy::HistoryDocument,
+            8 * 1024 * 1024,
+        )
+        .map_err(|_| Failure::unavailable("RESEARCH_RELEASE_UNAVAILABLE"))?;
+        let release_manifest_fingerprint = Sha256::digest(&release_manifest)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let access = Arc::new(crate::security::human_access::Access::generate()?);
         let mut write = connect(&database, false).await?;
         let writer_live = write.alive.clone();
         let mut writer = AuthoritySession::acquire(
@@ -448,11 +544,26 @@ impl Running {
             }
         };
         let host = Arc::new(Host {
+            human_access: Arc::clone(&access),
+            research_preparation_config:
+                crate::transport::host_research_preparation::PreparationConfig {
+                    runtime_root: config.user_data.join("runtime"),
+                    research_root: config.user_data.join("research"),
+                    release_root,
+                    algorithms_root: config.algorithms.clone(),
+                    release_manifest_fingerprint,
+                    native_version: env!("CARGO_PKG_VERSION").into(),
+                },
+            research_preparation_running: std::sync::Mutex::new(std::collections::BTreeMap::new()),
             agent_browser,
             inputs,
             database,
             writer_live,
-            writer: Mutex::new(Some(writer)),
+            writer: Arc::new(Mutex::new(Some(writer))),
+            research: Mutex::new(None),
+            research_wake: OnceLock::new(),
+            research_drained: AtomicBool::new(true),
+            research_failed_hold: std::sync::Mutex::new(None),
             reader: read,
             catalog,
             resolver,
@@ -473,6 +584,12 @@ impl Running {
             stream_failure: std::sync::Mutex::new(None),
             previews: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         });
+        let research_configuration = crate::workers::research_service::Configuration {
+            runtime_root: config.user_data.join("runtime"),
+            research_root: config.user_data.join("research"),
+            algorithms: config.algorithms.clone(),
+            native_version: env!("CARGO_PKG_VERSION").into(),
+        };
         let ingress = crate::security::ingress::LocalIngress::new_workstation(
             access,
             host.router(),
@@ -506,6 +623,52 @@ impl Running {
             if !running.host.writer_active() {
                 return Err(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST"));
             }
+            let writer_pid = {
+                let mut held = running.host.writer.lock().await;
+                held.as_mut()
+                    .ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+                    .client_mut()
+                    .await
+                    .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+                    .query_one("SELECT pg_backend_pid()", &[])
+                    .await
+                    .map_err(|_| Failure::unavailable("POSTGRES_UNAVAILABLE"))?
+                    .try_get::<_, i32>(0)
+                    .map_err(|_| Failure::unavailable("POSTGRES_UNAVAILABLE"))?
+            };
+            let connection = running
+                .host
+                .database
+                .research_connection(
+                    running.host.inputs.namespace(),
+                    writer_pid,
+                    running.host.writer_live.clone(),
+                )
+                .await?;
+            running
+                .host
+                .research_drained
+                .store(false, Ordering::Release);
+            let service = crate::workers::research_service::Service::start(
+                connection,
+                Arc::clone(&running.host.writer),
+                research_configuration,
+                || {
+                    host::now().map_err(|_| {
+                        crate::application::research_admission::PreparationError::from(
+                            "RESEARCH_CLOCK_UNAVAILABLE",
+                        )
+                    })
+                },
+            )
+            .map_err(Failure::unavailable)?;
+            let wake = service.wake();
+            *running.host.research.lock().await = Some(service);
+            running
+                .host
+                .research_wake
+                .set(wake)
+                .map_err(|_| Failure::unavailable("RESEARCH_SERVICE_ALREADY_STARTED"))?;
             Ok(())
         }
         .await;
@@ -552,6 +715,23 @@ impl Running {
         // authority is released last, after sockets, streams, workers and read driver.
         self.host.ready.store(false, Ordering::Release);
         self.host.chart_gate.close();
+        self.host.stop_research_admission();
+        {
+            let mut original = self.host.research.lock().await;
+            if let Some(service) = original.as_mut()
+                && let Err(code) = service.drain().await
+            {
+                self.host.retain_research_owner();
+                return Err(Failure::unavailable(code));
+            }
+            original.take();
+            self.host.research_drained.store(true, Ordering::Release);
+            self.host
+                .research_failed_hold
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
+        }
         let mut failure = None;
         remember(
             &mut failure,

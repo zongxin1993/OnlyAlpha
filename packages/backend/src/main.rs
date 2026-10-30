@@ -102,6 +102,28 @@ async fn main() {
 }
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.len() == 2 && matches!(args[0].as_str(), "--initialize-fresh-research-namespace" | "--verify-research-namespace") {
+        let root = std::path::Path::new(&args[1]);
+        let identity = if args[0] == "--initialize-fresh-research-namespace" {
+            onlyalpha_backend::bootstrap::research_namespace::initialize_fresh(root)
+        } else {
+            onlyalpha_backend::bootstrap::research_namespace::open_existing(root)
+        }.map_err(str::to_owned)?;
+        println!("{}", serde_json::json!({"schema_version":1,"semantic_store_id":identity.value(),
+            "profile":onlyalpha_backend::bootstrap::research_namespace::profile(),
+            "policy":onlyalpha_backend::bootstrap::research_namespace::policy()}));
+        return Ok(());
+    }
+    if args == ["--describe-research-runtime"] {
+        println!(
+            "{}",
+            onlyalpha_backend::workers::algorithm::describe_research_runtime(env!(
+                "CARGO_PKG_VERSION"
+            ))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
     if args == ["--export-websocket"] {
         println!(
             "{}",

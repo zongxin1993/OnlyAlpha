@@ -13,17 +13,19 @@ from onlyalpha_authoring_execution_worker import (
     only_compose_authoring_research_admission,
     only_compose_authoring_research_worker,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+)
 
 from onlyalpha.calculation import OnlyCalculationKind, OnlyCalculationTypeReference
 from onlyalpha.canonical import only_canonical_json
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetNotFoundError,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
     OnlyPrivateFactorRevision,
     OnlyPrivateStrategyRevision,
     OnlyQuantAssetCatalogGeneration,

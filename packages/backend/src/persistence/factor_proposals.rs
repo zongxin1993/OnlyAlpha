@@ -482,8 +482,21 @@ async fn withdrawn(tx: &Transaction<'_>, fp: &str, owner: &str) -> Result<bool> 
     operation(tx, &id, owner, Some("HUMAN")).await?;
     Ok(true)
 }
-async fn load_grant(tx: &Transaction<'_>, id: &str) -> Result<(String, Value)> {
+/// Live authorization, budget and revocation serialize on this original parent row.
+pub(crate) async fn load_grant(tx: &Transaction<'_>, id: &str) -> Result<(String, Value)> {
     let row=tx.query_opt("SELECT fingerprint,payload::text FROM factor_proposal_grant WHERE grant_id=$1::text::uuid FOR UPDATE",&[&id]).await.map_err(db)?.ok_or("FACTOR_PROPOSAL_UNAUTHORIZED")?;
+    verify_grant_record(tx, id, row).await
+}
+/// Retained immutable fact only; this does not authorize new work or spend budget.
+pub(crate) async fn read_grant(tx: &Transaction<'_>, id: &str) -> Result<(String, Value)> {
+    let row=tx.query_opt("SELECT fingerprint,payload::text FROM factor_proposal_grant WHERE grant_id=$1::text::uuid",&[&id]).await.map_err(db)?.ok_or("FACTOR_PROPOSAL_UNAUTHORIZED")?;
+    verify_grant_record(tx, id, row).await
+}
+async fn verify_grant_record(
+    tx: &Transaction<'_>,
+    id: &str,
+    row: tokio_postgres::Row,
+) -> Result<(String, Value)> {
     let fp: String = row.get(0);
     let g = value(row.get(1))?;
     if hash(&g)? != fp || g["input"]["grant_id"] != id {
@@ -496,11 +509,25 @@ async fn load_grant(tx: &Transaction<'_>, id: &str) -> Result<(String, Value)> {
     }
     Ok((fp, g))
 }
-async fn authorize(tx: &Transaction<'_>, c: &Presented, at: &str) -> Result<(String, Value)> {
+/// Retained credential identity only. Expiry/revocation still fence every new operation.
+pub(crate) async fn authenticate_retained(
+    tx: &Transaction<'_>,
+    c: &Presented,
+) -> Result<(String, Value)> {
     let (fp, g) = load_grant(tx, &c.grant_id).await?;
     let digest = text(&g["input"], "credential_sha256")?;
-    if !bool::from(digest.as_bytes().ct_eq(c.digest.as_bytes()))
-        || a::datetime(text(&g["input"], "expires_at")?)? <= a::datetime(at)?
+    if !bool::from(digest.as_bytes().ct_eq(c.digest.as_bytes())) {
+        return Err("FACTOR_PROPOSAL_UNAUTHORIZED");
+    }
+    Ok((fp, g))
+}
+pub(crate) async fn authorize(
+    tx: &Transaction<'_>,
+    c: &Presented,
+    at: &str,
+) -> Result<(String, Value)> {
+    let (fp, g) = authenticate_retained(tx, c).await?;
+    if a::datetime(text(&g["input"], "expires_at")?)? <= a::datetime(at)?
         || tx
             .query_opt(
                 "SELECT 1 FROM factor_proposal_revocation WHERE grant_id=$1::text::uuid",
@@ -522,6 +549,38 @@ async fn lineage(tx: &Transaction<'_>, fid: &str) -> Result<()> {
     .await
     .map_err(db)?;
     Ok(())
+}
+/// Read the original Human acceptance at the owning boundary, under its existing
+/// lineage lock for a new submission; historical reads use immutable acceptance. This is not a Research grant or an automatic Revision publication.
+pub(crate) async fn confirmed_research_input(
+    tx: &Transaction<'_>,
+    proposal: &str,
+    owner: &str,
+    current: bool,
+) -> Result<Value> {
+    let s = snapshot(tx, proposal, owner, None).await?;
+    let fid = text(&s, "factor_id")?;
+    if current {
+        lineage(tx, fid).await?;
+    }
+    if current
+        && (head(tx, fid).await? != json!(proposal) || withdrawn(tx, proposal, owner).await?)
+    {
+        return Err("FACTOR_PROPOSAL_STALE");
+    }
+    let row = tx.query_opt("SELECT command_id::text FROM factor_proposal_confirmation WHERE proposal_fingerprint=$1", &[&proposal])
+        .await.map_err(db)?.ok_or("FACTOR_PROPOSAL_NOT_CONFIRMED")?;
+    let command = CommandId::new(&row.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
+    let accepted = operation(tx, &command, owner, Some("HUMAN")).await?;
+    let raw = operation_payload(tx, &command).await?;
+    if raw["kind"] != "CONFIRM_FACTOR_PROPOSAL"
+        || raw["request"]["proposal_fingerprint"] != proposal
+        || raw["effect"]["proposal_fingerprint"] != proposal
+        || accepted["effect"]["authoring"]["result"]["draft"] != s["preview"]["draft"]
+    {
+        return Err("FACTOR_PROPOSAL_CORRUPT");
+    }
+    Ok(json!({"snapshot":s,"confirmation":accepted,"confirmation_command_id":command.value()}))
 }
 async fn head(tx: &Transaction<'_>, fid: &str) -> Result<Value> {
     let pointer = tx
@@ -842,7 +901,7 @@ async fn finish(
     )
 }
 
-fn authoring_child(command: &CommandId, purpose: &str) -> Result<CommandId> {
+pub(crate) fn authoring_child(command: &CommandId, purpose: &str) -> Result<CommandId> {
     let h = hash(&json!({"parent":command.value(),"purpose":purpose}))?;
     let mut b = h.into_bytes();
     b[12] = b'4';

@@ -2461,6 +2461,874 @@
         ],
         "type": "object"
       },
+      "FactorResearchCancellationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "FactorResearchConfirmationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "prepared_study_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "preparation_command_id",
+          "prepared_study_fingerprint"
+        ],
+        "type": "object"
+      },
+      "FactorResearchConfirmationOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "research_command_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_command_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactorResearchDecisionProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "group_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FactorResearchDecisionState"
+          }
+        },
+        "required": [
+          "state",
+          "command_id",
+          "group_fingerprint",
+          "policy_id",
+          "policy_version"
+        ],
+        "type": "object"
+      },
+      "FactorResearchDecisionState": {
+        "enum": [
+          "VERIFIED",
+          "UNAVAILABLE",
+          "NOT_CHECKED"
+        ],
+        "type": "string"
+      },
+      "FactorResearchNewWorkStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactorResearchPreparationContext": {
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "$ref": "#/components/schemas/FactorStudyAdvice"
+          },
+          "algorithm_artifact_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "backend_version": {
+            "type": "string"
+          },
+          "existing_preparations": {
+            "items": {
+              "$ref": "#/components/schemas/FactorResearchPreparationSummary"
+            },
+            "type": "array"
+          },
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "factor_name": {
+            "type": "string"
+          },
+          "factor_proposal_fingerprint": {
+            "type": "string"
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "new_work_status": {
+            "$ref": "#/components/schemas/FactorResearchNewWorkStatus"
+          },
+          "policy": {},
+          "profile": {},
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          },
+          "usage_summary": {
+            "type": "string"
+          },
+          "withdrawn": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schema_version",
+          "study_proposal_fingerprint",
+          "factor_proposal_fingerprint",
+          "factor_name",
+          "usage_summary",
+          "advice",
+          "is_current",
+          "withdrawn",
+          "release_manifest_fingerprint",
+          "backend_version",
+          "initialize_fresh_runtime",
+          "profile",
+          "policy",
+          "new_work_status",
+          "existing_preparations"
+        ],
+        "type": "object"
+      },
+      "FactorResearchPreparationRevisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "type": "string"
+          },
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "preparation_command_id",
+          "expected_revision"
+        ],
+        "type": "object"
+      },
+      "FactorResearchPreparationSummary": {
+        "additionalProperties": false,
+        "description": "Discovery facts only. Physical readiness and submission outcomes belong to\nthe separately selected original operation, never to a history option.",
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "revision",
+          "state",
+          "study_proposal_fingerprint",
+          "accepted_at"
+        ],
+        "type": "object"
+      },
+      "FactorResearchPreparationView": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "advice": {
+            "$ref": "#/components/schemas/FactorStudyAdvice"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "detail": {},
+          "phase": {
+            "type": "string"
+          },
+          "prepared_study_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/FactorResearchReadiness"
+          },
+          "research_command_id": {
+            "type": "string"
+          },
+          "research_outcome": {
+            "type": "string"
+          },
+          "reserved_run_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "revision",
+          "state",
+          "phase",
+          "study_proposal_fingerprint",
+          "research_command_id",
+          "reserved_run_id",
+          "research_outcome",
+          "accepted_at",
+          "advice",
+          "detail",
+          "readiness"
+        ],
+        "type": "object"
+      },
+      "FactorResearchReadiness": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactorResearchReport": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_content_fingerprint": {
+            "type": "string"
+          },
+          "canonical_artifact": {
+            "type": "string"
+          },
+          "canonical_specification": {
+            "type": "string"
+          },
+          "comparison_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "confidence_bps": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_block_length": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "horizon_bars": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "instrument_id": {
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "replicates": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "research_result_fingerprint": {
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/FactorResearchSample"
+            },
+            "type": "array"
+          },
+          "timeframe_minutes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "timeframe_minutes",
+          "horizon_bars",
+          "research_result_fingerprint",
+          "artifact_content_fingerprint",
+          "samples",
+          "confidence_bps",
+          "expected_block_length",
+          "replicates",
+          "comparison_count",
+          "limitations",
+          "canonical_artifact",
+          "canonical_specification"
+        ],
+        "type": "object"
+      },
+      "FactorResearchReportAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/FactorResearchReportState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactorResearchReportState": {
+        "enum": [
+          "VERIFIED",
+          "UNAVAILABLE",
+          "NOT_APPLICABLE"
+        ],
+        "type": "string"
+      },
+      "FactorResearchRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "current_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_provenance": {
+            "$ref": "#/components/schemas/FactorResearchDecisionProvenance"
+          },
+          "failure": {},
+          "name_snapshot": {},
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FactorResearchReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report_status": {
+            "$ref": "#/components/schemas/FactorResearchReportAvailability"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "runtime_generation_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "specification_fingerprint": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "worker_observation": {}
+        },
+        "required": [
+          "schema_version",
+          "run_id",
+          "state",
+          "revision",
+          "name_snapshot",
+          "accepted_at",
+          "specification_fingerprint",
+          "runtime_generation_fingerprint",
+          "report_status",
+          "decision_provenance",
+          "worker_observation"
+        ],
+        "type": "object"
+      },
+      "FactorResearchSample": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnostics": {},
+          "end_at": {
+            "type": "string"
+          },
+          "pearson": {},
+          "role": {
+            "type": "string"
+          },
+          "spearman": {},
+          "start_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "start_at",
+          "end_at",
+          "diagnostics",
+          "pearson",
+          "spearman"
+        ],
+        "type": "object"
+      },
+      "FactorStudyAdvice": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence_bps": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "development_end_at": {
+            "type": "string"
+          },
+          "end_at": {
+            "type": "string"
+          },
+          "expected_block_length": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "horizon_bars": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "protected_end_at": {
+            "type": "string"
+          },
+          "protected_start_at": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "replicates": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorStudySource"
+          },
+          "start_at": {
+            "type": "string"
+          },
+          "timeframe_minutes": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "timeframe_minutes",
+          "start_at",
+          "development_end_at",
+          "end_at",
+          "protected_start_at",
+          "protected_end_at",
+          "horizon_bars",
+          "expected_block_length",
+          "replicates",
+          "confidence_bps",
+          "seed",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "FactorStudyContext": {
+        "additionalProperties": false,
+        "properties": {
+          "factor": {},
+          "factor_proposal_fingerprint": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "service_subject": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FactorStudySourceChoice"
+            },
+            "type": "array"
+          },
+          "study_proposal_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supported_profile": {}
+        },
+        "required": [
+          "schema_version",
+          "owner",
+          "service_subject",
+          "factor_proposal_fingerprint",
+          "factor",
+          "sources",
+          "supported_profile"
+        ],
+        "type": "object"
+      },
+      "FactorStudyGrantInput": {
+        "additionalProperties": false,
+        "description": "Separate explicit Human staging permission. The original Factor grant alone\ncannot register studies, prepare/activate environments or run Research.",
+        "properties": {
+          "factor_proposal_fingerprint": {
+            "type": "string"
+          },
+          "grant_id": {
+            "type": "string"
+          },
+          "proposal_limit": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_proposal_fingerprint",
+          "grant_id",
+          "proposal_limit"
+        ],
+        "type": "object"
+      },
+      "FactorStudyPreparationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "research_command_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "study_proposal_fingerprint",
+          "release_manifest_fingerprint",
+          "initialize_fresh_runtime",
+          "research_command_id"
+        ],
+        "type": "object"
+      },
+      "FactorStudySelection": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "study_proposal_fingerprint"
+        ],
+        "type": "object"
+      },
+      "FactorStudySource": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "expected_type_id": {
+            "type": "string"
+          },
+          "instrument_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "integration_revision_fingerprint": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "integration_revision_fingerprint",
+          "expected_type_id",
+          "source_id",
+          "environment",
+          "instrument_id"
+        ],
+        "type": "object"
+      },
+      "FactorStudySourceChoice": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "expected_type_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "integration_revision_fingerprint": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "integration_revision_fingerprint",
+          "expected_type_id",
+          "source_id",
+          "environment"
+        ],
+        "type": "object"
+      },
+      "FactorStudyStageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "$ref": "#/components/schemas/FactorStudyAdvice"
+          },
+          "expected_study_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "factor_proposal_fingerprint": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Origin"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_proposal_fingerprint",
+          "origin",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "FactorStudyView": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "snapshot": {},
+          "withdrawn": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schema_version",
+          "fingerprint",
+          "snapshot",
+          "is_current",
+          "withdrawn"
+        ],
+        "type": "object"
+      },
       "GrantInput": {
         "additionalProperties": false,
         "properties": {
@@ -8708,6 +9576,1353 @@
         ]
       }
     },
+    "/api/v2/factor-studies": {
+      "post": {
+        "operationId": "study_stage",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorStudyStageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AgentProposalBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-studies/commands/{command_id}": {
+      "get": {
+        "operationId": "study_observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          },
+          {
+            "AgentProposalBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-studies/{fingerprint}": {
+      "get": {
+        "operationId": "study_read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorStudyView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          },
+          {
+            "AgentProposalBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-studies/{fingerprint}/withdrawal": {
+      "post": {
+        "operationId": "study_withdraw",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorStudySelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-context/{fingerprint}": {
+      "get": {
+        "operationId": "study_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorStudyContext"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AgentProposalBearer": []
+          },
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-grants": {
+      "post": {
+        "operationId": "study_grant",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorStudyGrantInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparation-context/{fingerprint}": {
+      "get": {
+        "operationId": "study_preparation_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchPreparationContext"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparations": {
+      "post": {
+        "operationId": "study_preparation_create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorStudyPreparationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparations/commands/{command_id}": {
+      "get": {
+        "operationId": "study_preparation_observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparations/{command_id}/cancellation": {
+      "post": {
+        "operationId": "study_preparation_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorResearchPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparations/{command_id}/confirmation": {
+      "post": {
+        "operationId": "study_preparation_confirm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorResearchConfirmationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchConfirmationOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/factor-study-preparations/{command_id}/resume": {
+      "post": {
+        "operationId": "study_preparation_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorResearchPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
     "/api/v2/integration-types": {
       "get": {
         "operationId": "list_integration_types_api_v2_integration_types_get",
@@ -13931,7 +16146,7 @@
     },
     "/api/v2/research/runs/{run_id}": {
       "get": {
-        "operationId": "get_run_api_v2_research_runs__run_id__get",
+        "operationId": "get_run_api_v2_research_runs_run_id_get",
         "parameters": [
           {
             "in": "path",
@@ -13943,7 +16158,79 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -13957,15 +16244,12 @@
           {
             "LocalDeveloperCookie": []
           }
-        ],
-        "tags": [
-          "workstation"
         ]
       }
     },
     "/api/v2/research/runs/{run_id}/cancellation": {
       "post": {
-        "operationId": "cancel_run_api_v2_research_runs__run_id__cancellation_post",
+        "operationId": "cancel_run_api_v2_research_runs_run_id_cancellation_post",
         "parameters": [
           {
             "in": "path",
@@ -13976,16 +16260,98 @@
             }
           },
           {
-            "in": "query",
+            "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorResearchCancellationInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactorResearchRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -13999,9 +16365,6 @@
           {
             "LocalDeveloperCookie": []
           }
-        ],
-        "tags": [
-          "workstation"
         ]
       }
     },

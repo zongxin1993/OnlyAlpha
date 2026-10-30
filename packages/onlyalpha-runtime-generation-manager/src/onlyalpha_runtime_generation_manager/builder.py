@@ -11,28 +11,31 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha.calculation import OnlyCalculationBackendKind
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import (
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    only_private_factor_backend_registrations,
+)
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactCalculationImplementation,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
+
+from onlyalpha.calculation import OnlyCalculationBackendKind
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import (
-    OnlyPrivateFactorAdapterV1,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
-    OnlyPrivateFactorProviderSnapshotV1,
-    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
     OnlyPrivateFactorSnapshotProviderSource,
-    OnlyPrivateFactorSourceArtifactManifestV1,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
-    only_private_factor_backend_registrations,
 )
 from onlyalpha.quant_assets.private import OnlyPrivateFactorRevision
+from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
 from onlyalpha.runtime.generation import (
     OnlyCoreExecutionIdentity,
     OnlyRuntimeGenerationManifest,
@@ -219,6 +222,7 @@ class OnlyRuntimeGenerationBuilder:
                     OnlyDistributionArtifactRole.QUANT_ASSET,
                     OnlyDistributionArtifactRole.CALCULATION,
                     OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+                    OnlyDistributionArtifactRole.RESEARCH_RUNTIME,
                 }
                 and artifact.tested_core_execution_fingerprint != core.fingerprint
             ):
@@ -351,6 +355,7 @@ class OnlyRuntimeGenerationBuilder:
                         OnlyDistributionArtifactRole.QUANT_ASSET,
                         OnlyDistributionArtifactRole.CALCULATION,
                         OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+                        OnlyDistributionArtifactRole.RESEARCH_RUNTIME,
                     }
                     and artifact.tested_core_execution_fingerprint != core.fingerprint
                 ):
@@ -783,11 +788,16 @@ class OnlyRuntimeGenerationBuilder:
     @staticmethod
     def _core_identity(artifacts: tuple[OnlyDistributionArtifactManifest, ...]) -> OnlyCoreExecutionIdentity:
         if any(
-            item.native_target is not None and item.role is not OnlyDistributionArtifactRole.BACKTEST_RUNTIME
+            item.native_target is not None
+            and item.role
+            not in {OnlyDistributionArtifactRole.BACKTEST_RUNTIME, OnlyDistributionArtifactRole.RESEARCH_RUNTIME}
             for item in artifacts
         ):
             raise ValueError("RUNTIME_GENERATION_NATIVE_DIAGNOSTIC_NOT_INSTALLABLE")
-        if sum(item.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME for item in artifacts) > 1:
+        if any(
+            sum(item.role is role for item in artifacts) > 1
+            for role in (OnlyDistributionArtifactRole.BACKTEST_RUNTIME, OnlyDistributionArtifactRole.RESEARCH_RUNTIME)
+        ):
             raise ValueError("RUNTIME_GENERATION_NATIVE_RUNTIME_AMBIGUOUS")
         cores = tuple(item for item in artifacts if item.role is OnlyDistributionArtifactRole.CORE)
         if len(cores) != 1:
@@ -874,7 +884,10 @@ class OnlyRuntimeGenerationBuilder:
             if target.exists():
                 raise ValueError("RUNTIME_GENERATION_ARTIFACT_MISMATCH")
             target.write_bytes(content)
-            if artifact.role is OnlyDistributionArtifactRole.BACKTEST_RUNTIME:
+            if artifact.role in {
+                OnlyDistributionArtifactRole.BACKTEST_RUNTIME,
+                OnlyDistributionArtifactRole.RESEARCH_RUNTIME,
+            }:
                 target.chmod(0o500)
                 self._verify_native_runtime(target, artifact)
             else:
@@ -884,7 +897,12 @@ class OnlyRuntimeGenerationBuilder:
     @staticmethod
     def _verify_native_runtime(target: Path, artifact: OnlyDistributionArtifactManifest) -> None:
         probe = subprocess.run(
-            [str(target), "--describe"],
+            [
+                str(target),
+                "--describe-research-runtime"
+                if artifact.role is OnlyDistributionArtifactRole.RESEARCH_RUNTIME
+                else "--describe",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -892,7 +910,9 @@ class OnlyRuntimeGenerationBuilder:
             env=OnlyRuntimeGenerationBuilder._isolated_environment(),
         )
         if json.loads(probe.stdout) != {
-            "protocol": "onlyalpha.backtest.driver/1",
+            "protocol": "onlyalpha.research.executor/1"
+            if artifact.role is OnlyDistributionArtifactRole.RESEARCH_RUNTIME
+            else "onlyalpha.backtest.driver/1",
             "artifact": artifact.artifact_sha256,
             "target": artifact.native_target,
             "version": artifact.distribution_version,

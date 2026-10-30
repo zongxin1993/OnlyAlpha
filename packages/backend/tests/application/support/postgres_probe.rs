@@ -1,5 +1,7 @@
 //! Technical infrastructure probe: never a Shipping Product endpoint.
 mod market_storage_probe;
+mod factor_studies_probe;
+mod research_namespace_probe;
 use onlyalpha_backend::application::command::{
     Admission, Binding, CommandId, CommandKind, Error, Outcome, OutcomeKind, Put, Receipt,
 };
@@ -479,25 +481,100 @@ async fn credential(
     })
 }
 
-async fn factor_proposal(request:&Value,client:&mut tokio_postgres::Client)->Value {
- use onlyalpha_backend::{persistence::factor_proposals::Proposals,security::proposal_access::Presented};
- let result=async {
- let command=CommandId::new(request["command_id"].as_str().ok_or("command")?).map_err(|e|e.code())?;
- let actor=request["actor"].as_str().ok_or("actor")?;let at=request["at"].as_str().ok_or("at")?;
- let credential=request["token"].as_str().map(Presented::parse).transpose()?;
- let c=credential.as_ref();let body=request["body"].clone();let mut p=Proposals::new(client);
- match request["action"].as_str(){
- Some("grant") if c.is_none()=>p.grant(&command,actor,serde_json::from_value(body).map_err(|_|"input")?,at).await,
- Some("revoke") if c.is_none()=>p.revoke(&command,actor,body["grant_id"].as_str().ok_or("input")?,at).await,
- Some("stage")=>p.stage(&command,c.ok_or("credential")?,serde_json::from_value(body).map_err(|_|"input")?,at).await,
- Some("withdraw") if c.is_none()=>p.withdraw(&command,actor,body["proposal_fingerprint"].as_str().ok_or("input")?,at).await,
- Some("confirm") if c.is_none()=>p.confirm(&command,actor,body["proposal_fingerprint"].as_str().ok_or("input")?,at).await,
- Some("context")=>p.context(c.ok_or("credential")?,request["session_id"].as_str().ok_or("session")?,at).await,
- Some("read")=>p.read(request["fingerprint"].as_str().ok_or("fingerprint")?,actor,c,at).await,
- Some("observe")=>p.observe(&CommandId::new(request["observed_command"].as_str().ok_or("command")?).map_err(|e|e.code())?,actor,c,at).await,
- _=>Err("FACTOR_PROPOSAL_DENIED")}
- }.await;
- result.unwrap_or_else(|e|json!({"error":e}))
+async fn factor_proposal(request: &Value, client: &mut tokio_postgres::Client) -> Value {
+    use onlyalpha_backend::{
+        persistence::factor_proposals::Proposals, security::proposal_access::Presented,
+    };
+    let result = async {
+        let command = CommandId::new(request["command_id"].as_str().ok_or("command")?)
+            .map_err(|e| e.code())?;
+        let actor = request["actor"].as_str().ok_or("actor")?;
+        let at = request["at"].as_str().ok_or("at")?;
+        let credential = request["token"]
+            .as_str()
+            .map(Presented::parse)
+            .transpose()?;
+        let c = credential.as_ref();
+        let body = request["body"].clone();
+        let mut p = Proposals::new(client);
+        match request["action"].as_str() {
+            Some("grant") if c.is_none() => {
+                p.grant(
+                    &command,
+                    actor,
+                    serde_json::from_value(body).map_err(|_| "input")?,
+                    at,
+                )
+                .await
+            }
+            Some("revoke") if c.is_none() => {
+                p.revoke(
+                    &command,
+                    actor,
+                    body["grant_id"].as_str().ok_or("input")?,
+                    at,
+                )
+                .await
+            }
+            Some("stage") => {
+                p.stage(
+                    &command,
+                    c.ok_or("credential")?,
+                    serde_json::from_value(body).map_err(|_| "input")?,
+                    at,
+                )
+                .await
+            }
+            Some("withdraw") if c.is_none() => {
+                p.withdraw(
+                    &command,
+                    actor,
+                    body["proposal_fingerprint"].as_str().ok_or("input")?,
+                    at,
+                )
+                .await
+            }
+            Some("confirm") if c.is_none() => {
+                p.confirm(
+                    &command,
+                    actor,
+                    body["proposal_fingerprint"].as_str().ok_or("input")?,
+                    at,
+                )
+                .await
+            }
+            Some("context") => {
+                p.context(
+                    c.ok_or("credential")?,
+                    request["session_id"].as_str().ok_or("session")?,
+                    at,
+                )
+                .await
+            }
+            Some("read") => {
+                p.read(
+                    request["fingerprint"].as_str().ok_or("fingerprint")?,
+                    actor,
+                    c,
+                    at,
+                )
+                .await
+            }
+            Some("observe") => {
+                p.observe(
+                    &CommandId::new(request["observed_command"].as_str().ok_or("command")?)
+                        .map_err(|e| e.code())?,
+                    actor,
+                    c,
+                    at,
+                )
+                .await
+            }
+            _ => Err("FACTOR_PROPOSAL_DENIED"),
+        }
+    }
+    .await;
+    result.unwrap_or_else(|e| json!({"error":e}))
 }
 async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) -> Value {
     use onlyalpha_backend::persistence::private_factor_postgres::Factors;
@@ -583,6 +660,9 @@ fn main() -> Result<(), Box<dyn StdError>> {
         .enable_all()
         .build()?;
     runtime.block_on(async {
+  if std::env::args().any(|arg|arg=="--describe-research-runtime") {
+    println!("{}",onlyalpha_backend::workers::algorithm::describe_research_runtime("0.11.1")?);return Ok(());
+  }
   let dsn=std::env::var("ONLYALPHA_POSTGRES_DSN")?;
   let mut config:tokio_postgres::Config=dsn.parse()?;
   if !config.get_dbname().is_some_and(|name|name.ends_with("_test")) { return Err("test database required".into()); }
@@ -598,7 +678,26 @@ fn main() -> Result<(), Box<dyn StdError>> {
   // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
   // Other probe operations retain their existing 128 KiB frame guard.
   if raw.len()>131072 && request["op"]!="factor-authoring" {return Err("probe frame bound".into())}
+  if request["op"]=="research-namespace" {let result=research_namespace_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
+  if request["op"]=="factor-study" {let result=factor_studies_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
   if request["op"]=="market-storage" {drop(client);driver.await??;let result=match market_storage_probe::run(&request["request"]).await{Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})};println!("{result}");return Ok(());}
+  if request["op"]=="runtime-environment" {
+   use onlyalpha_backend::{application::research_factor,workers::research_environment,persistence::research_runtime::Registry};
+   use onlyalpha_calculation_bridge::ChartInstallation;
+   use std::path::Path;
+   drop(client);driver.await??;
+   let result=(||->Result<Value,Box<dyn StdError>> {
+    let factor=research_factor::compile(&request["factor"]["candidate"],&request["factor"]["draft"],&request["factor"]["revision"])?;
+    let root=Path::new(request["release_root"].as_str().ok_or("release root")?);
+    let installation=ChartInstallation::open(&root.join("algorithms"),request["algorithm_artifact"].as_str().ok_or("algorithm")?)?;
+    let prepared=research_environment::prepare(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?;
+    let runtime=Path::new(request["runtime_root"].as_str().ok_or("runtime root")?);
+    let mut registry=if request["fresh"]==true {Registry::initialize_fresh(runtime)?} else {Registry::open_existing(runtime)?};
+    prepared.publish(&mut registry,request["factor"]["revision"]["source_text"].as_str().ok_or("source")?.as_bytes(),"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
+    Ok(json!({"manifest":prepared.manifest(),"proof":prepared.proof(),"snapshot":registry.snapshot()}))
+   })();
+   println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
+  }
   let id=CommandId::new(request["command_id"].as_str().ok_or("command id")?)?;
   let op=request["op"].as_str().ok_or("operation")?;
   let a=if matches!(op,"admit"|"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(admission(&request)?)} else {None};

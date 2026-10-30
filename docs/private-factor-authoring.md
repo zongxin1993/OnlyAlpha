@@ -16,6 +16,10 @@ or confirmed preview does not acquire execution admission. Research must bind ex
 formal path. Candidate/common/history are views of existing identities, not a parallel source store. This target does not claim
 that chat, code validation or Research execution is enabled by the current authoring implementation.
 
+[Exact Research input preparation](research-factor-input-preparation.md) specifies the bounded preview/Draft/Revision
+consistency check, original Calculation Graph materialization and explicit warmup/forecast coverage. Compilation never
+publishes/rebases content or replaces the owning acceptance, source/Dataset proof and executable Generation admission.
+
 ## Content and concurrency
 
 Asset IDs retain `private.factor.<name>` and are independent of human names. The current Product contract applies

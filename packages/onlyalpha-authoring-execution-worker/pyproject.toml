@@ -4,7 +4,7 @@ version = "0.11.1"
 description = "Exact authoring execution-generation composition for OnlyAlpha Research"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["onlyalpha==0.11.1"]
+dependencies = ["onlyalpha==0.11.1", "onlyalpha-backend-algorithms==0.11.1"]
 
 [build-system]
 requires = ["hatchling>=1.26,<2"]
@@ -14,6 +14,7 @@ build-backend = "hatchling.build"
 packages = ["src/onlyalpha_authoring_execution_worker"]
 
 [tool.uv.sources]
+onlyalpha-backend-algorithms = { workspace = true }
 onlyalpha = { workspace = true }
 
 [tool.mypy]

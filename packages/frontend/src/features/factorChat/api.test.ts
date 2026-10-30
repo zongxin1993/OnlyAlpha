@@ -1,6 +1,34 @@
 import { describe, it, expect } from "vitest";
 import { sessionSchema } from "./api";
 describe("conversation admission", () => {
+    it("retains independent durable Factor and Study references across later chat heads", () => {
+        const session = {
+            id: "00000000-0000-4000-8000-000000000001",
+            workflow: "a".repeat(64),
+            model_revision: "b".repeat(64),
+            head: "c".repeat(64),
+            consumed: 4,
+            model_call_limit: 10,
+            messages: [],
+            status: "READY",
+            topic: "STUDY",
+            candidate: null,
+            study: null,
+            factor_reference: {
+                command: "00000000-0000-4000-8000-000000000002",
+                head: "d".repeat(64),
+                fingerprint: "e".repeat(64)
+            },
+            study_reference: {
+                command: "00000000-0000-4000-8000-000000000003",
+                head: "f".repeat(64),
+                fingerprint: "a".repeat(64)
+            },
+            execution_admitted: false
+        };
+        expect(sessionSchema.safeParse(session).success).toBe(true);
+        expect(sessionSchema.safeParse({ ...session, confirmed: true }).success).toBe(false);
+    });
     it("rejects fabricated numeric reports, executable previews and invalid identities", () => {
         expect(
             sessionSchema.safeParse({ conversation_id: "latest", confirmed: true }).success

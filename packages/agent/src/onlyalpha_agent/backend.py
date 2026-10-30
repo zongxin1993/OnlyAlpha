@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 from uuid import UUID
 
-from .model import NoRedirect, strict_json
+from .model import NoRedirect, strict_json, validate_source
 from .workflow import digest
 
 
@@ -22,6 +22,41 @@ class Unknown(Exception):
 
 class Rejected(Exception):
     pass
+
+
+def validate_study_context(context: Any, owner: str, factor: str) -> None:
+    if (
+        not isinstance(context, dict)
+        or set(context)
+        != {
+            "schema_version",
+            "owner",
+            "service_subject",
+            "factor_proposal_fingerprint",
+            "factor",
+            "study_proposal_fingerprint",
+            "sources",
+            "supported_profile",
+        }
+        or type(context["schema_version"]) is not int
+        or context["schema_version"] != 1
+        or context["owner"] != owner
+        or context["factor_proposal_fingerprint"] != factor
+        or not isinstance(context["service_subject"], str)
+        or not context["service_subject"]
+        or not isinstance(context["factor"], dict)
+        or not isinstance(context["supported_profile"], dict)
+        or not isinstance(context["sources"], list)
+        or context["study_proposal_fingerprint"] is not None
+        and (
+            not isinstance(context["study_proposal_fingerprint"], str)
+            or len(context["study_proposal_fingerprint"]) != 64
+            or any(c not in "0123456789abcdef" for c in context["study_proposal_fingerprint"])
+        )
+    ):
+        raise ValueError("AGENT_STUDY_CONTEXT_INVALID")
+    for source in context["sources"]:
+        validate_source(source, instrument=False)
 
 
 @dataclass(frozen=True)
@@ -56,19 +91,25 @@ def request(
     connection: Connection, method: str, path: str, body: dict[str, Any] | None = None, command: str | None = None
 ) -> dict[str, Any]:
     # Prevent this adapter becoming an authenticated arbitrary-URL or Human-operation proxy.
-    valid = method == "POST" and path == "/api/v2/factor-proposals"
+    valid = method == "POST" and path in {"/api/v2/factor-proposals", "/api/v2/factor-studies"}
     if method == "GET":
-        for prefix in ("/api/v2/factor-proposal-context/", "/api/v2/factor-proposals/commands/"):
+        for prefix in (
+            "/api/v2/factor-proposal-context/",
+            "/api/v2/factor-proposals/commands/",
+            "/api/v2/factor-studies/commands/",
+        ):
             if path.startswith(prefix):
                 try:
                     raw = path[len(prefix) :]
                     valid = str(UUID(raw)) == raw and UUID(raw).version == 4
                 except ValueError:
                     valid = False
-    if method == "GET" and path.startswith("/api/v2/factor-proposals/"):
-        value = path.removeprefix("/api/v2/factor-proposals/")
-        if len(value) == 64 and all(c in "0123456789abcdef" for c in value):
-            valid = True
+    if method == "GET":
+        for prefix in ("/api/v2/factor-proposals/", "/api/v2/factor-studies/", "/api/v2/factor-study-context/"):
+            if path.startswith(prefix):
+                value = path.removeprefix(prefix)
+                if len(value) == 64 and all(c in "0123456789abcdef" for c in value):
+                    valid = True
     if not valid:
         raise Rejected("AGENT_BACKEND_OPERATION_DENIED")
     headers = {

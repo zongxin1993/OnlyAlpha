@@ -7,22 +7,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactAssetIdentity as OnlyArtifactAssetIdentity,
 )
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactCalculationImplementation as OnlyArtifactCalculationImplementation,
 )
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyArtifactSourceProvenanceAuthority as OnlyArtifactSourceProvenanceAuthority,
 )
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyDistributionArtifactManifest as OnlyDistributionArtifactManifest,
 )
-from onlyalpha.distribution import (
+from onlyalpha_gateway_protocol.distribution import (
     OnlyDistributionArtifactRole as OnlyDistributionArtifactRole,
 )
+
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotEntryV1
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")

@@ -15,9 +15,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from . import backend
 from .config import Settings
-from .model import endpoint
-from .workflow import PROMPT, digest
+from .model import endpoint, validate_response
+from .workflow import PROMPT, STUDY_PROMPT, digest
 
 
 class Conflict(Exception):
@@ -61,10 +62,17 @@ CREATE OR REPLACE FUNCTION agent_immutable() RETURNS trigger LANGUAGE plpgsql AS
 """
 
 
-def backend_command_id(command: str) -> str:
+def backend_command_id(command: str, topic: str = "FACTOR") -> str:
     return str(
         UUID(
-            bytes=bytes.fromhex(digest({"agent_command": command, "purpose": "register-factor-proposal"}))[:16],
+            bytes=bytes.fromhex(
+                digest(
+                    {
+                        "agent_command": command,
+                        "purpose": "register-factor-study" if topic == "STUDY" else "register-factor-proposal",
+                    }
+                )
+            )[:16],
             version=4,
         )
     )
@@ -312,9 +320,14 @@ class Store:
         for i, row in enumerate(rows):
             if row["ordinal"] != i + 1 or digest(row["plan"]) != row["fingerprint"] or row["plan"]["expected"] != head:
                 raise Conflict("AGENT_HISTORY_CORRUPT")
+            if row["plan"].get("topic", "FACTOR") not in {"FACTOR", "STUDY"}:
+                raise Conflict("AGENT_HISTORY_CORRUPT")
             receipt = self.conn.execute(
                 "SELECT owner,outcome,intent FROM agent_command WHERE id=%s", (row["command"],)
             ).fetchone()
+            body = {"expected": row["plan"]["expected"], "text": row["plan"]["text"]}
+            if row["plan"].get("topic", "FACTOR") == "STUDY":
+                body.update(topic="STUDY", factor_proposal_fingerprint=row["plan"]["factor_proposal_fingerprint"])
             if (
                 receipt is None
                 or receipt["owner"] != owner
@@ -325,7 +338,7 @@ class Store:
                         {
                             "operation": "message",
                             "id": sid,
-                            "body": {"expected": row["plan"]["expected"], "text": row["plan"]["text"]},
+                            "body": body,
                         }
                     ),
                 )
@@ -344,9 +357,13 @@ class Store:
         status = "READY"
         head = None
         candidate = None
+        study = None
+        topic = "FACTOR"
         for row in rows:
             head = row["fingerprint"]
             candidate = None
+            study = None
+            topic = row["plan"].get("topic", "FACTOR")
             messages.append({"role": "user", "content": row["plan"]["text"]})
             result = self.result(str(row["command"]))
             if result is None or result.get("error") == "MODEL_OUTCOME_UNKNOWN":
@@ -357,38 +374,25 @@ class Store:
             else:
                 status = "READY"
                 messages.append({"role": "assistant", "content": result["response"]["message"]})
-                candidate = result["response"]["candidate"]
+                if topic == "STUDY":
+                    study = result["response"]["study"]
+                else:
+                    candidate = result["response"]["candidate"]
         if s["workflow"] != workflow:
             status = "WORKFLOW_UNAVAILABLE"
-        proposal = None
-        plans = self.conn.execute(
-            "SELECT command FROM agent_backend_plan WHERE session=%s AND payload->'body'->'origin'->>'event_fingerprint'=%s",
-            (sid, head),
-        ).fetchall()
-        receipts = (
-            self.conn.execute(
-                "SELECT id FROM agent_command WHERE owner=%s AND intent=%s",
-                (owner, self.intent({"operation": "stage", "session": sid, "expected": head})),
-            ).fetchall()
-            if head is not None
-            else []
-        )
-        if len(plans) > 1 or {str(row["command"]) for row in plans} != {str(row["id"]) for row in receipts}:
-            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
-        if plans:
-            command = str(plans[0]["command"])
-            plan = self.backend_plan(command)
-            if plan["owner"] != owner or plan["session"] != sid:
-                raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
-            receipt = self.backend_recorded(command)
-            proposal = {
-                "command": command,
-                "head": head,
-                "fingerprint": receipt["effect"]["proposal_fingerprint"] if receipt else None,
-            }
+        factor_reference = None
+        study_reference = None
+        for plan, reference in self.backend_references(sid, owner):
+            if plan.get("topic", "FACTOR") == "STUDY":
+                study_reference = reference
+            else:
+                factor_reference = reference
+                study_reference = None
         return {
             "id": sid,
-            "proposal": proposal,
+            "factor_reference": factor_reference,
+            "study_reference": study_reference,
+            "topic": topic,
             "workflow": s["workflow"],
             "model_revision": s["model"],
             "head": head,
@@ -397,10 +401,19 @@ class Store:
             "messages": messages,
             "status": status,
             "candidate": candidate,
+            "study": study,
             "execution_admitted": False,
         }
 
-    def accept_message(self, sid: str, owner: str, command: str, body: dict[str, Any]) -> bool:
+    def accept_message(
+        self,
+        sid: str,
+        owner: str,
+        command: str,
+        body: dict[str, Any],
+        study_context: dict[str, Any] | None = None,
+        backend_binding: str | None = None,
+    ) -> bool:
         # Caller holds the session advisory lock across acceptance, external I/O and recording.
         with self.command(command, owner, {"operation": "message", "id": sid, "body": body}) as old:
             if old is not None:
@@ -411,8 +424,27 @@ class Store:
                 raise Conflict("AGENT_HEAD_CONFLICT")
             if current["status"] == "OUTCOME_UNKNOWN":
                 raise Conflict("AGENT_ORIGINAL_CALL_UNKNOWN")
+            if self.pending_backend(sid, owner):
+                raise Conflict("AGENT_BACKEND_OUTCOME_UNKNOWN")
             if current["consumed"] >= s["budget"]:
                 raise Conflict("AGENT_BUDGET_EXHAUSTED")
+            topic = body.get("topic", "FACTOR")
+            if topic not in {"FACTOR", "STUDY"}:
+                raise Conflict("AGENT_TOPIC_INVALID")
+            if topic == "STUDY":
+                try:
+                    backend.validate_study_context(study_context, owner, body["factor_proposal_fingerprint"])
+                except (ValueError, KeyError):
+                    raise Conflict("AGENT_STUDY_CONTEXT_INVALID") from None
+                if (
+                    backend_binding is None
+                    or len(backend_binding) != 64
+                    or any(c not in "0123456789abcdef" for c in backend_binding)
+                ):
+                    raise Conflict("AGENT_BACKEND_BINDING_UNAVAILABLE")
+                reference = current["factor_reference"]
+                if reference is None or reference["fingerprint"] != body["factor_proposal_fingerprint"]:
+                    raise Conflict("AGENT_FACTOR_REFERENCE_CONFLICT")
             profile, _secret = self.model(s["model"], owner)
             plan = {
                 "session": sid,
@@ -424,7 +456,19 @@ class Store:
                 "request": {
                     "model": profile["model_id"],
                     "messages": [
-                        {"role": "system", "content": PROMPT},
+                        {"role": "system", "content": STUDY_PROMPT if topic == "STUDY" else PROMPT},
+                        *(
+                            [
+                                {
+                                    "role": "system",
+                                    "content": json.dumps(
+                                        study_context, ensure_ascii=False, sort_keys=True, allow_nan=False
+                                    ),
+                                }
+                            ]
+                            if topic == "STUDY"
+                            else []
+                        ),
                         *current["messages"],
                         {"role": "user", "content": body["text"]},
                     ],
@@ -432,6 +476,13 @@ class Store:
                     "max_tokens": 2000,
                 },
             }
+            if topic == "STUDY":
+                plan.update(
+                    topic=topic,
+                    factor_proposal_fingerprint=body["factor_proposal_fingerprint"],
+                    study_context=study_context,
+                    backend_binding=backend_binding,
+                )
             if len(json.dumps(plan).encode()) > 65536:
                 raise Conflict("AGENT_CONTEXT_CAPACITY")
             fp = digest(plan)
@@ -508,6 +559,16 @@ class Store:
         return row["payload"] if row else None
 
     def finish(self, command: str, value: dict[str, Any]) -> None:
+        plan = self.plan(command)
+        if plan.get("topic", "FACTOR") == "STUDY" and "response" in value:
+            try:
+                response = validate_response(value["response"], "STUDY")
+                if response["study"] is not None:
+                    selection = {k: v for k, v in response["study"]["source"].items() if k != "instrument_id"}
+                    if selection not in plan["study_context"]["sources"]:
+                        raise ValueError("unavailable source selection")
+            except (ValueError, TypeError, KeyError):
+                value = {"error": "MODEL_RESPONSE_INVALID"}
         if len(json.dumps(value).encode()) > 131072:
             value = {"error": "MODEL_RESPONSE_INVALID"}
         old = self.result(command)
@@ -525,8 +586,12 @@ class Store:
                 return self.backend_plan(command), False
             s = self.session(sid, owner)
             current = self.view(sid, owner, s["workflow"])
-            if current["head"] != expected or current["status"] != "READY" or current["candidate"] is None:
+            topic = current["topic"]
+            content = current["study"] if topic == "STUDY" else current["candidate"]
+            if current["head"] != expected or current["status"] != "READY" or content is None:
                 raise Conflict("AGENT_PROPOSAL_HEAD_CONFLICT")
+            if self.pending_backend(sid, owner):
+                raise Conflict("AGENT_BACKEND_OUTCOME_UNKNOWN")
             row = self.conn.execute(
                 "SELECT command FROM agent_event WHERE fingerprint=%s AND session=%s", (expected, sid)
             ).fetchone()
@@ -537,7 +602,8 @@ class Store:
             ).fetchone()
             if recorded is None:
                 raise Conflict("AGENT_PROPOSAL_ORIGIN_UNAVAILABLE")
-            backend_command = backend_command_id(command)
+            source = self.plan(str(row["command"]))
+            backend_command = backend_command_id(command, topic)
             body = {
                 "schema_version": 1,
                 "origin": {
@@ -547,11 +613,22 @@ class Store:
                     "workflow_fingerprint": s["workflow"],
                     "model_revision": s["model"],
                 },
-                "candidate": current["candidate"],
-                "expected_draft_fingerprint": context["draft_fingerprint"],
-                "expected_display_fingerprint": context["display_fingerprint"],
-                "expected_proposal_fingerprint": context["proposal_fingerprint"],
             }
+            if topic == "STUDY":
+                if context != source["study_context"] or binding != source["backend_binding"]:
+                    raise Conflict("AGENT_BACKEND_BINDING_UNAVAILABLE")
+                body.update(
+                    factor_proposal_fingerprint=source["factor_proposal_fingerprint"],
+                    expected_study_fingerprint=context["study_proposal_fingerprint"],
+                    advice=content,
+                )
+            else:
+                body.update(
+                    candidate=content,
+                    expected_draft_fingerprint=context["draft_fingerprint"],
+                    expected_display_fingerprint=context["display_fingerprint"],
+                    expected_proposal_fingerprint=context["proposal_fingerprint"],
+                )
             plan = {
                 "schema_version": 1,
                 "session": sid,
@@ -560,6 +637,8 @@ class Store:
                 "binding": binding,
                 "body": body,
             }
+            if topic == "STUDY":
+                plan["topic"] = topic
             fp = digest(plan)
             self.outcome = {"backend_plan": fp}
             self.conn.execute(
@@ -567,6 +646,43 @@ class Store:
                 (command, sid, backend_command, fp, Jsonb(plan)),
             )
         return plan, True
+
+    def pending_backend(self, sid: str, owner: str) -> bool:
+        # Even a refusal cannot prove the original submission had no effect.
+        return any(reference["fingerprint"] is None for _plan, reference in self.backend_references(sid, owner))
+
+    def backend_references(self, sid: str, owner: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        _session, events = self.history(sid, owner)
+        plans = self.conn.execute("SELECT command FROM agent_backend_plan WHERE session=%s", (sid,)).fetchall()
+        intents = [
+            self.intent({"operation": "stage", "session": sid, "expected": event["fingerprint"]}) for event in events
+        ]
+        receipts = self.conn.execute(
+            "SELECT id FROM agent_command WHERE owner=%s AND intent=ANY(%s)", (owner, intents)
+        ).fetchall()
+        if {str(row["command"]) for row in plans} != {str(row["id"]) for row in receipts}:
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        references = []
+        for row in plans:
+            command = str(row["command"])
+            plan = self.backend_plan(command)
+            if plan["owner"] != owner or plan["session"] != sid:
+                raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+            receipt = self.backend_recorded(command)
+            references.append(
+                (
+                    plan,
+                    {
+                        "command": command,
+                        "head": plan["body"]["origin"]["event_fingerprint"],
+                        "fingerprint": receipt["effect"]["proposal_fingerprint"] if receipt else None,
+                    },
+                )
+            )
+        positions = {event["fingerprint"]: event["ordinal"] for event in events}
+        if len({reference["head"] for _plan, reference in references}) != len(references):
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        return sorted(references, key=lambda item: positions[item[1]["head"]])
 
     def backend_plan(self, command: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM agent_backend_plan WHERE command=%s", (command,)).fetchone()
@@ -587,17 +703,16 @@ class Store:
         plan = row["payload"]
         session, events = self.history(plan["session"], plan["owner"])
         origin = plan["body"]["origin"]
+        topic = plan.get("topic", "FACTOR")
         if not hmac.compare_digest(
             receipt["intent"],
             self.intent({"operation": "stage", "session": plan["session"], "expected": origin["event_fingerprint"]}),
-        ) or plan["backend_command"] != backend_command_id(command):
+        ) or plan["backend_command"] != backend_command_id(command, topic):
             raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
         source = next((event for event in events if event["fingerprint"] == origin["event_fingerprint"]), None)
-        result = (
-            self.conn.execute("SELECT * FROM agent_result WHERE command=%s", (source["command"],)).fetchone()
-            if source
-            else None
-        )
+        if source is None:
+            raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        result = self.conn.execute("SELECT * FROM agent_result WHERE command=%s", (source["command"],)).fetchone()
         if (
             origin["session_id"] != plan["session"]
             or origin["workflow_fingerprint"] != session["workflow"]
@@ -605,9 +720,23 @@ class Store:
             or result is None
             or result["fingerprint"] != origin["result_fingerprint"]
             or digest(result["payload"]) != result["fingerprint"]
-            or result["payload"].get("response", {}).get("candidate") != plan["body"]["candidate"]
+            or topic not in {"FACTOR", "STUDY"}
+            or source["plan"].get("topic", "FACTOR") != topic
+            or result["payload"].get("response", {}).get("study" if topic == "STUDY" else "candidate")
+            != plan["body"]["advice" if topic == "STUDY" else "candidate"]
         ):
             raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
+        if topic == "STUDY":
+            model_plan = source["plan"]
+            expected = {
+                "schema_version": 1,
+                "origin": origin,
+                "factor_proposal_fingerprint": model_plan["factor_proposal_fingerprint"],
+                "expected_study_fingerprint": model_plan["study_context"]["study_proposal_fingerprint"],
+                "advice": result["payload"]["response"]["study"],
+            }
+            if plan["body"] != expected or plan["binding"] != model_plan["backend_binding"]:
+                raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
         return cast(dict[str, Any], row["payload"])
 
     def backend_recorded(self, command: str) -> dict[str, Any] | None:

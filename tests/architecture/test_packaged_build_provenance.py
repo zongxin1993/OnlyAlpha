@@ -13,10 +13,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactSourceProvenanceAuthority
 
 import onlyalpha.build_provenance as runtime_provenance
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1, only_packaged_build_provenance
-from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from scripts.embed_build_provenance import (
     build_provenance_bytes,
     load_carried_build_provenance,

@@ -160,7 +160,11 @@ impl ChartInstallation {
             return Err(invalid());
         }
         let runtime = manifest["runtime_files"].as_object().ok_or_else(invalid)?;
-        if runtime.len() != 3 {
+        if runtime.len() != 4
+            || !runtime
+                .keys()
+                .any(|p| Path::new(p).file_name().is_some_and(|n| n == "ast.py"))
+        {
             return Err(invalid());
         }
         for (name, digest) in runtime {

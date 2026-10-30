@@ -183,7 +183,7 @@ def test_portable_artifact_copy_requires_no_upstream_runtime_or_execution(tmp_pa
     source = r"""
 import importlib.abc, sys
 forbidden = ('onlyalpha.runtime', 'onlyalpha.application', 'onlyalpha_runtime_generation_manager',
-             'onlyalpha.quant_assets.private_factor_execution', 'onlyalpha.quant_assets.example_seed')
+             'onlyalpha_backend_algorithms.sdk.private_factor_execution', 'onlyalpha.quant_assets.example_seed')
 class RejectExecution(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.startswith(forbidden):

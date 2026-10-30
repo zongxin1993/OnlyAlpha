@@ -135,6 +135,50 @@ impl Worker {
             deadline,
         )
     }
+    /// Pure source/Definition resolution; no Runtime or Human admission.
+    pub fn resolve_research(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.exchange(
+            calculation_request::Operation::ResearchResolve(
+                onlyalpha_gateway_protocol::ResearchResolve {
+                    request_json: request.to_string().into_bytes(),
+                },
+            ),
+            deadline,
+        )
+    }
+    pub fn evaluate_research(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.exchange(
+            calculation_request::Operation::ResearchEvaluate(
+                onlyalpha_gateway_protocol::ResearchEvaluate {
+                    request_json: request.to_string().into_bytes(),
+                },
+            ),
+            deadline,
+        )
+    }
+    /// Installed algorithm ABI observation; no Runtime or Human permission.
+    pub fn prepare_research(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.exchange(
+            calculation_request::Operation::ResearchPrepare(
+                onlyalpha_gateway_protocol::ResearchPrepare {
+                    request_json: request.to_string().into_bytes(),
+                },
+            ),
+            deadline,
+        )
+    }
+    pub fn handshake_research(&mut self, deadline: Duration) -> Result<()> {
+        let result = self.exchange(
+            calculation_request::Operation::Handshake(CalculationEmpty {}),
+            deadline,
+        )?;
+        if result
+            != serde_json::json!({"schema_version":1,"contract":"ONLYALPHA_PRIVATE_FACTOR_RESOLVE_V1","max_nodes":128,"max_frame":8*1024*1024})
+        {
+            return self.poison("RESEARCH_RESOLUTION_HANDSHAKE");
+        }
+        Ok(())
+    }
     pub fn terminate(&self) -> Result<()> {
         self.cancellation()?.cancel()
     }

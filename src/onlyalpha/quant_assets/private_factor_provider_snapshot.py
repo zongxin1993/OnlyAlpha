@@ -12,7 +12,7 @@ from onlyalpha.calculation.implementation import OnlyCalculationImplementationMa
 from onlyalpha.canonical import only_canonical_fingerprint
 
 if TYPE_CHECKING:
-    from .private_factor_execution import (
+    from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
         OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
         OnlyPrivateFactorSourceArtifactManifestV1,
     )
@@ -107,7 +107,7 @@ class OnlyPrivateFactorProviderSnapshotEntryV1:
         )
         if (
             manifest.implementation_fingerprint != expected_implementation
-            or manifest.entrypoint_identity != f"onlyalpha.quant_assets.private_factor_execution:{entrypoint}"
+            or manifest.entrypoint_identity != f"onlyalpha_backend_algorithms.sdk.private_factor_execution:{entrypoint}"
         ):
             raise ValueError("PRIVATE_FACTOR_IMPLEMENTATION_MANIFEST_MISMATCH")
         resources = {item.relative_path: item.byte_sha256 for item in manifest.resources}

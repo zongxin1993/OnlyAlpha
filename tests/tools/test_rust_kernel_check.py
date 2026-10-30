@@ -887,12 +887,17 @@ def test_infrastructure_declared_compile_inputs_are_validated(tmp_path: Path) ->
 
     _infrastructure_source_tree(tmp_path)
     declarations = (
-        ("chart/admission_tests.rs", "admission-vector.json"),
-        ("chart/admission_tests.rs", "admission-definition.json"),
-        ("market_product/temporary_tests.rs", "../../../../../test-data/domain/instrument-records-v2.jsonl"),
+        ("application/chart/admission_tests.rs", "admission-vector.json"),
+        ("application/chart/admission_tests.rs", "admission-definition.json"),
+        (
+            "application/market_product/temporary_tests.rs",
+            "../../../../../test-data/domain/instrument-records-v2.jsonl",
+        ),
+        ("application/research_run.rs", "../../tests/application/fixtures/research_novelty.json"),
+        ("persistence/research_preparation.rs", "../../tests/application/fixtures/research_factor.json"),
     )
     for source, argument in declarations:
-        path = tmp_path / "packages/backend/src/application" / source
+        path = tmp_path / "packages/backend/src" / source
         path.parent.mkdir(parents=True, exist_ok=True)
         resource = (path.parent / argument).resolve()
         resource.parent.mkdir(parents=True, exist_ok=True)
@@ -930,6 +935,8 @@ def test_infrastructure_declared_compile_inputs_are_validated(tmp_path: Path) ->
             resource.parent.symlink_to(moved, target_is_directory=True)
             with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
                 check.validate_infrastructure_sources(tmp_path)
+            resource.parent.unlink()
+            moved.rename(resource.parent)
 
 
 def test_http_descriptors_admit_only_cargo_package_version(tmp_path: Path) -> None:
@@ -965,6 +972,8 @@ def test_declared_product_resources_are_in_fingerprinted_isolated_closure(tmp_pa
         "packages/backend/src/application/chart/admission-vector.json",
         "packages/backend/src/application/chart/admission-definition.json",
         "test-data/domain/instrument-records-v2.jsonl",
+        "packages/backend/tests/application/fixtures/research_novelty.json",
+        "packages/backend/tests/application/fixtures/research_factor.json",
         "packages/backend/src/application/market_product/temporary_tests.rs",
         "packages/backend/src/application/market_product/temporary_reference_tests.rs",
         "packages/backend/Cargo.toml",

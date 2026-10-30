@@ -33,12 +33,21 @@ pub fn preview(candidate: &Value, factor_id: &str) -> Result<Value> {
     .map_err(|_| INVALID)?;
     let hypothesis = text(candidate, "hypothesis", 4000)?;
     let mut dependencies = BTreeMap::new();
-    let (formula, source) = expression(&candidate["expression"], 0, &mut dependencies)?;
+    let mut literals = BTreeMap::new();
+    let (formula, source) = expression(
+        &candidate["expression"],
+        0,
+        &mut dependencies,
+        &mut literals,
+    )?;
+    if dependencies.is_empty() {
+        dependencies.insert("close".into(), json!({"input":"close","closed_only":true}));
+    }
     let inputs: BTreeMap<_, _> = dependencies
         .keys()
         .map(|k| (k.clone(), json!({"type":"DECIMAL","missing":true})))
         .collect();
-    let draft=Draft::new(json!({"schema_version":1,"factor_id":factor_id,"base_revision_fingerprint":null,"semantic_version":"1","source_text":format!("def calculate(api, inputs, parameters):\n    return {{'value': {source}}}\n"),"factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":inputs,"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL","missing":true}},"description":hypothesis,"economic_rationale":hypothesis,"category":"chat","tags":[]})).map_err(|_|INVALID)?;
+    let draft=Draft::new(json!({"schema_version":1,"factor_id":factor_id,"base_revision_fingerprint":null,"semantic_version":"1","source_text":format!("def calculate(api, inputs, parameters):\n    return {{'value': {source}}}\n"),"factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":inputs,"parameter_contract":literals,"output_contract":{"value":{"type":"DECIMAL","missing":true}},"description":hypothesis,"economic_rationale":hypothesis,"category":"chat","tags":[]})).map_err(|_|INVALID)?;
     Ok(
         json!({"name":candidate["name"],"purpose":candidate["purpose"],"hypothesis":hypothesis,"formula":formula,"expression":candidate["expression"],"dependencies":dependencies,"draft":draft.record(),"draft_fingerprint":draft.fingerprint().map_err(|_|INVALID)?,"execution_admitted":false}),
     )
@@ -47,6 +56,7 @@ fn expression(
     v: &Value,
     depth: usize,
     deps: &mut BTreeMap<String, Value>,
+    literals: &mut BTreeMap<String, Value>,
 ) -> Result<(String, String)> {
     if depth > 8 || v.to_string().len() > 8192 {
         return Err(INVALID);
@@ -87,7 +97,16 @@ fn expression(
         if n.unsigned_abs() > 1000000 {
             return Err(INVALID);
         }
-        return Ok((n.to_string(), n.to_string()));
+        let name = if n < 0 {
+            format!("literal_negative_{}", n.unsigned_abs())
+        } else {
+            format!("literal_{n}")
+        };
+        literals.insert(
+            name.clone(),
+            json!({"type":"DECIMAL","required":false,"default":n.to_string()}),
+        );
+        return Ok((n.to_string(), format!("parameters['{name}']")));
     }
     fields(v, &["op", "left", "right"])?;
     let op = v["op"].as_str().ok_or(INVALID)?;
@@ -98,8 +117,8 @@ fn expression(
         "div" => "÷",
         _ => return Err(INVALID),
     };
-    let (lf, ls) = expression(&v["left"], depth + 1, deps)?;
-    let (rf, rs) = expression(&v["right"], depth + 1, deps)?;
+    let (lf, ls) = expression(&v["left"], depth + 1, deps, literals)?;
+    let (rf, rs) = expression(&v["right"], depth + 1, deps, literals)?;
     Ok((
         format!("({lf} {symbol} {rf})"),
         format!("api.{op}({ls}, {rs})"),
@@ -120,6 +139,20 @@ mod tests {
             "def calculate(api, inputs, parameters):\n    return {'value': api.mul(inputs['close'], inputs['volume'])}\n"
         );
         assert!(value["draft"]["input_contract"]["close"].is_object());
+    }
+    #[test]
+    fn constant_factor_retains_an_explicit_observation_axis() {
+        let c =
+            json!({"name":"常数","purpose":"基准","hypothesis":"对照","expression":{"integer":1}});
+        let v = preview(&c, "private.factor.constant").unwrap();
+        assert_eq!(
+            v["dependencies"]["close"],
+            json!({"input":"close","closed_only":true})
+        );
+        assert_eq!(
+            v["draft"]["parameter_contract"]["literal_1"]["default"],
+            "1"
+        );
     }
     #[test]
     fn unapproved_code_unknown_inputs_and_unbounded_expressions_are_rejected() {

@@ -5,8 +5,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactSourceProvenanceAuthority
+
 from onlyalpha.build_provenance import OnlyPackagedBuildProvenanceV1
-from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
 from onlyalpha.research.agent import (
     OnlyAgentBudgetV1,
     OnlyAgentDistributionProvenanceV1,

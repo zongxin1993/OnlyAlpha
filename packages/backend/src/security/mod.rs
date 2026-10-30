@@ -4,5 +4,7 @@ pub mod human_access;
 pub mod ingress;
 pub mod protected_files;
 
-pub mod proposal_access;
 pub mod agent_browser;
+pub mod proposal_access;
+
+pub(crate) mod immutable_json;

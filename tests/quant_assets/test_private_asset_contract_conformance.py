@@ -5,12 +5,14 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+)
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
     OnlyPrivateFactorRevision,
     OnlyPrivateFactorSnapshotProviderSource,
     OnlyQuantAssetCatalogGeneration,

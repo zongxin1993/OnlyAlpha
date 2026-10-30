@@ -589,3 +589,63 @@ pub(super) fn provenance(v: &Value) -> Result<()> {
         Err(Error::Invalid)
     }
 }
+/// Source facts and retained proof captured only by the owning exact physical
+/// reader. Portable proof records supplied by a caller cannot construct this.
+#[derive(Debug)]
+pub struct SealedInput {
+    pub(super) revision: SealedRevision,
+    pub(super) evidence: Value,
+    pub(super) segments: Value,
+    pub(super) facts: Vec<Value>,
+}
+impl SealedInput {
+    pub fn revision(&self) -> &SealedRevision {
+        &self.revision
+    }
+    pub fn evidence(&self) -> &Value {
+        &self.evidence
+    }
+    pub fn segments(&self) -> &Value {
+        &self.segments
+    }
+    pub fn facts(&self) -> &[Value] {
+        &self.facts
+    }
+}
+
+/// Validate retained capture metadata and physical receipts at their original owner.
+/// This proves historical record consistency, not current source availability or a new read grant.
+pub(crate) fn validate_retained_input(evidence: &Value, segments: &Value) -> Result<()> {
+    exact_keys(
+        evidence,
+        &["revision", "manifest", "seal", "physical_proofs"],
+    )?;
+    let manifest = Manifest::read(evidence["manifest"].clone())?;
+    let revision = SealedRevision::read(
+        evidence["revision"].clone(),
+        evidence["seal"].clone(),
+        manifest,
+    )?;
+    let references = refs(&revision.revision["segment_refs"])?;
+    let segments = array(segments)?;
+    let proofs = array(&evidence["physical_proofs"])?;
+    if references.len() != segments.len() || references.len() != proofs.len() {
+        return Err(Error::Unprovable);
+    }
+    for ((reference, value), proof) in references.iter().zip(segments).zip(proofs) {
+        let segment = Segment::from_record(value)?;
+        if segment.id() != reference.0
+            || segment.content_hash() != reference.1
+            || !segment
+                .recovery_scope()?
+                .family_matches(&revision.manifest.scope)
+        {
+            return Err(Error::Unprovable);
+        }
+        PhysicalProof {
+            record: proof.clone(),
+        }
+        .validate(&segment)?;
+    }
+    Ok(())
+}

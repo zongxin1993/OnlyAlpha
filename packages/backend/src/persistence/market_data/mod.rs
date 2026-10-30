@@ -7,8 +7,11 @@ mod physical;
 mod recovery;
 pub use catalog::{AcquisitionAttempt, AcquisitionIntent, Catalog, ExecutionLease};
 pub use coverage::{WindowPlan, coverage, deduplicate_facts, plan_bar_window};
+pub(crate) use model::validate_retained_input;
 use model::*;
-pub use model::{CoverageStatus, Manifest, PhysicalProof, Scope, SealedRevision, Segment};
+pub use model::{
+    CoverageStatus, Manifest, PhysicalProof, Scope, SealedInput, SealedRevision, Segment,
+};
 pub use physical::{ClickHouse, ClickHouseConfig, PhysicalState};
 pub use recovery::{DrainBoundary, DrainOutcome, RevisionPublication, Storage, VerifiedRange};
 use serde_json::{Value, json};

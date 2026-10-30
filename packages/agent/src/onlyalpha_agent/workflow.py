@@ -23,6 +23,21 @@ PROMPT = (
     "Only declared closed-bar dependencies; no code, imports, arrays, tools or execution grants. "
     "Ask when unclear. Human confirmation is separate; never claim approval, Research or scientific results."
 )
+STUDY_PROMPT = (
+    "Suggest conditions for ONE Human-led factor Research. Reply in Chinese as JSON with exactly message and study. "
+    "study is null when clarification/data selection is needed, otherwise an object with exactly "
+    "source,timeframe_minutes,start_at,development_end_at,end_at,protected_start_at,protected_end_at,"
+    "horizon_bars,expected_block_length,replicates,confidence_bps,seed,rationale. "
+    "The five source selection fields must exactly match one backend context source; add instrument_id as a suggestion, "
+    "never claim that instrument availability is verified. Backend preparation validates actual provider metadata. "
+    "If sources is empty, study must be null. "
+    "All five boundaries are exact UTC date strings, never numerical timestamps. Integer fields are positive integers, "
+    "seed is 64 lowercase hex characters. Follow supported_profile; explain the fixed development/out-of-sample and "
+    "protected ranges and serial-dependence-corrected uncertainty. The bound factor is immutable; changing its formula "
+    "requires returning to Factor editing and Human confirmation. No tools or execution grants. Never claim preparation, "
+    "activation, Research execution, Human approval or scientific results. Human preparation/activation and the separate "
+    "one-Research authorization happen directly on backend."
+)
 
 
 def digest(value: Any) -> str:

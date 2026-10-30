@@ -83,3 +83,28 @@ to preserve exactness and fail-closed behavior.
 - Mutable status files/databases that are not derived from durable generation facts.
 - In-place `sys.path` mutation, directory watching, `importlib.reload` or active Run rebinding.
 - Blindly choosing one of multiple historical generations with an incomplete exact binding.
+
+## Native Research input runtime composition
+
+The native backend may be retained as a `RESEARCH_RUNTIME` artifact in the same immutable artifact
+set, independently of `BACKTEST_RUNTIME`. At most one of each role belongs to a Generation. This is
+an auxiliary backend artifact with the backend's version, not another package or release line.
+Its native logical name is `onlyalpha_backend-<version>-<target>.elf`, distribution `onlyalpha-backend`,
+OnlyAlpha Git provenance, and mandatory `tested_core_execution_fingerprint` equal to this exact
+Generation's Core identity. It is not installed as a Python wheel. The existing clean builder checks
+its actual `--describe-research-runtime` response against protocol `onlyalpha.research.executor/1`,
+actual artifact SHA, declared target and version before retaining it as an executable runtime.
+
+Native input admission re-verifies the selected runtime's physical bytes and its original manifest
+relation. Its managed algorithm process verifies that every used pure SDK semantic resource matches
+that selected Core wheel's actual bytes, without importing Core business modules. The minimal SDK
+package bootstrap remains separately pinned in its installation artifact; bootstrap differences do
+not assert whole-Core execution equivalence. The precise supported contract is native Factor
+Definition/source/input preparation with the declared algorithm ABI and ADR 0147 statistics, not
+Python Trading Kernel equivalence or an unrestricted executor capability.
+
+READY and matching package versions alone are insufficient. Missing runtime/Core resources,
+substituted native bytes, different tested Core or unavailable original resources refuse admission.
+This composition does not grant Human Research permission, create a Run, activate a Generation,
+certify scientific quality, or authorize publication/SIM/LIVE. Actual Run execution still binds this
+same selected artifact and must preserve the existing Command, lease, cancellation and recovery gates.

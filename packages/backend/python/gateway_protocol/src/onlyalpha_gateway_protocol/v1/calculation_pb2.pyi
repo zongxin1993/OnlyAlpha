@@ -76,8 +76,26 @@ class ChartBatch(_message.Message):
     request_json: bytes
     def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
 
+class ResearchResolve(_message.Message):
+    __slots__ = ("request_json",)
+    REQUEST_JSON_FIELD_NUMBER: _ClassVar[int]
+    request_json: bytes
+    def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
+
+class ResearchEvaluate(_message.Message):
+    __slots__ = ("request_json",)
+    REQUEST_JSON_FIELD_NUMBER: _ClassVar[int]
+    request_json: bytes
+    def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
+
+class ResearchPrepare(_message.Message):
+    __slots__ = ("request_json",)
+    REQUEST_JSON_FIELD_NUMBER: _ClassVar[int]
+    request_json: bytes
+    def __init__(self, request_json: _Optional[bytes] = ...) -> None: ...
+
 class CalculationRequest(_message.Message):
-    __slots__ = ("protocol_version", "generation", "sequence", "handshake", "resolve", "create", "update", "reset", "checkpoint", "restore", "close", "node", "replay", "chart")
+    __slots__ = ("protocol_version", "generation", "sequence", "handshake", "resolve", "create", "update", "reset", "checkpoint", "restore", "close", "node", "replay", "chart", "research_resolve", "research_evaluate", "research_prepare")
     PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
@@ -92,6 +110,9 @@ class CalculationRequest(_message.Message):
     NODE_FIELD_NUMBER: _ClassVar[int]
     REPLAY_FIELD_NUMBER: _ClassVar[int]
     CHART_FIELD_NUMBER: _ClassVar[int]
+    RESEARCH_RESOLVE_FIELD_NUMBER: _ClassVar[int]
+    RESEARCH_EVALUATE_FIELD_NUMBER: _ClassVar[int]
+    RESEARCH_PREPARE_FIELD_NUMBER: _ClassVar[int]
     protocol_version: int
     generation: str
     sequence: int
@@ -106,7 +127,10 @@ class CalculationRequest(_message.Message):
     node: CalculationNode
     replay: BacktestExternal
     chart: ChartBatch
-    def __init__(self, protocol_version: _Optional[int] = ..., generation: _Optional[str] = ..., sequence: _Optional[int] = ..., handshake: _Optional[_Union[CalculationEmpty, _Mapping]] = ..., resolve: _Optional[_Union[CalculationResolve, _Mapping]] = ..., create: _Optional[_Union[CalculationCreate, _Mapping]] = ..., update: _Optional[_Union[CalculationUpdate, _Mapping]] = ..., reset: _Optional[_Union[CalculationInstance, _Mapping]] = ..., checkpoint: _Optional[_Union[CalculationInstance, _Mapping]] = ..., restore: _Optional[_Union[CalculationRestore, _Mapping]] = ..., close: _Optional[_Union[CalculationInstance, _Mapping]] = ..., node: _Optional[_Union[CalculationNode, _Mapping]] = ..., replay: _Optional[_Union[BacktestExternal, _Mapping]] = ..., chart: _Optional[_Union[ChartBatch, _Mapping]] = ...) -> None: ...
+    research_resolve: ResearchResolve
+    research_evaluate: ResearchEvaluate
+    research_prepare: ResearchPrepare
+    def __init__(self, protocol_version: _Optional[int] = ..., generation: _Optional[str] = ..., sequence: _Optional[int] = ..., handshake: _Optional[_Union[CalculationEmpty, _Mapping]] = ..., resolve: _Optional[_Union[CalculationResolve, _Mapping]] = ..., create: _Optional[_Union[CalculationCreate, _Mapping]] = ..., update: _Optional[_Union[CalculationUpdate, _Mapping]] = ..., reset: _Optional[_Union[CalculationInstance, _Mapping]] = ..., checkpoint: _Optional[_Union[CalculationInstance, _Mapping]] = ..., restore: _Optional[_Union[CalculationRestore, _Mapping]] = ..., close: _Optional[_Union[CalculationInstance, _Mapping]] = ..., node: _Optional[_Union[CalculationNode, _Mapping]] = ..., replay: _Optional[_Union[BacktestExternal, _Mapping]] = ..., chart: _Optional[_Union[ChartBatch, _Mapping]] = ..., research_resolve: _Optional[_Union[ResearchResolve, _Mapping]] = ..., research_evaluate: _Optional[_Union[ResearchEvaluate, _Mapping]] = ..., research_prepare: _Optional[_Union[ResearchPrepare, _Mapping]] = ...) -> None: ...
 
 class CalculationError(_message.Message):
     __slots__ = ("code",)

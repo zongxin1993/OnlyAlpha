@@ -118,9 +118,88 @@ Further autonomous iteration is outside stage one.
 
 ## Run states, recovery and report
 
-Visible phases are clarification, generating/checking Factor, awaiting Factor confirmation, proposing Research, awaiting Research
-confirmation, preparing data, queued, computing, preparing report and completed. Failed, unavailable and confirmed cancelled are
+### Explicit environment and input preparation
+
+The owner additionally authorizes native Rust Runtime management for this slice. After the Agent presents the proposed
+conditions, Shipping Web exposes a separate **准备并启用研究环境** operation. Its preview includes the exact Factor, installed
+algorithm/runtime versions, current-to-target Generation change and bounded data/source/window to prepare. The user explicitly
+requests that preparation; it does not start Research, grant trading permission or stand in for the second Research confirmation.
+The subsequent confirmation authorizes one exact prepared Study. Changing its content or conditions invalidates the appropriate
+preparation/approval relation; no unseen Generation activation is hidden in Research submission.
+
+Use the existing Generation journal, lifecycle lock, immutable artifacts and global Product Command authority. Rust lifecycle
+mutations share the reader's canonical replay rules. Original activation replay observes its recorded outcome even after a later
+switch, without reactivating an old target; an existing work binding never retargets. Source access, validated executable closure,
+prepared input eligibility and Human Research consent remain separate proofs. Preparation may verify synthetic algorithm ABI
+vectors, but these are not Research observations, scientific Evidence, Qualification or permission to inspect protected samples.
+An installed-environment observation has its own immutable proof identity: physical release locations and installation
+observations can differ while the exact executable Generation stays identical. Retain each observation by that proof identity,
+under its exact Generation; a preparation Command selects its exact proof reference. Do not make a release directory part of
+Generation identity, overwrite an earlier observation, or select an unspecified latest proof on recovery.
+
+Persist the preparation's exact request/outcome references so refresh, restart and acknowledgement loss recover the original
+operation and prepared inputs. Missing or corrupt original history is unavailable/UNKNOWN, not a fresh initialization, latest
+selection or automatic retry. Only explicitly fresh owned namespaces may be initialized. Current Python lifecycle consumers remain
+until their real call sites migrate; do not introduce Python backend functionality or a second Runtime registry for this path.
+
+Visible phases are clarification, generating/checking Factor, awaiting Factor confirmation, proposing Research, explicitly preparing
+and enabling the environment/data, awaiting Research confirmation, queued, computing, preparing report and completed. Failed, unavailable and confirmed cancelled are
 explicit outcomes. These are a projection of owning workflow/task facts, not a parallel Research state machine.
+
+Study suggestions use a separate finite Human registration permission; the default invitation permits ten suggestions for the
+already-confirmed Factor and authorizes no preparation or execution. The Agent reads only exact available Source choices
+(integration/revision/type/source/environment). Its proposed instrument remains a suggestion until the backend proves it through
+the owning Source path. Missing permission does not accept a model occurrence or consume a new model-call slot. Human context
+queries can still show the original grant and its inactive/exhausted state without silently issuing a replacement.
+
+Preparation records the exact Study, first Factor confirmation, selected release and future Research Command before background
+work. It explicitly publishes or reuses the confirmed immutable Factor Revision through Authoring, prepares the installed
+mathematical closure, enables or reuses its exact Generation and materializes the authorized input window. The initial supported
+window is bounded to seven days including warmup; recommendations must respect this and the Statistics sample/block/resource
+requirements. A useful initial suggestion is 15-minute bars, 256 development and 256 sample-out observations, expected block
+length 12 and 4,096 resamples; these are visible recommendations, not hidden execution defaults or a claim of statistical power.
+The preparation context reuses the owning input validator to expose unsupported proposed windows before submission. Each sample
+must reserve at least ten expected block lengths of potential pairs after forecast-boundary exclusion. A shorter proposal stays
+visible with a specific explanation and a disabled preparation action; the user can ask for expanded conditions. It does not
+create a preparation or Research, and does not hide earlier reports. The actual command repeats the same owning guard.
+
+The preparation operation is not a Run and its READY state is not Research permission. Refresh uses verified original operations
+and an explicit selection from this Factor's retained preparations, including prior conditions with accepted Runs. Restart does
+not recreate a Human session or silently continue an incomplete preparation. Explicit resume retains the original Command and
+release; an unavailable original release pauses it. Repeated cancellation cannot stand in for draining the original child owner.
+Current Source or execution-environment availability must not hide previously accepted preparation/Run identities. The context
+separately reports whether new work is available, and retained preparation queries separately report whether their physical
+readiness proof can still be verified. Its history contains only discovery summaries from the owning verified operations:
+Command identity, exact revision string, recorded workflow state, Study proposal fingerprint and acceptance time. A summary
+contains no physical readiness, submission outcome or accepted Run claim. Selecting it reads that original operation through
+the normal owning query before displaying or acting on its proof; a recorded READY in the list cannot enable confirmation.
+Discovery does not reopen every historical Dataset/Runtime/Group proof, and it retains cancelled operations. Missing original
+operation/Command/Factor ownership relations still fail closed rather than becoming an empty history. Neither status substitutes
+for submission-time authorization. A known accepted Research
+Command is recovered before checking current execution prerequisites; its original Run remains independently observable and
+cancellable. Missing Runtime files with retained owning database facts are unavailable history, not a fresh Runtime.
+Public preparation observation uses the retained read-only Product connection rather than queuing behind the preparation
+producer's writer. It retains the original Command coordination and complete physical readiness checks, and fails explicitly
+if that reader is unavailable. Internal checkpoints, resume/cancellation, materialization and Human authorization continue
+through the original write Authority; observation never falls back to a writable connection.
+Reading the retained Factor/Study grant relation verifies its original canonical record, Command and Receipt without taking
+an update lock. It does not authenticate a new action or spend budget. Fresh authorization, revocation and budget checks retain
+their parent-grant lock; Study withdrawal/current-admission checks retain parent-grant-before-Factor-lineage lock ordering.
+Within one preparation call, the producer consumes the owning sealer's typed outcome, including its verified Group disposition,
+rather than immediately reopening the same proofs. This outcome is not serialized into the prepared record, changes no
+fingerprint and cannot be reconstructed from a restored record. Historical readiness and Human submission continue to verify
+their exact retained Group and physical inputs independently; the outcome is neither a cached proof nor execution permission.
+Changing a Study cannot invalidate an already accepted Run, and cancelling preparation does not rewrite immutable effects or
+cancel a separately authorized Run. The latter has its own direct Human cancellation command.
+An explicitly rejected stale confirmation can release its browser-local pending locator only after an owning read matches the
+original preparation/Research Command/prepared-Study tuple, records BLOCKED/STOPPED with the exact stale reason and proves
+NOT_SUBMITTED with no Run. Keep the original preparation and show how to stop it and load the new proposal; never automatically
+prepare or confirm that replacement. An HTTP error, READY, UNKNOWN or an unobserved outcome alone cannot release the locator.
+
+The chat phrase **确认本次研究** and its visible confirmation button submit the same exact prepared proposal directly to backend.
+They are not a new model call or a Study edit. Unknown acknowledgement preserves that original Research Command; a Run state
+observed from another operation cannot be substituted for its receipt. API counters that need exact CAS use canonical decimal
+strings, and canonical input/report documents remain text rather than JavaScript floating-point timestamp objects.
 
 Show only observed progress. No invented percentage or completion estimate. A requested cancellation is distinct from confirmed
 cancellation; a completion/cancellation race follows canonical task truth and preserves completed evidence. Unknown submission
@@ -144,6 +223,13 @@ independent-observation confidence. Quantile/long-short analytical forward retur
 portfolio or transaction-cost-adjusted Backtest. Exact metric definitions, applicability and the minimum supported first-slice set
 must use existing frozen Statistics/Evidence contracts where applicable, and any missing time-series/uncertainty semantics must
 be explicitly frozen at that owning boundary before implementation; absent metrics remain visibly unsupported.
+
+For the first single-instrument Research, dependence-aware uncertainty is mandatory under
+[ADR 0147](adr/0147-time-series-association-and-dependent-uncertainty.md) and the
+[time-series Statistics contract](research-time-series-statistics.md). Use its paired stationary
+bootstrap method with frozen comparison family, block length, confidence and deterministic seed.
+An unavailable interval is an explicit outcome for insufficient/degenerate evidence; it is not
+permission to omit uncertainty from the implementation or silently fall back to IID inference.
 
 Forecast evaluation compares factor values to **future** returns/declared Target, not merely contemporaneous price movement.
 Negative predictive direction can be informative but cannot silently reverse the agreed hypothesis after seeing results.

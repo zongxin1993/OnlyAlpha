@@ -13,8 +13,8 @@ import pytest
 from onlyalpha.persistence.postgres import only_assert_postgres_test_database
 
 
-@pytest.fixture
-def postgres_dsn() -> str:
+def reset_postgres_test_namespace() -> str:
+    """Reset only the canonical guarded namespace, including for staged tests."""
     dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not dsn:
         pytest.fail("ONLYALPHA_POSTGRES_DSN is required for the canonical Compose research-postgres lane")
@@ -23,6 +23,11 @@ def postgres_dsn() -> str:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")
     return dsn
+
+
+@pytest.fixture
+def postgres_dsn() -> str:
+    return reset_postgres_test_namespace()
 
 
 @pytest.fixture

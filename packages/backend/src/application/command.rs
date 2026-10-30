@@ -76,6 +76,10 @@ macro_rules! text_enum {
     };
 }
 text_enum!(CommandKind, InvalidCommandKind, {
+    CreateFactorStudyGrant => "CREATE_FACTOR_STUDY_GRANT",
+    PrepareFactorResearch => "PREPARE_FACTOR_RESEARCH",
+    CancelFactorResearchPreparation => "CANCEL_FACTOR_RESEARCH_PREPARATION",
+    StageFactorStudy => "STAGE_FACTOR_STUDY", WithdrawFactorStudy => "WITHDRAW_FACTOR_STUDY",
     CreateProposalGrant => "CREATE_PROPOSAL_GRANT", RevokeProposalGrant => "REVOKE_PROPOSAL_GRANT",
     WithdrawFactorProposal => "WITHDRAW_FACTOR_PROPOSAL", StageFactorProposal => "STAGE_FACTOR_PROPOSAL", ConfirmFactorProposal => "CONFIRM_FACTOR_PROPOSAL",
     FactorChat => "FACTOR_CHAT",
@@ -94,6 +98,8 @@ text_enum!(CommandKind, InvalidCommandKind, {
     UpdatePrivateFactorDisplay => "UPDATE_PRIVATE_FACTOR_DISPLAY",
 });
 text_enum!(OutcomeKind, InvalidOutcomeKind, {
+    FactorStudyOperation => "FACTOR_STUDY_OPERATION",
+    ResearchPreparationOperation => "RESEARCH_PREPARATION_OPERATION",
     FactorProposalOperation => "FACTOR_PROPOSAL_OPERATION",
     FactorChatEvent => "FACTOR_CHAT_EVENT",
     ResearchRun => "RESEARCH_RUN", Strategy => "STRATEGY", StrategyPromotion => "STRATEGY_PROMOTION",

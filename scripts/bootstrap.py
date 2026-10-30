@@ -38,7 +38,9 @@ def main() -> int:
 
     applied_postgres = OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     applied_clickhouse = clickhouse.migrate()
-    deployment_id = _initialize_deployment(postgres_dsn, user_data_root)
+    artifact_root = os.environ.get("ONLYALPHA_NATIVE_ARTIFACT_ROOT")
+    native_backend = None if artifact_root is None else Path(artifact_root) / "bin" / "onlyalpha-backend"
+    deployment_id = _initialize_deployment(postgres_dsn, user_data_root, native_backend)
     _validate(postgres_dsn, None)
     clickhouse.validate()
     only_ensure_dev_master_key(OnlyUserDataLayout(user_data_root).root / MASTER_KEY_FILE)

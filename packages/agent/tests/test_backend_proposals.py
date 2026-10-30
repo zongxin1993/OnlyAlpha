@@ -102,6 +102,14 @@ def test_staging_lost_ack_queries_original_command_without_second_post(settings,
         r = client.post(path, headers=h, json={"expected": s["head"]})
         assert r.status_code == 200 and r.json()["status"] == "OUTCOME_UNKNOWN", r.text
         assert len(posts) == 1
+        blocked = client.post(
+            "/api/v1/agent/sessions/" + s["id"] + "/messages",
+            headers=headers(configured),
+            json={"expected": s["head"], "text": "continue while registration is unknown"},
+        )
+        assert blocked.status_code == 409 and blocked.json()["error"] == "AGENT_BACKEND_OUTCOME_UNKNOWN", blocked.text
+        unchanged = client.get("/api/v1/agent/sessions/" + s["id"], headers=headers(configured)).json()
+        assert unchanged["head"] == s["head"] and unchanged["consumed"] == 1
     rotated = replace(configured, backend_credential=configured.backend_credential[:-64] + "f" * 64)
     with TestClient(create_app(rotated)) as client:
         blocked = client.post(path, headers=h, json={"expected": s["head"]})
@@ -225,3 +233,78 @@ def test_backend_effect_before_checkpoint_is_reused(settings, monkeypatch):
             )
             store.conn.execute("ALTER TABLE agent_backend_result ENABLE TRIGGER immutable")
         assert client.post(path, headers=h, json={"expected": head}).status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("observations", "recorded", "pending"),
+    [
+        ([], False, True),
+        ([("SUBMIT", "UNKNOWN")], False, True),
+        ([("SUBMIT", "INVALID_RESPONSE")], False, True),
+        ([("SUBMIT", "UNKNOWN"), ("QUERY", "REJECTED")], False, True),
+        ([("SUBMIT", "REJECTED")], False, True),
+        ([("SUBMIT", "UNKNOWN")], True, False),
+    ],
+)
+def test_unresolved_registration_blocks_new_turn_from_durable_facts(settings, observations, recorded, pending):
+    from onlyalpha_agent.store import Conflict
+
+    with TestClient(create_app(settings)) as client:
+        revision = model(client, settings, "https://model.invalid/v1")
+        s = session(client, settings, revision)
+        event = str(uuid4())
+        stage = str(uuid4())
+        next_event = str(uuid4())
+        with Store(settings) as store, store.session_lock(s["id"]):
+            store.accept_message(s["id"], "owner", event, {"expected": None, "text": "idea"})
+            store.finish(
+                event,
+                {
+                    "response": {
+                        "message": "preview",
+                        "candidate": {
+                            "name": "动量",
+                            "purpose": "价格变化",
+                            "hypothesis": "持续性",
+                            "expression": {"input": "close"},
+                        },
+                    }
+                },
+            )
+            head = store.view(s["id"], "owner", client.app.state.workflow)["head"]
+            plan, accepted = store.prepare_backend(
+                s["id"],
+                "owner",
+                stage,
+                head,
+                "a" * 64,
+                {"draft_fingerprint": None, "display_fingerprint": None, "proposal_fingerprint": None},
+            )
+            assert accepted
+            for phase, outcome in observations:
+                store.backend_observation(stage, phase, outcome)
+            if recorded:
+                store.backend_finish(
+                    stage,
+                    {
+                        "schema_version": 1,
+                        "command_id": plan["backend_command"],
+                        "operation_fingerprint": "b" * 64,
+                        "effect": {"proposal_fingerprint": "c" * 64},
+                    },
+                )
+        # A new connection reconstructs the boundary after a process restart.
+        with Store(settings) as store, store.session_lock(s["id"]):
+            assert store.pending_backend(s["id"], "owner") is pending
+            assert store.prepare_backend(s["id"], "owner", stage, head, "a" * 64, {}) == (plan, False)
+            assert not store.accept_message(s["id"], "owner", event, {"expected": None, "text": "idea"})
+            body = {"expected": head, "text": "next idea"}
+            if pending:
+                with pytest.raises(Conflict, match="^AGENT_BACKEND_OUTCOME_UNKNOWN$"):
+                    store.accept_message(s["id"], "owner", next_event, body)
+                with pytest.raises(Conflict, match="^AGENT_BACKEND_OUTCOME_UNKNOWN$"):
+                    store.prepare_backend(s["id"], "owner", str(uuid4()), head, "a" * 64, {})
+                assert store.view(s["id"], "owner", client.app.state.workflow)["consumed"] == 1
+                assert store.conn.execute("SELECT 1 FROM agent_command WHERE id=%s", (next_event,)).fetchone() is None
+            else:
+                assert store.accept_message(s["id"], "owner", next_event, body)

@@ -4,7 +4,7 @@ This infrastructure component verifies immutable wheel bytes, constructs a clean
 installed `onlyalpha.quant_assets` and `onlyalpha.calculations` content, and records durable compare-and-set activation facts for
 new work. It owns no Calculation, Catalog, StrategyRevision, Research Result or LIVE authority.
 
-Artifact identities are public `onlyalpha.distribution` contracts; runtime-generation identities are public
+Artifact identities use `onlyalpha_gateway_protocol.distribution` wire contracts; runtime-generation identities are public
 `onlyalpha.runtime.generation` contracts. Paths, registry URLs, process IDs and
 hosts are operational details. Every candidate is fully validated before READY; every work binding is immutable; rollback changes
 only the new-work pointer; historical resolution requires exact StrategyRevision implementation fingerprints.

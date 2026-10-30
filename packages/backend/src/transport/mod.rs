@@ -17,6 +17,12 @@ pub mod wire;
 
 mod host_private_factors;
 
-
-pub mod host_factor_proposals;
 pub mod host_agent_browser;
+pub mod host_factor_proposals;
+pub mod host_factor_research;
+pub(crate) mod host_factor_studies;
+pub(crate) mod host_research_commands;
+pub(crate) mod host_research_context;
+pub(crate) mod host_research_inputs;
+pub(crate) mod host_research_preparation;
+pub mod research_wire;

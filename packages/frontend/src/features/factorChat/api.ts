@@ -1,6 +1,34 @@
 import { z } from "zod";
 import { factorDraftSchema } from "../../api/privateAssets/authoring";
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
+const sourceChoice = z.strictObject({
+    integration_id: z.uuid(),
+    integration_revision_fingerprint: sha,
+    expected_type_id: z.string(),
+    source_id: z.string(),
+    environment: z.string()
+});
+const utc = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|\+00:00)$/);
+export const studyAdviceSchema = z.strictObject({
+    source: sourceChoice.extend({ instrument_id: z.string().min(1) }),
+    timeframe_minutes: z.number().int().positive(),
+    start_at: utc,
+    development_end_at: utc,
+    end_at: utc,
+    protected_start_at: utc,
+    protected_end_at: utc,
+    horizon_bars: z.number().int().positive(),
+    expected_block_length: z.number().int().positive(),
+    replicates: z.number().int().positive(),
+    confidence_bps: z.number().int().positive(),
+    seed: sha,
+    rationale: z.string().min(1)
+});
+const referenceSchema = z.strictObject({
+    command: z.uuid(),
+    head: sha,
+    fingerprint: sha.nullable()
+});
 export const previewSchema = z.strictObject({
     name: z.string(),
     purpose: z.string(),
@@ -22,9 +50,10 @@ export const sessionSchema = z.strictObject({
     messages: z.array(z.strictObject({ role: z.enum(["user", "assistant"]), content: z.string() })),
     status: z.enum(["READY", "FAILED", "OUTCOME_UNKNOWN", "WORKFLOW_UNAVAILABLE"]),
     candidate: z.record(z.string(), z.unknown()).nullable(),
-    proposal: z
-        .strictObject({ command: z.uuid(), head: sha, fingerprint: sha.nullable() })
-        .nullable(),
+    factor_reference: referenceSchema.nullable(),
+    study_reference: referenceSchema.nullable(),
+    topic: z.enum(["FACTOR", "STUDY"]),
+    study: studyAdviceSchema.nullable(),
     execution_admitted: z.literal(false)
 });
 export type Chat = z.infer<typeof sessionSchema>;
@@ -63,6 +92,34 @@ export const proposalSchema = z.strictObject({
     confirmation: receiptSchema.nullable()
 });
 export type Proposal = z.infer<typeof proposalSchema>;
+export const studySchema = z.strictObject({
+    schema_version: z.literal(1),
+    fingerprint: sha,
+    is_current: z.boolean(),
+    withdrawn: z.boolean(),
+    snapshot: z.looseObject({
+        schema_version: z.literal(1),
+        owner: z.string(),
+        factor_proposal_fingerprint: sha,
+        origin: z.looseObject({ session_id: z.uuid(), event_fingerprint: sha }),
+        advice: studyAdviceSchema
+    })
+});
+export type Study = z.infer<typeof studySchema>;
+export const studyContextSchema = z.strictObject({
+    schema_version: z.literal(1),
+    owner: z.string(),
+    service_subject: z.string(),
+    factor_proposal_fingerprint: sha,
+    factor: previewSchema,
+    study_proposal_fingerprint: sha.nullable(),
+    sources: z.array(sourceChoice),
+    supported_profile: z.looseObject({
+        study_grant_id: z.uuid().nullable(),
+        study_grant_state: z.enum(["ABSENT", "ACTIVE", "EXPIRED", "REVOKED"]),
+        remaining_proposals: z.number().int().nonnegative()
+    })
+});
 export const registrationSchema = z.strictObject({
     status: z.enum(["REGISTERED", "OUTCOME_UNKNOWN", "BINDING_UNAVAILABLE", "REJECTED"]),
     backend_command: z.uuid(),

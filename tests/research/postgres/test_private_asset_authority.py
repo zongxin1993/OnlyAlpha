@@ -14,6 +14,11 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+)
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore, OnlyRuntimeGenerationBuilder
 
 from onlyalpha.calculation import OnlyCalculationBackendKind, OnlyCalculationKind, OnlyCalculationReference
@@ -27,7 +32,6 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetCorruptError,
     OnlyPrivateAssetExampleImporterV1,
     OnlyPrivateAssetKind,
@@ -39,8 +43,6 @@ from onlyalpha.quant_assets import (
     OnlyPrivateAssetStaleBaseError,
     OnlyPrivateFactorAsset,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
     OnlyPrivateFactorSnapshotProviderSource,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDraft,

@@ -293,6 +293,49 @@ impl<'a> Storage<'a> {
         }
         Ok((actual, facts))
     }
+    /// Capture the existing exact Revision/Manifest/Seal and every owning
+    /// Segment/physical proof, retaining the same byte/row budgets as read_exact.
+    pub async fn read_dataset_input(
+        &mut self,
+        id: &str,
+        expected_scope: &Scope,
+    ) -> Result<SealedInput> {
+        let selected = self.catalog.revision(id).await?;
+        if selected.manifest.scope != *expected_scope {
+            return Err(Error::Unprovable);
+        }
+        let mut used = 0;
+        charge_revision(&mut used, &selected, self.catalog.byte_limit)?;
+        let (revision, facts) = self.read_exact_budget(id, &mut used).await?;
+        if revision != selected {
+            return Err(Error::Unprovable);
+        }
+        let mut segments = vec![];
+        let mut proofs = vec![];
+        for (id, content) in refs(&revision.revision["segment_refs"])? {
+            let (segment, proof) = self.catalog.segment(&id).await?;
+            if segment.content_hash() != content
+                || !segment
+                    .recovery_scope()?
+                    .family_matches(&revision.manifest.scope)
+            {
+                return Err(Error::Unprovable);
+            }
+            proof.validate(&segment)?;
+            charge(&mut used, &segment.record, self.catalog.byte_limit)?;
+            charge(&mut used, &proof.record, self.catalog.byte_limit)?;
+            segments.push(segment.record);
+            proofs.push(proof.record);
+        }
+        let evidence = json!({"revision":revision.revision,"manifest":revision.manifest.record,"seal":revision.seal,"physical_proofs":proofs});
+        Ok(SealedInput {
+            revision,
+            evidence,
+            segments: json!(segments),
+            facts,
+        })
+    }
+
     pub async fn read_exact(&mut self, id: &str) -> Result<(SealedRevision, Vec<Value>)> {
         let mut used = 0;
         self.read_exact_budget(id, &mut used).await

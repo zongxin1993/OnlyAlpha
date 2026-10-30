@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import replace
 
 import pytest
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactCalculationImplementation
 
 from onlyalpha.calculation.definition import (
     OnlyCalculationBackendKind,
@@ -21,7 +22,6 @@ from onlyalpha.calculation.implementation import (
     only_implementation_manifest_from_bytes,
 )
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.distribution import OnlyArtifactCalculationImplementation
 from onlyalpha.generation_identity import OnlyRuntimeGenerationValidationEvidence, OnlyRuntimePrivateFactorBinding
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotEntryV1,
@@ -60,7 +60,7 @@ def _native_case(*, separate_snapshots=False):
                     definition.kind, definition.type_id, definition.semantic_version
                 ),
                 backend_kind=backend,
-                entrypoint_identity=f"onlyalpha.quant_assets.private_factor_execution:{entrypoint}",
+                entrypoint_identity=f"onlyalpha_backend_algorithms.sdk.private_factor_execution:{entrypoint}",
                 resources={
                     "private_factor/source.py": source,
                     f"private_factor/{prefix}-adapter.py": b"retained-adapter-fixture",
@@ -221,7 +221,7 @@ def test_rehashed_selected_native_manifest_must_agree_with_snapshot_source_api_a
     else:
         manifest = replace(
             manifest,
-            entrypoint_identity="onlyalpha.quant_assets.private_factor_execution:OnlyPrivateFactorTradingBackendFactoryV1"
+            entrypoint_identity="onlyalpha_backend_algorithms.sdk.private_factor_execution:OnlyPrivateFactorTradingBackendFactoryV1"
             if dimension == "backend"
             else "wrong.module:WrongEntry",
         )

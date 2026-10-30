@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import OnlyDistributionArtifactManifest
-from onlyalpha.quant_assets.catalog import OnlyQuantAssetProvider
-from onlyalpha.quant_assets.private_factor_execution import (
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
     OnlyPrivateFactorExecutableClosureV1,
     OnlyPrivateFactorSourceArtifactManifestV1,
 )
+from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest
+
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from onlyalpha.quant_assets.catalog import OnlyQuantAssetProvider
+from onlyalpha.quant_assets.private import OnlyPrivateFactorRevision
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +127,8 @@ class OnlyLocalImmutableArtifactStore:
     ) -> str:
         OnlyPrivateFactorExecutableClosureV1.verify_canonical(closure)
         if provider.private_factor_snapshot != closure.provider_snapshot:
+            raise ValueError("PRIVATE_FACTOR_RUNTIME_ARTIFACT_MISMATCH")
+        if not isinstance(closure.revision, OnlyPrivateFactorRevision):
             raise ValueError("PRIVATE_FACTOR_RUNTIME_ARTIFACT_MISMATCH")
         revision = closure.revision.to_dict()
         del revision["source_text"]

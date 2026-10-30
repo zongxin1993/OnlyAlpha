@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from importlib import metadata, resources
 from typing import cast
 
-from onlyalpha.distribution import OnlyArtifactSourceProvenanceAuthority
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactSourceProvenanceAuthority
 
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _RESOURCE = "_build_provenance.json"

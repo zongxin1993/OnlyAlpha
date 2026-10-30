@@ -14,8 +14,9 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, cast
 
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactCalculationImplementation
+
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
-from onlyalpha.distribution import OnlyArtifactCalculationImplementation
 from onlyalpha.quant_assets import (
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetProvider,

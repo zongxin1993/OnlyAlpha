@@ -492,3 +492,11 @@ The component pins `rusqlite=0.40.2` with only `bundled` and no default features
 The canonical compiler environment removes ambient SQLite/system-library/C compiler overrides (including `LIBSQLITE3_SYS_USE_PKG_CONFIG`, `LIBSQLITE3_FLAGS`, target CFLAGS, GCC subprogram search paths, loader injection/search overrides and include/library search paths), selects `/usr/bin/gcc` and `/usr/bin/ar` from the fixed dev environment, and records their versions/digests together with both native persistence library digests. Bundled SQLite is never silently replaced by an ambient system library.
 
 The [Backtest Replay Driver](rust-backtest-replay.md) is another independently buildable Application composition outside Kernel. Its exact isolated closure and real Dataset/plugin/process-fault lane are part of the canonical Rust check; they do not activate an official R5 Runtime.
+
+The backend's immutable Dataset driver pins `arrow-array=59.3.2`, `arrow-schema=59.3.2`
+and `parquet=59.3.2` with defaults disabled; Parquet enables only Arrow, ZSTD and CRC support.
+Arrow/Parquet own the columnar format and decimal schema, while backend owns Dataset identity,
+source admission and protected publication. ZSTD introduces its pinned native C build through the
+existing dev compiler. Exact direct features, complete registry checksums and build inputs remain
+under the existing dependency guard. This driver is not a new Kernel dependency or an alternate
+Dataset authority. Upstream Apache/MIT Arrow and BSD/MIT ZSTD notices remain in their archives.

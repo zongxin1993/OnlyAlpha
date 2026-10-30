@@ -11,5 +11,17 @@ pub mod workspace_postgres;
 
 pub mod private_factor_postgres;
 
-
 pub mod factor_proposals;
+pub mod factor_studies;
+
+pub mod research_dataset;
+
+pub mod research_runtime;
+
+pub mod research_execution;
+pub mod research_novelty;
+
+pub mod research_evidence;
+pub mod research_submission;
+
+pub mod research_preparation;

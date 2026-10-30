@@ -121,6 +121,23 @@ impl AlgorithmProcess {
             false,
             Some(installation.root()),
             Some(completion),
+            false,
+        )
+    }
+    /// Static source resolver. The completion hold is retained until positive join.
+    pub fn research_resolution(
+        installation: &ChartInstallation,
+        generation: &str,
+        completion: Box<dyn Send>,
+    ) -> Result<Worker> {
+        installation.verify()?;
+        Self::new(installation.root().join("bin/python")).spawn_bound(
+            generation.into(),
+            installation.artifact_fingerprint().into(),
+            false,
+            Some(installation.root()),
+            Some(completion),
+            true,
         )
     }
     fn spawn_bound(
@@ -130,6 +147,7 @@ impl AlgorithmProcess {
         hosted: bool,
         installation: Option<&Path>,
         completion: Option<Box<dyn Send>>,
+        research_resolution: bool,
     ) -> Result<Worker> {
         let sha = |s: &str| {
             s.len() == 64
@@ -147,7 +165,9 @@ impl AlgorithmProcess {
             "-B",
             "-I",
             "-m",
-            if installation.is_some() {
+            if research_resolution {
+                "onlyalpha_backend_algorithms.research_worker"
+            } else if installation.is_some() {
                 "onlyalpha_backend_algorithms.chart_worker"
             } else {
                 "onlyalpha_calculation_worker.worker"
@@ -157,6 +177,9 @@ impl AlgorithmProcess {
         ]);
         if let Some(root) = installation {
             command.arg("--installation").arg(root);
+            if research_resolution {
+                command.arg("--artifact").arg(&artifact);
+            }
         }
         if hosted {
             command.arg("--hosted-generation");
@@ -197,7 +220,7 @@ impl WorkerConnector for AlgorithmProcess {
         hosted: bool,
         deadline: Duration,
     ) -> Result<Worker> {
-        let mut worker = self.spawn_bound(generation, artifact, hosted, None, None)?;
+        let mut worker = self.spawn_bound(generation, artifact, hosted, None, None, false)?;
         worker.handshake(deadline)?;
         Ok(worker)
     }
@@ -332,4 +355,30 @@ mod lifecycle_faults {
             control.cancel().unwrap();
         }
     }
+}
+
+/// Exact native image descriptor for the existing Runtime builder, no activation.
+pub fn describe_research_runtime(version: &str) -> Result<serde_json::Value> {
+    use crate::security::protected_files::{FilePolicy, open_directory, read_file_at};
+    use sha2::{Digest, Sha256};
+    let path = std::env::current_exe().map_err(|_| WorkerError::Invalid)?;
+    let parent = path.parent().ok_or(WorkerError::Invalid)?;
+    let name = path.file_name().ok_or(WorkerError::Invalid)?;
+    let directory = open_directory(parent).map_err(|_| WorkerError::Invalid)?;
+    let raw = read_file_at(&directory, name, FilePolicy::Executable, 128 * 1024 * 1024)
+        .map_err(|_| WorkerError::Invalid)?;
+    let artifact = Sha256::digest(raw.as_slice())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let target = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        "aarch64-unknown-linux-gnu"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "x86_64-unknown-linux-gnu"
+    } else {
+        return Err(WorkerError::Invalid);
+    };
+    Ok(
+        serde_json::json!({"protocol":"onlyalpha.research.executor/1","artifact":artifact,"target":target,"version":version}),
+    )
 }

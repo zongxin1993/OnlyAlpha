@@ -17,3 +17,16 @@ pub mod workspace;
 pub mod factor_content;
 
 pub mod factor_proposals;
+pub mod research_factor;
+pub mod research_statistics;
+
+pub mod research_dataset;
+
+pub mod research_admission;
+pub mod research_specification;
+
+pub mod research_novelty;
+pub mod research_run;
+
+pub mod research_run_execution;
+pub mod factor_studies;

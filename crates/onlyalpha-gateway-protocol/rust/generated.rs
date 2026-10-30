@@ -60,6 +60,21 @@ pub struct ChartBatch {
     pub request_json: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResearchResolve {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResearchEvaluate {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResearchPrepare {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CalculationRequest {
     #[prost(uint32, tag = "1")]
     pub protocol_version: u32,
@@ -69,7 +84,7 @@ pub struct CalculationRequest {
     pub sequence: u64,
     #[prost(
         oneof = "calculation_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23"
     )]
     pub operation: ::core::option::Option<calculation_request::Operation>,
 }
@@ -99,6 +114,12 @@ pub mod calculation_request {
         Replay(super::BacktestExternal),
         #[prost(message, tag = "20")]
         Chart(super::ChartBatch),
+        #[prost(message, tag = "21")]
+        ResearchResolve(super::ResearchResolve),
+        #[prost(message, tag = "22")]
+        ResearchEvaluate(super::ResearchEvaluate),
+        #[prost(message, tag = "23")]
+        ResearchPrepare(super::ResearchPrepare),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

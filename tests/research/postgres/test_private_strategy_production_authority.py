@@ -12,6 +12,12 @@ from onlyalpha_authoring_execution_worker import (
     OnlyAuthoringExecutionGenerationStore,
     OnlyVerifiedAuthoringGenerationReader,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+)
+from onlyalpha_gateway_protocol.distribution import OnlyArtifactCalculationImplementation
 
 from onlyalpha.application import (
     OnlyCalculationEquivalenceCertificationApplicationService,
@@ -31,7 +37,6 @@ from onlyalpha.calculation import (
     OnlyCalculationTypeReference,
 )
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import OnlyArtifactCalculationImplementation
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
 from onlyalpha.kernel import OnlyAlphaKernelHost
@@ -47,15 +52,12 @@ from onlyalpha.persistence.postgres import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateAssetExampleImporterV1,
     OnlyPrivateAssetKind,
     OnlyPrivateAssetRevisionBindingResolver,
     OnlyPrivateAssetRevisionReferenceV1,
     OnlyPrivateFactorAsset,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
     OnlyPrivateFactorSnapshotProviderSource,
     OnlyPrivateStrategyAsset,
     OnlyPrivateStrategyDefinitionV1,

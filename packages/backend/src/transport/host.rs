@@ -41,10 +41,19 @@ pub(crate) const ROWS: usize = 10000;
 /// Single compiled local development Owner role. Source grants are separately
 /// issued exact selections and withdrawn on management changes.
 pub struct Host {
+    pub(crate) human_access: Arc<human_access::Access>,
+    pub(crate) research_preparation_config:
+        crate::transport::host_research_preparation::PreparationConfig,
+    pub(crate) research_preparation_running:
+        std::sync::Mutex<BTreeMap<String, Arc<tokio::sync::Notify>>>,
     pub(crate) inputs: StorageInputs,
     pub(crate) database: crate::bootstrap::workstation_startup::Database,
-    pub(crate) writer: Mutex<Option<AuthoritySession>>,
+    pub(crate) writer: Arc<Mutex<Option<AuthoritySession>>>,
     pub(crate) writer_live: tokio::sync::watch::Receiver<bool>,
+    pub(crate) research: Mutex<Option<crate::workers::research_service::Service>>,
+    pub(crate) research_wake: OnceLock<crate::workers::research_service::Wake>,
+    pub(crate) research_drained: AtomicBool,
+    pub(crate) research_failed_hold: std::sync::Mutex<Option<Arc<Host>>>,
     pub(crate) reader: Arc<Mutex<Option<Client>>>,
     pub(crate) catalog: Arc<AuthoringCatalog>,
     pub(crate) resolver: Resolver,
@@ -88,6 +97,9 @@ pub(crate) fn issue(grants: Vec<Grant>) -> Result<Issuer, Failure> {
 #[derive(Debug)]
 pub struct Failure(StatusCode, &'static str);
 impl Failure {
+    pub(crate) fn code(&self) -> &'static str {
+        self.1
+    }
     pub(crate) fn with_status(status: StatusCode, code: &'static str) -> Self {
         Self(status, code)
     }
@@ -192,6 +204,35 @@ pub(crate) async fn chart_permit(
     Ok(permit)
 }
 impl Host {
+    /// Call after durable submission commit; this carries no execution permission.
+    pub(crate) fn wake_research_after_commit(&self) -> bool {
+        self.research_wake.get().is_some_and(|wake| wake.notify())
+    }
+    pub(crate) async fn research_worker_status(
+        &self,
+    ) -> Option<crate::workers::research_service::Status> {
+        self.research
+            .lock()
+            .await
+            .as_ref()
+            .map(|service| service.status())
+    }
+    pub(crate) fn stop_research_admission(&self) {
+        if let Some(wake) = self.research_wake.get() {
+            wake.stop();
+        }
+    }
+    /// A true uncertain drain must retain the original Host/Authority just as an
+    /// uncertain algorithm retains its original ChildOwner. No automatic retry.
+    pub(crate) fn retain_research_owner(self: &Arc<Self>) {
+        let mut held = self
+            .research_failed_hold
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if held.is_none() {
+            *held = Some(Arc::clone(self));
+        }
+    }
     pub(crate) fn writer_active(&self) -> bool {
         crate::bootstrap::workstation_startup::driver_active(&self.writer_live)
     }
@@ -307,7 +348,11 @@ impl Host {
                 .get::<RequestDeadline>()
                 .ok_or(Failure::unavailable("REQUEST_DEADLINE_UNAVAILABLE"))?
                 .0;
-            return self.factor_proposals(request, None, deadline).await;
+            return if path.starts_with("/api/v2/factor-stud") {
+                self.factor_studies(request, None, deadline).await
+            } else {
+                self.factor_proposals(request, None, deadline).await
+            };
         }
         let human = request
             .extensions()
@@ -353,6 +398,17 @@ impl Host {
         }
         if path.starts_with("/api/v2/factor-proposal") {
             return self.factor_proposals(request, Some(human), deadline).await;
+        }
+        if path.starts_with("/api/v2/factor-study-preparation") {
+            return self
+                .research_preparation_command(request, human, deadline)
+                .await;
+        }
+        if path.starts_with("/api/v2/factor-stud") {
+            return self.factor_studies(request, Some(human), deadline).await;
+        }
+        if path.starts_with("/api/v2/research/runs/") {
+            return self.factor_research_run(request, human, deadline).await;
         }
         if path == "/api/v2/market-data/acquisitions" && request.method() == Method::POST {
             return self.acquisition(request, human, deadline).await;

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langgraph.checkpoint.postgres import PostgresSaver
-from pydantic import UUID4, BaseModel, ConfigDict, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import backend, model, workflow
@@ -78,6 +78,14 @@ class SessionInput(Closed):
 class MessageInput(Closed):
     expected: str | None
     text: str = Field(min_length=1, max_length=8000)
+    topic: Literal["FACTOR", "STUDY"] = "FACTOR"
+    factor_proposal_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def topic_binding(self) -> "MessageInput":
+        if (self.topic == "STUDY") != (self.factor_proposal_fingerprint is not None):
+            raise ValueError("Study messages require an exact Factor reference")
+        return self
 
 
 class ProposalInput(Closed):
@@ -137,7 +145,10 @@ class SessionView(Closed):
     messages: list[ChatMessage]
     status: Literal["READY", "FAILED", "OUTCOME_UNKNOWN", "WORKFLOW_UNAVAILABLE"]
     candidate: dict[str, Any] | None
-    proposal: ProposalReference | None
+    factor_reference: ProposalReference | None
+    study_reference: ProposalReference | None
+    topic: Literal["FACTOR", "STUDY"]
+    study: dict[str, Any] | None
     execution_admitted: Literal[False]
 
 
@@ -328,7 +339,29 @@ def create_app(settings: Settings) -> FastAPI:
                 return s
             accepted = False
             if cid is not None and body is not None:
-                accepted = store.accept_message(sid, p.subject, cid, body.model_dump())
+                context = None
+                binding = None
+                recorded = store.conn.execute("SELECT 1 FROM agent_command WHERE id=%s", (cid,)).fetchone()
+                if body.topic == "STUDY" and recorded is None:
+                    if settings.backend_url is None or settings.backend_credential is None:
+                        raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+                    connection = backend.Connection(settings.backend_url, settings.backend_credential)
+                    try:
+                        context = backend.request(
+                            connection, "GET", "/api/v2/factor-study-context/" + str(body.factor_proposal_fingerprint)
+                        )
+                        if context.get("owner") != p.subject:
+                            raise HTTPException(403, "AGENT_BACKEND_OWNER_MISMATCH")
+                        backend.validate_study_context(context, p.subject, str(body.factor_proposal_fingerprint))
+                    except (backend.Unknown, backend.Rejected, ValueError) as error:
+                        raise HTTPException(503, "AGENT_STUDY_CONTEXT_UNAVAILABLE") from error
+                    binding = connection.fingerprint()
+                message = (
+                    body.model_dump()
+                    if body.topic == "STUDY"
+                    else body.model_dump(exclude={"topic", "factor_proposal_fingerprint"})
+                )
+                accepted = store.accept_message(sid, p.subject, cid, message, context, binding)
                 if not accepted and store.result(cid) is None:
                     return store.view(sid, p.subject, app.state.workflow)
             else:
@@ -341,6 +374,8 @@ def create_app(settings: Settings) -> FastAPI:
 
             def invoke(plan: Any) -> Any:
                 profile, secret, request = store.model_input(str(cid))
+                if plan.get("topic", "FACTOR") == "STUDY":
+                    return model.invoke(profile, secret, request, "STUDY")
                 return model.invoke(profile, secret, request)
 
             graph = workflow.graph(store, str(cid), invoke if accepted else None, PostgresSaver(store.conn))
@@ -397,10 +432,21 @@ def create_app(settings: Settings) -> FastAPI:
             if old is None:
                 if not allow_new:
                     raise HTTPException(409, "AGENT_BACKEND_OUTCOME_UNKNOWN")
-                try:
-                    context = backend.request(connection, "GET", "/api/v2/factor-proposal-context/" + str(sid))
-                except (backend.Unknown, backend.Rejected) as error:
-                    raise HTTPException(503, "AGENT_BACKEND_CONTEXT_UNAVAILABLE") from error
+                if current["topic"] == "STUDY":
+                    row = store.conn.execute(
+                        "SELECT command FROM agent_event WHERE session=%s AND fingerprint=%s", (sid, expected)
+                    ).fetchone()
+                    if row is None or current["head"] != expected:
+                        raise Conflict("AGENT_PROPOSAL_HEAD_CONFLICT")
+                    source = store.plan(str(row["command"]))
+                    if source["backend_binding"] != connection.fingerprint():
+                        raise HTTPException(409, "AGENT_BACKEND_BINDING_UNAVAILABLE")
+                    context = source["study_context"]
+                else:
+                    try:
+                        context = backend.request(connection, "GET", "/api/v2/factor-proposal-context/" + str(sid))
+                    except (backend.Unknown, backend.Rejected) as error:
+                        raise HTTPException(503, "AGENT_BACKEND_CONTEXT_UNAVAILABLE") from error
                 if context.get("owner") != p.subject:
                     raise HTTPException(403, "AGENT_BACKEND_OWNER_MISMATCH")
             else:
@@ -417,14 +463,15 @@ def create_app(settings: Settings) -> FastAPI:
             if stored is not None:
                 checkpoint_proposal(store, str(sid), cid)
                 return {**result, "status": "REGISTERED", "receipt": stored}
+            family = "factor-studies" if plan.get("topic", "FACTOR") == "STUDY" else "factor-proposals"
             try:
                 if accepted:
                     receipt = backend.request(
-                        connection, "POST", "/api/v2/factor-proposals", plan["body"], plan["backend_command"]
+                        connection, "POST", "/api/v2/" + family, plan["body"], plan["backend_command"]
                     )
                 else:
                     receipt = backend.request(
-                        connection, "GET", "/api/v2/factor-proposals/commands/" + plan["backend_command"]
+                        connection, "GET", "/api/v2/" + family + "/commands/" + plan["backend_command"]
                     )
                 try:
                     store.backend_finish(cid, receipt)
@@ -468,8 +515,9 @@ def create_app(settings: Settings) -> FastAPI:
             if receipt is None:
                 raise HTTPException(409, "AGENT_BACKEND_OUTCOME_UNKNOWN")
             fp = receipt["effect"]["proposal_fingerprint"]
+            family = "factor-studies" if plan.get("topic", "FACTOR") == "STUDY" else "factor-proposals"
             try:
-                view = backend.request(connection, "GET", "/api/v2/factor-proposals/" + fp)
+                view = backend.request(connection, "GET", "/api/v2/" + family + "/" + fp)
                 if (
                     view.get("fingerprint") != fp
                     or view.get("snapshot", {}).get("owner") != p.subject

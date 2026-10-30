@@ -12,6 +12,20 @@ from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    ONLY_PRIVATE_FACTOR_NUMERIC_V1,
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    OnlyPrivateFactorValidationDisposition,
+    _execute_child,
+    only_private_factor_backend_registrations,
+    only_private_factor_type_definition,
+    only_validate_private_factor_revision,
+)
 from onlyalpha_runtime_generation_manager import OnlyLocalImmutableArtifactStore, OnlyRuntimeGenerationBuilder
 from onlyalpha_runtime_generation_manager import builder as runtime_builder_module
 from onlyalpha_test_factor_provider.provider import quant_asset_provider as example_factor_provider
@@ -24,30 +38,18 @@ from onlyalpha.calculation import (
     OnlyCanonicalValueSemanticsV1,
 )
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
-    OnlyPrivateFactorAdapterV1,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
-    OnlyPrivateFactorProviderSnapshotEntryV1,
-    OnlyPrivateFactorProviderSnapshotV1,
-    OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
     OnlyPrivateFactorRevision,
     OnlyPrivateFactorSnapshotProviderSource,
-    OnlyPrivateFactorSourceArtifactManifestV1,
-    OnlyPrivateFactorValidationDisposition,
     OnlyQuantAssetCatalogGeneration,
     OnlyQuantAssetKind,
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
-    only_private_factor_backend_registrations,
-    only_private_factor_type_definition,
     only_quant_asset_distribution_artifact_manifest,
-    only_validate_private_factor_revision,
 )
-from onlyalpha.quant_assets.private_factor_execution import (
-    ONLY_PRIVATE_FACTOR_NUMERIC_V1,
-    _execute_child,
+from onlyalpha.quant_assets.private_factor_provider_snapshot import (
+    OnlyPrivateFactorProviderSnapshotEntryV1,
+    OnlyPrivateFactorProviderSnapshotV1,
 )
 from onlyalpha.runtime.generation import (
     OnlyArtifactSourceProvenanceAuthority,

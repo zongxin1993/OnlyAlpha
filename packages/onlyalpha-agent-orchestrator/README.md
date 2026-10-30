@@ -56,7 +56,7 @@ Included resources:
 - `onlyalpha.application.product_command_receipt.py`: defines Product command identity used by Agent Tool occurrences.
 - `onlyalpha.build_provenance.py`: exact-loads and validates the packaged source/distribution provenance bound by the manifest.
 - `onlyalpha.canonical.py`: defines canonical serialization and fingerprints used by Agent identities.
-- `onlyalpha.distribution.py`: defines the packaged provenance authority vocabulary consumed by the build-provenance reader.
+- `onlyalpha_gateway_protocol.distribution.py`: defines the packaged provenance wire vocabulary consumed by the build-provenance reader.
 - `onlyalpha.research.__init__.py`: lazy/inert Research public surface.
 - `onlyalpha.research.agent.__init__.py`: closed eager Agent public surface; every imported semantic module is in this closure.
 - `onlyalpha.research.experiment.model.py`: defines exact Search identities consumed and produced by Agent translation/verification.

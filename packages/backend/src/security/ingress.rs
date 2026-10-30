@@ -92,7 +92,10 @@ impl Release {
             Self::Chart(p) => p.check().is_ok(),
             Self::Asset(p) => p.check().is_ok(),
             Self::Generation(s) => s.check_active().is_ok(),
-            Self::Proposal(s, expiry) => s.check_active().is_ok() && crate::transport::host::now().is_ok_and(|at|at<*expiry),
+            Self::Proposal(s, expiry) => {
+                s.check_active().is_ok()
+                    && crate::transport::host::now().is_ok_and(|at| at < *expiry)
+            }
         }
     }
     pub(crate) fn attach(self, response: &mut Response) {
@@ -254,7 +257,7 @@ enum Proof {
 }
 enum Mode {
     Private(Configuration),
-    Developer(HumanAccess),
+    Developer(Arc<HumanAccess>),
 }
 impl Mode {
     fn origin(&self) -> &str {
@@ -271,7 +274,9 @@ impl Mode {
             (Self::Developer(access), Proof::Human(session)) => {
                 access.check_session(session).is_ok()
             }
-            (Self::Developer(access), Proof::Bootstrap | Proof::Proposal(_)) => access.check_active().is_ok(),
+            (Self::Developer(access), Proof::Bootstrap | Proof::Proposal(_)) => {
+                access.check_active().is_ok()
+            }
             _ => false,
         }
     }
@@ -327,9 +332,9 @@ impl LocalIngress {
     /// Explicit local Human read composition. No Source, Command or bridge
     /// permission is implied; actual sockets still require loopback and port5173.
     pub fn new_developer(access: HumanAccess, app: Router) -> Self {
-        Self::compose(Mode::Developer(access), app, false)
+        Self::compose(Mode::Developer(Arc::new(access)), app, false)
     }
-    pub fn new_workstation(access: HumanAccess, app: Router, transport: Transport) -> Self {
+    pub fn new_workstation(access: Arc<HumanAccess>, app: Router, transport: Transport) -> Self {
         let mut ingress = Self::compose(Mode::Developer(access), app, true);
         let state = Arc::get_mut(&mut ingress.state).expect("new unshared ingress");
         state.workstation = true;
@@ -801,7 +806,9 @@ impl LocalIngress {
             Proof::Human(session) => {
                 request.extensions_mut().insert(session.clone());
             }
-            Proof::Proposal(presented) => {request.extensions_mut().insert(presented.clone());}
+            Proof::Proposal(presented) => {
+                request.extensions_mut().insert(presented.clone());
+            }
             Proof::Bootstrap => {}
         }
         let permit = Arc::new(permit);
@@ -925,7 +932,7 @@ impl LocalIngress {
             HumanAdmission::Owner(session) => (Proof::Human(session), None),
             HumanAdmission::Navigation(cookie) => (Proof::Bootstrap, Some(cookie)),
             HumanAdmission::Health => (Proof::Bootstrap, None),
-            HumanAdmission::Proposal(presented) => (Proof::Proposal(presented),None),
+            HumanAdmission::Proposal(presented) => (Proof::Proposal(presented), None),
         };
         self.dispatch(
             id,

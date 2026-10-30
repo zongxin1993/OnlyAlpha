@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import uuid
@@ -27,6 +28,9 @@ CONTAINER_LOCK = Path("/tmp/onlyalpha-dev-verification.lock")
 HOST_STATE = Path.home() / ".cache/onlyalpha"
 CUT_METADATA = ".onlyalpha-dev-source-cut.json"
 BROWSER_RESET_FENCE = Path("test-results/dev-verification/browser-reset.pending.json")
+CONTROLLED_HOSTS = Path("/etc/hosts")
+CONTROLLED_HOSTNAME = b"data-api.binance.vision"
+CONTROLLED_HOSTS_BACKUPS = Path("/root/onlyalpha-dev-controlled-https")
 # Immutable historical regression inputs, not mutable release baselines. These
 # two original commits prove the non-reusable ADR 0109 authorization guard.
 HISTORICAL_CONTRACT_TEST_REVISIONS = (
@@ -372,9 +376,279 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         raise ValueError("DEV_VERIFICATION_DATABASE_REFUSED")
 
 
-def run_inside(command: list[str], *, web: bool = False, operation_id: str = "") -> int:
+def controlled_https_command(command: list[str]) -> bool:
+    return (
+        command[:3] == ["python", "-m", "scripts.native_web_e2e"]
+        and command.count("--controlled-source-https") == 1
+        and command.count("--retained-market-input") == 1
+    )
+
+
+def controlled_hosts_bytes(original: bytes, operation_id: str) -> bytes:
+    if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
+        raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
+    if b"onlyalpha-dev-controlled-https:" in original or CONTROLLED_HOSTNAME in original.lower():
+        raise ValueError("DEV_CONTROLLED_HTTPS_EXISTING_MAPPING_REFUSED")
+    newline = b"" if original.endswith(b"\n") else b"\n"
+    return (
+        original
+        + newline
+        + b"127.0.0.1 "
+        + CONTROLLED_HOSTNAME
+        + b" # onlyalpha-dev-controlled-https:"
+        + operation_id.encode("ascii")
+        + b"\n"
+    )
+
+
+def _root_record(directory: Path, name: str, raw: bytes) -> None:
+    fd = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _root_read(path: Path) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        observed = os.fstat(stream.fileno())
+        if not stat.S_ISREG(observed.st_mode) or observed.st_uid != 0 or observed.st_nlink != 1:
+            raise ValueError("DEV_CONTROLLED_HTTPS_BACKUP_INVALID")
+        return stream.read(1024 * 1024 + 1)
+
+
+def _root_directory(path: Path, *, fresh: bool) -> None:
+    if fresh:
+        path.mkdir(mode=0o700)
+        parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    observed = path.lstat()
+    if not stat.S_ISDIR(observed.st_mode) or observed.st_uid != 0 or stat.S_IMODE(observed.st_mode) != 0o700:
+        raise ValueError("DEV_CONTROLLED_HTTPS_BACKUP_INVALID")
+
+
+def validate_controlled_proof(proof: Any, operation_id: str, action: str) -> dict[str, Any]:
+    if (
+        str(uuid.UUID(operation_id)) != operation_id
+        or uuid.UUID(operation_id).version != 4
+        or action not in {"begin", "restore"}
+    ):
+        raise ValueError("DEV_CONTROLLED_HTTPS_RESOURCE_COMPLETION_UNPROVEN")
+    fields = {"operation_id", "device", "inode", "original_sha256", "mapped_sha256", "action", "completed"}
+    if (
+        not isinstance(proof, dict)
+        or set(proof) != fields
+        or proof["operation_id"] != operation_id
+        or proof["action"] != action
+        or proof["completed"] is not True
+        or type(proof["device"]) is not int
+        or proof["device"] < 0
+        or type(proof["inode"]) is not int
+        or proof["inode"] <= 0
+        or any(
+            not isinstance(proof[key], str)
+            or len(proof[key]) != 64
+            or any(c not in "0123456789abcdef" for c in proof[key])
+            for key in ("original_sha256", "mapped_sha256")
+        )
+    ):
+        raise ValueError("DEV_CONTROLLED_HTTPS_RESOURCE_COMPLETION_UNPROVEN")
+    return proof
+
+
+def controlled_https_root(action: str, operation_id: str) -> dict[str, Any]:
+    """Fixed resource lifecycle only; no command, path, credential or key argument."""
+    if os.geteuid() != 0 or ROOT != Path("/workspace") or action not in {"begin", "restore"}:
+        raise ValueError("DEV_CONTROLLED_HTTPS_ROOT_REQUIRED")
+    if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
+        raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
+    marker_fd = os.open(ROOT / CUT_METADATA, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(marker_fd) as marker:
+        if json.load(marker).get("operation_id") != operation_id:
+            raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_CUT_REFUSED")
+    # This must already be the ordinary uid10001 lock. Never create a root-owned lock.
+    lock_fd = os.open(CONTAINER_LOCK, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(lock_fd, "rb") as lock:
+        observed = os.fstat(lock.fileno())
+        if not stat.S_ISREG(observed.st_mode) or observed.st_uid != 10001 or observed.st_nlink != 1:
+            raise ValueError("DEV_CONTROLLED_HTTPS_LOCK_REFUSED")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            _root_directory(CONTROLLED_HOSTS_BACKUPS, fresh=False)
+        except FileNotFoundError:
+            if action != "begin":
+                raise
+            _root_directory(CONTROLLED_HOSTS_BACKUPS, fresh=True)
+        backup = CONTROLLED_HOSTS_BACKUPS / operation_id
+        _root_directory(backup, fresh=action == "begin")
+        fd = os.open(CONTROLLED_HOSTS, os.O_RDWR | os.O_NOFOLLOW)
+        with os.fdopen(fd, "r+b", buffering=0) as hosts:
+            identity = os.fstat(hosts.fileno())
+            if (
+                not stat.S_ISREG(identity.st_mode)
+                or identity.st_uid != 0
+                or identity.st_nlink != 1
+                or identity.st_mode & 0o022
+            ):
+                raise ValueError("DEV_CONTROLLED_HTTPS_HOSTS_REFUSED")
+            current = hosts.read(1024 * 1024 + 1)
+            if len(current) > 1024 * 1024:
+                raise ValueError("DEV_CONTROLLED_HTTPS_HOSTS_REFUSED")
+
+            def sha(raw: bytes) -> str:
+                return hashlib.sha256(raw).hexdigest()
+
+            if action == "begin":
+                mapped = controlled_hosts_bytes(current, operation_id)
+                evidence = {
+                    "operation_id": operation_id,
+                    "device": identity.st_dev,
+                    "inode": identity.st_ino,
+                    "original_sha256": sha(current),
+                    "mapped_sha256": sha(mapped),
+                }
+                _root_record(backup, "original", current)
+                _root_record(backup, "begin.json", json.dumps(evidence, sort_keys=True).encode())
+                target = mapped
+            else:
+                evidence = json.loads(_root_read(backup / "begin.json"))
+                validate_controlled_proof({**evidence, "action": "begin", "completed": True}, operation_id, "begin")
+                original = _root_read(backup / "original")
+                if (
+                    evidence.get("operation_id") != operation_id
+                    or evidence.get("device") != identity.st_dev
+                    or evidence.get("inode") != identity.st_ino
+                    or evidence.get("original_sha256") != sha(original)
+                ):
+                    raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_IDENTITY_REFUSED")
+                mapped = controlled_hosts_bytes(original, operation_id)
+                if evidence.get("mapped_sha256") != sha(mapped):
+                    raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_CAS_REFUSED")
+                try:
+                    replay = json.loads(_root_read(backup / "restore-proof.json"))
+                except FileNotFoundError:
+                    replay = None
+                if replay is not None:
+                    replay = validate_controlled_proof(replay, operation_id, "restore")
+                    if current != original or any(replay[key] != evidence[key] for key in evidence):
+                        raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_CAS_REFUSED")
+                    rebound = os.stat(CONTROLLED_HOSTS, follow_symlinks=False)
+                    if (rebound.st_dev, rebound.st_ino) != (identity.st_dev, identity.st_ino):
+                        raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_IDENTITY_REFUSED")
+                    return replay
+                if current != mapped:
+                    # Original bytes without a completed proof can be an interrupted/partial action.
+                    raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_CAS_REFUSED")
+                target = original
+            # Docker owns this mounted inode: restore exact bytes in place, never replace it.
+            offset = 0
+            while offset < len(target):
+                written = os.pwrite(hosts.fileno(), target[offset:], offset)
+                if written <= 0:
+                    raise ValueError("DEV_CONTROLLED_HTTPS_WRITE_UNPROVEN")
+                offset += written
+            os.ftruncate(hosts.fileno(), len(target))
+            os.fsync(hosts.fileno())
+            hosts.seek(0)
+            path_identity = os.stat(CONTROLLED_HOSTS, follow_symlinks=False)
+            if hosts.read() != target or (path_identity.st_dev, path_identity.st_ino) != (
+                identity.st_dev,
+                identity.st_ino,
+            ):
+                raise ValueError("DEV_CONTROLLED_HTTPS_WRITE_UNPROVEN")
+            proof = {**evidence, "action": action, "completed": True}
+            _root_record(backup, action + "-proof.json", json.dumps(proof, sort_keys=True).encode())
+            return proof
+
+
+def controlled_https_mapping(raw: bytes, operation_id: str) -> bool:
+    line = b"127.0.0.1 " + CONTROLLED_HOSTNAME + b" # onlyalpha-dev-controlled-https:" + operation_id.encode("ascii")
+    aliases = [
+        entry
+        for entry in raw.splitlines()
+        if CONTROLLED_HOSTNAME in [name.lower() for name in entry.split(b"#", 1)[0].split()[1:]]
+    ]
+    return len(raw) <= 1024 * 1024 and raw.count(b"onlyalpha-dev-controlled-https:") == 1 and aliases == [line]
+
+
+def _controlled_https_exec(
+    container: dict[str, Any], operation_id: str, source_sha256: str, action: str, environment: dict[str, str]
+) -> dict[str, Any]:
+    container_id = container["Id"]
+    image_id = container["Image"]
+    if (
+        not isinstance(container_id, str)
+        or len(container_id) != 64
+        or any(c not in "0123456789abcdef" for c in container_id)
+        or not isinstance(image_id, str)
+        or len(image_id) != 71
+        or not image_id.startswith("sha256:")
+        or any(c not in "0123456789abcdef" for c in image_id[7:])
+        or len(source_sha256) != 64
+        or any(c not in "0123456789abcdef" for c in source_sha256)
+    ):
+        raise ValueError("DEV_CONTROLLED_HTTPS_CONTAINER_REFUSED")
+    raw = subprocess.check_output(
+        [
+            "docker",
+            "exec",
+            "--user",
+            "0",
+            container_id,
+            "python",
+            "/workspace/scripts/dev_verification.py",
+            "--operation-id",
+            operation_id,
+            "controlled-https-" + action,
+        ],
+        env=environment,
+        text=True,
+        timeout=15,
+    )
+    proof = validate_controlled_proof(json.loads(raw), operation_id, action)
+    receipt = {**proof, "container_id": container_id, "image_id": container["Image"], "source_sha256": source_sha256}
+    path = ROOT / "test-results/dev-verification" / (operation_id + "-controlled-https-" + action + ".json")
+    document = json.dumps(receipt, sort_keys=True).encode()
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            if stream.read() != document:
+                raise ValueError("DEV_CONTROLLED_HTTPS_RECEIPT_CONFLICT") from None
+    else:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(document)
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    return receipt
+
+
+def run_inside(
+    command: list[str], *, web: bool = False, operation_id: str = "", controlled_source_https: bool = False
+) -> int:
     if not command:
         raise ValueError("DEV_VERIFICATION_COMMAND_REQUIRED")
+    if (
+        controlled_source_https != ("--controlled-source-https" in command)
+        or controlled_source_https
+        and (web or os.geteuid() != 10001 or not controlled_https_command(command))
+    ):
+        raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
     with CONTAINER_LOCK.open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -394,6 +668,18 @@ def run_inside(command: list[str], *, web: bool = False, operation_id: str = "")
             or source_cut.get("git_inputs", {}) != git_input_hashes(ROOT)
         ):
             raise ValueError("DEV_VERIFICATION_SOURCE_CUT_NOT_ADMITTED")
+        if controlled_source_https:
+            hosts_fd = os.open(CONTROLLED_HOSTS, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(hosts_fd, "rb") as hosts:
+                identity = os.fstat(hosts.fileno())
+                if (
+                    not stat.S_ISREG(identity.st_mode)
+                    or identity.st_uid != 0
+                    or identity.st_nlink != 1
+                    or identity.st_mode & 0o022
+                    or not controlled_https_mapping(hosts.read(1024 * 1024 + 1), operation_id)
+                ):
+                    raise ValueError("DEV_CONTROLLED_HTTPS_MAPPING_UNPROVEN")
         artifacts = ROOT / "test-results/dev-verification"
         artifacts.mkdir(parents=True, exist_ok=True)
         (artifacts / "source-inputs.json").write_text(json.dumps(before, sort_keys=True, indent=2))
@@ -449,10 +735,24 @@ def run_inside(command: list[str], *, web: bool = False, operation_id: str = "")
         return status if status >= 0 else 128 - status
 
 
-def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reservation: dict[str, Any]) -> int:
+def run_host(
+    mode: str,
+    command: list[str],
+    *,
+    web: bool,
+    rebuild: bool,
+    reservation: dict[str, Any],
+    controlled_source_https: bool = False,
+) -> int:
     # Early refusals have no outstanding command. Once an operation is submitted,
     # only an observed completion/owning worker receipt can settle this fence.
     reservation["completed"] = True
+    if (
+        controlled_source_https != ("--controlled-source-https" in command)
+        or controlled_source_https
+        and (mode != "run" or web or rebuild or not controlled_https_command(command))
+    ):
+        raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
     if (ROOT / BROWSER_RESET_FENCE).exists():
         reservation["completed"] = False
         raise ValueError("DEV_VERIFICATION_BROWSER_RESET_UNKNOWN")
@@ -578,12 +878,52 @@ def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reserva
     invocation += ["--operation-id", reservation["operation_id"]]
     if web:
         invocation.append("--web")
+    if controlled_source_https:
+        invocation.append("--controlled-source-https")
     invocation += ["inside", "--", *command]
     reservation["completed"] = False
+    begin = None
+    if controlled_source_https:
+        cut = json.loads((ROOT / ".test-cache/dev-source-cut" / CUT_METADATA).read_text())
+        if cut.get("operation_id") != reservation["operation_id"]:
+            raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_CUT_REFUSED")
+        source_sha256 = hashlib.sha256(json.dumps(cut["inputs"], sort_keys=True).encode()).hexdigest()
+        begin = _controlled_https_exec(records[0], reservation["operation_id"], source_sha256, "begin", environment)
     status = subprocess.run(invocation, cwd=ROOT, env=environment, check=False).returncode
     outcome = json.loads((ROOT / "test-results/dev-verification/last-outcome.json").read_text())
     if outcome.get("operation_id") != reservation["operation_id"] or outcome.get("completed") is not True:
         raise ValueError("DEV_VERIFICATION_COMMAND_COMPLETION_UNPROVEN")
+    if controlled_source_https:
+        if begin is None or (
+            outcome.get("command_started") is not False and outcome.get("source_sha256") != begin["source_sha256"]
+        ):
+            raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_COMPLETION_UNPROVEN")
+        current = json.loads(subprocess.check_output(["docker", "inspect", records[0]["Id"]], text=True, timeout=15))
+        if len(current) != 1:
+            raise ValueError("DEV_CONTROLLED_HTTPS_CONTAINER_REFUSED")
+        validate_container(current[0], ROOT)
+        if (
+            current[0].get("Id") != begin["container_id"]
+            or current[0].get("Image") != begin["image_id"]
+            or current[0].get("State", {}).get("Running") is not True
+        ):
+            raise ValueError("DEV_CONTROLLED_HTTPS_CONTAINER_REFUSED")
+        restored = _controlled_https_exec(
+            current[0], reservation["operation_id"], begin["source_sha256"], "restore", environment
+        )
+        if any(
+            restored.get(key) != begin.get(key)
+            for key in (
+                "container_id",
+                "image_id",
+                "source_sha256",
+                "device",
+                "inode",
+                "original_sha256",
+                "mapped_sha256",
+            )
+        ):
+            raise ValueError("DEV_CONTROLLED_HTTPS_RESOURCE_COMPLETION_UNPROVEN")
     reservation["completed"] = True
     if source_inputs(ROOT) != inputs:
         raise ValueError("DEV_VERIFICATION_CURRENT_SOURCE_DIFFERS_FROM_VERIFIED_CUT")
@@ -592,26 +932,47 @@ def run_host(mode: str, command: list[str], *, web: bool, rebuild: bool, reserva
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare", "run", "inside", "runtime-build"))
+    parser.add_argument(
+        "mode",
+        choices=("prepare", "run", "inside", "runtime-build", "controlled-https-begin", "controlled-https-restore"),
+    )
     parser.add_argument("--web", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--operation-id", default="")
+    parser.add_argument("--controlled-source-https", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if args.mode in {"controlled-https-begin", "controlled-https-restore"}:
+        if command or args.web or args.rebuild or args.controlled_source_https:
+            raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
+        print(
+            json.dumps(
+                controlled_https_root(args.mode.removeprefix("controlled-https-"), args.operation_id), sort_keys=True
+            ),
+            flush=True,
+        )
+        return 0
     if args.mode == "inside":
         # This receipt is emitted only for pre-command admission refusal; errors
         # after command startup must leave completion UNKNOWN.
         artifacts = ROOT / "test-results/dev-verification"
         artifacts.mkdir(parents=True, exist_ok=True)
         try:
-            return run_inside(command, web=args.web, operation_id=args.operation_id)
+            return run_inside(
+                command,
+                web=args.web,
+                operation_id=args.operation_id,
+                controlled_source_https=args.controlled_source_https,
+            )
         except ValueError as error:
             if str(error) in {
                 "DEV_VERIFICATION_COMMAND_REQUIRED",
                 "DEV_VERIFICATION_BUSY",
                 "DEV_VERIFICATION_ENVIRONMENT_REBUILD_REQUIRED",
                 "DEV_VERIFICATION_SOURCE_CUT_NOT_ADMITTED",
+                "DEV_CONTROLLED_HTTPS_COMMAND_REFUSED",
+                "DEV_CONTROLLED_HTTPS_MAPPING_UNPROVEN",
             }:
                 (artifacts / "last-outcome.json").write_text(
                     json.dumps(
@@ -625,7 +986,14 @@ def main() -> int:
                 )
             raise
     with host_operation(ROOT, args.mode) as reservation:
-        return run_host(args.mode, command, web=args.web, rebuild=args.rebuild, reservation=reservation)
+        return run_host(
+            args.mode,
+            command,
+            web=args.web,
+            rebuild=args.rebuild,
+            reservation=reservation,
+            controlled_source_https=args.controlled_source_https,
+        )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+)
 from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
 from onlyalpha_plugin_operators.provider import quant_asset_provider
 from onlyalpha_runtime_generation_manager import (
@@ -32,10 +37,7 @@ from onlyalpha.application.catalog_context import (
 )
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha.quant_assets import (
-    ONLY_PRIVATE_FACTOR_API_V1,
     OnlyPrivateFactorDraft,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
     OnlyPrivateFactorRevision,
     OnlyPrivateFactorSnapshotProviderSource,
     OnlyQuantAssetCatalogGeneration,

@@ -18,6 +18,19 @@ This extends ADR 0139 beyond the Trading Kernel and supersedes only its rejectio
 
 One formal Product API remains. Existing URLs, command identities, owner authorization, Source grants, error/UNKNOWN semantics, immutable inputs and Evidence remain governed by their existing Contracts. A Rust forwarding proxy, Rust wrapper around Python business objects, placeholder endpoint, or browser-side calculation does not establish a Rust implementation. Python algorithm workers cannot access Product stores, issue Product Commands, select Generations, grant promotion or own trading state.
 
+## Owner refinement: root `src/` retirement (2026-10-29)
+
+Root `src/` is frozen, including current uncommitted changes, and must ultimately be deleted. Do not add files, implementations
+or functionality there, including a Python-first backend fix or an SDK-labeled backend extension. Only retirement deletions and
+minimum consumer/import rewiring may change that legacy tree. Implement backend capabilities and fixes directly in their Rust
+owners, complete their actual consumer and targeted acceptance closure, then delete the replaced Python implementation and wiring.
+
+The retained Python Agent/algorithm/SDK/tool exceptions above concern responsibility and language, not retention of root `src/`.
+Their permitted source belongs under the owning Product/plugin/tool paths in ADRs 0142/0146; moving backend business to those
+paths does not satisfy Rust migration. Do not delete still-admitted consumers prematurely or keep them as a reason for permanent
+dual maintenance. Root `src/` absence and removal of every active dependency on it are final retirement requirements. This refines
+construction placement and sequencing without weakening Constitution, canonical semantics, permissions or recovery.
+
 ## Migration and deletion
 
 Migrate complete owning capabilities in their real dependency order, with a single official writer for each fact and exact implementation selection for each work identity. Shared Product Command Admission/Receipt and security/persistence boundaries precede dependent Product flows. Reuse audited Rust semantics; implement missing Application, provider and Research behavior at their proper boundaries. Do not move arbitrary backend code into the Kernel or create a service per type.

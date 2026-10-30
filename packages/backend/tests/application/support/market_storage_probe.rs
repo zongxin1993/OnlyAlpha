@@ -1,4 +1,6 @@
 //! Guarded technical DB probe. It is never a business API or a Shipping UI.
+#[path = "research_execution_probe.rs"]
+mod research_execution_probe;
 use onlyalpha_backend::persistence::market_data::*;
 use onlyalpha_backend::persistence::market_data_wal::Wal;
 use serde_json::{Value, json};
@@ -15,6 +17,9 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     let (client, connection) = tokio_postgres::connect(&dsn, tokio_postgres::NoTls).await?;
     let driver = tokio::spawn(connection);
     let op = text(v, "op")?;
+    if op == "retained-source-prerequisite" {
+        return retained_source_prerequisite(client, driver, v).await;
+    }
     if op == "lease-start" || op == "lease-busy" {
         let lease = ExecutionLease::acquire(client, driver, text(v, "id")?).await?;
         if op == "lease-busy" {
@@ -185,6 +190,89 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                 .await?;
             json!({"manifest":r.coverage.map(|m|m.to_record()),"revision":r.revision.as_ref().map(SealedRevision::revision),"seal":r.revision.map(|r|r.seal())})
         }
+        "dataset-materialize" | "dataset-admit" | "dataset-research" => {
+            if op == "dataset-research"
+                && v["phase"] == "execute"
+                && v["mode"] == "node-authority-loss"
+            {
+                return research_execution_probe::execute_node_fence(session, v).await;
+            }
+            if op == "dataset-research" && v["phase"] != "submit" {
+                let datasets = onlyalpha_backend::persistence::research_dataset::Store::open(
+                    Path::new(text(v, "dataset_root")?),
+                    512,
+                    8 * 1024 * 1024,
+                )?;
+                let retained =
+                    onlyalpha_backend::application::research_dataset::MaterializedDataset::load(
+                        &datasets,
+                        text(v, "materialization_id")?,
+                    )?;
+                return research_execution_probe::run(session.client_mut().await?, v, &retained)
+                    .await;
+            }
+            let plan =
+                onlyalpha_backend::application::research_dataset::NativeMaterializationPlan::new(
+                    &v["definition"],
+                    text(v, "id")?,
+                    Scope::from_record(&v["scope"])?,
+                    if op == "dataset-research" { 512 } else { 100 },
+                )?;
+            let datasets = onlyalpha_backend::persistence::research_dataset::Store::open(
+                Path::new(text(v, "dataset_root")?),
+                if op == "dataset-research" { 512 } else { 100 },
+                8 * 1024 * 1024,
+            )?;
+            let result = plan
+                .materialize(&mut store, &datasets, text(v, "at")?)
+                .await?;
+            if v["fault_after_dataset"] == true {
+                std::process::exit(73);
+            }
+            if op == "dataset-research" {
+                return research_execution_probe::run(session.client_mut().await?, v, &result)
+                    .await;
+            }
+            if op == "dataset-admit" {
+                let f = &v["factor"];
+                let compiled = onlyalpha_backend::application::research_factor::compile(
+                    &f["candidate"],
+                    &f["draft"],
+                    &f["revision"],
+                )?;
+                let window =
+                    compiled.window(onlyalpha_backend::application::research_factor::Window {
+                        start_ns: text(v, "observation_start_ns")?.parse()?,
+                        end_ns: text(v, "observation_end_ns")?.parse()?,
+                        bar_ns: 60_000_000_000,
+                        horizon_bars: 1,
+                    })?;
+                let hold =
+                    onlyalpha_backend::persistence::research_runtime::RuntimeInputHold::open(
+                        Path::new(text(f, "runtime_root")?),
+                        "research-input-fixture",
+                        "research",
+                        text(f, "generation")?,
+                    )?;
+                let installation = onlyalpha_calculation_bridge::ChartInstallation::open(
+                    Path::new(text(f, "installation")?),
+                    text(f, "algorithm_artifact")?,
+                )?;
+                let inputs = onlyalpha_backend::application::research_admission::prepare(
+                    hold,
+                    &installation,
+                    &compiled,
+                    &f["revision"],
+                    &window,
+                    &datasets,
+                    &result,
+                )?;
+                inputs.verify_runtime()?;
+                inputs.record().clone()
+            } else {
+                json!({"snapshot":result.verified().manifest(),"lineage":result.lineage()})
+            }
+        }
         "recover" => {
             let mut wal = Wal::new(Path::new(text(v, "root")?), 32 * 1024 * 1024)?;
             let r = store
@@ -282,5 +370,259 @@ async fn drain_with_active_recorder(
     }
     Ok(
         json!({"appended":appended,"live_open":root.join("live.open.wal").exists(),"revision":result.revision.map(|r|r.revision())}),
+    )
+}
+
+// Insert only in the existing technical market_storage_probe consumer.
+// Controlled prior market input: this never creates any target research business fact.
+async fn retained_source_prerequisite(
+    client: tokio_postgres::Client,
+    driver: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+    v: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use onlyalpha_backend::application::{
+        command::CommandId,
+        integration_catalog::AuthoringCatalog,
+        integration_commands::{CreateIntegration, PublishRevision},
+        integration_configuration::IntegrationId,
+        market_product::{Installed, Resolver},
+        source_access::{Authority, Grant, Permission, Reference, Selection},
+    };
+    use onlyalpha_backend::persistence::{
+        authority_session::AuthoritySession, integration_postgres::Integrations,
+    };
+    use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarSemantic, time::OnlyTimestamp};
+    use onlyalpha_integration_contract::{
+        IntegrationTypeId,
+        source::{Clock, Factory, SourceError, Trust},
+    };
+    use onlyalpha_market_data_construction::{
+        OnlyConstructionIdentity, OnlyConstructionRequirement, OnlyConstructionResolutionContext,
+        OnlyConstructionResolutionPlan,
+    };
+    use onlyalpha_plugin_binance::{spot_authoring, spot_normalize, spot_source::SpotFactory};
+    use sha2::{Digest, Sha256};
+    use std::{os::unix::fs::DirBuilderExt, sync::Arc};
+    const WORK: usize = 64 * 1024 * 1024;
+    const TYPE: &str = "binance.spot.market_data";
+    const AT: &str = "2026-10-22T00:00:00Z";
+    const RECEIVE: i64 = 1_792_627_200_000_000_000;
+    const START_MS: i64 = 1_767_225_600_000;
+    const STRIDE_MS: i64 = 900_000;
+    fn sha(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+    fn fp(value: &Value) -> Result<String, Box<dyn std::error::Error>> {
+        onlyalpha_metadata_json::fingerprint(&value.to_string(), WORK)
+            .map_err(|_| "fixture identity invalid".into())
+    }
+    struct PriorClock;
+    impl Clock for PriorClock {
+        fn now_ns(&self) -> Result<i64, SourceError> {
+            Ok(RECEIVE)
+        }
+    }
+    let executable = Path::new(text(v, "selected_backend")?);
+    let metadata = std::fs::symlink_metadata(executable)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("selected native executable required".into());
+    }
+    let native = std::fs::read(executable)?;
+    let native_sha = sha(&native);
+    if native_sha != text(v, "selected_backend_sha256")? || !native.starts_with(b"\x7fELF") {
+        return Err("selected native executable identity mismatch".into());
+    }
+    let trust = Trust::explicit_roots(vec![std::fs::read(text(v, "source_trust")?)?])?;
+    let clock: Arc<dyn Clock> = Arc::new(PriorClock);
+    let factory: Arc<dyn Factory> = Arc::new(SpotFactory::installed()?);
+    let installed = Installed::from_executable(factory.clone(), &native)?;
+    let mut session = AuthoritySession::acquire(client, driver).await?;
+    let authoring = AuthoringCatalog::new(vec![
+        spot_authoring(WORK).map_err(|_| "source descriptor unavailable")?,
+    ])
+    .map_err(|_| "source authoring unavailable")?;
+    let id = IntegrationId::new(text(v, "integration_id")?)
+        .map_err(|_| "invalid fixture integration")?;
+    Integrations::new(session.client_mut().await?)
+        .create(
+            &CreateIntegration::new(
+                CommandId::new(text(v, "create_command")?).map_err(|_| "invalid command")?,
+                id.clone(),
+                IntegrationTypeId::new(TYPE).map_err(|_| "invalid type")?,
+                "受控预采集行情（离线验收前置）",
+            )
+            .map_err(|_| "invalid source creation")?,
+            &authoring,
+            AT.parse()?,
+            WORK,
+        )
+        .await
+        .map_err(|_| "source creation failed")?;
+    Integrations::new(session.client_mut().await?)
+        .publish_revision(
+            &PublishRevision::new(
+                CommandId::new(text(v, "publish_command")?).map_err(|_| "invalid command")?,
+                id.clone(),
+                1,
+            )
+            .map_err(|_| "invalid source publish")?,
+            &authoring,
+            AT.parse()?,
+            1000,
+            WORK,
+        )
+        .await
+        .map_err(|_| "source publish failed")?;
+    let snapshot = Integrations::new(session.client_mut().await?)
+        .read(&id, 1000, WORK)
+        .await
+        .map_err(|_| "source snapshot unavailable")?
+        .ok_or("missing source snapshot")?;
+    let revision = snapshot
+        .integration()
+        .record()
+        .current_revision_fingerprint
+        .as_ref()
+        .ok_or("missing source revision")?;
+    let record = snapshot
+        .history()
+        .iter()
+        .find(|(r, _)| r.record().revision_fingerprint == *revision)
+        .ok_or("missing retained source revision")?
+        .0
+        .record();
+    let resource = factory.create(record.configuration_document.raw(), &trust, clock.clone())?;
+    let reference =
+        Reference::new(id.value(), revision, Some(TYPE)).map_err(|_| "invalid source reference")?;
+    let selection = Selection::new(
+        reference.clone(),
+        &resource.identity().source_id,
+        &resource.identity().environment,
+    )
+    .map_err(|_| "invalid source selection")?;
+    let token = "e".repeat(64);
+    let authority = Authority::new(
+        "local-developer",
+        &sha(token.as_bytes()),
+        vec![
+            Grant::new(selection, vec![Permission::ClosedHistory])
+                .map_err(|_| "invalid source grant")?,
+        ],
+    )
+    .map_err(|_| "invalid source authority")?;
+    let access = authority
+        .authenticate(&format!("Bearer {token}"))
+        .map_err(|_| "source authentication failed")?;
+    let resolver = Resolver::new(vec![installed], trust, clock)?;
+    let resolved = resolver.resolve(&snapshot, &reference, &access, None)?;
+    let descriptor: Value = serde_json::from_str(factory.descriptor().document().get())?;
+    let version = format!(
+        "{TYPE}@{}",
+        descriptor["public_api_version"]
+            .as_str()
+            .ok_or("missing source API version")?
+    );
+    let semantic =
+        OnlyBarSemantic::fixed_duration(15u32.into(), None).map_err(|_| "invalid bar semantic")?;
+    let plan = OnlyConstructionResolutionPlan::resolve(
+        semantic.clone(),
+        resource.capabilities(),
+        OnlyConstructionResolutionContext::new(
+            &resolved.identity().source_id,
+            "BTCUSDT.BINANCE".parse()?,
+            revision,
+            &fp(&resource.calendar().to_record())?,
+        )?,
+        OnlyConstructionRequirement::PreferExactNative,
+    )?;
+    let construction = OnlyConstructionIdentity::new(plan, &version, None, None, None)?;
+    let provider_instrument = json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING",
+        "filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.000001","minQty":"0.000001"}]});
+    let instrument = spot_normalize::instrument(&provider_instrument)?;
+    let rows = (0..575i64)
+        .map(|i| {
+            let start = START_MS + i * STRIDE_MS;
+            let price = 10000 + (i / 13) * 3 + (i * 7) % 11;
+            let close = price + i % 5 - 2;
+            let volume = 10 + i % 9;
+            json!([
+                start,
+                price.to_string(),
+                (price + 4).to_string(),
+                (price - 4).to_string(),
+                close.to_string(),
+                volume.to_string(),
+                start + STRIDE_MS - 1,
+                (price * volume).to_string(),
+                100 + i % 17,
+                "0",
+                "0",
+                "0"
+            ])
+        })
+        .collect::<Vec<_>>();
+    let raw = serde_json::to_vec(&rows)?;
+    let raw_sha = sha(&raw);
+    let capture = format!(
+        "native:{}:controlled-retained",
+        resolved.implementation_fingerprint()
+    );
+    let segment_id = "controlled-retained-source";
+    let raw_id = format!(
+        "raw-event:{}",
+        fp(
+            &json!({"source_id":resolved.identity().source_id,"capture_session_id":capture,"stream":"rest","provider_event_type":"/api/v3/klines","provider_event_id":null,"provider_sequence":null,"ts_event_ns":null,"ts_receive_ns":RECEIVE,"raw_sha256":raw_sha})
+        )?
+    );
+    let mut facts = vec![];
+    for row in &rows {
+        let bar = spot_normalize::rest_bar_interval(row, &instrument, 15)?;
+        let event = OnlyTimestamp::from_datetime(*bar.ts_event())
+            .unix_nanos()
+            .to_string()
+            .parse::<i64>()?;
+        let start = OnlyTimestamp::from_datetime(*bar.bar_start())
+            .unix_nanos()
+            .to_string()
+            .parse::<i64>()?;
+        // Public OAMD fixture input. Wal::append revalidates the complete identity/record contract.
+        let update_id = format!(
+            "market-fact:bar:{}",
+            fp(
+                &json!({"kind":"BAR","source":resolved.identity().source_id,"instrument":bar.instrument_id().to_json()?,"bar_type":bar.bar_type().to_json()?,"bar_start":bar.bar_start().to_string(),"data_version":version})
+            )?
+        );
+        let update = json!({"schema_version":3,"update_id":update_id,"runtime_id":"market-data-product","source_id":resolved.identity().source_id,"source_sequence":start/(STRIDE_MS*1_000_000),"data_version":version,"instrument_id":bar.instrument_id().to_string(),"data_type":"BAR","payload":{"kind":"BAR","value":bar.to_record()},"ts_event":event,"ts_init":event,"quality_flags":["VALID"],"metadata":[],"correlation_id":null,"sequence_semantics":"CONTIGUOUS","sequence_scope":{"source_id":resolved.identity().source_id,"instrument_id":bar.instrument_id().to_json()?,"data_type":"BAR","bar_type":bar.bar_type().to_record()}});
+        facts.push(json!({"canonical_fact_id":update_id,"raw_event_id":raw_id,"source_id":resolved.identity().source_id,"segment_id":segment_id,"capture_session_id":capture,"data_kind":"BAR","instrument_id":bar.instrument_id().to_string(),"ts_event_ns":event,"ts_receive_ns":RECEIVE,"ts_ingest_ns":RECEIVE,"canonical_payload_hash":fp(&update)?,"canonical_payload":update,"normalizer_id":"binance.spot.native","normalizer_version":resolved.implementation_fingerprint(),"quality_state":"VALID","provenance":"REST_BACKFILL"}));
+    }
+    let bundle = json!({"schema_version":1,"evidence":{"raw_event_id":raw_id,"source_id":resolved.identity().source_id,"capture_session_id":capture,"provider":resolved.identity().provider,"venue":resolved.identity().venue,"market":resolved.identity().market,"stream":"rest","provider_event_type":"/api/v3/klines","provider_event_id":null,"provider_sequence":null,"ts_event_ns":null,"ts_receive_ns":RECEIVE,"payload_codec":"application/json","provider_schema":"v1","payload_base64":STANDARD.encode(&raw),"raw_sha256":raw_sha,"provenance":"REST_BACKFILL","integration_binding_fingerprint":resolved.binding_fingerprint(),"bar_construction":construction.to_record()},"canonical_facts":facts});
+    let wal_root = Path::new(text(v, "user_data")?)
+        .join("market-data")
+        .join(&resolved.identity().source_id)
+        .join("wal");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&wal_root)?;
+    let mut wal = Wal::new(&wal_root, 128 * 1024 * 1024)?;
+    wal.create_segment(segment_id, AT)?;
+    wal.append(&bundle.to_string())?;
+    let segment = wal.seal(AT)?;
+    let retained = wal.read_sealed(segment_id)?;
+    if retained != vec![bundle] {
+        return Err("retained fixture did not round trip".into());
+    }
+    drop(wal);
+    session.close().await?;
+    Ok(
+        json!({"schema_version":1,"controlled_external_input":true,"source":{"integration_id":id.value(),"integration_revision_fingerprint":revision,"expected_type_id":TYPE,"source_id":resolved.identity().source_id,"environment":resolved.identity().environment},
+        "provider_http_fixture":{"exchange_info":{"timezone":"UTC","symbols":[provider_instrument]},"klines":rows},
+        "selected_backend_sha256":native_sha,"binding_fingerprint":resolved.binding_fingerprint(),"segment":segment,"wal_root":wal_root,
+        "first_event_ns":((START_MS+STRIDE_MS)*1_000_000).to_string(),"last_event_ns":((START_MS+575*STRIDE_MS)*1_000_000).to_string(),"protected_start_ns":((START_MS+576*STRIDE_MS)*1_000_000).to_string(),
+        "suggested_advice":{"timeframe_minutes":15,"instrument_id":"BTCUSDT.BINANCE","start_at":"2026-01-01T06:00:00Z","development_end_at":"2026-01-03T22:00:00Z","end_at":"2026-01-06T14:00:00Z","protected_start_at":"2026-01-07T00:00:00Z","protected_end_at":"2026-01-09T16:00:00Z","horizon_bars":1,"expected_block_length":12,"replicates":4096,"confidence_bps":9500,"seed":"b".repeat(64)}}),
     )
 }

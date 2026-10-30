@@ -1,0 +1,404 @@
+{
+  "bars": [
+    {
+      "schema_version": 1,
+      "bar_type": {
+        "schema_version": 2,
+        "instrument_id": {
+          "schema_version": 1,
+          "symbol": {
+            "schema_version": 1,
+            "value": "BTCUSDT"
+          },
+          "venue": {
+            "schema_version": 1,
+            "value": "BINANCE"
+          }
+        },
+        "semantic": {
+          "schema_version": 3,
+          "formation": {
+            "schema_version": 1,
+            "window_minutes": 1,
+            "stride_minutes": 1,
+            "alignment": "SESSION_START",
+            "kind": "FIXED_DURATION"
+          },
+          "price_type": "LAST",
+          "adjustment_policy": "RAW"
+        }
+      },
+      "open": {
+        "schema_version": 1,
+        "value": "100.00000000",
+        "precision": 8
+      },
+      "high": {
+        "schema_version": 1,
+        "value": "102.00000000",
+        "precision": 8
+      },
+      "low": {
+        "schema_version": 1,
+        "value": "99.00000000",
+        "precision": 8
+      },
+      "close": {
+        "schema_version": 1,
+        "value": "101.00000000",
+        "precision": 8
+      },
+      "volume": {
+        "schema_version": 1,
+        "value": "2.00000000",
+        "precision": 8
+      },
+      "quote_volume": {
+        "schema_version": 1,
+        "value": "201.0000000000000000",
+        "precision": 16
+      },
+      "turnover": null,
+      "trade_count": 3,
+      "open_interest": null,
+      "bar_start": "2026-01-01T00:00:00Z",
+      "bar_end": "2026-01-01T00:01:00Z",
+      "ts_event": "2026-01-01T00:01:00Z",
+      "ts_init": "2026-01-01T00:01:00Z",
+      "is_closed": true,
+      "revision": 0,
+      "adjustment_type": "RAW",
+      "trading_day": "2026-01-01",
+      "session_type": "CONTINUOUS"
+    },
+    {
+      "schema_version": 1,
+      "bar_type": {
+        "schema_version": 2,
+        "instrument_id": {
+          "schema_version": 1,
+          "symbol": {
+            "schema_version": 1,
+            "value": "BTCUSDT"
+          },
+          "venue": {
+            "schema_version": 1,
+            "value": "BINANCE"
+          }
+        },
+        "semantic": {
+          "schema_version": 3,
+          "formation": {
+            "schema_version": 1,
+            "window_minutes": 1,
+            "stride_minutes": 1,
+            "alignment": "SESSION_START",
+            "kind": "FIXED_DURATION"
+          },
+          "price_type": "LAST",
+          "adjustment_policy": "RAW"
+        }
+      },
+      "open": {
+        "schema_version": 1,
+        "value": "12345678901234567890.123456789012345678",
+        "precision": 18
+      },
+      "high": {
+        "schema_version": 1,
+        "value": "12345678901234567890.123456789012345678",
+        "precision": 18
+      },
+      "low": {
+        "schema_version": 1,
+        "value": "12345678901234567890.123456789012345678",
+        "precision": 18
+      },
+      "close": {
+        "schema_version": 1,
+        "value": "12345678901234567890.123456789012345678",
+        "precision": 18
+      },
+      "volume": {
+        "schema_version": 1,
+        "value": "2.00000000",
+        "precision": 8
+      },
+      "quote_volume": {
+        "schema_version": 1,
+        "value": "201.0000000000000000",
+        "precision": 16
+      },
+      "turnover": null,
+      "trade_count": 3,
+      "open_interest": null,
+      "bar_start": "2026-01-01T00:02:00.123457Z",
+      "bar_end": "2026-01-01T00:03:00.123457Z",
+      "ts_event": "2026-01-01T00:03:00.123457Z",
+      "ts_init": "2026-01-01T00:03:00.123457Z",
+      "is_closed": true,
+      "revision": 0,
+      "adjustment_type": "RAW",
+      "trading_day": "2026-01-01",
+      "session_type": "CONTINUOUS"
+    }
+  ],
+  "definition": {
+    "schema_version": 2,
+    "dataset_type": "HISTORICAL_BAR",
+    "instruments": [
+      "BTCUSDT.BINANCE"
+    ],
+    "bar_semantic": {
+      "schema_version": 3,
+      "formation": {
+        "schema_version": 1,
+        "window_minutes": 1,
+        "stride_minutes": 1,
+        "alignment": "SESSION_START",
+        "kind": "FIXED_DURATION"
+      },
+      "price_type": "LAST",
+      "adjustment_policy": "RAW"
+    },
+    "time_range": {
+      "start": "2026-01-01T00:00:00+00:00",
+      "end": "2026-01-01T00:04:00.123457+00:00"
+    },
+    "quality_policy": "STRICT",
+    "closed_only": true
+  },
+  "definition_fingerprint": "92809b12ab47d4f9d0b4de8e85bf971a7d37649bb59f2b93e2efb74be714e6f9",
+  "schema": {
+    "schema_id": "onlyalpha.research.historical_bar",
+    "schema_version": 2,
+    "columns": [
+      {
+        "name": "instrument_id",
+        "logical_type": "utf8",
+        "nullable": false,
+        "semantic_role": "instrument_identity"
+      },
+      {
+        "name": "bar_semantic_json",
+        "logical_type": "utf8",
+        "nullable": false,
+        "semantic_role": "bar_semantic"
+      },
+      {
+        "name": "bar_start_ns",
+        "logical_type": "int64",
+        "nullable": false,
+        "semantic_role": "utc_timestamp"
+      },
+      {
+        "name": "bar_end_ns",
+        "logical_type": "int64",
+        "nullable": false,
+        "semantic_role": "utc_timestamp"
+      },
+      {
+        "name": "ts_event_ns",
+        "logical_type": "int64",
+        "nullable": false,
+        "semantic_role": "utc_timestamp"
+      },
+      {
+        "name": "ts_init_ns",
+        "logical_type": "int64",
+        "nullable": false,
+        "semantic_role": "utc_timestamp"
+      },
+      {
+        "name": "trading_day",
+        "logical_type": "date32",
+        "nullable": false,
+        "semantic_role": "trading_day"
+      },
+      {
+        "name": "session_type",
+        "logical_type": "utf8",
+        "nullable": false,
+        "semantic_role": "session"
+      },
+      {
+        "name": "open",
+        "logical_type": "decimal128(38,18)",
+        "nullable": false,
+        "semantic_role": "price"
+      },
+      {
+        "name": "high",
+        "logical_type": "decimal128(38,18)",
+        "nullable": false,
+        "semantic_role": "price"
+      },
+      {
+        "name": "low",
+        "logical_type": "decimal128(38,18)",
+        "nullable": false,
+        "semantic_role": "price"
+      },
+      {
+        "name": "close",
+        "logical_type": "decimal128(38,18)",
+        "nullable": false,
+        "semantic_role": "price"
+      },
+      {
+        "name": "price_precision",
+        "logical_type": "int32",
+        "nullable": false,
+        "semantic_role": "precision"
+      },
+      {
+        "name": "volume",
+        "logical_type": "decimal128(38,18)",
+        "nullable": false,
+        "semantic_role": "quantity"
+      },
+      {
+        "name": "volume_precision",
+        "logical_type": "int32",
+        "nullable": false,
+        "semantic_role": "precision"
+      },
+      {
+        "name": "quote_volume",
+        "logical_type": "decimal128(38,18)",
+        "nullable": true,
+        "semantic_role": "quantity"
+      },
+      {
+        "name": "quote_volume_precision",
+        "logical_type": "int32",
+        "nullable": true,
+        "semantic_role": "precision"
+      },
+      {
+        "name": "turnover_amount",
+        "logical_type": "decimal128(38,18)",
+        "nullable": true,
+        "semantic_role": "money"
+      },
+      {
+        "name": "turnover_currency",
+        "logical_type": "utf8",
+        "nullable": true,
+        "semantic_role": "currency"
+      },
+      {
+        "name": "turnover_currency_precision",
+        "logical_type": "int32",
+        "nullable": true,
+        "semantic_role": "precision"
+      },
+      {
+        "name": "turnover_currency_type",
+        "logical_type": "utf8",
+        "nullable": true,
+        "semantic_role": "currency_type"
+      },
+      {
+        "name": "trade_count",
+        "logical_type": "int64",
+        "nullable": true,
+        "semantic_role": "count"
+      },
+      {
+        "name": "open_interest",
+        "logical_type": "decimal128(38,18)",
+        "nullable": true,
+        "semantic_role": "quantity"
+      },
+      {
+        "name": "open_interest_precision",
+        "logical_type": "int32",
+        "nullable": true,
+        "semantic_role": "precision"
+      },
+      {
+        "name": "is_closed",
+        "logical_type": "bool",
+        "nullable": false,
+        "semantic_role": "lifecycle"
+      },
+      {
+        "name": "revision",
+        "logical_type": "int64",
+        "nullable": false,
+        "semantic_role": "revision"
+      },
+      {
+        "name": "adjustment_type",
+        "logical_type": "utf8",
+        "nullable": false,
+        "semantic_role": "adjustment"
+      }
+    ]
+  },
+  "schema_fingerprint": "1ce817115e48a31df28ca2347bf982140ab8c1d798367b1eb0695f372592c0c0",
+  "rows": [
+    {
+      "adjustment_type": "RAW",
+      "bar_end_ns": 1767225660000000000,
+      "bar_semantic_json": "{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":3}",
+      "bar_start_ns": 1767225600000000000,
+      "close": "101.000000000000000000",
+      "high": "102.000000000000000000",
+      "instrument_id": "BTCUSDT.BINANCE",
+      "is_closed": true,
+      "low": "99.000000000000000000",
+      "open": "100.000000000000000000",
+      "open_interest": null,
+      "open_interest_precision": null,
+      "price_precision": 8,
+      "quote_volume": "201.000000000000000000",
+      "quote_volume_precision": 16,
+      "revision": 0,
+      "session_type": "CONTINUOUS",
+      "trade_count": 3,
+      "trading_day": "2026-01-01",
+      "ts_event_ns": 1767225660000000000,
+      "ts_init_ns": 1767225660000000000,
+      "turnover_amount": null,
+      "turnover_currency": null,
+      "turnover_currency_precision": null,
+      "turnover_currency_type": null,
+      "volume": "2.000000000000000000",
+      "volume_precision": 8
+    },
+    {
+      "adjustment_type": "RAW",
+      "bar_end_ns": 1767225780123457000,
+      "bar_semantic_json": "{\"adjustment_policy\":\"RAW\",\"formation\":{\"alignment\":\"SESSION_START\",\"kind\":\"FIXED_DURATION\",\"schema_version\":1,\"stride_minutes\":1,\"window_minutes\":1},\"price_type\":\"LAST\",\"schema_version\":3}",
+      "bar_start_ns": 1767225720123457000,
+      "close": "12345678901234567890.123456789012345678",
+      "high": "12345678901234567890.123456789012345678",
+      "instrument_id": "BTCUSDT.BINANCE",
+      "is_closed": true,
+      "low": "12345678901234567890.123456789012345678",
+      "open": "12345678901234567890.123456789012345678",
+      "open_interest": null,
+      "open_interest_precision": null,
+      "price_precision": 18,
+      "quote_volume": "201.000000000000000000",
+      "quote_volume_precision": 16,
+      "revision": 0,
+      "session_type": "CONTINUOUS",
+      "trade_count": 3,
+      "trading_day": "2026-01-01",
+      "ts_event_ns": 1767225780123457000,
+      "ts_init_ns": 1767225780123457000,
+      "turnover_amount": null,
+      "turnover_currency": null,
+      "turnover_currency_precision": null,
+      "turnover_currency_type": null,
+      "volume": "2.000000000000000000",
+      "volume_precision": 8
+    }
+  ],
+  "construction_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content_fingerprint": "7c07072b50abec3fb310ff87a3adf20e084ac08b2195d6b2bc42b685cb35e6a8",
+  "snapshot_fingerprint": "df3b40cce451902ebf04a5df880b58c225e9bf26a1e0925c300b54d155eecdf8"
+}

@@ -9,6 +9,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
+from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest, OnlyDistributionArtifactRole
+
 from onlyalpha.backtest.dataset_source import only_backtest_dataset_source_fingerprint
 from onlyalpha.backtest.errors import OnlyBacktestError, OnlyBacktestErrorPhase
 from onlyalpha.backtest.model import OnlyBacktestRun, OnlyBacktestSpecification
@@ -20,7 +22,6 @@ from onlyalpha.backtest.worker import (
     OnlyEngineBacktestRuntimeExecutor,
 )
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from onlyalpha.distribution import OnlyDistributionArtifactManifest, OnlyDistributionArtifactRole
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.strategy.revision import OnlyStrategyRevision
 

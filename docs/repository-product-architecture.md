@@ -57,6 +57,24 @@ Backend owns package/binary `onlyalpha-backend`; frontend owns package `onlyalph
 is `onlyalpha-agent` in `packages/agent`. Actual package creation/version selection is deferred to its migration phase. Release metadata placement is in
 [release versioning](release-versioning.md). This is target naming, not an assertion of current manifests.
 
+## Root Python source retirement
+
+The owner freezes root `src/` as of 2026-10-29, including uncommitted changes. Its final state is deletion, not a permanent
+Python reference/backend tree. This concerns root `src/`, not Rust `crates/**/src/` or Product `packages/**/src/` directories.
+No new files or implementation/functionality may be added under the legacy root. Only deletion and the minimum consumer/import
+rewiring required to retire existing implementations are allowed there. Backend gaps and fixes belong directly to their Rust owners.
+
+For each complete capability, migrate real consumers and valid independent assertions, verify the affected closure, then remove
+obsolete Python implementation, exports, dependencies, entry points and build/deployment wiring. Relocation alone is not migration;
+Python business hidden behind an SDK, worker, plugin or forwarding facade does not satisfy the target. Still-required consumers
+must migrate before deletion; they do not justify expanding legacy implementations.
+
+The independently owned Agent and permitted isolated algorithms/minimum authoring SDK may remain Python under their existing
+Product/plugin/tool boundaries. Their source must reside in the appropriate `packages/`, `plugs/` or `scripts/`, never back in root
+`src/`. This creates no extra release line and does not transfer backend Authority or recovery into Python. Completion requires
+root `src/` absent and no active runtime/install/test/build/deploy/discovery dependency on that tree. Exact archived artifacts remain
+subject to their original contracts. AGENTS.md §3.6 governs execution and acceptance; this section owns target placement.
+
 ## Library and module boundaries
 
 | Boundary | Responsibilities and allowed direction |

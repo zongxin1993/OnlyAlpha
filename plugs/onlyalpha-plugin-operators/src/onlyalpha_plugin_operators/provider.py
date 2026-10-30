@@ -6,19 +6,17 @@ from onlyalpha.quant_assets import (
     OnlyQuantAssetProvider,
     OnlyQuantAssetProviderManifest,
 )
+from onlyalpha_plugin_operators.metadata import DISTRIBUTION_NAME, DISTRIBUTION_VERSION, PROVIDER_ID, PROVIDER_VERSION
 from onlyalpha_plugin_operators.registration import registrations
 
 
 def quant_asset_provider() -> OnlyQuantAssetProvider:
     return OnlyQuantAssetProvider(
         OnlyQuantAssetProviderManifest(
-            provider_id="onlyalpha.operator.library",
-            provider_version="6",
+            provider_id=PROVIDER_ID,
+            provider_version=PROVIDER_VERSION,
             kind=OnlyQuantAssetKind.OPERATOR,
-            source=OnlyDistributionProviderSource(
-                distribution_name="onlyalpha-plugin-operators",
-                distribution_version="0.11.1",
-            ),
+            source=OnlyDistributionProviderSource(DISTRIBUTION_NAME, DISTRIBUTION_VERSION),
         ),
         calculation_registrations=registrations(),
     )

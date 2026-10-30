@@ -1,4 +1,7 @@
-"""Exact validation, artifacts and execution bindings for DB-native Private Factor V1."""
+"""Pure source validation, immutable algorithm descriptors and Private Factor execution.
+
+The source revision reference is supplied by its owning backend, never authorized here.
+"""
 
 from __future__ import annotations
 
@@ -15,14 +18,25 @@ from typing import Any, cast
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+import onlyalpha.algorithm.private_factor as private_factor_sdk
 from onlyalpha.algorithm.private_factor import (
-    ONLY_PRIVATE_FACTOR_API_V1,
+    ONLY_PRIVATE_FACTOR_API_V1 as ONLY_PRIVATE_FACTOR_API_V1,
+)
+from onlyalpha.algorithm.private_factor import (
     ONLY_PRIVATE_FACTOR_NUMERIC_V1,
-    ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1,
     _arrow_type,
     _normalize_output,
     _PrivateFactorAstInterpreter,
     _SourcePolicy,
+)
+from onlyalpha.algorithm.private_factor import (
+    ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1 as ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1,
+)
+from onlyalpha.algorithm.private_factor import (
+    OnlyPrivateFactorApiContractV1 as OnlyPrivateFactorApiContractV1,
+)
+from onlyalpha.algorithm.private_factor import (
+    OnlyPrivateFactorValidationPolicyV1 as OnlyPrivateFactorValidationPolicyV1,
 )
 from onlyalpha.calculation.definition import (
     FACTOR_VALUE_SEMANTIC_TYPE,
@@ -53,13 +67,13 @@ from onlyalpha.calculation.implementation import (
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
 from onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1
 from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.quant_assets.private import OnlyPrivateFactorRevision, only_private_factor_source_sha256
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotEntryV1 as OnlyPrivateFactorProviderSnapshotEntryV1,
 )
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotV1 as OnlyPrivateFactorProviderSnapshotV1,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceV1, source_sha256
 
 
 def _is_sha(value: object) -> bool:
@@ -118,13 +132,15 @@ class OnlyPrivateFactorValidationEvidenceV1:
         }
 
 
-def only_validate_private_factor_revision(revision: OnlyPrivateFactorRevision) -> OnlyPrivateFactorValidationEvidenceV1:
+def only_validate_private_factor_revision(
+    revision: OnlyPrivateFactorExecutableSourceV1,
+) -> OnlyPrivateFactorValidationEvidenceV1:
     errors: list[str] = []
     if revision.factor_api_version != 1:
         errors.append("PRIVATE_FACTOR_API_VERSION_UNSUPPORTED")
     if revision.factor_api_contract_fingerprint != ONLY_PRIVATE_FACTOR_API_V1.api_contract_fingerprint:
         errors.append("PRIVATE_FACTOR_API_CONTRACT_MISMATCH")
-    if revision.source_sha256 != only_private_factor_source_sha256(revision.source_text):
+    if revision.source_sha256 != source_sha256(revision.source_text):
         errors.append("PRIVATE_FACTOR_SOURCE_HASH_MISMATCH")
     try:
         tree = ast.parse(revision.source_text, mode="exec")
@@ -201,7 +217,7 @@ class OnlyPrivateFactorSourceArtifactManifestV1:
 
     @classmethod
     def materialize(
-        cls, revision: OnlyPrivateFactorRevision, evidence: OnlyPrivateFactorValidationEvidenceV1
+        cls, revision: OnlyPrivateFactorExecutableSourceV1, evidence: OnlyPrivateFactorValidationEvidenceV1
     ) -> tuple[OnlyPrivateFactorSourceArtifactManifestV1, bytes]:
         if (
             evidence != only_validate_private_factor_revision(revision)
@@ -238,20 +254,40 @@ class OnlyPrivateFactorSourceArtifactManifestV1:
             raise ValueError("PRIVATE_FACTOR_SOURCE_ARTIFACT_MISMATCH")
 
 
+def only_execute_private_factor_program(
+    manifest: OnlyPrivateFactorSourceArtifactManifestV1,
+    source: bytes,
+    inputs: Mapping[str, object],
+    parameters: Mapping[str, object],
+) -> object:
+    """Pure API interpreter; the caller owns confinement and execution permission.
+
+    The native managed process uses this after installing its OS restrictions.
+    The ordinary adapter continues to use its existing isolated child process.
+    Neither path executes Python bytecode from the supplied source.
+    """
+    manifest.verify(source)
+    return _execute_program(source, inputs, parameters)
+
+
+def _execute_program(source: bytes, inputs: Mapping[str, object], parameters: Mapping[str, object]) -> object:
+    tree = ast.parse(source.decode("utf-8"), mode="exec")
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef) or tree.body[0].name != "calculate":
+        raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_INVALID")
+    return _PrivateFactorAstInterpreter(
+        tree.body[0],
+        OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1),
+        dict(inputs),
+        dict(parameters),
+    ).run()
+
+
 def _execute_child(
     connection: Connection, source: bytes, inputs: Mapping[str, object], parameters: Mapping[str, object]
 ) -> None:
     os.environ.clear()
     try:
-        tree = ast.parse(source.decode("utf-8"), mode="exec")
-        if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef) or tree.body[0].name != "calculate":
-            raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_INVALID")
-        result = _PrivateFactorAstInterpreter(
-            tree.body[0],
-            OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1),
-            dict(inputs),
-            dict(parameters),
-        ).run()
+        result = _execute_program(source, inputs, parameters)
         connection.send((True, result))
     except BaseException as exc:
         connection.send((False, f"{type(exc).__name__}:{exc}"))
@@ -394,7 +430,7 @@ class OnlyPrivateFactorTradingBackendFactoryV1:
         return OnlyPrivateFactorTradingBackendV1(definition, self.artifact, self.source, self.adapter)
 
 
-def only_private_factor_type_definition(revision: OnlyPrivateFactorRevision) -> OnlyCalculationTypeDefinition:
+def only_private_factor_type_definition(revision: OnlyPrivateFactorExecutableSourceV1) -> OnlyCalculationTypeDefinition:
     return OnlyCalculationTypeDefinition(
         OnlyCalculationKind.FACTOR,
         revision.factor_id,
@@ -412,7 +448,7 @@ def only_private_factor_type_definition(revision: OnlyPrivateFactorRevision) -> 
 
 
 def only_private_factor_backend_registrations(
-    revision: OnlyPrivateFactorRevision,
+    revision: OnlyPrivateFactorExecutableSourceV1,
     artifact: OnlyPrivateFactorSourceArtifactManifestV1,
     source: bytes,
     research: OnlyPrivateFactorAdapterV1,
@@ -441,17 +477,13 @@ def only_private_factor_backend_registrations(
             calculation_type_reference=reference,
             backend_kind=backend,
             entrypoint_identity=(
-                "onlyalpha.quant_assets.private_factor_execution:OnlyPrivateFactorResearchBackendV1"
+                "onlyalpha_backend_algorithms.sdk.private_factor_execution:OnlyPrivateFactorResearchBackendV1"
                 if backend is OnlyCalculationBackendKind.RESEARCH
-                else "onlyalpha.quant_assets.private_factor_execution:OnlyPrivateFactorTradingBackendFactoryV1"
+                else "onlyalpha_backend_algorithms.sdk.private_factor_execution:OnlyPrivateFactorTradingBackendFactoryV1"
             ),
             resources={
                 "private_factor/source.py": source,
-                "private_factor/algorithm-sdk.py": Path(__file__)
-                .resolve()
-                .parents[1]
-                .joinpath("algorithm/private_factor.py")
-                .read_bytes(),
+                "private_factor/algorithm-sdk.py": Path(private_factor_sdk.__file__).read_bytes(),
                 f"private_factor/{backend.value.lower()}-adapter.py": adapter_source,
                 f"private_factor/{backend.value.lower()}-identity.txt": adapter.adapter_fingerprint.encode(),
             },
@@ -669,7 +701,7 @@ class OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1:
 
 @dataclass(frozen=True, slots=True, init=False)
 class OnlyPrivateFactorExecutableClosureV1:
-    revision: OnlyPrivateFactorRevision
+    revision: OnlyPrivateFactorExecutableSourceV1
     validation_evidence: OnlyPrivateFactorValidationEvidenceV1
     source_artifact: OnlyPrivateFactorSourceArtifactManifestV1
     source: bytes
@@ -734,7 +766,7 @@ class OnlyPrivateFactorExecutableClosureV1:
     @classmethod
     def create(
         cls,
-        revision: OnlyPrivateFactorRevision,
+        revision: OnlyPrivateFactorExecutableSourceV1,
         vectors: Sequence[Mapping[str, object]],
         parameters: Mapping[str, object],
         *,
