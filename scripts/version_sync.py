@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -29,13 +30,91 @@ TEST_DISTRIBUTION_PATHS = (
 )
 WEB_PACKAGE_PATH = Path("packages/frontend/package.json")
 WEB_LOCK_PATH = Path("packages/frontend/package-lock.json")
-QUANT_ASSET_PROVIDER_PATHS = (
-    Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/provider.py"),
-    Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"),
-)
-_DISTRIBUTION_VERSION = re.compile(
-    r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
-)
+QUANT_ASSET_VERSION_PROJECTIONS = {
+    Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/metadata.py"): re.compile(
+        r'(?m)^(?P<prefix>DISTRIBUTION_VERSION\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>[ \t]*)$'
+    ),
+    Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"): re.compile(
+        r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
+    ),
+}
+
+
+def _operator_provider_uses_projection(path: Path, version: str) -> bool:
+    try:
+        tree = ast.parse(path.read_text())
+        metadata = ast.parse(path.with_name("metadata.py").read_text())
+    except (OSError, SyntaxError):
+        return False
+    bindings = [
+        node
+        for node in ast.walk(metadata)
+        if isinstance(node, ast.Name) and node.id == "DISTRIBUTION_VERSION" and not isinstance(node.ctx, ast.Load)
+    ]
+    assignments = [
+        node
+        for node in metadata.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and node.targets[0] in bindings
+        and isinstance(node.value, ast.Constant)
+        and node.value.value == version
+    ]
+    if len(bindings) != 1 or len(assignments) != 1:
+        return False
+    imports = [
+        alias
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "onlyalpha_plugin_operators.metadata" and node.level == 0
+        for alias in node.names
+        if alias.name == "DISTRIBUTION_VERSION" and alias.asname is None
+    ]
+    if len(imports) != 1:
+        return False
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Name)
+            and node.id == "DISTRIBUTION_VERSION"
+            and not isinstance(node.ctx, ast.Load)
+            or isinstance(node, ast.arg)
+            and node.arg == "DISTRIBUTION_VERSION"
+            or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "DISTRIBUTION_VERSION"
+            or isinstance(node, ast.alias)
+            and (node.asname or node.name) == "DISTRIBUTION_VERSION"
+            and node is not imports[0]
+        ):
+            return False
+    functions = [
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "quant_asset_provider"
+    ]
+    match functions:
+        case [
+            ast.FunctionDef(
+                body=[
+                    ast.Return(
+                        value=ast.Call(
+                            func=ast.Name(id="OnlyQuantAssetProvider"),
+                            args=[ast.Call(func=ast.Name(id="OnlyQuantAssetProviderManifest"), keywords=keywords), *_],
+                        )
+                    )
+                ]
+            )
+        ]:
+            sources = [keyword.value for keyword in keywords if keyword.arg == "source"]
+        case _:
+            return False
+    match sources:
+        case [ast.Call(func=ast.Name(id="OnlyDistributionProviderSource")) as call]:
+            pass
+        case _:
+            return False
+    if any(isinstance(argument, ast.Starred) for argument in call.args) or any(
+        keyword.arg is None for keyword in call.keywords
+    ):
+        return False
+    versions = [*call.args[1:], *(keyword.value for keyword in call.keywords if keyword.arg == "distribution_version")]
+    return len(versions) == 1 and isinstance(versions[0], ast.Name) and versions[0].id == "DISTRIBUTION_VERSION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,12 +339,18 @@ def workspace_graph_errors(
             errors.append("Web lock version differs from frontend")
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(f"invalid Web lock: {error}")
-    for relative in QUANT_ASSET_PROVIDER_PATHS:
+    for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
         path = root / relative
-        if path.exists():
-            matches = tuple(_DISTRIBUTION_VERSION.finditer(path.read_text()))
-            plugin = formal_index.get(canonicalize_name(relative.parts[1]))
-            if plugin is None or len(matches) != 1 or matches[0]["version"] != str(plugin.version):
+        plugin = formal_index.get(canonicalize_name(relative.parts[1]))
+        if plugin is not None or path.exists():
+            matches = tuple(pattern.finditer(path.read_text())) if path.is_file() else ()
+            if (
+                plugin is None
+                or len(matches) != 1
+                or matches[0]["version"] != str(plugin.version)
+                or relative.name == "metadata.py"
+                and not _operator_provider_uses_projection(path.with_name("provider.py"), str(plugin.version))
+            ):
                 errors.append(f"{relative}: quant asset distribution provenance mismatch")
     try:
         lock = tomllib.loads((root / "Cargo.lock").read_text())
@@ -353,13 +438,13 @@ def rewrite_unit(
                         package["dependencies"][index] = f"{name} {version}"
         documents[root / "Cargo.lock"] = lock
     providers = []
-    for relative in QUANT_ASSET_PROVIDER_PATHS:
+    for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
         path = root / relative
         if path.exists() and canonicalize_name(relative.parts[1]) in changed_names:
             providers.append(
                 (
                     path,
-                    _DISTRIBUTION_VERSION.sub(lambda m: m["prefix"] + f'"{version}"' + m["suffix"], path.read_text()),
+                    pattern.sub(lambda m: m["prefix"] + f'"{version}"' + m["suffix"], path.read_text()),
                 )
             )
     web = []

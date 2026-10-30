@@ -11,10 +11,130 @@ from packaging.requirements import Requirement
 
 from scripts import version_sync as release
 from tests.tools.test_release_units import graph as graph
+from tests.tools.test_release_units import write
 
 
 def check(root: Path) -> None:
     release.check_versions(root, test_distribution_paths=())
+
+
+def quant_asset_plugin(graph: Path, plugin: str) -> Path:
+    for path in graph.rglob("*"):
+        if path.is_file():
+            path.write_text(path.read_text().replace("onlyalpha-plugin-test", "onlyalpha-plugin-" + plugin))
+    (graph / "plugs/onlyalpha-plugin-test").rename(graph / ("plugs/onlyalpha-plugin-" + plugin))
+    return graph / f"plugs/onlyalpha-plugin-{plugin}/src/onlyalpha_plugin_{plugin}"
+
+
+@pytest.fixture
+def operators(graph: Path) -> Path:
+    package = quant_asset_plugin(graph, "operators")
+    write(graph, str((package / "metadata.py").relative_to(graph)), 'DISTRIBUTION_VERSION = "0.2.0"\n')
+    write(
+        graph,
+        str((package / "provider.py").relative_to(graph)),
+        "from onlyalpha_plugin_operators.metadata import DISTRIBUTION_VERSION\n"
+        "from onlyalpha.quant_assets import OnlyDistributionProviderSource, OnlyQuantAssetProvider, OnlyQuantAssetProviderManifest\n"
+        "def quant_asset_provider():\n"
+        "    return OnlyQuantAssetProvider(\n"
+        "        OnlyQuantAssetProviderManifest(\n"
+        '            source=OnlyDistributionProviderSource("onlyalpha-plugin-operators", DISTRIBUTION_VERSION),\n'
+        "        ),\n"
+        "    )\n",
+    )
+    return package
+
+
+@pytest.mark.parametrize("keyword", [False, True])
+def test_operators_metadata_is_the_checked_distribution_projection(graph: Path, operators: Path, keyword: bool) -> None:
+    if keyword:
+        path = operators / "provider.py"
+        path.write_text(
+            path.read_text().replace(", DISTRIBUTION_VERSION)", ", distribution_version=DISTRIBUTION_VERSION)")
+        )
+    check(graph)
+    assert release.load_release_units(graph)["plugin-operators"] == "0.2.0"
+
+
+@pytest.mark.parametrize("fault", ["wrong", "missing", "duplicate", "nonliteral", "augmented", "annotated"])
+def test_operator_distribution_projection_requires_one_exact_version(graph: Path, operators: Path, fault: str) -> None:
+    path = operators / "metadata.py"
+    if fault == "missing":
+        path.unlink()
+    elif fault == "wrong":
+        path.write_text('DISTRIBUTION_VERSION = "0.1.0"\n')
+    elif fault == "duplicate":
+        path.write_text(path.read_text() * 2)
+    else:
+        rebound = {
+            "nonliteral": 'DISTRIBUTION_VERSION = str("0.1.0")\n',
+            "augmented": 'DISTRIBUTION_VERSION += "+unexpected"\n',
+            "annotated": 'DISTRIBUTION_VERSION: str = "0.1.0"\n',
+        }
+        path.write_text(path.read_text() + rebound[fault])
+    with pytest.raises(release.VersionSyncError, match="quant asset distribution provenance mismatch"):
+        check(graph)
+
+
+@pytest.mark.parametrize("fault", ["literal", "alias", "rebind", "parameter", "other-module", "unused-call", "missing"])
+def test_operator_provider_must_use_the_unaliased_projection(graph: Path, operators: Path, fault: str) -> None:
+    path = operators / "provider.py"
+    source = path.read_text()
+    if fault == "literal":
+        source = source.replace(", DISTRIBUTION_VERSION)", ', "0.2.0")')
+    elif fault == "alias":
+        source = source.replace("import DISTRIBUTION_VERSION", "import DISTRIBUTION_VERSION as VERSION")
+        source = source.replace(", DISTRIBUTION_VERSION)", ", VERSION)")
+    elif fault == "rebind":
+        source += '\nDISTRIBUTION_VERSION = "0.2.0"\n'
+    elif fault == "parameter":
+        source = source.replace(
+            "def quant_asset_provider():", 'def quant_asset_provider(DISTRIBUTION_VERSION="0.2.0"):'
+        )
+    elif fault == "other-module":
+        source = source.replace("onlyalpha_plugin_operators.metadata", "onlyalpha_plugin_indicators.metadata")
+    elif fault == "unused-call":
+        source = "from onlyalpha.quant_assets import OnlyDistributionProviderSource as SourceAlias\n" + source
+        source = source.replace("source=OnlyDistributionProviderSource(", "source=SourceAlias(")
+        source = source.replace(", DISTRIBUTION_VERSION)", ', "0.1.0")')
+        source += '\nunused = OnlyDistributionProviderSource("onlyalpha-plugin-operators", DISTRIBUTION_VERSION)\n'
+    else:
+        path.unlink()
+    if fault != "missing":
+        path.write_text(source)
+    with pytest.raises(release.VersionSyncError, match="quant asset distribution provenance mismatch"):
+        check(graph)
+
+
+def test_operator_rewrite_updates_the_actual_projection_and_preserves_other_units(graph: Path, operators: Path) -> None:
+    before_provider = (operators / "provider.py").read_bytes()
+    before_units = release.load_release_units(graph)
+    release.rewrite_unit(graph, "plugin-operators", "0.2.1", test_distribution_paths=())
+    check(graph)
+    assert (operators / "metadata.py").read_text() == 'DISTRIBUTION_VERSION = "0.2.1"\n'
+    assert (operators / "provider.py").read_bytes() == before_provider
+    assert release.load_release_units(graph) == {**before_units, "plugin-operators": "0.2.1"}
+    assert "onlyalpha-plugin-operators==0.2.1" in (graph / "pyproject.toml").read_text()
+
+
+def test_indicator_literal_projection_is_checked_and_rewritten(graph: Path) -> None:
+    package = quant_asset_plugin(graph, "indicators")
+    path = package / "provider.py"
+    write(
+        graph,
+        str(path.relative_to(graph)),
+        'source = Source(\n    distribution_version="0.2.0",\n)\n',
+    )
+    check(graph)
+    release.rewrite_unit(graph, "plugin-indicators", "0.2.1", test_distribution_paths=())
+    check(graph)
+    assert 'distribution_version="0.2.1",' in path.read_text()
+    path.write_text(path.read_text().replace('"0.2.1"', '"0.2.0"'))
+    with pytest.raises(release.VersionSyncError, match="quant asset distribution provenance mismatch"):
+        check(graph)
+    path.unlink()
+    with pytest.raises(release.VersionSyncError, match="quant asset distribution provenance mismatch"):
+        check(graph)
 
 
 @pytest.mark.parametrize(("level", "expected"), [("patch", "0.9.10"), ("minor", "0.10.0"), ("major", "1.0.0")])
