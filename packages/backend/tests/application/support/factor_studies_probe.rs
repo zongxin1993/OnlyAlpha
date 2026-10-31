@@ -33,6 +33,8 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
         }
         let mut studies = Studies::new(client);
         match request["action"].as_str() {
+            Some("resolve") => studies.resolve_registration(&command,c.ok_or("credential")?,serde_json::from_value(body).map_err(|_|"input")?,at).await,
+            Some("continue") if c.is_none() => studies.continue_workflow(&command,actor,serde_json::from_value(body).map_err(|_|"input")?,at).await,
             Some("grant") if c.is_none() => {
                 studies
                     .grant(

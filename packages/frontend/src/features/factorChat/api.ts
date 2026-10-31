@@ -27,7 +27,8 @@ export const studyAdviceSchema = z.strictObject({
 const referenceSchema = z.strictObject({
     command: z.uuid(),
     head: sha,
-    fingerprint: sha.nullable()
+    fingerprint: sha.nullable(),
+    abandoned: z.boolean().optional()
 });
 export const previewSchema = z.strictObject({
     name: z.string(),
@@ -43,6 +44,8 @@ export const previewSchema = z.strictObject({
 export const sessionSchema = z.strictObject({
     id: z.uuid(),
     workflow: sha,
+    current_workflow: sha.optional(),
+    successor: z.uuid().nullable().optional(),
     model_revision: sha,
     head: sha.nullable(),
     consumed: z.number().int(),
@@ -54,9 +57,33 @@ export const sessionSchema = z.strictObject({
     study_reference: referenceSchema.nullable(),
     topic: z.enum(["FACTOR", "STUDY"]),
     study: studyAdviceSchema.nullable(),
-    execution_admitted: z.literal(false)
+    execution_admitted: z.literal(false),
+    continuation: z
+        .strictObject({ parent_session: z.uuid(), parent_head: sha, backend_command: z.uuid() })
+        .nullable()
+        .optional()
 });
 export type Chat = z.infer<typeof sessionSchema>;
+export const conversationSchema = z.strictObject({
+    id: z.uuid(),
+    head: sha.nullable(),
+    model_revision: sha,
+    model: z.strictObject({ name: z.string(), model_id: z.string(), model_version: z.string() }),
+    turns: z.array(
+        z.strictObject({
+            head: sha,
+            topic: z.enum(["FACTOR", "STUDY"]),
+            user: z.string(),
+            assistant: z.string().nullable(),
+            status: z.enum(["READY", "FAILED", "OUTCOME_UNKNOWN"]),
+            candidate: z.record(z.string(), z.unknown()).nullable(),
+            study: studyAdviceSchema.nullable(),
+            factor_reference: referenceSchema.nullable(),
+            study_reference: referenceSchema.nullable()
+        })
+    )
+});
+export type Conversation = z.infer<typeof conversationSchema>;
 export const sessionsSchema = z.strictObject({ items: z.array(sessionSchema) });
 export const modelSchema = z.strictObject({
     id: z.uuid(),
@@ -75,7 +102,10 @@ export const receiptSchema = z.strictObject({
     schema_version: z.literal(1),
     command_id: z.uuid(),
     operation_fingerprint: sha,
-    effect: z.looseObject({ proposal_fingerprint: sha })
+    effect: z.union([
+        z.looseObject({ proposal_fingerprint: sha }),
+        z.strictObject({ registration_abandoned: z.literal(true) })
+    ])
 });
 export const proposalSchema = z.strictObject({
     schema_version: z.literal(1),
@@ -121,7 +151,13 @@ export const studyContextSchema = z.strictObject({
     })
 });
 export const registrationSchema = z.strictObject({
-    status: z.enum(["REGISTERED", "OUTCOME_UNKNOWN", "BINDING_UNAVAILABLE", "REJECTED"]),
+    status: z.enum([
+        "REGISTERED",
+        "ABANDONED",
+        "OUTCOME_UNKNOWN",
+        "BINDING_UNAVAILABLE",
+        "REJECTED"
+    ]),
     backend_command: z.uuid(),
     receipt: receiptSchema.nullable()
 });

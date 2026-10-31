@@ -1,3 +1,9 @@
+import {
+    enableResearchAssistant,
+    openModelSettings,
+    reloadResearch,
+    selectResearchHistory
+} from "./support/factorChatUi";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -125,7 +131,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
         .positive()
         .parse(Number(process.env.ONLYALPHA_BROWSER_HOST_PID));
     const restored = process.env.ONLYALPHA_BROWSER_RESTART_PHASE === "restored";
-    const chat = () => page.getByLabel("告诉 Agent 你的想法", { exact: true });
+    const chat = () => page.getByRole("textbox", { name: "告诉助手你的想法", exact: true });
     async function readConfirmationAcknowledgement(response: BrowserResponse) {
         expect(await response.request().headerValue("idempotency-key")).toBe(
             cancellationStudy.research_command_id
@@ -275,6 +281,16 @@ test.describe.serial("Human-led durable Factor Research", () => {
                             messages: z.array(z.object({ role: z.string(), content: z.string() }))
                         })
                         .parse(JSON.parse(Buffer.concat(chunks).toString()));
+                    if (
+                        body.messages.length === 1 &&
+                        body.messages[0].content === "请只回复：连接成功。"
+                    ) {
+                        response.writeHead(200, { "Content-Type": "application/json" });
+                        response.end(
+                            JSON.stringify({ choices: [{ message: { content: "连接成功。" } }] })
+                        );
+                        return;
+                    }
                     const studyMode = body.messages.some(
                         (m) =>
                             m.content.includes('"supported_profile"') &&
@@ -417,9 +433,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
             await expect(
                 page.getByRole("heading", { name: "因子研究", exact: true })
             ).toBeVisible();
-            await page
-                .getByRole("combobox", { name: "研究历史", exact: true })
-                .selectOption(old.session);
+            await selectResearchHistory(page, "希望挖掘一个放量动量因子，用BTCUSDT做研究");
             await expect(
                 page.getByRole("status").filter({ hasText: "计算内容已确认并保存" })
             ).toBeVisible();
@@ -493,9 +507,9 @@ test.describe.serial("Human-led durable Factor Research", () => {
         });
         test("Human submits one original confirmation while Agent and inventory are unavailable", async () => {
             stopOwnedProcess(agentPid);
-            await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
+            await reloadResearch(page);
             await expect(
-                page.getByRole("status").filter({ hasText: "Agent 暂不可用" })
+                page.getByRole("alert").filter({ hasText: "研究助手暂时无法连接" })
             ).toBeVisible();
             const path = `/${cancellationStudy.command_id}/confirmation`;
             page.on("request", (request) => {
@@ -574,31 +588,37 @@ test.describe.serial("Human-led durable Factor Research", () => {
             await expect(
                 page.getByRole("heading", { name: "因子研究", exact: true })
             ).toBeVisible();
-            await page.getByRole("button", { name: "启用助手的提案登记", exact: true }).click();
+            await enableResearchAssistant(page);
             if (server === undefined) throw new Error("controlled model server required");
             const address = server.address();
             if (!address || typeof address === "string")
                 throw new Error("model fixture address unavailable");
-            await page.getByText("模型设置", { exact: true }).click();
-            await page.getByRole("button", { name: "添加模型", exact: true }).click();
+            await openModelSettings(page);
+            await page
+                .getByRole("dialog", { name: "设置", exact: true })
+                .getByRole("button", { name: "添加模型", exact: true })
+                .click();
             await page
                 .getByLabel("服务地址", { exact: true })
                 .fill(`http://127.0.0.1:${String(address.port)}/v1`);
             await page.getByLabel("模型名称", { exact: true }).fill("controlled-research-model-v1");
             await page.getByLabel("模型版本说明", { exact: true }).fill("controlled-research-v1");
             await page.getByLabel("API 密钥", { exact: true }).fill("controlled-model-secret");
+            await page.getByRole("button", { name: "测试连接", exact: true }).click();
+            await expect(page.getByText("连接成功。", { exact: true })).toBeVisible();
             await page.getByRole("button", { name: "保存模型设置", exact: true }).click();
             await expect(page.getByRole("form", { name: "模型配置" })).toHaveCount(0);
+            await page.getByRole("button", { name: "关闭设置", exact: true }).click();
             const created = page.waitForResponse(
                 (r) =>
                     r.request().method() === "PUT" &&
                     /\/api\/v1\/agent\/sessions\/[^/]+$/.test(r.url()) &&
                     r.ok()
             );
-            await page.getByRole("button", { name: "新建对话", exact: true }).click();
-            session = z.object({ id: z.uuid() }).parse(await (await created).json()).id;
+            await page.getByRole("button", { name: "＋ 新建研究", exact: true }).click();
             await chat().fill("希望挖掘一个放量动量因子，用BTCUSDT做研究");
             await page.getByRole("button", { name: "发送", exact: true }).click();
+            session = z.object({ id: z.uuid() }).parse(await (await created).json()).id;
             await expect(
                 page.getByText("希望用多少根已收盘K线观察动量和放量？", { exact: true })
             ).toBeVisible();
@@ -766,9 +786,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
                 try {
                     const complete = waitRunTerminal(second.reserved_run_id, fresh);
                     await fresh.goto("/factor-research");
-                    await fresh
-                        .getByRole("combobox", { name: "研究历史", exact: true })
-                        .selectOption(session);
+                    await selectResearchHistory(fresh, "希望挖掘一个放量动量因子，用BTCUSDT做研究");
                     expect((await complete).state).toBe("COMPLETED");
                     await expect(
                         fresh.getByRole("region", { name: "研究结果报告", exact: true })
@@ -1052,9 +1070,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
                 );
             });
             await stale.goto("/factor-research");
-            await stale
-                .getByRole("combobox", { name: "研究历史", exact: true })
-                .selectOption(session);
+            await selectResearchHistory(stale, "希望挖掘一个放量动量因子，用BTCUSDT做研究");
             await stale
                 .getByRole("combobox", { name: "已登记的准备任务", exact: true })
                 .selectOption(cancellationStudy.command_id);
@@ -1083,7 +1099,9 @@ test.describe.serial("Human-led durable Factor Research", () => {
                     r.request().method() === "POST" &&
                     r.url().endsWith(`/${cancellationStudy.command_id}/confirmation`)
             );
-            await stale.getByLabel("告诉 Agent 你的想法", { exact: true }).fill("确认本次研究");
+            await stale
+                .getByRole("textbox", { name: "告诉助手你的想法", exact: true })
+                .fill("确认本次研究");
             await stale.getByRole("button", { name: "发送", exact: true }).click();
             const response = await rejected;
             expect(response.status()).toBe(503);
@@ -1139,7 +1157,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
             ).toBeEnabled();
             await stale.getByRole("button", { name: "停止原准备任务", exact: true }).click();
             await expect(stale.getByRole("status").filter({ hasText: "已停止准备" })).toBeVisible();
-            await stale.getByRole("button", { name: "核对并重新载入", exact: true }).click();
+            await reloadResearch(stale);
             await expect(
                 stale
                     .getByRole("region", { name: "研究方案", exact: true })
@@ -1170,9 +1188,9 @@ test.describe.serial("Human-led durable Factor Research", () => {
         });
         test("Human submits the original confirmation once while Agent is unavailable", async () => {
             stopOwnedProcess(agentPid);
-            await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
+            await reloadResearch(page);
             await expect(
-                page.getByRole("status").filter({ hasText: "Agent 暂不可用" })
+                page.getByRole("alert").filter({ hasText: "研究助手暂时无法连接" })
             ).toBeVisible();
             const path = `/${cancellationStudy.command_id}/confirmation`;
             page.on("request", (request) => {
@@ -1206,7 +1224,7 @@ test.describe.serial("Human-led durable Factor Research", () => {
                 page.getByRole("button", { name: "核对原研究操作", exact: true })
             ).toHaveCount(0);
             await expect(
-                page.getByRole("status").filter({ hasText: "Agent 暂不可用" })
+                page.getByRole("alert").filter({ hasText: "研究助手暂时无法连接" })
             ).toBeVisible();
             await writeFile(
                 evidence,

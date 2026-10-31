@@ -133,3 +133,18 @@ def test_request_limit_stops_stream_before_buffering_the_rest():
 
     asyncio.run(BoundedBody(downstream)({"type": "http", "method": "POST"}, receive, send))
     assert sent[0]["status"] == 413 and len(received) == 2
+
+
+def test_generation_timeout_covers_a_bounded_2000_token_local_reply(monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    @contextmanager
+    def response(request, *, timeout):
+        # Observed local generation: ~31-37 tokens/s plus prompt processing.
+        # 2,000 output tokens can exceed the previous 60-second socket limit.
+        assert timeout == 120
+        yield SimpleNamespace(read=lambda size: b'{"choices": [{"message": {"content": "{}"}}]}')
+
+    monkeypatch.setattr(model, "build_opener", lambda *args: SimpleNamespace(open=response))
+    assert "choices" in model.completion({"base_url": "http://127.0.0.1/v1"}, "private-key", {"max_tokens": 2000})

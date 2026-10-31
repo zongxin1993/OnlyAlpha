@@ -9,6 +9,7 @@ use crate::application::{
         pin, signed, text, verify_signed,
     },
 };
+use crate::persistence::research_evidence::SourceVerification;
 use crate::security::immutable_json::{Directory, SourceLock, parsed, put, read_path};
 use crate::security::protected_files::{self as files, ReadError};
 use rustix::fs;
@@ -106,6 +107,7 @@ impl Authority {
     /// It has no model call, scientific calculation or Research execution effect.
     pub async fn refresh_projection(&self, client: &mut Client) -> Result<String> {
         let (by_family, locks) = self.locks()?;
+        let mut verified = SourceVerification::new(&locks);
         let tx = client.transaction().await.map_err(io)?;
         crate::persistence::postgres::bounds(&tx)
             .await
@@ -123,7 +125,7 @@ impl Authority {
                 (cut, members)
             } else {
                 let source = by_family.get(family).ok_or(INVALID)?;
-                let (cut, members) = self.file_cut(family, source)?;
+                let (cut, members) = self.file_cut(family, source, &mut verified)?;
                 let fingerprint = text(&cut, "cut_fingerprint")?;
                 put(
                     &source.directory,
@@ -378,7 +380,12 @@ impl Authority {
             }
         }
     }
-    fn file_cut(&self, family: &str, source: &SourceLock) -> Result<(Value, Vec<Observation>)> {
+    fn file_cut(
+        &self,
+        family: &str,
+        source: &SourceLock,
+        verified: &mut SourceVerification<'_>,
+    ) -> Result<(Value, Vec<Observation>)> {
         source.verify()?;
         let entries = inventory(&source.directory)?;
         let mut observations = Vec::new();
@@ -386,7 +393,7 @@ impl Authority {
         let mut remaining = LIMIT;
         for locator in entries {
             if let Some((identity, payload)) =
-                self.file_observation(family, &source.directory, &locator)?
+                self.file_observation(family, &source.directory, &locator, verified)?
             {
                 cut_entries.push(json!({"locator":locator,"identity":identity,"content_fingerprint":fp(&payload)?}));
                 spend(&mut remaining, &payload)?;
@@ -415,6 +422,7 @@ impl Authority {
         family: &str,
         root: &Directory,
         locator: &str,
+        verified: &mut SourceVerification<'_>,
     ) -> Result<Option<(String, Value)>> {
         if !crate::is_sha256_hex(locator) {
             return Err(UNAVAILABLE);
@@ -429,12 +437,7 @@ impl Authority {
                 } else {
                     "RESEARCH_STATISTICS"
                 };
-                let (identity, value) =
-                    crate::persistence::research_evidence::verify_native_source(
-                        &root.path,
-                        actual_family,
-                        locator,
-                    )?;
+                let (identity, value) = verified.verify(&root.path, actual_family, locator)?;
                 // All three statistics families share the canonical owner root.
                 // A verified native TS fact is a complete non-member of the
                 // other two families, never an unknown/partial non-match.
@@ -459,6 +462,7 @@ impl Authority {
             return Err(INVALID);
         }
         let (by_family, locks) = self.locks()?;
+        let mut verified = SourceVerification::new(&locks);
         let projection = read_path(
             &self.projection_root,
             &["revisions", "sha256", &projection_fp[..2], projection_fp],
@@ -515,13 +519,13 @@ impl Authority {
                 {
                     return Err(INVALID);
                 }
-                if current && self.file_cut(family, source)?.0 != cut {
+                if current && self.file_cut(family, source, &mut verified)?.0 != cut {
                     return Err("NOVELTY_DECISION_STALE");
                 }
                 for entry in cut["entries"].as_array().ok_or(INVALID)? {
                     let locator = text(entry, "locator")?;
                     let (identity, payload) = self
-                        .file_observation(family, &source.directory, locator)?
+                        .file_observation(family, &source.directory, locator, &mut verified)?
                         .ok_or(INVALID)?;
                     if entry["identity"] != identity
                         || fp(&payload)? != entry["content_fingerprint"]

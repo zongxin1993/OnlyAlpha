@@ -84,6 +84,12 @@ is required before one real source consumer needs it.
 
 Chat history is authoritative only for interaction/proposal provenance. Formal result values, task states and Qualification
 shown there are references/projections of backend facts; unavailable queries remain unavailable, not cached new truth.
+The authenticated `GET /api/v1/agent/sessions/{session_id}/conversation` read projection retains each verified event's own
+user text, recorded model reply, proposed Factor or study and exact registration reference. References attach only to their
+originating event, never to later turns. The model display name and version come from the session's pinned configuration
+revision. Historical Factor content is the recorded model candidate, not an executable backend confirmation snapshot; current
+confirmation still renders the backend-owned snapshot. Missing or UNKNOWN results expose no proposed content; corrupt owning
+relations refuse the projection. Reading history invokes neither models nor backend operations and creates no durable facts.
 Source/model memory and failed attempts remain traceable. Agent-owned notes/literature indexes are distinct from ADR 0127
 Experiment Memory. The latter retains its backend Product query/index placement and completeness/read-to-act rules; Agent
 uses that API and may cache permitted results only as labelled projections with exact source references. Neither summaries
@@ -116,8 +122,23 @@ Agent observes the backend receipt via API before progressing. If backend accept
 resume queries the original Command/effect. Stable identities and bounded queries reconcile cross-service partial success;
 do not add distributed transactions, a second receipt store, blind retries or new IDs for UNKNOWN operations. Agent-local
 chat request identities and backend Product Command IDs are distinct, explicitly linked and scoped to their owners.
+Rejected Study registration remains uncertain until its owning resolution transaction returns the original registration
+receipt or commits a terminal abandonment under that same Command lock and exact owner/service/request identity. The latter
+uses the existing immutable Study operation/receipt authority, consumes no suggestion quota and fences every delayed original
+submission. An HTTP refusal, missing query result or unavailable connection alone never clears pending work. Web offers
+**修改研究条件** to perform this resolution and resume editing without manual command reconciliation.
 Once staged, backend can show/confirm that snapshot without a live Agent lookup. Accepted Research can execute, be observed
 and cancelled without Agent. Backend downtime permits readable Agent history but prevents formal work/progression.
+
+A Human may explicitly continue the same confirmed Factor with the installed Agent artifact using the Study-continuation
+Product Command. Backend retains the exact original Factor/session/workflow and new session/workflow/model relation in its
+existing Study operation authority; it grants neither preparation nor execution. Agent verifies that owning record before
+creating a linked fresh session. The original session, calls, failed registration and checkpoints remain unchanged. The linked
+session keeps the pinned model and at most the original remaining call budget; a parent has exactly one successor and permanently refuses fresh model calls or staging after handoff. The handoff uses the same session lock as a turn, so head and remaining budget are checked atomically.
+Each new model occurrence uses the fresh session's exact artifact and checkpoint namespace. Historical read/resolution does
+not run a replacement graph. Subsequent workflow changes retain the exact predecessor continuation and verify its bounded chain back to the original Factor. The Study snapshot retains its continuation Command and revalidates this relation when read;
+without the Human proof a different session/workflow cannot reuse the confirmed Factor. Web links the earlier discussion and
+reports. Conditions are then edited normally and a new explicit Human Research confirmation is still required.
 
 ## Identity, permissions and credentials
 
@@ -310,3 +331,29 @@ contained transport exception requires the host-inspected container/network/publ
 remote listeners retain explicit TLS requirements. Normal source edits reuse the fixed tools; there is no extra Compose stack,
 startup dependency installation, automatic service restart or model fallback. An unavailable process remains visibly unavailable
 until an explicit lifecycle action. Fixed-image validation uses isolated test databases and the same selected Shipping artifacts.
+
+Human model configuration offers a transient `POST /api/v1/agent/models/test` check before saving. It requires Human
+`model:write`, sends one fixed plain-text greeting through the same bounded provider transport, and returns a bounded reply
+or classified error. It neither saves credentials/configuration nor creates a chat, proposal, Research fact or command
+receipt. Web invalidates the successful check whenever form inputs change; persistence still uses the existing exact
+configuration command and acknowledgement recovery. Endpoint policy, TLS, no redirects/proxies and secret redaction remain
+identical to normal model calls. A successful check proves connectivity at that moment, not future availability or scientific
+validity.
+
+Owner-authorized local model transport also permits HTTP to loopback, `localhost`, literal RFC 1918 IPv4 addresses and IPv6
+unique-local (`fc00::/7`) addresses. Public model addresses require HTTPS. Arbitrary HTTP DNS names, link-local/metadata,
+unspecified and documentation addresses are not treated as LAN destinations. The same endpoint policy governs testing,
+configuration and normal chat calls; HTTP is an explicit local-network transport choice, not disabled HTTPS verification.
+
+Model configuration exposes ordinary test/save feedback, without manual receipt observation or abandonment steps. The Web
+resolves interrupted model saves automatically through the existing atomic owning command finalization: an accepted save
+returns its exact owner/resource/credential-generation receipt; an uncommitted save is fenced before a later save may begin.
+Unreachable or mismatched outcomes remain internal and cannot authorize a duplicate write. Only non-secret model-save
+locators are retained separately from chat/research recovery. Legacy model locators move out of the shared chat slot without
+changing any research command. A subsequent explicit save of the same editor keeps its model identity and uses the resolved
+revision as its expected parent.
+
+The provider socket timeout is bounded at 120 seconds: observed local inference at roughly 31–37 output tokens/second plus
+prompt processing can exceed 60 seconds for the existing 2,000-token generation budget. This is one call with no automatic
+retry, not a new occurrence or a relaxation of UNKNOWN recovery. Interrupted conversation replies display one plain-language
+notice while keeping their recorded outcome and previously confirmed backend facts intact.

@@ -48,6 +48,9 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(study_preparation_confirm))
  .routes(routes!(study_grant))
  .routes(routes!(study_stage))
+ .routes(routes!(study_resolution))
+ .routes(routes!(study_continuation))
+ .routes(routes!(study_continuation_read))
  .routes(routes!(study_context))
  .routes(routes!(study_read))
  .routes(routes!(study_withdraw))
@@ -1423,4 +1426,23 @@ async fn study_preparation_confirm(
         host.dispatch(request).await,
     )
     .await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-studies/commands/{command_id}/resolution",security(("AgentProposalBearer"=[])),params(("Idempotency-Key"=String,Header),("command_id"=String,Path)),request_body=crate::application::factor_studies::StageInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_resolution(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/factor-study-continuations",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::factor_studies::ContinuationInput,responses((status=200,body=crate::application::factor_proposals::Operation),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_continuation(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::factor_proposals::Operation>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/factor-study-continuations/{command_id}",security(("LocalDeveloperCookie"=[]),("AgentProposalBearer"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::application::factor_studies::ContinuationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn study_continuation_read(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::application::factor_studies::ContinuationView>(host.dispatch(request).await)
+        .await
 }

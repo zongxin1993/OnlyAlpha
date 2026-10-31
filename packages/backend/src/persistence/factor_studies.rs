@@ -5,7 +5,7 @@ use crate::{
         command::{Admission, Binding, CommandId, CommandKind, Outcome, OutcomeKind, Receipt},
         factor_content::hash,
         factor_proposals as factor,
-        factor_studies::{GrantInput, StageInput},
+        factor_studies::{ContinuationInput, GrantInput, StageInput},
     },
     persistence::{
         factor_proposals as proposals,
@@ -52,6 +52,7 @@ fn recognized(kind: CommandKind) -> bool {
     matches!(
         kind,
         CommandKind::CreateFactorStudyGrant
+            | CommandKind::ContinueFactorStudy
             | CommandKind::StageFactorStudy
             | CommandKind::WithdrawFactorStudy
     )
@@ -175,7 +176,6 @@ impl<'a> Studies<'a> {
             true,
         )
         .await?;
-        verify_origin(&input, &accepted, owner, service, &parent_pin)?;
         let grant = scope_grant(
             &tx,
             &input.factor_proposal_fingerprint,
@@ -206,7 +206,8 @@ impl<'a> Studies<'a> {
         if count >= grant["input"]["proposal_limit"].as_u64().ok_or(CORRUPT)? as i64 {
             return Err("FACTOR_STUDY_PROPOSAL_BUDGET_EXHAUSTED");
         }
-        let record = snapshot_record(command, owner, service, &input, &accepted, &grant)?;
+        let record =
+            snapshot_record(&tx, command, owner, service, &input, &accepted, &grant).await?;
         let pin = hash(&record)?;
         if tx.query_opt("SELECT 1 FROM factor_study_snapshot WHERE factor_proposal_fingerprint=$1 AND event_fingerprint=$2",&[&input.factor_proposal_fingerprint,&input.origin.event_fingerprint]).await.map_err(db)?.is_some(){return Err("FACTOR_STUDY_ORIGIN_CONFLICT");}
         tx.execute("INSERT INTO factor_study_snapshot VALUES($1,$2,$3::text::uuid,$4::text::uuid,$5::text::uuid,$6,$7::text::jsonb)",&[&pin,&input.factor_proposal_fingerprint,&id,&command.value(),&input.origin.session_id,&input.origin.event_fingerprint,&record.to_string()]).await.map_err(db)?;
@@ -223,6 +224,148 @@ impl<'a> Studies<'a> {
         .await?;
         tx.commit().await.map_err(db)?;
         Ok(result)
+    }
+    /// Resolve under the original Stage lock. A missing receipt alone is never
+    /// absence proof: the committed operation fences every delayed original POST.
+    pub async fn resolve_registration(
+        &mut self,
+        command: &CommandId,
+        credential: &Presented,
+        input: StageInput,
+        at: &str,
+    ) -> Result<Value> {
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
+        Commands::lock_command(&tx, command).await.map_err(db)?;
+        let (parent_pin, parent) = proposals::authenticate_retained(&tx, credential).await?;
+        let owner = text(&parent, "owner")?;
+        let service = text(&parent["input"], "service_subject")?;
+        let body = json!({"parent_grant_fingerprint":parent_pin,"stage":input});
+        let a = admission(
+            command,
+            CommandKind::StageFactorStudy,
+            owner,
+            service,
+            &body,
+        )?;
+        if let Some(original) = replay(&tx, &a, owner, service).await? {
+            tx.commit().await.map_err(db)?;
+            return Ok(original);
+        }
+        // Authenticate retained identity even after permission expiry. Resolution
+        // cannot stage content, consume a grant, prepare data or authorize a Run.
+        let accepted = proposals::confirmed_research_input(
+            &tx,
+            &input.factor_proposal_fingerprint,
+            owner,
+            false,
+        )
+        .await?;
+        verify_factor(&accepted, owner, service, &parent_pin)?;
+        verify_origin_fields(&input)?;
+        verify_origin_binding(&tx, &input, &accepted, owner, service).await?;
+        let result = finish(
+            &tx,
+            a,
+            owner,
+            service,
+            &body,
+            json!({"registration_abandoned":true}),
+            at,
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(result)
+    }
+
+    pub async fn continue_workflow(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: ContinuationInput,
+        at: &str,
+    ) -> Result<Value> {
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
+        Commands::lock_command(&tx, command).await.map_err(db)?;
+        let body = serde_json::to_value(&input).map_err(db)?;
+        let a = admission(
+            command,
+            CommandKind::ContinueFactorStudy,
+            owner,
+            "HUMAN",
+            &body,
+        )?;
+        if let Some(original) = replay(&tx, &a, owner, "HUMAN").await? {
+            tx.commit().await.map_err(db)?;
+            return Ok(original);
+        }
+        let accepted = proposals::confirmed_research_input(
+            &tx,
+            &input.factor_proposal_fingerprint,
+            owner,
+            true,
+        )
+        .await?;
+        continuation_input(&input, &accepted)?;
+        continuation_chain(&tx, &input, &accepted, owner).await?;
+        let parent_pin = text(&accepted["snapshot"], "grant_fingerprint")?;
+        let parent_id: String = tx
+            .query_one(
+                "SELECT grant_id::text FROM factor_proposal_grant WHERE fingerprint=$1",
+                &[&parent_pin],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        let (_, parent) = proposals::load_grant(&tx, &parent_id).await?;
+        active_parent(&tx, &parent, at).await?;
+        if scope_grant(&tx, &input.factor_proposal_fingerprint, &parent_id, owner)
+            .await?
+            .is_none()
+        {
+            return Err("FACTOR_STUDY_GRANT_REQUIRED");
+        }
+        let result = finish(
+            &tx,
+            a,
+            owner,
+            "HUMAN",
+            &body,
+            json!({"continuation_command_id":command.value()}),
+            at,
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(result)
+    }
+
+    pub async fn read_continuation(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        credential: Option<&Presented>,
+    ) -> Result<Value> {
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
+        let (owner, service, parent_pin) = reader_identity(&tx, owner, credential).await?;
+        let (pin, record) = continuation_record(&tx, command, &owner).await?;
+        let accepted = proposals::confirmed_research_input(
+            &tx,
+            text(&record["request"], "factor_proposal_fingerprint")?,
+            &owner,
+            false,
+        )
+        .await?;
+        if service.is_some_and(|s| accepted["snapshot"]["service_subject"] != s)
+            || parent_pin.is_some_and(|p| accepted["snapshot"]["grant_fingerprint"] != p)
+        {
+            return Err(NOT_FOUND);
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(
+            json!({"schema_version":1,"command_id":command.value(),"operation_fingerprint":pin,"snapshot":record}),
+        )
     }
     /// Withdraw only the unadmitted suggestion. Existing Research authorization and Runs are untouched.
     pub async fn withdraw(
@@ -390,15 +533,23 @@ impl<'a> Studies<'a> {
         let (owner, service, parent_pin) = reader_identity(&tx, owner, credential).await?;
         let result = operation(&tx, command, &owner, service.as_deref()).await?;
         if let Some(parent_pin) = parent_pin {
-            let s = snapshot(
-                &tx,
-                text(&result["effect"], "proposal_fingerprint")?,
-                &owner,
-                service.as_deref(),
-            )
-            .await?;
-            if s["parent_grant_fingerprint"] != parent_pin {
-                return Err(NOT_FOUND);
+            if result["effect"] == json!({"registration_abandoned":true}) {
+                let (_, record) =
+                    operation_record(&tx, command, &owner, service.as_deref()).await?;
+                if record["request"]["parent_grant_fingerprint"] != parent_pin {
+                    return Err(NOT_FOUND);
+                }
+            } else {
+                let s = snapshot(
+                    &tx,
+                    text(&result["effect"], "proposal_fingerprint")?,
+                    &owner,
+                    service.as_deref(),
+                )
+                .await?;
+                if s["parent_grant_fingerprint"] != parent_pin {
+                    return Err(NOT_FOUND);
+                }
             }
         }
         tx.commit().await.map_err(db)?;
@@ -496,6 +647,18 @@ fn verify_origin(
     service: &str,
     parent_pin: &str,
 ) -> Result<()> {
+    verify_origin_fields(input)?;
+    verify_factor(accepted, owner, service, parent_pin)?;
+    if accepted["snapshot"]["origin"]["session_id"] != input.origin.session_id
+        || accepted["snapshot"]["origin"]["workflow_fingerprint"]
+            != input.origin.workflow_fingerprint
+    {
+        return Err("FACTOR_STUDY_ORIGIN_MISMATCH");
+    }
+    input.advice.study()?;
+    Ok(())
+}
+fn verify_origin_fields(input: &StageInput) -> Result<()> {
     if input.schema_version != 1 {
         return Err(INVALID);
     }
@@ -512,14 +675,109 @@ fn verify_origin(
     if let Some(pin) = &input.expected_study_fingerprint {
         factor::pin(pin)?;
     }
-    verify_factor(accepted, owner, service, parent_pin)?;
-    if accepted["snapshot"]["origin"]["session_id"] != input.origin.session_id
+    Ok(())
+}
+fn continuation_input(input: &ContinuationInput, accepted: &Value) -> Result<()> {
+    factor::id(&input.session_id)?;
+    factor::pin(&input.workflow_fingerprint)?;
+    factor::pin(&input.model_revision)?;
+    factor::id(&input.source_session_id)?;
+    factor::pin(&input.source_workflow_fingerprint)?;
+    if input.schema_version != 1
+        || input.factor_proposal_fingerprint != hash(&accepted["snapshot"])?
+        || input.session_id == input.source_session_id
+        || input.session_id == accepted["snapshot"]["origin"]["session_id"]
+        || input.model_revision != accepted["snapshot"]["origin"]["model_revision"]
+        || input.source_continuation_command_id.is_none()
+            && (input.source_session_id != accepted["snapshot"]["origin"]["session_id"]
+                || input.source_workflow_fingerprint
+                    != accepted["snapshot"]["origin"]["workflow_fingerprint"])
+    {
+        return Err("FACTOR_STUDY_CONTINUATION_INVALID");
+    }
+    Ok(())
+}
+async fn continuation_chain(
+    tx: &Transaction<'_>,
+    input: &ContinuationInput,
+    accepted: &Value,
+    owner: &str,
+) -> Result<()> {
+    let mut current = input.clone();
+    let mut commands = BTreeSet::new();
+    let mut sessions = BTreeSet::from([current.session_id.clone()]);
+    for _ in 0..100 {
+        continuation_input(&current, accepted)?;
+        let Some(id) = &current.source_continuation_command_id else {
+            return Ok(());
+        };
+        if !commands.insert(id.clone()) {
+            return Err(CORRUPT);
+        }
+        let command = CommandId::new(id).map_err(|_| INVALID)?;
+        let (_, record) = operation_record(tx, &command, owner, Some("HUMAN")).await?;
+        if record["kind"] != "CONTINUE_FACTOR_STUDY"
+            || record["effect"] != json!({"continuation_command_id":id})
+        {
+            return Err(CORRUPT);
+        }
+        let previous: ContinuationInput =
+            serde_json::from_value(record["request"].clone()).map_err(|_| CORRUPT)?;
+        if previous.session_id != current.source_session_id
+            || previous.workflow_fingerprint != current.source_workflow_fingerprint
+            || !sessions.insert(previous.session_id.clone())
+        {
+            return Err("FACTOR_STUDY_CONTINUATION_INVALID");
+        }
+        current = previous;
+    }
+    Err(UNAVAILABLE)
+}
+async fn continuation_record(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    owner: &str,
+) -> Result<(String, Value)> {
+    let (pin, record) = operation_record(tx, command, owner, Some("HUMAN")).await?;
+    if record["kind"] != "CONTINUE_FACTOR_STUDY"
+        || record["effect"] != json!({"continuation_command_id":command.value()})
+    {
+        return Err(CORRUPT);
+    }
+    let input: ContinuationInput =
+        serde_json::from_value(record["request"].clone()).map_err(|_| CORRUPT)?;
+    let accepted =
+        proposals::confirmed_research_input(tx, &input.factor_proposal_fingerprint, owner, false)
+            .await?;
+    continuation_input(&input, &accepted)?;
+    continuation_chain(tx, &input, &accepted, owner).await?;
+    Ok((pin, record))
+}
+async fn verify_origin_binding(
+    tx: &Transaction<'_>,
+    input: &StageInput,
+    accepted: &Value,
+    owner: &str,
+    service: &str,
+) -> Result<()> {
+    if let Some(id) = &input.continuation_command_id {
+        let (_, record) =
+            continuation_record(tx, &CommandId::new(id).map_err(|_| INVALID)?, owner).await?;
+        let request = &record["request"];
+        if request["factor_proposal_fingerprint"] != input.factor_proposal_fingerprint
+            || request["session_id"] != input.origin.session_id
+            || request["workflow_fingerprint"] != input.origin.workflow_fingerprint
+            || request["model_revision"] != input.origin.model_revision
+            || accepted["snapshot"]["service_subject"] != service
+        {
+            return Err("FACTOR_STUDY_ORIGIN_MISMATCH");
+        }
+    } else if accepted["snapshot"]["origin"]["session_id"] != input.origin.session_id
         || accepted["snapshot"]["origin"]["workflow_fingerprint"]
             != input.origin.workflow_fingerprint
     {
         return Err("FACTOR_STUDY_ORIGIN_MISMATCH");
     }
-    input.advice.study()?;
     Ok(())
 }
 async fn active_parent(tx: &Transaction<'_>, parent: &Value, at: &str) -> Result<()> {
@@ -558,7 +816,8 @@ fn grant_record(
         "workflow_fingerprint":accepted["snapshot"]["origin"]["workflow_fingerprint"],"input":input}),
     )
 }
-fn snapshot_record(
+async fn snapshot_record(
+    tx: &Transaction<'_>,
     command: &CommandId,
     owner: &str,
     service: &str,
@@ -566,13 +825,24 @@ fn snapshot_record(
     accepted: &Value,
     grant: &Value,
 ) -> Result<Value> {
-    verify_origin(
-        input,
-        accepted,
-        owner,
-        service,
-        text(grant, "parent_grant_fingerprint")?,
-    )?;
+    if input.continuation_command_id.is_none() {
+        verify_origin(
+            input,
+            accepted,
+            owner,
+            service,
+            text(grant, "parent_grant_fingerprint")?,
+        )?;
+    } else {
+        verify_origin_fields(input)?;
+        verify_factor(
+            accepted,
+            owner,
+            service,
+            text(grant, "parent_grant_fingerprint")?,
+        )?;
+        verify_origin_binding(tx, input, accepted, owner, service).await?;
+    }
     if grant["factor_proposal_fingerprint"] != input.factor_proposal_fingerprint
         || grant["service_subject"] != service
         || grant["owner"] != owner
@@ -580,13 +850,15 @@ fn snapshot_record(
         return Err(CORRUPT);
     }
     let study = input.advice.study()?;
-    Ok(
-        json!({"schema_version":1,"owner":owner,"service_subject":service,"command_id":command.value(),
+    let mut record = json!({"schema_version":1,"owner":owner,"service_subject":service,"command_id":command.value(),
         "factor_proposal_fingerprint":input.factor_proposal_fingerprint,"study_grant_id":grant["input"]["grant_id"],
         "study_grant_fingerprint":hash(grant)?,"parent_grant_fingerprint":grant["parent_grant_fingerprint"],
         "factor_id":accepted["snapshot"]["factor_id"],"origin":input.origin,"advice":input.advice,
-        "study":study,"study_logical_fingerprint":study.logical_fingerprint()?,"supersedes":input.expected_study_fingerprint}),
-    )
+        "study":study,"study_logical_fingerprint":study.logical_fingerprint()?,"supersedes":input.expected_study_fingerprint});
+    if let Some(id) = &input.continuation_command_id {
+        record["continuation_command_id"] = json!(id);
+    }
+    Ok(record)
 }
 async fn reader_identity(
     tx: &Transaction<'_>,
@@ -753,7 +1025,7 @@ async fn snapshot(
         serde_json::from_value(op["request"]["stage"].clone()).map_err(|_| CORRUPT)?;
     let grant = load_grant(tx, &grant_id, owner).await?;
     let accepted = proposals::confirmed_research_input(tx, &factor_pin, owner, false).await?;
-    let expected = snapshot_record(&command, owner, actor, &input, &accepted, &grant)?;
+    let expected = snapshot_record(tx, &command, owner, actor, &input, &accepted, &grant).await?;
     if expected != s
         || hash(&s)? != pin
         || input.factor_proposal_fingerprint != factor_pin
@@ -785,8 +1057,21 @@ async fn head(
     if rows.len() > 100 {
         return Err(UNAVAILABLE);
     }
-    let operations:i64=tx.query_one("SELECT count(*) FROM factor_study_operation WHERE payload->>'kind'='STAGE_FACTOR_STUDY' AND payload->'request'->'stage'->>'factor_proposal_fingerprint'=$1",&[&factor_pin]).await.map_err(db)?.get(0);
-    if operations != rows.len() as i64 {
+    let operations=tx.query("SELECT command_id::text FROM factor_study_operation WHERE payload->>'kind'='STAGE_FACTOR_STUDY' AND payload->'request'->'stage'->>'factor_proposal_fingerprint'=$1 LIMIT 1001",&[&factor_pin]).await.map_err(db)?;
+    if operations.len() > 1000 {
+        return Err(UNAVAILABLE);
+    }
+    let mut registered = 0;
+    for row in operations {
+        let command = CommandId::new(&row.get::<_, String>(0)).map_err(|_| CORRUPT)?;
+        let actual = operation(tx, &command, owner, service)
+            .await
+            .map_err(|e| if e == NOT_FOUND { CORRUPT } else { e })?;
+        if actual["effect"] != json!({"registration_abandoned":true}) {
+            registered += 1;
+        }
+    }
+    if registered != rows.len() {
         return Err(CORRUPT);
     }
     let mut children = BTreeMap::new();
@@ -867,13 +1152,37 @@ async fn operation(
             load_grant(tx, text(&record["effect"], "study_grant_id")?, owner).await?;
         }
         Some("STAGE_FACTOR_STUDY") => {
-            snapshot(
-                tx,
-                text(&record["effect"], "proposal_fingerprint")?,
-                owner,
-                Some(text(&record, "actor")?),
-            )
-            .await?;
+            if record["effect"] == json!({"registration_abandoned":true}) {
+                let input: StageInput = serde_json::from_value(record["request"]["stage"].clone())
+                    .map_err(|_| CORRUPT)?;
+                let accepted = proposals::confirmed_research_input(
+                    tx,
+                    &input.factor_proposal_fingerprint,
+                    owner,
+                    false,
+                )
+                .await?;
+                verify_factor(
+                    &accepted,
+                    owner,
+                    text(&record, "actor")?,
+                    text(&record["request"], "parent_grant_fingerprint")?,
+                )?;
+                verify_origin_fields(&input)?;
+                verify_origin_binding(tx, &input, &accepted, owner, text(&record, "actor")?)
+                    .await?;
+            } else {
+                snapshot(
+                    tx,
+                    text(&record["effect"], "proposal_fingerprint")?,
+                    owner,
+                    Some(text(&record, "actor")?),
+                )
+                .await?;
+            }
+        }
+        Some("CONTINUE_FACTOR_STUDY") => {
+            continuation_record(tx, id, owner).await?;
         }
         Some("WITHDRAW_FACTOR_STUDY") => {
             let s = text(&record["effect"], "proposal_fingerprint")?;

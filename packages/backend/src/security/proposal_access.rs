@@ -63,7 +63,11 @@ impl Presented {
 }
 pub(crate) fn service_route(method: &Method, path: &str) -> bool {
     if method == Method::POST {
-        return matches!(path, "/api/v2/factor-proposals" | "/api/v2/factor-studies");
+        return matches!(path, "/api/v2/factor-proposals" | "/api/v2/factor-studies")
+            || path
+                .strip_prefix("/api/v2/factor-studies/commands/")
+                .and_then(|s| s.strip_suffix("/resolution"))
+                .is_some_and(|id| CommandId::new(id).is_ok());
     }
     if method != Method::GET {
         return false;
@@ -76,6 +80,9 @@ pub(crate) fn service_route(method: &Method, path: &str) -> bool {
     }
     if let Some(s) = path.strip_prefix("/api/v2/factor-study-context/") {
         return crate::is_sha256_hex(s);
+    }
+    if let Some(s) = path.strip_prefix("/api/v2/factor-study-continuations/") {
+        return CommandId::new(s).is_ok();
     }
     if let Some(s) = path.strip_prefix("/api/v2/factor-studies/commands/") {
         return CommandId::new(s).is_ok();

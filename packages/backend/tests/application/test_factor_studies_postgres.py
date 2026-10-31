@@ -30,6 +30,113 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 EXPIRED = "2028-01-01T00:00:00Z"
 
 
+def test_registration_resolution_fences_late_stage_and_preserves_accepted_receipt(native_probe, postgres_dsn):
+    _gid, token, factor_pin, original = confirmed(native_probe, postgres_dsn)
+    assert "error" not in call(native_probe, "grant", body=grant(factor_pin))
+    body = proposal(factor_pin, original)
+    valid = copy.deepcopy(body)
+    body["advice"].update(
+        start_at="1970-01-01T00:02:00Z",
+        development_end_at="1970-01-02T00:02:00Z",
+        end_at="1970-01-03T00:02:00Z",
+        protected_start_at="1970-01-04T00:02:00Z",
+        protected_end_at="1970-01-05T00:02:00Z",
+        replicates=8192,
+    )
+    command = str(uuid4())
+    assert "error" in call(native_probe, "stage", command=command, token=token, body=body)
+    abandoned = call(native_probe, "resolve", command=command, token=token, body=body)
+    assert abandoned.get("effect") == {"registration_abandoned": True}, abandoned
+    assert call(native_probe, "stage", command=command, token=token, body=body) == abandoned
+    assert call(native_probe, "resolve", command=command, token=token, body=body) == abandoned
+    changed = copy.deepcopy(body)
+    changed["advice"]["replicates"] = 4096
+    assert "error" in call(native_probe, "resolve", command=command, token=token, body=changed)
+    assert "error" in call(native_probe, "resolve", command=command, actor="other", body=body)
+    accepted_command = str(uuid4())
+    accepted = call(native_probe, "stage", command=accepted_command, token=token, body=valid)
+    assert "error" not in accepted, accepted
+    assert call(native_probe, "resolve", command=accepted_command, token=token, body=valid) == accepted
+    context = call(native_probe, "context", token=token, factor_proposal_fingerprint=factor_pin)
+    assert context["study_proposal_fingerprint"] == accepted["effect"]["proposal_fingerprint"]
+    with psycopg.connect(postgres_dsn) as db:
+        assert db.execute("SELECT count(*) FROM factor_study_snapshot").fetchone() == (1,)
+
+
+def test_registration_and_resolution_have_one_linearized_outcome(native_probe, postgres_dsn):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    _gid, token, factor_pin, original = confirmed(native_probe, postgres_dsn)
+    assert "error" not in call(native_probe, "grant", body=grant(factor_pin))
+    body, command, barrier = proposal(factor_pin, original), str(uuid4()), Barrier(2)
+
+    def dispatch(action):
+        barrier.wait(timeout=10)
+        return call(native_probe, action, command=command, token=token, body=body)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = pool.submit(dispatch, "stage"), pool.submit(dispatch, "resolve")
+        results = first.result(timeout=25), second.result(timeout=25)
+    assert results[0] == results[1]
+    assert "error" not in results[0], results
+    registered = "proposal_fingerprint" in results[0]["effect"]
+    with psycopg.connect(postgres_dsn) as db:
+        assert db.execute("SELECT count(*) FROM factor_study_snapshot").fetchone() == (int(registered),)
+        assert db.execute("SELECT count(*) FROM factor_study_operation WHERE command_id=%s", (command,)).fetchone() == (
+            1,
+        )
+
+
+def test_human_continuation_binds_new_workflow_to_same_confirmed_factor(native_probe, postgres_dsn):
+    _gid, token, factor_pin, original = confirmed(native_probe, postgres_dsn)
+    assert "error" not in call(native_probe, "grant", body=grant(factor_pin))
+    body = proposal(factor_pin, original)
+    body["origin"]["session_id"] = str(uuid4())
+    body["origin"]["workflow_fingerprint"] = "9" * 64
+    assert "error" in call(native_probe, "stage", token=token, body=body)
+    command = str(uuid4())
+    continuation = {
+        "schema_version": 1,
+        "factor_proposal_fingerprint": factor_pin,
+        "session_id": body["origin"]["session_id"],
+        "workflow_fingerprint": body["origin"]["workflow_fingerprint"],
+        "model_revision": body["origin"]["model_revision"],
+        "source_session_id": original["origin"]["session_id"],
+        "source_workflow_fingerprint": original["origin"]["workflow_fingerprint"],
+    }
+    assert "error" in call(native_probe, "continue", token=token, body=continuation)
+    receipt = call(native_probe, "continue", command=command, body=continuation)
+    assert receipt.get("effect") == {"continuation_command_id": command}, receipt
+    body["continuation_command_id"] = command
+    accepted = call(native_probe, "stage", token=token, body=body)
+    assert "error" not in accepted, accepted
+    pin = accepted["effect"]["proposal_fingerprint"]
+    assert call(native_probe, "read", token=token, fingerprint=pin)["snapshot"]["continuation_command_id"] == command
+    next_command = str(uuid4())
+    next_continuation = {
+        **continuation,
+        "source_session_id": continuation["session_id"],
+        "source_workflow_fingerprint": continuation["workflow_fingerprint"],
+        "source_continuation_command_id": command,
+        "session_id": str(uuid4()),
+        "workflow_fingerprint": "8" * 64,
+    }
+    next_receipt = call(native_probe, "continue", command=next_command, body=next_continuation)
+    assert "error" not in next_receipt, next_receipt
+    next_body = copy.deepcopy(body)
+    next_body["continuation_command_id"] = next_command
+    next_body["origin"]["session_id"] = next_continuation["session_id"]
+    next_body["origin"]["workflow_fingerprint"] = next_continuation["workflow_fingerprint"]
+    next_body["origin"]["event_fingerprint"] = "7" * 64
+    next_body["expected_study_fingerprint"] = pin
+    assert "error" not in call(native_probe, "stage", token=token, body=next_body)
+    wrong_chain = {**next_continuation, "source_continuation_command_id": str(uuid4())}
+    assert "error" in call(native_probe, "continue", body=wrong_chain)
+    body["origin"]["session_id"] = str(uuid4())
+    assert "error" in call(native_probe, "stage", token=token, body=body)
+
+
 def call(
     probe: Path,
     action: str,

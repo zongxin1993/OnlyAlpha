@@ -38,7 +38,11 @@ it requires approval. Formal Brief/Search/Research/Qualification authorities rem
 
 ## Alternatives and consequences
 
-A transcript-only UI hides the current pending approval; the chosen split keeps chat and exact structured state visible together.
+The initial separate chat/preview columns kept exact structured state beside the conversation. The owner's 2026-10-30 layout
+refinement replaces that presentation with left-side research history and structured Factor previews embedded in assistant replies,
+with the composer/model picker below the conversation and model configuration in settings. A prose-only transcript still hides
+the current pending approval: inline cards must retain explicit current/historical status, exact confirmation subjects and discoverable
+pending actions. This refinement supersedes only the separate-preview-column choice, not the two confirmations or any authority rule.
 Putting every draft into the common library floods daily work; retaining only winners destroys lineage. A global score hides
 incomparable samples and missing evidence. Automatically rerunning after an improvement blurs first-stage human consent.
 

@@ -199,7 +199,7 @@ it("keeps Factor confirmation across Study heads and withdraws only the Study wh
     await screen.findByRole("heading", { name: "已确认因子" });
     expect(screen.getByText("计算内容已确认并保存")).toBeVisible();
     await screen.findByText("固定样本和序列依赖修正");
-    fireEvent.change(screen.getByLabelText("告诉 Agent 你的想法", { exact: true }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "告诉助手你的想法" }), {
         target: { value: "把预测期限改成3根" }
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
@@ -398,6 +398,7 @@ it.each([false, true])(
         first.unmount();
         render(<FactorChatPage />);
         await screen.findByRole("heading", { name: "已确认因子" });
+        fireEvent.click(screen.getByRole("button", { name: "更多研究操作" }));
         fireEvent.click(screen.getByRole("button", { name: "核对并重新载入" }));
         await screen.findByText(advice.rationale);
         expect(grantPosts).toBe(1);
@@ -405,196 +406,212 @@ it.each([false, true])(
         expect(screen.getByText("计算内容已确认并保存")).toBeVisible();
     }
 );
-it("sends explicit Research confirmation to the Human backend without withdrawing the Study or calling the model", async () => {
-    const pendingRun = "00000000-0000-4000-8000-000000000010";
-    const preparation = {
-        schema_version: 1,
-        command_id: cid,
-        revision: "1",
-        state: "READY",
-        phase: "READY_FOR_HUMAN_CONFIRMATION",
-        readiness: { state: "VERIFIED", code: null },
-        study_proposal_fingerprint: studyFp,
-        research_command_id: studyCid,
-        reserved_run_id: pendingRun,
-        prepared_study_fingerprint: factorFp,
-        research_outcome: "NOT_SUBMITTED",
-        run_id: null,
-        accepted_at: "2026-10-22T00:00:00Z",
-        advice,
-        detail: null
-    };
-    vi.mocked(request).mockImplementation((path, _schema, body, command) =>
-        Promise.resolve().then(() => {
-            if (path === "/api/v1/agent/models") return { items: [] } as never;
-            if (path === "/api/v1/agent/sessions")
-                return {
-                    items: [
-                        {
-                            id: sid,
-                            workflow: factorFp,
-                            model_revision: studyFp,
-                            head: studyHead,
-                            consumed: 2,
-                            model_call_limit: 10,
-                            messages: [],
-                            status: "READY",
-                            topic: "STUDY",
-                            candidate: null,
-                            study: advice,
-                            factor_reference: {
-                                command: cid,
-                                head: factorHead,
-                                fingerprint: factorFp
-                            },
-                            study_reference: {
-                                command: studyCid,
+it.each([true, false])(
+    "sends Human Research confirmation without a model call (Agent available: %s)",
+    async (agentAvailable) => {
+        if (!agentAvailable) {
+            localStorage.setItem(
+                "onlyalpha.agent.chat.proposals",
+                JSON.stringify({ [sid]: { fingerprint: factorFp, head: factorHead } })
+            );
+            localStorage.setItem(
+                "onlyalpha.agent.chat.studies",
+                JSON.stringify({ [sid]: { fingerprint: studyFp, head: studyHead } })
+            );
+        }
+        const pendingRun = "00000000-0000-4000-8000-000000000010";
+        const preparation = {
+            schema_version: 1,
+            command_id: cid,
+            revision: "1",
+            state: "READY",
+            phase: "READY_FOR_HUMAN_CONFIRMATION",
+            readiness: { state: "VERIFIED", code: null },
+            study_proposal_fingerprint: studyFp,
+            research_command_id: studyCid,
+            reserved_run_id: pendingRun,
+            prepared_study_fingerprint: factorFp,
+            research_outcome: "NOT_SUBMITTED",
+            run_id: null,
+            accepted_at: "2026-10-22T00:00:00Z",
+            advice,
+            detail: null
+        };
+        vi.mocked(request).mockImplementation((path, _schema, body, command) =>
+            Promise.resolve().then(() => {
+                if (path === "/api/v1/agent/models") {
+                    if (!agentAvailable) throw new Error("unavailable");
+                    return { items: [] } as never;
+                }
+                if (path === "/api/v1/agent/sessions")
+                    return {
+                        items: [
+                            {
+                                id: sid,
+                                workflow: factorFp,
+                                model_revision: studyFp,
                                 head: studyHead,
-                                fingerprint: studyFp
-                            },
-                            execution_admitted: false
+                                consumed: 2,
+                                model_call_limit: 10,
+                                messages: [],
+                                status: "READY",
+                                topic: "STUDY",
+                                candidate: null,
+                                study: advice,
+                                factor_reference: {
+                                    command: cid,
+                                    head: factorHead,
+                                    fingerprint: factorFp
+                                },
+                                study_reference: {
+                                    command: studyCid,
+                                    head: studyHead,
+                                    fingerprint: studyFp
+                                },
+                                execution_admitted: false
+                            }
+                        ]
+                    } as never;
+                if (path === "/api/v2/agent-connection")
+                    return {
+                        schema_version: 1,
+                        connection: {
+                            schema_version: 1,
+                            agent_url: access.agent_url,
+                            grant_id: cid,
+                            service_subject: "discovery",
+                            credential_sha256: factorFp
+                        },
+                        grant_state: "ACTIVE"
+                    } as never;
+                if (path === `/api/v2/factor-proposals/${factorFp}`)
+                    return {
+                        schema_version: 1,
+                        fingerprint: factorFp,
+                        is_current: true,
+                        withdrawn: false,
+                        snapshot: {
+                            schema_version: 1,
+                            owner: "owner",
+                            factor_id: "factor",
+                            origin: { session_id: sid, event_fingerprint: factorHead },
+                            preview
+                        },
+                        confirmation: {
+                            schema_version: 1,
+                            command_id: cid,
+                            operation_fingerprint: factorFp,
+                            effect: { proposal_fingerprint: factorFp }
                         }
-                    ]
-                } as never;
-            if (path === "/api/v2/agent-connection")
-                return {
-                    schema_version: 1,
-                    connection: {
+                    } as never;
+                if (path === `/api/v2/factor-studies/${studyFp}`)
+                    return {
                         schema_version: 1,
-                        agent_url: access.agent_url,
-                        grant_id: cid,
-                        service_subject: "discovery",
-                        credential_sha256: factorFp
-                    },
-                    grant_state: "ACTIVE"
-                } as never;
-            if (path === `/api/v2/factor-proposals/${factorFp}`)
-                return {
-                    schema_version: 1,
-                    fingerprint: factorFp,
-                    is_current: true,
-                    withdrawn: false,
-                    snapshot: {
+                        fingerprint: studyFp,
+                        is_current: true,
+                        withdrawn: false,
+                        snapshot: {
+                            schema_version: 1,
+                            owner: "owner",
+                            factor_proposal_fingerprint: factorFp,
+                            origin: { session_id: sid, event_fingerprint: studyHead },
+                            advice
+                        }
+                    } as never;
+                if (path.includes("preparation-context"))
+                    return {
                         schema_version: 1,
-                        owner: "owner",
-                        factor_id: "factor",
-                        origin: { session_id: sid, event_fingerprint: factorHead },
-                        preview
-                    },
-                    confirmation: {
-                        schema_version: 1,
-                        command_id: cid,
-                        operation_fingerprint: factorFp,
-                        effect: { proposal_fingerprint: factorFp }
-                    }
-                } as never;
-            if (path === `/api/v2/factor-studies/${studyFp}`)
-                return {
-                    schema_version: 1,
-                    fingerprint: studyFp,
-                    is_current: true,
-                    withdrawn: false,
-                    snapshot: {
-                        schema_version: 1,
-                        owner: "owner",
+                        study_proposal_fingerprint: studyFp,
                         factor_proposal_fingerprint: factorFp,
-                        origin: { session_id: sid, event_fingerprint: studyHead },
-                        advice
-                    }
-                } as never;
-            if (path.includes("preparation-context"))
-                return {
-                    schema_version: 1,
-                    study_proposal_fingerprint: studyFp,
-                    factor_proposal_fingerprint: factorFp,
-                    factor_name: preview.name,
-                    usage_summary: preview.purpose,
-                    source_label: "controlled market",
-                    advice,
-                    is_current: true,
-                    withdrawn: false,
-                    release_manifest_fingerprint: factorFp,
-                    backend_version: "1",
-                    algorithm_artifact_fingerprint: factorFp,
-                    expected_active_generation: factorFp,
-                    initialize_fresh_runtime: false,
-                    profile: {},
-                    policy: {},
-                    new_work_status: { state: "AVAILABLE", code: null },
-                    existing_preparations: [
-                        {
-                            command_id: preparation.command_id,
-                            revision: preparation.revision,
-                            state: preparation.state,
-                            study_proposal_fingerprint: preparation.study_proposal_fingerprint,
-                            accepted_at: preparation.accepted_at
+                        factor_name: preview.name,
+                        usage_summary: preview.purpose,
+                        source_label: "controlled market",
+                        advice,
+                        is_current: true,
+                        withdrawn: false,
+                        release_manifest_fingerprint: factorFp,
+                        backend_version: "1",
+                        algorithm_artifact_fingerprint: factorFp,
+                        expected_active_generation: factorFp,
+                        initialize_fresh_runtime: false,
+                        profile: {},
+                        policy: {},
+                        new_work_status: { state: "AVAILABLE", code: null },
+                        existing_preparations: [
+                            {
+                                command_id: preparation.command_id,
+                                revision: preparation.revision,
+                                state: preparation.state,
+                                study_proposal_fingerprint: preparation.study_proposal_fingerprint,
+                                accepted_at: preparation.accepted_at
+                            }
+                        ]
+                    } as never;
+                if (path.includes("preparations/commands")) return preparation as never;
+                if (path.endsWith("/confirmation")) {
+                    expect(command).toBe(studyCid);
+                    expect(body).toEqual({
+                        schema_version: 1,
+                        preparation_command_id: cid,
+                        prepared_study_fingerprint: factorFp
+                    });
+                    return {
+                        schema_version: 1,
+                        research_command_id: studyCid,
+                        state: "ACCEPTED",
+                        run_id: pendingRun
+                    } as never;
+                }
+                if (path.endsWith(`/runs/${pendingRun}`))
+                    return {
+                        schema_version: 1,
+                        run_id: pendingRun,
+                        state: "QUEUED",
+                        revision: "1",
+                        name_snapshot: { factor_name: preview.name },
+                        current_name: preview.name,
+                        accepted_at: "2026-10-22T00:00:00Z",
+                        specification_fingerprint: factorFp,
+                        runtime_generation_fingerprint: factorFp,
+                        report: null,
+                        failure: null,
+                        worker_observation: { state: "IDLE" },
+                        report_status: { state: "NOT_APPLICABLE", code: null },
+                        decision_provenance: {
+                            state: "NOT_CHECKED",
+                            code: null,
+                            command_id: studyCid,
+                            group_fingerprint: factorFp,
+                            policy_id: "policy",
+                            policy_version: "1"
                         }
-                    ]
-                } as never;
-            if (path.includes("preparations/commands")) return preparation as never;
-            if (path.endsWith("/confirmation")) {
-                expect(command).toBe(studyCid);
-                expect(body).toEqual({
-                    schema_version: 1,
-                    preparation_command_id: cid,
-                    prepared_study_fingerprint: factorFp
-                });
-                return {
-                    schema_version: 1,
-                    research_command_id: studyCid,
-                    state: "ACCEPTED",
-                    run_id: pendingRun
-                } as never;
-            }
-            if (path.endsWith(`/runs/${pendingRun}`))
-                return {
-                    schema_version: 1,
-                    run_id: pendingRun,
-                    state: "QUEUED",
-                    revision: "1",
-                    name_snapshot: { factor_name: preview.name },
-                    current_name: preview.name,
-                    accepted_at: "2026-10-22T00:00:00Z",
-                    specification_fingerprint: factorFp,
-                    runtime_generation_fingerprint: factorFp,
-                    report: null,
-                    failure: null,
-                    worker_observation: { state: "IDLE" },
-                    report_status: { state: "NOT_APPLICABLE", code: null },
-                    decision_provenance: {
-                        state: "NOT_CHECKED",
-                        code: null,
-                        command_id: studyCid,
-                        group_fingerprint: factorFp,
-                        policy_id: "policy",
-                        policy_version: "1"
-                    }
-                } as never;
-            throw new Error(path);
-        })
-    );
-    render(<FactorChatPage />);
-    await waitFor(() => {
-        expect(screen.getByRole("button", { name: "确认本次研究" })).toBeEnabled();
-    });
-    fireEvent.change(screen.getByLabelText("告诉 Agent 你的想法"), {
-        target: { value: "确认本次研究" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => {
+                    } as never;
+                throw new Error(path);
+            })
+        );
+        render(<FactorChatPage />);
+        await waitFor(() => {
+            expect(screen.getByRole("button", { name: "确认本次研究" })).toBeEnabled();
+        });
+        fireEvent.change(screen.getByRole("textbox", { name: "告诉助手你的想法" }), {
+            target: { value: "确认本次研究" }
+        });
+        fireEvent.click(screen.getByRole("button", { name: "发送" }));
+        await waitFor(() => {
+            expect(
+                vi
+                    .mocked(request)
+                    .mock.calls.some(([path]) =>
+                        path.endsWith(`/factor-study-preparations/${cid}/confirmation`)
+                    )
+            ).toBe(true);
+        });
         expect(
             vi
                 .mocked(request)
-                .mock.calls.some(([path]) =>
-                    path.endsWith(`/factor-study-preparations/${cid}/confirmation`)
+                .mock.calls.filter(
+                    ([path]) => path.endsWith("/messages") || path.endsWith("/withdrawal")
                 )
-        ).toBe(true);
-    });
-    expect(
-        vi
-            .mocked(request)
-            .mock.calls.filter(
-                ([path]) => path.endsWith("/messages") || path.endsWith("/withdrawal")
-            )
-    ).toEqual([]);
-});
+        ).toEqual([]);
+    }
+);

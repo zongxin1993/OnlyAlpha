@@ -92,11 +92,18 @@ def request(
 ) -> dict[str, Any]:
     # Prevent this adapter becoming an authenticated arbitrary-URL or Human-operation proxy.
     valid = method == "POST" and path in {"/api/v2/factor-proposals", "/api/v2/factor-studies"}
+    if method == "POST" and path.startswith("/api/v2/factor-studies/commands/") and path.endswith("/resolution"):
+        raw = path.removeprefix("/api/v2/factor-studies/commands/").removesuffix("/resolution")
+        try:
+            valid = str(UUID(raw)) == raw and UUID(raw).version == 4 and command == raw
+        except ValueError:
+            valid = False
     if method == "GET":
         for prefix in (
             "/api/v2/factor-proposal-context/",
             "/api/v2/factor-proposals/commands/",
             "/api/v2/factor-studies/commands/",
+            "/api/v2/factor-study-continuations/",
         ):
             if path.startswith(prefix):
                 try:

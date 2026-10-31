@@ -401,8 +401,15 @@ export function WorkspacePage() {
                     <WorkspaceIcon name="settings" />
                 </summary>
                 <div className="workspace-settings__menu">
+                    <p className="workspace-settings__heading">图表设置</p>
                     <details className="chart-region__settings">
-                        <summary>行情设置</summary>
+                        <summary className="workspace-settings__action">
+                            <WorkspaceIcon name="candles" />
+                            <span>行情设置</span>
+                            <span className="workspace-settings__chevron">
+                                <WorkspaceIcon name="down" />
+                            </span>
+                        </summary>
                         <label className="chart-region__source">
                             <span className="visually-hidden">数据源</span>
                             <select
@@ -432,16 +439,28 @@ export function WorkspacePage() {
                         </label>
                     </details>
                     <details className="workspace-indicator-status">
-                        <summary>指标状态</summary>
-                        <div ref={setStudyStatusHost} />
+                        <summary className="workspace-settings__action">
+                            <WorkspaceIcon name="analysis" />
+                            <span>指标状态</span>
+                            <span className="workspace-settings__chevron">
+                                <WorkspaceIcon name="down" />
+                            </span>
+                        </summary>
+                        <div className="workspace-settings__panel" ref={setStudyStatusHost} />
                     </details>
+                    <hr className="workspace-settings__divider" />
                     <button
                         type="button"
+                        className="workspace-settings__action"
                         onClick={() => {
                             setManagerOpen(true);
                         }}
                     >
-                        管理数据源
+                        <WorkspaceIcon name="database" />
+                        <span>管理数据源</span>
+                        <span className="workspace-settings__chevron">
+                            <WorkspaceIcon name="expand" />
+                        </span>
                     </button>
                 </div>
             </details>

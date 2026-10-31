@@ -1,92 +1,314 @@
 .factor-chat-page {
-    padding: 1rem;
-    overflow: auto;
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
     height: 100%;
+    min-height: 0;
     min-width: 0;
+    overflow: hidden;
+    background: var(--surface, #fff);
 }
-.factor-chat-page header h1 {
-    margin: 0;
+.workstation-shell:has(.factor-chat-page) {
+    height: 100dvh;
+    min-height: 0;
 }
-.factor-chat-actions,
-.factor-chat-models {
+.factor-history-desktop {
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--line);
+    background: #f5f5f2;
+}
+.factor-history {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 16px;
+    padding: 22px 14px;
+}
+.factor-history-heading {
+    color: var(--muted);
+    padding-inline: 8px;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+}
+.factor-history .ant-conversations {
+    padding: 0;
+}
+.factor-history .ant-conversations-item {
+    padding-block: 10px;
+}
+.factor-chat-main {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.factor-chat-header {
+    display: flex;
     align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 1rem;
+    justify-content: space-between;
+    flex-shrink: 0;
+    gap: 12px;
+    min-height: 58px;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--line);
 }
-.factor-chat-columns {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 1rem;
-}
-.factor-chat-columns > section,
-.factor-chat-context > section {
+.factor-chat-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
     min-width: 0;
-    border: 1px solid #d7dfe5;
-    border-radius: 0.4rem;
-    padding: 1rem;
 }
-.factor-chat-context {
+.factor-chat-title h1 {
+    margin: 0;
+    white-space: nowrap;
+    font-size: 15px;
+}
+.factor-chat-title > span {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.factor-history-toggle.ant-btn {
+    display: none;
+}
+.factor-chat-notices {
     display: grid;
-    gap: 1rem;
-    min-width: 0;
+    gap: 8px;
+    flex-shrink: 0;
+    max-height: 32vh;
+    overflow-y: auto;
+}
+.factor-chat-notices:not(:empty) {
+    padding: 12px 24px 0;
+}
+.factor-chat-transcript {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 32px 32px 20px;
+    scrollbar-gutter: stable;
+}
+.factor-chat-reading,
+.factor-chat-composer-inner {
+    width: min(100%, 820px);
+    margin-inline: auto;
+}
+.factor-chat-reading {
+    display: grid;
     align-content: start;
+    gap: 24px;
+    min-height: 100%;
 }
-.factor-chat-page dd {
-    margin-inline: 0;
-    overflow-wrap: anywhere;
+.factor-chat-welcome {
+    align-self: center;
+    justify-self: center;
+    text-align: center;
+    padding: 48px 16px;
 }
-.factor-chat-page dt {
-    font-weight: 600;
+.factor-chat-welcome-symbol {
+    font-family: Georgia, serif;
+    font-size: 48px;
+    line-height: 1.2;
+    color: var(--accent);
 }
-.factor-chat-page textarea {
-    width: 100%;
-    min-height: 6rem;
-    box-sizing: border-box;
+.factor-chat-welcome h2 {
+    font-size: 24px;
+    font-weight: 550;
+    margin-block: 18px 12px;
 }
-.factor-chat-page pre,
-.factor-chat-page p,
-.factor-chat-page li {
+.factor-chat-welcome p,
+.factor-chat-muted {
+    color: var(--muted);
+    font-size: 13px;
+}
+.factor-chat-turn {
+    display: grid;
+    gap: 20px;
+}
+.factor-chat-turn > article {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+}
+.factor-chat-page .ant-bubble-content {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    font-size: 15px;
+    line-height: 1.8;
 }
-.factor-chat-messages {
-    max-height: 50vh;
-    overflow: auto;
+.factor-user-message .ant-bubble-content {
+    background: #f0f1ed;
 }
-.factor-chat-messages article {
-    background: #f1f5f8;
-    padding: 0.7rem;
-    margin: 0.5rem 0;
-    border-radius: 0.4rem;
+.factor-preview-card.ant-card {
+    background: #fcfcfa;
+    border-color: var(--line);
+    box-shadow: none;
 }
-.factor-chat-messages .user {
-    background: #e6f0f8;
+.factor-preview-card .ant-card-body {
+    padding: 22px 24px;
 }
-.factor-chat-page select {
-    max-width: 20rem;
+.factor-preview-card h2 {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    margin: 0 0 12px;
 }
-@media (max-width: 700px) {
-    .factor-chat-columns {
+.factor-preview-card h3 {
+    font-size: 18px;
+    margin-block: 0 12px;
+}
+.factor-preview-card h4 {
+    font-size: 13px;
+    margin-block: 18px 6px;
+}
+.factor-preview-card p,
+.factor-preview-card li,
+.factor-preview-card dd {
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+}
+.factor-preview-card dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px 18px;
+}
+.factor-preview-card dt {
+    color: var(--muted);
+    font-size: 13px;
+}
+.factor-preview-card dd {
+    margin: 0;
+}
+.factor-preview-card pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 12px;
+    border-radius: 6px;
+    background: #f0f1ed;
+    font-size: 13px;
+}
+.factor-preview-card details {
+    margin-block: 14px;
+    font-size: 13px;
+    color: var(--muted);
+}
+.factor-preview-card details summary {
+    cursor: pointer;
+    padding-block: 6px;
+}
+.factor-preview-card .ant-btn + .ant-btn {
+    margin-left: 8px;
+}
+.factor-preview-history.ant-card {
+    background: transparent;
+}
+.factor-chat-composer {
+    flex-shrink: 0;
+    padding: 16px 32px 12px;
+    background: var(--surface, #fff);
+}
+.factor-chat-composer .ant-sender {
+    background: #fff;
+    border-radius: 14px;
+    border-color: #d9dcd5;
+    box-shadow: 0 2px 12px #20242b08;
+}
+.factor-chat-composer .ant-sender-content {
+    padding: 14px 16px 8px;
+}
+.factor-chat-composer textarea.ant-input {
+    font-size: 14px;
+    line-height: 1.7;
+}
+.factor-composer-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.factor-composer-footer .ant-select {
+    min-width: 150px;
+    max-width: 55%;
+}
+.factor-composer-footer .ant-select-disabled {
+    cursor: default;
+}
+.factor-composer-options {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+}
+.factor-composer-hint {
+    color: var(--muted);
+    text-align: center;
+    font-size: 11px;
+    margin: 8px 0 0;
+}
+.factor-chat-pending {
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+    padding: 12px;
+}
+.factor-chat-pending p {
+    margin-top: 0;
+}
+.factor-chat-pending .ant-btn {
+    margin-right: 8px;
+    margin-top: 4px;
+}
+.factor-recovery-actions {
+    display: grid;
+    gap: 8px;
+}
+.factor-chat-working {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+}
+.factor-jump-latest.ant-btn {
+    position: absolute;
+    bottom: 184px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+}
+@media (max-width: 850px) {
+    .factor-chat-page {
         grid-template-columns: minmax(0, 1fr);
     }
-    .factor-chat-page select {
-        max-width: 100%;
+    .factor-history-desktop {
+        display: none;
     }
-}
-.factor-chat-model-editor {
-    display: grid;
-    gap: 0.75rem;
-    width: min(34rem, 100%);
-    min-width: 0;
-}
-.factor-chat-model-editor label {
-    display: grid;
-    gap: 0.25rem;
-}
-.factor-chat-model-editor input {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
+    .factor-history-toggle.ant-btn {
+        display: inline-flex;
+    }
+    .factor-chat-header {
+        padding-inline: 12px;
+    }
+    .factor-chat-transcript {
+        padding: 22px 16px;
+    }
+    .factor-chat-composer {
+        padding-inline: 12px;
+    }
+    .factor-preview-card .ant-card-body {
+        padding: 16px;
+    }
+    .factor-preview-card dl {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+    }
+    .factor-preview-card dd {
+        margin-bottom: 10px;
+    }
 }

@@ -77,6 +77,7 @@ macro_rules! text_enum {
 }
 text_enum!(CommandKind, InvalidCommandKind, {
     CreateFactorStudyGrant => "CREATE_FACTOR_STUDY_GRANT",
+    ContinueFactorStudy => "CONTINUE_FACTOR_STUDY",
     PrepareFactorResearch => "PREPARE_FACTOR_RESEARCH",
     CancelFactorResearchPreparation => "CANCEL_FACTOR_RESEARCH_PREPARATION",
     StageFactorStudy => "STAGE_FACTOR_STUDY", WithdrawFactorStudy => "WITHDRAW_FACTOR_STUDY",

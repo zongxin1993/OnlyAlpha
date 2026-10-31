@@ -6,7 +6,7 @@ import hmac
 import json
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any, cast
 from uuid import UUID
 
@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS agent_model_head (id uuid PRIMARY KEY, owner text NOT
 CREATE TABLE IF NOT EXISTS agent_session (
  id uuid PRIMARY KEY, owner text NOT NULL, workflow text NOT NULL, model text NOT NULL REFERENCES agent_model,
  budget integer NOT NULL CHECK(budget BETWEEN 1 AND 100));
+CREATE TABLE IF NOT EXISTS agent_session_context (
+ session uuid PRIMARY KEY REFERENCES agent_session, parent uuid NOT NULL UNIQUE REFERENCES agent_session,
+ fingerprint text NOT NULL, payload jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS agent_event (
  command uuid PRIMARY KEY REFERENCES agent_command DEFERRABLE INITIALLY DEFERRED, session uuid NOT NULL REFERENCES agent_session,
  ordinal integer NOT NULL CHECK(ordinal BETWEEN 1 AND 100), fingerprint text NOT NULL UNIQUE,
@@ -107,6 +110,7 @@ class Store:
             "agent_model",
             "agent_model_head",
             "agent_session",
+            "agent_session_context",
             "agent_event",
             "agent_result",
             "agent_revocation",
@@ -132,6 +136,7 @@ class Store:
                     "agent_command",
                     "agent_model",
                     "agent_session",
+                    "agent_session_context",
                     "agent_event",
                     "agent_result",
                     "agent_revocation",
@@ -203,14 +208,14 @@ class Store:
             plan = self.backend_plan(command)
             self.session(plan["session"], owner)
             valid = plan["owner"] == owner and digest(plan) == outcome["backend_plan"]
-        elif isinstance(outcome, dict) and set(outcome) == {"id", "workflow"}:
+        elif isinstance(outcome, dict) and set(outcome) in ({"id", "workflow"}, {"id", "workflow", "context"}):
             session = self.session(outcome["id"], owner)
-            valid = session["workflow"] == outcome["workflow"]
+            valid = self.creation_outcome(session) == outcome
             expected = self.intent(
                 {
                     "operation": "create",
                     "id": outcome["id"],
-                    "body": {"model_revision": session["model"], "model_call_limit": session["budget"]},
+                    "body": self.creation_body(session),
                 }
             )
             receipt = self.conn.execute("SELECT intent FROM agent_command WHERE id=%s", (command,)).fetchone()
@@ -272,8 +277,20 @@ class Store:
             self.outcome = payload
             return payload
 
-    def create(self, sid: str, owner: str, command: str, body: dict[str, Any], workflow: str) -> Any:
-        with self.command(command, owner, {"operation": "create", "id": sid, "body": body}) as old:
+    def create(
+        self,
+        sid: str,
+        owner: str,
+        command: str,
+        body: dict[str, Any],
+        workflow: str,
+        continuation: dict[str, Any] | None = None,
+    ) -> Any:
+        source = body.get("continuation")
+        with (
+            self.session_lock(source["parent_session"]) if source is not None else nullcontext(),
+            self.command(command, owner, {"operation": "create", "id": sid, "body": body}) as old,
+        ):
             if old is not None:
                 return self.view(sid, owner, workflow)
             self.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,3))", (owner,))
@@ -281,6 +298,56 @@ class Store:
             if count is None or count["n"] >= 100:
                 raise Conflict("AGENT_CAPACITY_REACHED")
             self.model(body["model_revision"], owner)
+            context = None
+            if body.get("continuation") is not None:
+                source = body["continuation"]
+                if self.successor(source["parent_session"], owner) is not None:
+                    raise Conflict("AGENT_SESSION_CONTINUED")
+                parent, events = self.history(source["parent_session"], owner)
+                parent_context = self.session_context(source["parent_session"])
+                reference = self.view(source["parent_session"], owner, parent["workflow"])["factor_reference"]
+                proof = continuation
+                request = proof.get("snapshot", {}).get("request", {}) if isinstance(proof, dict) else {}
+                if (
+                    not events
+                    or events[-1]["fingerprint"] != source["parent_head"]
+                    or self.pending_backend(source["parent_session"], owner)
+                    or any(
+                        self.result(str(event["command"])) is None
+                        or self.result(str(event["command"])).get("error") == "MODEL_OUTCOME_UNKNOWN"
+                        for event in events
+                    )
+                    or reference is None
+                    or reference["fingerprint"] is None
+                    or proof is None
+                    or proof.get("command_id") != source["backend_command"]
+                    or proof.get("schema_version") != 1
+                    or digest(proof.get("snapshot")) != proof.get("operation_fingerprint")
+                    or proof.get("snapshot", {}).get("command_id") != source["backend_command"]
+                    or proof.get("snapshot", {}).get("owner") != owner
+                    or proof["snapshot"].get("actor") != "HUMAN"
+                    or proof["snapshot"].get("kind") != "CONTINUE_FACTOR_STUDY"
+                    or proof["snapshot"].get("effect") != {"continuation_command_id": source["backend_command"]}
+                    or request
+                    != {
+                        "schema_version": 1,
+                        "factor_proposal_fingerprint": reference["fingerprint"],
+                        "session_id": sid,
+                        "workflow_fingerprint": workflow,
+                        "model_revision": parent["model"],
+                        "source_session_id": source["parent_session"],
+                        "source_workflow_fingerprint": parent["workflow"],
+                        **(
+                            {"source_continuation_command_id": parent_context["input"]["backend_command"]}
+                            if parent_context is not None
+                            else {}
+                        ),
+                    }
+                    or body["model_revision"] != parent["model"]
+                    or body["model_call_limit"] > parent["budget"] - len(events)
+                ):
+                    raise Conflict("AGENT_CONTINUATION_INVALID")
+                context = {"input": source, "proof": proof, "factor_reference": reference}
             if self.conn.execute("SELECT 1 FROM agent_session WHERE id=%s", (sid,)).fetchone():
                 raise Conflict("AGENT_SESSION_CONFLICT")
             self.conn.execute(
@@ -288,6 +355,13 @@ class Store:
                 (sid, owner, workflow, body["model_revision"], body["model_call_limit"]),
             )
             self.outcome = {"id": sid, "workflow": workflow}
+            if context is not None:
+                pin = digest(context)
+                self.conn.execute(
+                    "INSERT INTO agent_session_context VALUES(%s,%s,%s,%s)",
+                    (sid, body["continuation"]["parent_session"], pin, Jsonb(context)),
+                )
+                self.outcome["context"] = pin
         return self.view(sid, owner, workflow)
 
     def session(self, sid: str, owner: str) -> Any:
@@ -302,16 +376,60 @@ class Store:
             {
                 "operation": "create",
                 "id": sid,
-                "body": {"model_revision": row["model"], "model_call_limit": row["budget"]},
+                "body": self.creation_body(row),
             }
         )
         if (
             len(creation) != 1
-            or creation[0]["outcome"] != {"id": sid, "workflow": row["workflow"]}
+            or creation[0]["outcome"] != self.creation_outcome(row)
             or not hmac.compare_digest(creation[0]["intent"], expected)
         ):
             raise Conflict("AGENT_SESSION_CORRUPT")
         return row
+
+    def session_context(self, sid: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT parent,fingerprint,payload FROM agent_session_context WHERE session=%s", (sid,)
+        ).fetchone()
+        if row is None:
+            return None
+        value = row["payload"]
+        if (
+            digest(value) != row["fingerprint"]
+            or value["input"]["parent_session"] != str(row["parent"])
+            or str(row["parent"]) == sid
+        ):
+            raise Conflict("AGENT_CONTINUATION_CORRUPT")
+        return cast(dict[str, Any], value)
+
+    def successor(self, sid: str, owner: str) -> str | None:
+        rows = self.conn.execute(
+            "SELECT session::text AS session FROM agent_session_context WHERE parent=%s LIMIT 2", (sid,)
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise Conflict("AGENT_CONTINUATION_CORRUPT")
+        row = rows[0]
+        child = self.session(row["session"], owner)
+        context = self.session_context(row["session"])
+        if context is None or context["input"]["parent_session"] != sid or child["owner"] != owner:
+            raise Conflict("AGENT_CONTINUATION_CORRUPT")
+        return cast(str, row["session"])
+
+    def creation_body(self, row: Any) -> dict[str, Any]:
+        body = {"model_revision": row["model"], "model_call_limit": row["budget"]}
+        context = self.session_context(str(row["id"]))
+        if context is not None:
+            body["continuation"] = context["input"]
+        return body
+
+    def creation_outcome(self, row: Any) -> dict[str, Any]:
+        outcome = {"id": str(row["id"]), "workflow": row["workflow"]}
+        context = self.session_context(str(row["id"]))
+        if context is not None:
+            outcome["context"] = digest(context)
+        return outcome
 
     def history(self, sid: str, owner: str) -> tuple[Any, list[Any]]:
         session = self.session(sid, owner)
@@ -351,6 +469,50 @@ class Store:
             head = row["fingerprint"]
         return session, rows
 
+    def conversation(self, sid: str, owner: str) -> dict[str, Any]:
+        session, rows = self.history(sid, owner)
+        profile, _secret = self.model(session["model"], owner)
+        references = {reference["head"]: (plan, reference) for plan, reference in self.backend_references(sid, owner)}
+        turns = []
+        for row in rows:
+            topic = row["plan"].get("topic", "FACTOR")
+            turn: dict[str, Any] = {
+                "head": row["fingerprint"],
+                "topic": topic,
+                "user": row["plan"]["text"],
+                "assistant": None,
+                "status": "OUTCOME_UNKNOWN",
+                "candidate": None,
+                "study": None,
+                "factor_reference": None,
+                "study_reference": None,
+            }
+            result = self.result(str(row["command"]))
+            if result is not None:
+                if "error" in result:
+                    if result["error"] != "MODEL_OUTCOME_UNKNOWN":
+                        turn["status"] = "FAILED"
+                else:
+                    try:
+                        response = validate_response(result["response"], topic)
+                    except (ValueError, KeyError, TypeError):
+                        raise Conflict("AGENT_RESULT_CORRUPT") from None
+                    field = "study" if topic == "STUDY" else "candidate"
+                    turn.update(status="READY", assistant=response["message"])
+                    turn[field] = response[field]
+            if row["fingerprint"] in references:
+                plan, reference = references[row["fingerprint"]]
+                field = "study_reference" if plan.get("topic", "FACTOR") == "STUDY" else "factor_reference"
+                turn[field] = reference
+            turns.append(turn)
+        return {
+            "id": sid,
+            "head": rows[-1]["fingerprint"] if rows else None,
+            "model_revision": session["model"],
+            "model": {key: profile[key] for key in ("name", "model_id", "model_version")},
+            "turns": turns,
+        }
+
     def view(self, sid: str, owner: str, workflow: str) -> dict[str, Any]:
         s, rows = self.history(sid, owner)
         messages = []
@@ -380,7 +542,10 @@ class Store:
                     candidate = result["response"]["candidate"]
         if s["workflow"] != workflow:
             status = "WORKFLOW_UNAVAILABLE"
-        factor_reference = None
+        context = self.session_context(sid)
+        factor_reference = context["factor_reference"] if context is not None else None
+        if context is not None and not rows:
+            topic = "STUDY"
         study_reference = None
         for plan, reference in self.backend_references(sid, owner):
             if plan.get("topic", "FACTOR") == "STUDY":
@@ -394,6 +559,7 @@ class Store:
             "study_reference": study_reference,
             "topic": topic,
             "workflow": s["workflow"],
+            "current_workflow": workflow,
             "model_revision": s["model"],
             "head": head,
             "consumed": len(rows),
@@ -403,6 +569,8 @@ class Store:
             "candidate": candidate,
             "study": study,
             "execution_admitted": False,
+            "continuation": context["input"] if context is not None else None,
+            "successor": self.successor(sid, owner),
         }
 
     def accept_message(
@@ -420,6 +588,8 @@ class Store:
                 return False
             s = self.session(sid, owner)
             current = self.view(sid, owner, s["workflow"])
+            if current["successor"] is not None:
+                raise Conflict("AGENT_SESSION_CONTINUED")
             if current["head"] != body["expected"]:
                 raise Conflict("AGENT_HEAD_CONFLICT")
             if current["status"] == "OUTCOME_UNKNOWN":
@@ -587,6 +757,8 @@ class Store:
             s = self.session(sid, owner)
             current = self.view(sid, owner, s["workflow"])
             topic = current["topic"]
+            if current["successor"] is not None:
+                raise Conflict("AGENT_SESSION_CONTINUED")
             content = current["study"] if topic == "STUDY" else current["candidate"]
             if current["head"] != expected or current["status"] != "READY" or content is None:
                 raise Conflict("AGENT_PROPOSAL_HEAD_CONFLICT")
@@ -622,6 +794,9 @@ class Store:
                     expected_study_fingerprint=context["study_proposal_fingerprint"],
                     advice=content,
                 )
+                continuation = self.session_context(sid)
+                if continuation is not None:
+                    body["continuation_command_id"] = continuation["input"]["backend_command"]
             else:
                 body.update(
                     candidate=content,
@@ -649,7 +824,10 @@ class Store:
 
     def pending_backend(self, sid: str, owner: str) -> bool:
         # Even a refusal cannot prove the original submission had no effect.
-        return any(reference["fingerprint"] is None for _plan, reference in self.backend_references(sid, owner))
+        return any(
+            reference["fingerprint"] is None and not reference.get("abandoned", False)
+            for _plan, reference in self.backend_references(sid, owner)
+        )
 
     def backend_references(self, sid: str, owner: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         _session, events = self.history(sid, owner)
@@ -675,7 +853,8 @@ class Store:
                     {
                         "command": command,
                         "head": plan["body"]["origin"]["event_fingerprint"],
-                        "fingerprint": receipt["effect"]["proposal_fingerprint"] if receipt else None,
+                        "fingerprint": receipt["effect"].get("proposal_fingerprint") if receipt else None,
+                        "abandoned": bool(receipt and receipt["effect"] == {"registration_abandoned": True}),
                     },
                 )
             )
@@ -735,6 +914,9 @@ class Store:
                 "expected_study_fingerprint": model_plan["study_context"]["study_proposal_fingerprint"],
                 "advice": result["payload"]["response"]["study"],
             }
+            continuation = self.session_context(plan["session"])
+            if continuation is not None:
+                expected["continuation_command_id"] = continuation["input"]["backend_command"]
             if plan["body"] != expected or plan["binding"] != model_plan["backend_binding"]:
                 raise Conflict("AGENT_BACKEND_PLAN_CORRUPT")
         return cast(dict[str, Any], row["payload"])
@@ -757,17 +939,29 @@ class Store:
             or receipt.get("command_id") != plan["backend_command"]
             or not isinstance(receipt.get("operation_fingerprint"), str)
             or not isinstance(receipt.get("effect"), dict)
-            or not isinstance(receipt["effect"].get("proposal_fingerprint"), str)
+            or not (
+                isinstance(receipt["effect"].get("proposal_fingerprint"), str)
+                or plan.get("topic") == "STUDY"
+                and set(receipt["effect"]) == {"registration_abandoned"}
+                and receipt["effect"]["registration_abandoned"] is True
+            )
         ):
             raise Conflict("AGENT_BACKEND_RECEIPT_INVALID")
         import re
 
         if (
             set(receipt) != {"schema_version", "command_id", "operation_fingerprint", "effect"}
-            or set(receipt["effect"]) != {"proposal_fingerprint"}
+            or set(receipt["effect"]) not in ({"proposal_fingerprint"}, {"registration_abandoned"})
             or any(
                 re.fullmatch(r"[0-9a-f]{64}", v) is None
-                for v in [receipt["operation_fingerprint"], receipt["effect"]["proposal_fingerprint"]]
+                for v in [
+                    receipt["operation_fingerprint"],
+                    *(
+                        [receipt["effect"]["proposal_fingerprint"]]
+                        if "proposal_fingerprint" in receipt["effect"]
+                        else []
+                    ),
+                ]
             )
         ):
             raise Conflict("AGENT_BACKEND_RECEIPT_INVALID")

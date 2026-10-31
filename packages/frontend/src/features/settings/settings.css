@@ -1,0 +1,49 @@
+.global-settings .ant-drawer-body {
+    padding: 16px 24px;
+}
+.global-settings .model-settings-content {
+    display: grid;
+    gap: 20px;
+}
+.global-settings .model-settings-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.global-settings .model-settings-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+}
+.global-settings .model-settings-list p {
+    margin: 4px 0;
+}
+.global-settings .model-settings-list small {
+    overflow-wrap: anywhere;
+}
+.global-settings .factor-chat-model-editor {
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+.global-settings .ant-input {
+    margin: 0;
+}
+.global-settings .ant-input-affix-wrapper .ant-input {
+    padding: 0;
+}
+.global-settings .manager-surface[data-variant="page"] {
+    width: 100%;
+    padding: 0;
+}
+@media (max-width: 600px) {
+    .global-settings .ant-drawer-body {
+        padding: 12px;
+    }
+    .global-settings .model-settings-list li {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

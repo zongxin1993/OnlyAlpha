@@ -1,3 +1,9 @@
+import {
+    enableResearchAssistant,
+    openModelSettings,
+    reloadResearch,
+    selectResearchHistory
+} from "./support/factorChatUi";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
@@ -41,9 +47,7 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         const old = z
             .object({ name: z.string() })
             .parse(JSON.parse(await readFile(evidence, "utf8")));
-        await page
-            .getByRole("combobox", { name: "研究历史", exact: true })
-            .selectOption({ label: old.name });
+        await selectResearchHistory(page, old.name);
         await expect(page.getByRole("heading", { name: old.name, exact: true })).toBeVisible();
         await expect(
             page.getByRole("status").filter({ hasText: "计算内容已确认并保存" })
@@ -54,9 +58,9 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         );
         // Infrastructure fault only. Ordinary UI must still read Agent-owned history.
         stopOwnedProcess(hostPid);
-        await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
+        await reloadResearch(page);
         await expect(
-            page.getByRole("status").filter({ hasText: "backend 暂不可用" })
+            page.getByRole("alert").filter({ hasText: "研究服务暂时不可用" })
         ).toBeVisible();
         await expect(
             page.getByText("用20根已收盘K线，放量也按20根均量比较", { exact: true })
@@ -85,10 +89,15 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
                 response.writeHead(401).end();
                 return;
             }
-            calls++;
             const body = z
                 .object({ messages: z.array(z.object({ role: z.string(), content: z.string() })) })
                 .parse(JSON.parse(Buffer.concat(chunks).toString()));
+            if (body.messages.length === 1 && body.messages[0].content === "请只回复：连接成功。") {
+                response.writeHead(200, { "Content-Type": "application/json" });
+                response.end(JSON.stringify({ choices: [{ message: { content: "连接成功。" } }] }));
+                return;
+            }
+            calls++;
             expect(body.messages.length).toBeGreaterThanOrEqual(2);
             const candidate = {
                 name: calls >= 3 ? "放量动量改进候选" : "放量动量候选",
@@ -168,27 +177,31 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
                 await route.continue();
             }
         });
-        await page.getByRole("button", { name: "启用助手的提案登记", exact: true }).click();
+        await enableResearchAssistant(page);
         await expect(
             page.getByRole("button", { name: "再次提交同一授权", exact: true })
         ).toBeVisible();
         await page.reload();
         await page.getByRole("button", { name: "再次提交同一授权", exact: true }).click();
-        await expect(
-            page.getByRole("button", { name: "启用助手的提案登记", exact: true })
-        ).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "启用助手", exact: true })).toHaveCount(0);
         const address = server.address();
         if (!address || typeof address === "string") throw new Error("address");
-        await page.getByText("模型设置", { exact: true }).click();
-        await page.getByRole("button", { name: "添加模型", exact: true }).click();
+        await openModelSettings(page);
+        await page
+            .getByRole("dialog", { name: "设置", exact: true })
+            .getByRole("button", { name: "添加模型", exact: true })
+            .click();
         await page
             .getByLabel("服务地址", { exact: true })
             .fill(`http://127.0.0.1:${String(address.port)}/v1`);
         await page.getByLabel("模型名称", { exact: true }).fill("controlled-factor-model-v1");
         await page.getByLabel("模型版本说明", { exact: true }).fill("controlled-v1");
         await page.getByLabel("API 密钥", { exact: true }).fill("controlled-model-secret");
+        await page.getByRole("button", { name: "测试连接", exact: true }).click();
+        await expect(page.getByText("连接成功。", { exact: true })).toBeVisible();
         await page.getByRole("button", { name: "保存模型设置", exact: true }).click();
         await expect(page.getByRole("form", { name: "模型配置" })).toHaveCount(0);
+        await page.getByRole("button", { name: "关闭设置", exact: true }).click();
         const observed: {
             dropped?: { url: string; command: string; body: unknown; authorization: string };
             confirmation?: string;
@@ -205,7 +218,11 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
                 await route.abort("failed");
             } else await route.continue();
         });
-        await page.getByRole("button", { name: "新建对话", exact: true }).click();
+        await page.getByRole("button", { name: "＋ 新建研究", exact: true }).click();
+        await page
+            .getByRole("textbox", { name: "告诉助手你的想法", exact: true })
+            .fill("我想研究 BTCUSDT 的放量动量");
+        await page.getByRole("button", { name: "发送", exact: true }).click();
         await expect(
             page.getByRole("button", { name: "放弃未接受的操作", exact: true })
         ).toBeVisible();
@@ -230,8 +247,8 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         } finally {
             await client.dispose();
         }
-        await page.getByRole("button", { name: "新建对话", exact: true }).click();
-        const input = page.getByLabel("告诉 Agent 你的想法", { exact: true });
+        await page.getByRole("button", { name: "＋ 新建研究", exact: true }).click();
+        const input = page.getByRole("textbox", { name: "告诉助手你的想法", exact: true });
         await input.fill("我想研究 BTCUSDT 的放量动量");
         await page.getByRole("button", { name: "发送", exact: true }).click();
         await expect(
@@ -294,7 +311,7 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         ).toBeVisible();
         await stale.close();
         expect(calls).toBe(3);
-        await page.getByRole("button", { name: "新建对话", exact: true }).click();
+        await page.getByRole("button", { name: "＋ 新建研究", exact: true }).click();
         await input.fill("测试一个尚不支持的数据输入");
         await page.getByRole("button", { name: "发送", exact: true }).click();
         await expect(
@@ -303,20 +320,18 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         await page.getByText("原登记操作详情", { exact: true }).click();
         const rejectedCommand = await page.locator("details code").textContent();
         await page.getByRole("button", { name: "保留记录，返回研究历史", exact: true }).click();
-        await expect(page.getByRole("button", { name: "新建对话", exact: true })).toBeEnabled();
-        await page
-            .getByRole("combobox", { name: "研究历史", exact: true })
-            .selectOption({ label: "不支持的候选" });
+        await expect(page.getByRole("button", { name: "＋ 新建研究", exact: true })).toBeEnabled();
+        await selectResearchHistory(page, "不支持的候选");
         await expect(input).toBeDisabled();
         await page.getByText("原登记操作详情", { exact: true }).click();
         await expect(page.locator("details code")).toHaveText(rejectedCommand ?? "");
-        await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
-        await expect(page.getByRole("alert")).toContainText("原登记未取得成功证明");
+        await reloadResearch(page);
+        await expect(
+            page.getByRole("alert").filter({ hasText: "原登记未取得成功证明" })
+        ).toBeVisible();
         await expect(input).toBeDisabled();
         await page.getByRole("button", { name: "保留记录，返回研究历史", exact: true }).click();
-        await page
-            .getByRole("combobox", { name: "研究历史", exact: true })
-            .selectOption({ label: "放量动量改进候选" });
+        await selectResearchHistory(page, "放量动量改进候选");
         await expect(
             page.getByRole("heading", { name: "放量动量改进候选", exact: true })
         ).toBeVisible();
@@ -332,8 +347,10 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         ).not.toContain("controlled-model-secret");
         // Agent outage does not take over or disable backend-owned Human confirmation.
         stopOwnedProcess(agentPid);
-        await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
-        await expect(page.getByRole("status").filter({ hasText: "Agent 暂不可用" })).toBeVisible();
+        await reloadResearch(page);
+        await expect(
+            page.getByRole("alert").filter({ hasText: "研究助手暂时无法连接" })
+        ).toBeVisible();
         await page.route("**/api/v2/factor-proposals/*/confirmation", async (route) => {
             const r = route.request();
             observed.confirmation = (await r.headerValue("idempotency-key")) ?? undefined;
@@ -345,7 +362,7 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
             page.getByRole("button", { name: "再次提交同一确认", exact: true })
         ).toBeVisible();
         await page.reload();
-        await page.getByRole("button", { name: "核对并重新载入", exact: true }).click();
+        await reloadResearch(page);
         await expect(
             page.getByRole("status").filter({ hasText: "计算内容已确认并保存" })
         ).toBeVisible();
@@ -357,14 +374,28 @@ test("Independent Agent chat, stale proposal withdrawal and direct Human confirm
         expect(prohibited).toEqual([]);
         expect(legacy).toEqual([]);
         await writeFile(evidence, JSON.stringify({ name: "放量动量改进候选" }));
+        await page.screenshot({
+            path: info.outputPath("factor-research-desktop.png"),
+            fullPage: true
+        });
         await page.setViewportSize({ width: 390, height: 844 });
-        expect(
-            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
-        ).toBe(true);
         await page.screenshot({
             path: info.outputPath("agent-factor-confirmed.png"),
             fullPage: true
         });
+        const viewport = await page.evaluate(() => ({
+            width: window.innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            overflowing: [...document.querySelectorAll("body *")]
+                .map((element) => ({
+                    tag: element.tagName,
+                    className: element.getAttribute("class"),
+                    right: element.getBoundingClientRect().right
+                }))
+                .filter((element) => element.right > window.innerWidth + 1)
+                .slice(-15)
+        }));
+        expect(viewport.scrollWidth, JSON.stringify(viewport)).toBeLessThanOrEqual(viewport.width);
     } finally {
         returnModel?.();
         server.close();

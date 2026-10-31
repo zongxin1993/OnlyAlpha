@@ -262,7 +262,7 @@ it.each([
         expect(reconcile).toBeEnabled();
     });
     fireEvent.click(reconcile);
-    await screen.findByText(/原 Research 尚未证明接收/);
+    await screen.findByText(/原研究是否已接收尚未确认/);
     expect(reconcile).toBeVisible();
     expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
 });
@@ -351,7 +351,7 @@ it("restores an unknown preparation using only the original command after remoun
         <ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />
     );
     fireEvent.click(await screen.findByRole("button", { name: "准备并启用研究环境" }));
-    await screen.findByText("lost acknowledgement");
+    await screen.findByText("暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。");
     expect(original).toBeDefined();
     view.unmount();
     render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
@@ -526,7 +526,7 @@ it.each(["command", "fingerprint", "cancel"])(
         expect(screen.getByRole("button", { name: "核对原研究操作" })).toBeVisible();
         fireEvent.click(screen.getByRole("button", { name: "核对原研究操作" }));
         if (mismatch !== "cancel")
-            await screen.findByText("原 Research 尚未证明接收；请保持原操作身份，不要另建研究。");
+            await screen.findByText("原研究是否已接收尚未确认，请核对原操作，不要重复创建研究。");
         else
             await screen.findByText(
                 "已刷新实际状态；如原操作回执仍未知，可明确重放同一个原命令核对，不会生成新身份。"
@@ -885,13 +885,17 @@ it("observation polling cannot repair a failed full context or erase its error b
         return Promise.resolve();
     });
     expect(contexts).toBe(2);
-    expect(screen.getByRole("alert")).toHaveTextContent("full context unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+        "暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。"
+    );
     await reactAct(async () => {
         await vi.advanceTimersByTimeAsync(1500);
     });
     expect(preparations).toBe(3);
     expect(contexts).toBe(2);
-    expect(screen.getByRole("alert")).toHaveTextContent("full context unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+        "暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。"
+    );
     expect(screen.getByRole("button", { name: "确认本次研究" })).toBeDisabled();
     await reactAct(() => {
         fireEvent.click(screen.getByRole("button", { name: "刷新研究状态" }));
@@ -938,7 +942,9 @@ it("observation polling preserves full-context failure while original Run cancel
         await vi.advanceTimersByTimeAsync(1500);
     });
     expect(contexts).toBe(2);
-    expect(screen.getByRole("alert")).toHaveTextContent("source context unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+        "暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。"
+    );
     expect(screen.getByRole("button", { name: "取消本次研究" })).toBeEnabled();
     await reactAct(() => {
         fireEvent.click(screen.getByRole("button", { name: "取消本次研究" }));
@@ -1049,3 +1055,156 @@ it("preparation summaries always fetch complete proof for automatic and explicit
     expect(screen.getByRole("button", { name: "确认本次研究" })).toBeEnabled();
     expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
 });
+it.each([
+    "RESEARCH_STORE_UNAVAILABLE",
+    '{"error":"PRIVATE_INTERNAL_CODE"}',
+    '中文说明 {"secret":"hidden"}'
+])("shows readable feedback instead of a raw service error: %s", async (detail) => {
+    vi.mocked(request).mockRejectedValue(new Error(detail));
+    render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        "暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。"
+    );
+    expect(screen.queryByText(detail, { exact: true })).not.toBeInTheDocument();
+});
+it("preserves useful Chinese recovery guidance from a local failure", async () => {
+    vi.mocked(request).mockRejectedValue(new Error("原准备任务暂不可核对，请保留记录。"));
+    render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        "原准备任务暂不可核对，请保留记录。"
+    );
+});
+it("keeps service codes and failure payloads in collapsed diagnostics", async () => {
+    vi.mocked(request).mockImplementation((path) =>
+        Promise.resolve().then(() => {
+            if (path.includes("preparation-context")) return context() as never;
+            if (path.includes("preparations/commands"))
+                return { ...ready, research_outcome: "ACCEPTED", run_id: runId } as never;
+            if (path.includes("/research/runs/"))
+                return {
+                    ...completed(),
+                    state: "FAILED",
+                    failure: { code: "PRIVATE_FAILURE_CODE" },
+                    worker_observation: { state: "UNAVAILABLE", code: "PRIVATE_WORKER_CODE" }
+                } as never;
+            throw new Error(path);
+        })
+    );
+    render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+    expect(
+        await screen.findByText("研究未能完成。可查看下方诊断详情，并保留本次研究记录。")
+    ).toBeVisible();
+    const failure = screen.getByText(/PRIVATE_FAILURE_CODE/);
+    expect(failure.closest("details")).not.toHaveAttribute("open");
+    expect(failure).not.toBeVisible();
+    const workerCode = screen.getByText("PRIVATE_WORKER_CODE");
+    expect(workerCode.closest("details")).not.toHaveAttribute("open");
+    expect(workerCode).not.toBeVisible();
+});
+it("keeps readiness and source diagnostics collapsed while showing recovery guidance", async () => {
+    vi.mocked(request).mockImplementation((path) =>
+        Promise.resolve().then(() => {
+            if (path.includes("preparation-context"))
+                return {
+                    ...context(),
+                    new_work_status: { state: "UNAVAILABLE", code: "PRIVATE_SOURCE_CODE" }
+                } as never;
+            if (path.includes("preparations/commands"))
+                return {
+                    ...ready,
+                    readiness: { state: "UNAVAILABLE", code: "PRIVATE_INPUT_CODE" }
+                } as never;
+            throw new Error(path);
+        })
+    );
+    render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+    await screen.findByText(/这份准备的输入证明暂不可核验/);
+    for (const code of ["PRIVATE_SOURCE_CODE", "PRIVATE_INPUT_CODE"]) {
+        const detail = screen.getByText(code);
+        expect(detail.closest("details")).not.toHaveAttribute("open");
+        expect(detail).not.toBeVisible();
+    }
+    expect(screen.getByRole("button", { name: "确认本次研究" })).toBeDisabled();
+});
+
+it("reads a retained completed Run once and stops polling its unfinished preparation before another Study", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const old = {
+        ...ready,
+        state: "RUNNING",
+        phase: "CONFIRMING",
+        study_proposal_fingerprint: "c".repeat(64),
+        research_outcome: "ACCEPTED",
+        run_id: runId
+    };
+    sessionStorage.setItem(
+        "onlyalpha.factor.research." + sha,
+        JSON.stringify({ preparation: uuid, run: runId, pending: null })
+    );
+    vi.mocked(request).mockImplementation((path) =>
+        Promise.resolve().then(() => {
+            if (path.includes("preparation-context")) return context([old]);
+            if (path.includes("preparations/commands")) return old;
+            if (path.includes("/research/runs/")) return completed();
+            throw new Error(path);
+        })
+    );
+    render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+    await reactAct(async () => {
+        await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: "准备并启用研究环境" })).toBeEnabled();
+    expect(
+        vi.mocked(request).mock.calls.filter(([path]) => path.includes("/research/runs/"))
+    ).toHaveLength(1);
+    const reads = vi.mocked(request).mock.calls.length;
+    await reactAct(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(vi.mocked(request).mock.calls).toHaveLength(reads);
+});
+
+it.each(["preparation-unavailable", "first-run-unavailable", "different-run"] as const)(
+    "preserves independent Run observation while deduplicating only a successful same-refresh read: %s",
+    async (scenario) => {
+        const nextRun = "00000000-0000-4000-8000-000000000004";
+        const old = {
+            ...ready,
+            state: "RUNNING",
+            phase: "CONFIRMING",
+            research_outcome: "ACCEPTED",
+            run_id: scenario === "different-run" ? nextRun : runId
+        };
+        sessionStorage.setItem(
+            "onlyalpha.factor.research." + sha,
+            JSON.stringify({ preparation: uuid, run: runId, pending: null })
+        );
+        const reads: string[] = [];
+        vi.mocked(request).mockImplementation((path) =>
+            Promise.resolve().then(() => {
+                if (path.includes("preparation-context")) return context([old]);
+                if (path.includes("preparations/commands")) {
+                    if (scenario === "preparation-unavailable") throw new Error("unavailable");
+                    return old;
+                }
+                if (path.includes("/research/runs/")) {
+                    reads.push(path);
+                    if (scenario === "first-run-unavailable" && reads.length === 1)
+                        throw new Error("unavailable");
+                    return { ...completed(), run_id: path.endsWith(nextRun) ? nextRun : runId };
+                }
+                throw new Error(path);
+            })
+        );
+        render(<ResearchStudyPanel study={study} newWorkBlocked={false} actionRef={createRef()} />);
+        await screen.findByRole("heading", { name: "submitted name · 研究结果" });
+        expect(reads).toEqual(
+            scenario === "preparation-unavailable"
+                ? ["/api/v2/research/runs/" + runId]
+                : [
+                      "/api/v2/research/runs/" + runId,
+                      "/api/v2/research/runs/" + (scenario === "different-run" ? nextRun : runId)
+                  ]
+        );
+    }
+);

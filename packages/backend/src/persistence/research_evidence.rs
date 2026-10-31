@@ -14,7 +14,12 @@ use crate::security::{
 };
 use rustix::fs;
 use serde_json::{Value, json};
-use std::{ffi::OsStr, path::Path};
+use std::{
+    collections::BTreeMap,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_EVIDENCE_CORRUPT";
 const UNAVAILABLE: &str = "RESEARCH_EVIDENCE_UNAVAILABLE";
@@ -183,7 +188,7 @@ impl Store {
                 value,
             )?;
         }
-        self.validate_evidence(&evidence, spec)?;
+        self.validate_evidence(&evidence, spec, Some(&statistics))?;
         save(
             &self.evidence,
             pin(&evidence, "evidence_fingerprint")?,
@@ -270,7 +275,7 @@ impl Store {
         let Some(result) = optional(&self.results, &["sha256"], &plan)? else {
             return Ok(None);
         };
-        self.validate_result(&result, &plan)?;
+        let statistics = self.validate_result(&result, &plan)?;
         if result["specification"] != spec.record()? {
             return Err(INVALID);
         }
@@ -278,12 +283,8 @@ impl Store {
         let Some(artifact) = optional(&self.artifacts, &[PROFILE, "sha256"], result_fp)? else {
             return Ok(None);
         };
-        let statistics = result["statistics_references"]
-            .as_array()
-            .ok_or(INVALID)?
-            .iter()
-            .map(|r| self.load_statistics(pin(r, "statistics_fingerprint")?))
-            .collect::<Result<Vec<_>>>()?;
+        // Reuse this read's fully verified statistics under the same publication
+        // cut. Independent reads still revalidate every upstream immutable fact.
         if artifact != report(&result, &statistics)? {
             return Err(INVALID);
         }
@@ -662,7 +663,12 @@ impl Store {
         validate_analysis(&v["analysis"], &plan, &normalized)?;
         Ok(())
     }
-    fn validate_evidence(&self, v: &Value, spec: &Specification) -> Result<()> {
+    fn validate_evidence(
+        &self,
+        v: &Value,
+        spec: &Specification,
+        verified: Option<&[Value]>,
+    ) -> Result<Vec<Value>> {
         exact(
             v,
             &[
@@ -794,8 +800,20 @@ impl Store {
         }
         let mut target_results = Vec::new();
         let mut statistics_results = Vec::new();
-        for intent in spec.statistics_intents()? {
-            let stat = self.load_statistics(&hash(&intent)?)?;
+        let intents = spec.statistics_intents()?;
+        if verified.is_some_and(|values| values.len() != intents.len()) {
+            return Err(INVALID);
+        }
+        for intent in intents {
+            let id = hash(&intent)?;
+            let stat = match verified {
+                Some(values) => values
+                    .iter()
+                    .find(|v| v["statistics_fingerprint"] == id)
+                    .cloned()
+                    .ok_or(INVALID)?,
+                None => self.load_statistics(&id)?,
+            };
             let t =
                 self.load_calculation(pin(&stat, "target_calculation_fingerprint")?, Some(spec))?;
             target_results.push(t["calculation_result_fingerprint"].clone());
@@ -817,7 +835,7 @@ impl Store {
         {
             return Err(INVALID);
         }
-        Ok(())
+        Ok(statistics_results)
     }
     fn result_document(
         &self,
@@ -832,7 +850,15 @@ impl Store {
             "research_result_fingerprint",
         )
     }
-    fn validate_result(&self, v: &Value, locator: &str) -> Result<()> {
+    fn validate_result(&self, v: &Value, locator: &str) -> Result<Vec<Value>> {
+        self.validate_result_with_statistics(v, locator, None)
+    }
+    fn validate_result_with_statistics(
+        &self,
+        v: &Value,
+        locator: &str,
+        verified: Option<&[Value]>,
+    ) -> Result<Vec<Value>> {
         exact(
             v,
             &[
@@ -855,16 +881,6 @@ impl Store {
         verify_signed(v, "research_result_fingerprint")?;
         let spec = specification(&v["specification"])?;
         let feature = self.load_calculation(&spec.calculation_fingerprint()?, Some(&spec))?;
-        let mut statistics = spec
-            .statistics_intents()?
-            .iter()
-            .map(|i| self.load_statistics(&hash(i)?))
-            .collect::<Result<Vec<_>>>()?;
-        statistics.sort_by(|a, b| {
-            a["statistics_fingerprint"]
-                .as_str()
-                .cmp(&b["statistics_fingerprint"].as_str())
-        });
         let ids = v["calculation_execution_evidence_fingerprints"]
             .as_array()
             .ok_or(INVALID)?;
@@ -879,47 +895,91 @@ impl Store {
         if evidence["evidence_fingerprint"] != id {
             return Err(INVALID);
         }
-        self.validate_evidence(&evidence, &spec)?;
+        let statistics = self.validate_evidence(&evidence, &spec, verified)?;
         if v["research_result_plan_fingerprint"] != locator
             || hash(&spec.result_plan()?)? != locator
             || *v != self.result_document(&spec, &feature, &statistics, &evidence)?
         {
             return Err(INVALID);
         }
-        Ok(())
+        Ok(statistics)
     }
 }
-/// Called under the source owner's exclusive publication barrier. No computation/publication.
-pub(crate) fn verify_native_source(
-    owner_root: &Path,
-    family: &str,
-    locator: &str,
-) -> Result<(String, Value)> {
-    let expected = match family {
-        "RESEARCH_RESULT" => "results",
-        "RESEARCH_STATISTICS" => "statistics-results",
-        _ => return Err("NOVELTY_PROOF_UNAVAILABLE"),
-    };
-    if owner_root.file_name() != Some(OsStr::new(expected)) {
-        return Err(INVALID);
-    }
-    let store = Store::open_for_source(owner_root.parent().ok_or(UNAVAILABLE)?)?;
-    let value = match family {
-        "RESEARCH_RESULT" => {
-            let v = optional(&store.results, &["sha256"], locator)?.ok_or(INVALID)?;
-            store.validate_result(&v, locator)?;
-            v
+/// Verified facts live only as long as this exact captured publication cut.
+/// The private map can only be populated through complete owning verification.
+pub(crate) struct SourceVerification<'cut> {
+    locks: &'cut [Arc<SourceLock>],
+    facts: BTreeMap<(PathBuf, String), (String, Value)>,
+    bytes: usize,
+}
+impl<'cut> SourceVerification<'cut> {
+    pub(crate) fn new(locks: &'cut [Arc<SourceLock>]) -> Self {
+        Self {
+            locks,
+            facts: BTreeMap::new(),
+            bytes: 0,
         }
-        _ => store.load_statistics(locator)?,
-    };
-    let identity = if family == "RESEARCH_RESULT" {
-        pin(&value, "research_result_fingerprint")?
-    } else {
-        pin(&value, "statistics_result_fingerprint")?
     }
-    .to_string();
-    Ok((identity, value))
+    pub(crate) fn verify(
+        &mut self,
+        owner_root: &Path,
+        family: &str,
+        locator: &str,
+    ) -> Result<(String, Value)> {
+        let expected = match family {
+            "RESEARCH_RESULT" => "results",
+            "RESEARCH_STATISTICS" => "statistics-results",
+            _ => return Err("NOVELTY_PROOF_UNAVAILABLE"),
+        };
+        if owner_root.file_name() != Some(OsStr::new(expected)) {
+            return Err(INVALID);
+        }
+        self.locks
+            .iter()
+            .find(|lock| lock.directory.path == owner_root)
+            .ok_or(INVALID)?
+            .verify()?;
+        let key = (owner_root.to_path_buf(), locator.to_owned());
+        if let Some(value) = self.facts.get(&key) {
+            return Ok(value.clone());
+        }
+        let store = Store::open_for_source(owner_root.parent().ok_or(UNAVAILABLE)?)?;
+        let value = if family == "RESEARCH_RESULT" {
+            let v = optional(&store.results, &["sha256"], locator)?.ok_or(INVALID)?;
+            let spec = specification(&v["specification"])?;
+            let mut statistics = Vec::new();
+            for intent in spec.statistics_intents()? {
+                statistics.push(
+                    self.verify(
+                        &store.statistics.path,
+                        "RESEARCH_STATISTICS",
+                        &hash(&intent)?,
+                    )?
+                    .1,
+                );
+            }
+            store.validate_result_with_statistics(&v, locator, Some(&statistics))?;
+            v
+        } else {
+            store.load_statistics(locator)?
+        };
+        let identity = if family == "RESEARCH_RESULT" {
+            pin(&value, "research_result_fingerprint")?
+        } else {
+            pin(&value, "statistics_result_fingerprint")?
+        }
+        .to_owned();
+        self.bytes = self
+            .bytes
+            .checked_add(serde_json::to_vec(&value).map_err(|_| INVALID)?.len())
+            .filter(|size| *size <= LIMIT)
+            .ok_or(UNAVAILABLE)?;
+        let verified = (identity, value);
+        self.facts.insert(key, verified.clone());
+        Ok(verified)
+    }
 }
+
 fn exact(v: &Value, keys: &[&str]) -> Result<()> {
     let o = v.as_object().ok_or(INVALID)?;
     if o.len() != keys.len() || keys.iter().any(|k| !o.contains_key(*k)) {

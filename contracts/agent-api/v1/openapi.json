@@ -43,6 +43,7 @@
           "status": {
             "enum": [
               "REGISTERED",
+              "ABANDONED",
               "OUTCOME_UNKNOWN",
               "BINDING_UNAVAILABLE",
               "REJECTED"
@@ -112,6 +113,198 @@
           "outcome"
         ],
         "title": "CommandView",
+        "type": "object"
+      },
+      "ContinuationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "backend_command": {
+            "format": "uuid4",
+            "title": "Backend Command",
+            "type": "string"
+          },
+          "parent_head": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Parent Head",
+            "type": "string"
+          },
+          "parent_session": {
+            "format": "uuid4",
+            "title": "Parent Session",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_session",
+          "parent_head",
+          "backend_command"
+        ],
+        "title": "ContinuationInput",
+        "type": "object"
+      },
+      "ConversationModel": {
+        "additionalProperties": false,
+        "properties": {
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "model_version": {
+            "title": "Model Version",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "model_id",
+          "model_version"
+        ],
+        "title": "ConversationModel",
+        "type": "object"
+      },
+      "ConversationTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "assistant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate"
+          },
+          "factor_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "head": {
+            "title": "Head",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "FAILED",
+              "OUTCOME_UNKNOWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "study": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study"
+          },
+          "study_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "enum": [
+              "FACTOR",
+              "STUDY"
+            ],
+            "title": "Topic",
+            "type": "string"
+          },
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "head",
+          "topic",
+          "user",
+          "assistant",
+          "status",
+          "candidate",
+          "study",
+          "factor_reference",
+          "study_reference"
+        ],
+        "title": "ConversationTurn",
+        "type": "object"
+      },
+      "ConversationView": {
+        "additionalProperties": false,
+        "properties": {
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ConversationModel"
+          },
+          "model_revision": {
+            "title": "Model Revision",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationTurn"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "head",
+          "model_revision",
+          "model",
+          "turns"
+        ],
+        "title": "ConversationView",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -247,6 +440,50 @@
         "title": "ModelInput",
         "type": "object"
       },
+      "ModelTestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "secret": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "model_id",
+          "secret"
+        ],
+        "title": "ModelTestInput",
+        "type": "object"
+      },
+      "ModelTestView": {
+        "additionalProperties": false,
+        "properties": {
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "title": "ModelTestView",
+        "type": "object"
+      },
       "ModelView": {
         "additionalProperties": false,
         "properties": {
@@ -343,6 +580,11 @@
       "ProposalReference": {
         "additionalProperties": false,
         "properties": {
+          "abandoned": {
+            "default": false,
+            "title": "Abandoned",
+            "type": "boolean"
+          },
           "command": {
             "title": "Command",
             "type": "string"
@@ -388,6 +630,16 @@
       "SessionInput": {
         "additionalProperties": false,
         "properties": {
+          "continuation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContinuationInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model_call_limit": {
             "maximum": 100.0,
             "minimum": 1.0,
@@ -425,6 +677,22 @@
           "consumed": {
             "title": "Consumed",
             "type": "integer"
+          },
+          "continuation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuation"
+          },
+          "current_workflow": {
+            "title": "Current Workflow",
+            "type": "string"
           },
           "execution_admitted": {
             "const": false,
@@ -503,6 +771,17 @@
               }
             ]
           },
+          "successor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor"
+          },
           "topic": {
             "enum": [
               "FACTOR",
@@ -519,6 +798,7 @@
         "required": [
           "id",
           "workflow",
+          "current_workflow",
           "model_revision",
           "head",
           "consumed",
@@ -782,6 +1062,49 @@
         "summary": "Models"
       }
     },
+    "/api/v1/agent/models/test": {
+      "post": {
+        "operationId": "test_model_api_v1_agent_models_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelTestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Test Model"
+      }
+    },
     "/api/v1/agent/models/{mid}": {
       "put": {
         "operationId": "configure_api_v1_agent_models__mid__put",
@@ -976,6 +1299,51 @@
         "summary": "Create"
       }
     },
+    "/api/v1/agent/sessions/{sid}/conversation": {
+      "get": {
+        "operationId": "conversation_api_v1_agent_sessions__sid__conversation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Sid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Conversation"
+      }
+    },
     "/api/v1/agent/sessions/{sid}/messages": {
       "post": {
         "operationId": "message_api_v1_agent_sessions__sid__messages_post",
@@ -1157,6 +1525,61 @@
           }
         ],
         "summary": "Proposal Status"
+      }
+    },
+    "/api/v1/agent/sessions/{sid}/proposals/{cid}/resolve": {
+      "post": {
+        "operationId": "resolve_proposal_api_v1_agent_sessions__sid__proposals__cid__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid4",
+              "title": "Cid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackendProposalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Proposal"
       }
     },
     "/api/v1/agent/sessions/{sid}/proposals/{cid}/resume": {

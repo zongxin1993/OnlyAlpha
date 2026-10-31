@@ -6,6 +6,7 @@ import json
 import re
 import ssl
 from datetime import datetime, timedelta
+from ipaddress import ip_address, ip_network
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -14,13 +15,22 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 def endpoint(raw: str) -> str:
     u = urlsplit(raw)
+    # Literal LAN addresses avoid DNS rebinding; non-public is broader than local (e.g. metadata IPs).
+    _ = u.port  # Validate malformed/out-of-range ports before saving a profile.
+    try:
+        address = ip_address(u.hostname or "")
+        local = address.is_loopback or any(
+            address in ip_network(network) for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+        )
+    except ValueError:
+        local = u.hostname == "localhost"
     if (
         not u.hostname
         or u.username is not None
         or u.password is not None
         or u.query
         or u.fragment
-        or not (u.scheme == "https" or u.scheme == "http" and u.hostname in {"127.0.0.1", "::1", "localhost"})
+        or not (u.scheme == "https" or u.scheme == "http" and local)
     ):
         raise ValueError("AGENT_MODEL_ENDPOINT_INVALID")
     return raw.rstrip("/") + "/chat/completions"
@@ -101,23 +111,57 @@ def validate_response(content: Any, topic: str = "FACTOR") -> dict[str, Any]:
     return content
 
 
-def invoke(profile: dict[str, Any], secret: str, body: dict[str, Any], topic: str = "FACTOR") -> dict[str, Any]:
+def completion(profile: dict[str, Any], secret: str, body: dict[str, Any]) -> Any:
     request = Request(
         endpoint(profile["base_url"]),
         data=json.dumps(body).encode(),
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + secret},
     )
-    try:
-        # Standard TLS verification remains enabled; bypass proxy and redirect credential forwarding.
-        from urllib.request import HTTPSHandler
+    # Standard TLS verification remains enabled; never forward credentials through redirects or proxies.
+    from urllib.request import HTTPSHandler
 
-        opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=ssl.create_default_context()))
-        with opener.open(request, timeout=60) as response:
-            raw = response.read(65537)
-        if len(raw) > 65536 or secret.encode() in raw:
-            raise ValueError
-        value = strict_json(raw)
+    opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=ssl.create_default_context()))
+    with opener.open(request, timeout=120) as response:
+        raw = response.read(65537)
+    if len(raw) > 65536 or secret.encode() in raw:
+        raise ValueError("invalid provider response")
+    return strict_json(raw)
+
+
+def probe(profile: dict[str, Any], secret: str) -> dict[str, str]:
+    try:
+        value = completion(
+            profile,
+            secret,
+            {
+                "model": profile["model_id"],
+                "messages": [{"role": "user", "content": "请只回复：连接成功。"}],
+                "max_tokens": 64,
+            },
+        )
+        reply = value["choices"][0]["message"]["content"]
+        if not isinstance(reply, str) or not 0 < len(reply.strip()) <= 2000 or secret in reply:
+            raise ValueError("invalid probe reply")
+        return {"reply": reply}
+    except HTTPError as error:
+        return {
+            "error": {
+                401: "MODEL_AUTH_FAILED",
+                403: "MODEL_AUTH_FAILED",
+                404: "MODEL_ENDPOINT_NOT_FOUND",
+                429: "MODEL_BUSY",
+            }.get(error.code, "MODEL_REJECTED")
+        }
+    except (OSError, URLError):
+        return {"error": "MODEL_OUTCOME_UNKNOWN"}
+    except (ValueError, KeyError, IndexError, TypeError, RecursionError):
+        return {"error": "MODEL_RESPONSE_INVALID"}
+
+
+def invoke(profile: dict[str, Any], secret: str, body: dict[str, Any], topic: str = "FACTOR") -> dict[str, Any]:
+    try:
+        value = completion(profile, secret, body)
         content = strict_json(value["choices"][0]["message"]["content"])
         validate_response(content, topic)
         # Candidate is an unadmitted proposal; Rust retains canonical validation and source derivation in A3.

@@ -13,8 +13,14 @@ A person describes a predictive idea in ordinary language, understands the gener
 confirms one proposed Research. OnlyAlpha returns reproducible scientific evidence; the Agent explains it and can propose an
 improvement. Users should not need to author input/output JSON, read code or copy internal identities to complete this flow.
 
-The owner chose persistent chat on the left and the current Factor, research proposal, running task or report on the right.
-Putting everything into a long transcript was considered but makes the current version and pending confirmation difficult to find.
+The owner refined the workstation layout on 2026-10-30: a Codex-like workspace has research conversation history on the left,
+the conversation on the right, and a composer with model selection fixed below that conversation. Factor previews are structured
+cards embedded in the corresponding assistant reply, rather than a permanently separate preview column. Research proposals,
+task observations and reports appear with their relevant replies. Clearly distinguish current actionable cards from historical
+versions; keep the pending confirmation discoverable even in a long conversation. This changes presentation, not approval authority.
+Model connection and credential configuration lives in global settings beside data-source configuration, not in the research transcript.
+The existing Agent-owned durable conversation store is reused; browser storage may retain presentation selection but is not the
+sole record of research context. Restoring a conversation must restore its owned messages and exact associated proposal/task references.
 The daily entry is a small **待复核候选清单**; complete candidates and failed experiments remain discoverable in research history.
 Putting every generated draft into the common Factor library obscures useful assets, while retaining only winners loses evidence.
 Compare candidates within declared research conditions, using evidence tiers and explicit reasons; a universal composite-score
@@ -61,7 +67,7 @@ One conversation follows one hypothesis through draft revisions and independent 
 same hypothesis stays in that conversation. A fundamental change such as momentum continuation to reversal is explicitly a new
 hypothesis, with its origin linked rather than replacing the old one silently.
 
-The right pane presents:
+The conversation's structured reply cards present:
 
 1. **因子预览**: meaningful editable name, purpose, predictive hypothesis, calculation steps, formula, parameters and readiness rules.
    Code and input/parameter/output contracts remain advanced details. Agent-generated contracts still undergo formal validation;
@@ -70,10 +76,14 @@ The right pane presents:
 3. **运行情况**: the exact accepted task, observed phase, cancellation/recovery feedback and any actionable gap.
 4. **研究报告**: actual inputs, scientific results and a separately labelled Agent interpretation, with earlier runs selectable.
 
-Chat and pane always identify the same current draft/proposal. Prior confirmed versions and reports stay selectable without
+Messages and their cards always identify the corresponding exact draft/proposal; only the current eligible card can offer a new confirmation.
+Prior confirmed versions and reports stay selectable without
 silently making an old item the current draft. Refresh/restart restores conversation, pending confirmation and original task
 references. User-facing names lead; precise identities, source bindings and model/tool versions remain inspectable in details.
-No new fingerprint or identity algorithm is introduced for these presentation views.
+No new fingerprint or identity algorithm is introduced for these presentation views. Default copy uses natural financial/quantitative
+language and exposes only information needed for the current step. Exact implementation identities, code and diagnostic records
+remain available on demand under AGENTS.md §3.3.2. Required consent, source/sample conditions and unconfirmed outcomes stay visible
+where they affect a decision. Existing sessions retain their bound model; a model picker must not silently substitute that binding.
 
 ## Two confirmations and amendment rules
 

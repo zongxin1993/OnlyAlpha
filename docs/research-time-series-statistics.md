@@ -18,6 +18,11 @@ verify the complete immutable upstream artifacts, graph/horizon/source relations
 approved proposal and generation before calling the pure executor. Arbitrary caller-supplied hashes
 cannot authorize execution or publication. The pure executor neither issues nor persists Evidence.
 
+Owning readers may reuse a fully verified fact and its upstream closure within the same held publication
+cut, including when several source families share a physical owner. Such reuse must retain exact owner
+and locator bindings, remain bounded, and end before the captured source barriers are released; it is
+never a cache across requests or cuts. Every new read must detect unavailable or changed upstream facts.
+
 The plan also binds interval, bar spacing, horizon, expected block length, replicate count,
 family confidence, an explicit 32-byte seed and the complete declared comparison family.
 Each family member names interval, horizon and metric (Pearson or Spearman). Both current metrics

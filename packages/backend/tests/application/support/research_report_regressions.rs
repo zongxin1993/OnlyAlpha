@@ -60,6 +60,32 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         }
     }
 
+    // Verified values may be reused within one protected read, never across
+    // requests: losing any upstream owner must invalidate the next report.
+    for relative in [
+        "statistics-results/sha256",
+        "calculation-results/sha256",
+        "datasets/sha256",
+    ] {
+        let source = root.join(relative);
+        let held = source.with_file_name("held-report-upstream");
+        std::fs::rename(&source, &held)?;
+        let unavailable =
+            serde_json::to_value(completed_report(client, &authority, root, &run).await);
+        std::fs::rename(&held, &source)?;
+        let unavailable = unavailable?;
+        assert!(unavailable["report"].is_null(), "{relative}");
+        assert_eq!(unavailable["report_status"]["state"], "UNAVAILABLE");
+        assert_eq!(
+            ResearchExecution::new(client).observe(&run).await?.state,
+            RunState::Completed
+        );
+        assert_eq!(
+            serde_json::to_value(completed_report(client, &authority, root, &run).await)?,
+            original
+        );
+    }
+
     let group = semantic
         .join("research/novelty-decision-groups")
         .join(command.value());
@@ -162,4 +188,36 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         original
     );
     Ok(json!({"run_id":id,"state":"COMPLETED","report_provenance_regressions":"VERIFIED"}))
+}
+
+/// Each independent physical-source fault keeps the original bounded probe budget.
+pub async fn inspect_source_cut(client: &mut tokio_postgres::Client, v: &Value) -> Result<Value> {
+    let relative = v["missing_upstream"].as_str().ok_or("upstream")?;
+    if ![
+        "statistics-results/sha256",
+        "calculation-results/sha256",
+        "datasets/sha256",
+    ]
+    .contains(&relative)
+    {
+        return Err("upstream".into());
+    }
+    let semantic = Path::new(v["semantic_root"].as_str().ok_or("semantic root")?);
+    let root = Path::new(v["research_root"].as_str().ok_or("research root")?);
+    let roots: BTreeMap<String, PathBuf> = serde_json::from_value(v["source_roots"].clone())?;
+    let authority = Authority::new(
+        semantic,
+        Path::new(v["projection_root"].as_str().ok_or("projection")?),
+        roots,
+    )?;
+    let projection = authority.refresh_projection(client).await?;
+    assert_eq!(authority.refresh_projection(client).await?, projection);
+    let source = root.join(relative);
+    let held = source.with_file_name("held-source-cut-upstream");
+    std::fs::rename(&source, &held)?;
+    let unavailable = authority.refresh_projection(client).await;
+    std::fs::rename(&held, &source)?;
+    assert!(unavailable.is_err());
+    assert_eq!(authority.refresh_projection(client).await?, projection);
+    Ok(json!({"source_cut_regressions":"VERIFIED","missing_upstream":relative}))
 }

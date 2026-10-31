@@ -70,9 +70,26 @@ class ModelInput(Closed):
     secret: str = Field(min_length=1, max_length=8192, repr=False)
 
 
+class ModelTestInput(Closed):
+    base_url: str = Field(min_length=1, max_length=2048)
+    model_id: str = Field(min_length=1, max_length=200)
+    secret: str = Field(min_length=1, max_length=8192, repr=False)
+
+
+class ModelTestView(Closed):
+    reply: str
+
+
+class ContinuationInput(Closed):
+    parent_session: UUID4 = Field(strict=False)
+    parent_head: str = Field(pattern=r"^[0-9a-f]{64}$")
+    backend_command: UUID4 = Field(strict=False)
+
+
 class SessionInput(Closed):
     model_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     model_call_limit: int = Field(ge=1, le=100)
+    continuation: ContinuationInput | None = None
 
 
 class MessageInput(Closed):
@@ -93,7 +110,7 @@ class ProposalInput(Closed):
 
 
 class BackendProposalView(Closed):
-    status: Literal["REGISTERED", "OUTCOME_UNKNOWN", "BINDING_UNAVAILABLE", "REJECTED"]
+    status: Literal["REGISTERED", "ABANDONED", "OUTCOME_UNKNOWN", "BINDING_UNAVAILABLE", "REJECTED"]
     backend_command: str
     receipt: dict[str, Any] | None
 
@@ -128,6 +145,7 @@ class ProposalReference(Closed):
     command: str
     head: str
     fingerprint: str | None
+    abandoned: bool = False
 
 
 class CommandView(Closed):
@@ -138,6 +156,7 @@ class CommandView(Closed):
 class SessionView(Closed):
     id: str
     workflow: str
+    current_workflow: str
     model_revision: str
     head: str | None
     consumed: int
@@ -150,10 +169,38 @@ class SessionView(Closed):
     topic: Literal["FACTOR", "STUDY"]
     study: dict[str, Any] | None
     execution_admitted: Literal[False]
+    continuation: dict[str, Any] | None = None
+    successor: str | None = None
 
 
 class SessionsView(Closed):
     items: list[SessionView]
+
+
+class ConversationModel(Closed):
+    name: str
+    model_id: str
+    model_version: str
+
+
+class ConversationTurn(Closed):
+    head: str
+    topic: Literal["FACTOR", "STUDY"]
+    user: str
+    assistant: str | None
+    status: Literal["READY", "FAILED", "OUTCOME_UNKNOWN"]
+    candidate: dict[str, Any] | None
+    study: dict[str, Any] | None
+    factor_reference: ProposalReference | None
+    study_reference: ProposalReference | None
+
+
+class ConversationView(Closed):
+    id: str
+    head: str | None
+    model_revision: str
+    model: ConversationModel
+    turns: list[ConversationTurn]
 
 
 class RevocationView(Closed):
@@ -286,6 +333,18 @@ def create_app(settings: Settings) -> FastAPI:
         with Store(settings) as store:
             return {"items": store.models(p.subject)}
 
+    @app.post("/api/v1/agent/models/test", response_model=ModelTestView)
+    def test_model(body: ModelTestInput, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "model:write", True)
+        try:
+            model.endpoint(body.base_url)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        result = model.probe({"base_url": body.base_url, "model_id": body.model_id}, body.secret)
+        if "error" in result:
+            raise HTTPException(502, result["error"])
+        return result
+
     @app.put("/api/v1/agent/models/{mid}", response_model=ModelView)
     def configure(
         mid: UUID4,
@@ -312,7 +371,26 @@ def create_app(settings: Settings) -> FastAPI:
     ) -> Any:
         require(p, "chat:write", True)
         with Store(settings) as store:
-            return store.create(str(sid), p.subject, command(request), body.model_dump(), app.state.workflow)
+            proof = None
+            if body.continuation is not None:
+                if settings.backend_url is None or settings.backend_credential is None:
+                    raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+                try:
+                    proof = backend.request(
+                        backend.Connection(settings.backend_url, settings.backend_credential),
+                        "GET",
+                        "/api/v2/factor-study-continuations/" + str(body.continuation.backend_command),
+                    )
+                except (backend.Unknown, backend.Rejected) as error:
+                    raise HTTPException(503, "AGENT_CONTINUATION_UNAVAILABLE") from error
+            return store.create(
+                str(sid),
+                p.subject,
+                command(request),
+                body.model_dump(mode="json", exclude_none=True),
+                app.state.workflow,
+                proof,
+            )
 
     @app.get("/api/v1/agent/sessions", response_model=SessionsView)
     def sessions(p: Annotated[Principal, Depends(principal)]) -> Any:
@@ -330,6 +408,12 @@ def create_app(settings: Settings) -> FastAPI:
         require(p, "chat:read")
         with Store(settings) as store:
             return store.view(str(sid), p.subject, app.state.workflow)
+
+    @app.get("/api/v1/agent/sessions/{sid}/conversation", response_model=ConversationView)
+    def conversation(sid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "chat:read")
+        with Store(settings) as store:
+            return store.conversation(str(sid), p.subject)
 
     def turn(sid: str, p: Principal, cid: str | None, body: MessageInput | None) -> Any:
         require(p, "chat:write", True)
@@ -419,6 +503,40 @@ def create_app(settings: Settings) -> FastAPI:
                 raise HTTPException(404, "AGENT_NOT_FOUND")
         return stage(str(sid), plan["body"]["origin"]["event_fingerprint"], str(cid), p, False)
 
+    @app.post("/api/v1/agent/sessions/{sid}/proposals/{cid}/resolve", response_model=BackendProposalView)
+    def resolve_proposal(sid: UUID4, cid: UUID4, p: Annotated[Principal, Depends(principal)]) -> Any:
+        require(p, "chat:write", True)
+        if settings.backend_url is None or settings.backend_credential is None:
+            raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+        connection = backend.Connection(settings.backend_url, settings.backend_credential)
+        # This control operation never loads another workflow or replays a model.
+        with Store(settings) as store, store.session_lock(str(sid)):
+            store.session(str(sid), p.subject)
+            plan = store.backend_plan(str(cid))
+            if plan["session"] != str(sid) or plan["owner"] != p.subject or plan.get("topic") != "STUDY":
+                raise HTTPException(409, "AGENT_PROPOSAL_ORIGIN_UNAVAILABLE")
+            result = {"status": "OUTCOME_UNKNOWN", "backend_command": plan["backend_command"], "receipt": None}
+            if plan["binding"] != connection.fingerprint():
+                return {**result, "status": "BINDING_UNAVAILABLE"}
+            receipt = store.backend_recorded(str(cid))
+            if receipt is None:
+                try:
+                    receipt = backend.request(
+                        connection,
+                        "POST",
+                        "/api/v2/factor-studies/commands/" + plan["backend_command"] + "/resolution",
+                        plan["body"],
+                        plan["backend_command"],
+                    )
+                    store.backend_finish(str(cid), receipt)
+                except (backend.Unknown, backend.Rejected, Conflict):
+                    return result
+            return {
+                **result,
+                "status": "ABANDONED" if receipt["effect"] == {"registration_abandoned": True} else "REGISTERED",
+                "receipt": receipt,
+            }
+
     def stage(sid: str, expected: str, cid: str, p: Principal, allow_new: bool) -> Any:
         require(p, "chat:write", True)
         if settings.backend_url is None or settings.backend_credential is None:
@@ -426,7 +544,7 @@ def create_app(settings: Settings) -> FastAPI:
         connection = backend.Connection(settings.backend_url, settings.backend_credential)
         with Store(settings) as store, store.session_lock(str(sid)):
             current = store.view(str(sid), p.subject, app.state.workflow)
-            if current["status"] == "WORKFLOW_UNAVAILABLE":
+            if current["status"] == "WORKFLOW_UNAVAILABLE" and allow_new:
                 raise HTTPException(409, "AGENT_WORKFLOW_UNAVAILABLE")
             old = store.conn.execute("SELECT 1 FROM agent_backend_plan WHERE command=%s", (cid,)).fetchone()
             if old is None:
@@ -457,12 +575,15 @@ def create_app(settings: Settings) -> FastAPI:
             result = {"status": "OUTCOME_UNKNOWN", "backend_command": plan["backend_command"], "receipt": None}
             if plan["binding"] != connection.fingerprint():
                 return {**result, "status": "BINDING_UNAVAILABLE"}
-            if store.backend_rejected(cid):
-                return {**result, "status": "REJECTED"}
             stored = store.backend_recorded(cid)
             if stored is not None:
-                checkpoint_proposal(store, str(sid), cid)
+                if stored["effect"] == {"registration_abandoned": True}:
+                    return {**result, "status": "ABANDONED", "receipt": stored}
+                if current["status"] != "WORKFLOW_UNAVAILABLE":
+                    checkpoint_proposal(store, str(sid), cid)
                 return {**result, "status": "REGISTERED", "receipt": stored}
+            if store.backend_rejected(cid):
+                return {**result, "status": "REJECTED"}
             family = "factor-studies" if plan.get("topic", "FACTOR") == "STUDY" else "factor-proposals"
             try:
                 if accepted:
@@ -480,7 +601,10 @@ def create_app(settings: Settings) -> FastAPI:
                         raise
                     store.backend_observation(cid, "SUBMIT" if accepted else "QUERY", "INVALID_RESPONSE")
                     return result
-                checkpoint_proposal(store, str(sid), cid)
+                if receipt["effect"] == {"registration_abandoned": True}:
+                    return {**result, "status": "ABANDONED", "receipt": receipt}
+                if current["status"] != "WORKFLOW_UNAVAILABLE":
+                    checkpoint_proposal(store, str(sid), cid)
                 return {**result, "status": "REGISTERED", "receipt": receipt}
             except backend.Unknown:
                 store.backend_observation(cid, "SUBMIT" if accepted else "QUERY", "UNKNOWN")
@@ -514,6 +638,8 @@ def create_app(settings: Settings) -> FastAPI:
             receipt = store.backend_recorded(str(cid))
             if receipt is None:
                 raise HTTPException(409, "AGENT_BACKEND_OUTCOME_UNKNOWN")
+            if receipt["effect"] == {"registration_abandoned": True}:
+                raise HTTPException(409, "AGENT_PROPOSAL_ABANDONED")
             fp = receipt["effect"]["proposal_fingerprint"]
             family = "factor-studies" if plan.get("topic", "FACTOR") == "STUDY" else "factor-proposals"
             try:

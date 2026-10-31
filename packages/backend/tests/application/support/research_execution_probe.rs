@@ -31,6 +31,9 @@ pub async fn run(
     materialized: &MaterializedDataset,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let phase = v["phase"].as_str().ok_or("phase")?;
+    if phase == "source-cut-inspect" {
+        return research_report_regressions::inspect_source_cut(client, v).await;
+    }
     if phase == "report-inspect" {
         return research_report_regressions::inspect(client, v).await;
     }

@@ -1652,6 +1652,16 @@ def test_native_one_run_research_uses_real_confirmation_and_immutable_evidence(
                     "state": "COMPLETED",
                     "report_provenance_regressions": "VERIFIED",
                 }
+                for relative in ("statistics-results/sha256", "calculation-results/sha256", "datasets/sha256"):
+                    restored = probe(
+                        actual,
+                        database,
+                        "dataset-research",
+                        phase="source-cut-inspect",
+                        missing_upstream=relative,
+                        **request,
+                    )
+                    assert restored == {"source_cut_regressions": "VERIFIED", "missing_upstream": relative}
         case["result"] = result
         case["next_stage"] = "done"
     result = case["result"]

@@ -2,7 +2,7 @@
 use crate::{
     application::{
         command::CommandId,
-        factor_studies::{GrantInput, SelectionInput, StageInput},
+        factor_studies::{ContinuationInput, GrantInput, SelectionInput, StageInput},
     },
     persistence::{factor_proposals::Proposals, factor_studies::Studies},
     security::{
@@ -116,6 +116,39 @@ impl Host {
                     command.as_ref().ok_or_else(invalid)?,
                     owner,
                     serde_json::from_value::<GrantInput>(body).map_err(|_| invalid())?,
+                    &at,
+                )
+                .await
+        } else if method == Method::POST
+            && path == "/api/v2/factor-study-continuations"
+            && human.is_some()
+        {
+            store
+                .continue_workflow(
+                    command.as_ref().ok_or_else(invalid)?,
+                    owner,
+                    serde_json::from_value::<ContinuationInput>(body).map_err(|_| invalid())?,
+                    &at,
+                )
+                .await
+        } else if method == Method::GET && path.starts_with("/api/v2/factor-study-continuations/") {
+            let c = CommandId::new(path.trim_start_matches("/api/v2/factor-study-continuations/"))
+                .map_err(|_| invalid())?;
+            store.read_continuation(&c, owner, presented.as_ref()).await
+        } else if method == Method::POST && path.ends_with("/resolution") && presented.is_some() {
+            let raw = path
+                .strip_prefix("/api/v2/factor-studies/commands/")
+                .and_then(|s| s.strip_suffix("/resolution"))
+                .ok_or_else(invalid)?;
+            let c = CommandId::new(raw).map_err(|_| invalid())?;
+            if command.as_ref() != Some(&c) {
+                return Err(invalid());
+            }
+            store
+                .resolve_registration(
+                    &c,
+                    presented.as_ref().ok_or_else(invalid)?,
+                    serde_json::from_value::<StageInput>(body).map_err(|_| invalid())?,
                     &at,
                 )
                 .await

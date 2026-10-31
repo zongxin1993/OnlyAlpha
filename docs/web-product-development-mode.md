@@ -57,6 +57,47 @@ proven chart-centric interaction model
 OnlyAlpha Research / Backtest / SIM / LIVE authorities
 ~~~
 
+### Interface research and presentation discipline
+
+AGENTS.md §3.3.2 governs every new or changed user-facing interface. Before implementation, inspect actual relevant quantitative /
+financial product screens, official screenshots or interaction demonstrations. Use references matched to the task: TradingView for
+chart/watchlist interaction, QuantConnect for research/backtest organization, and the owner's selected conversation reference for
+chat research. Reuse applicable prior research. Record sources, observed layout and actions, information hierarchy, adopted/rejected
+patterns and their OnlyAlpha application in the active task context; do not create another progress or acceptance report. If visual
+evidence is unavailable, disclose that gap instead of claiming that documentation-only research proves the interface.
+
+Default screens expose the current user's task, meaningful financial/quantitative information, state and next action. Put connection
+and model configuration in settings. Keep advanced options, code, logs, schemas and exact diagnostic identities behind discoverable
+details. Use natural language and ordinary quantitative vocabulary, not internal type names, fingerprints, revision hashes, leases,
+raw exception messages or error codes. An internal word translated literally is not necessarily understandable product copy.
+
+Errors explain what happened, whether the requested action took effect and how to continue. An unconfirmed result stays visibly
+unconfirmed and offers observation of the original operation; it never becomes a generic failure with a blind retry. Concision must
+preserve relevant source/sample conditions, costs and limits, permission scope, risks, confirmation subjects and irreversible effects.
+OnlyAlpha authorities retain exact identity and provenance; presentation simplification changes no safety or correctness semantics.
+
+Validate hierarchy, readable typography, spacing, alignment, scrolling, narrow screens, keyboard/focus and natural copy in the real
+Shipping Web flow. A rendered component or a green test suite alone cannot establish usability.
+
+### Reuse mature components and confirm feature choices
+
+AGENTS.md §3.4.1 requires active web research and owner confirmation before selecting or implementing each new feature.
+Evaluate existing project components first, then mature third-party UI components and established projects / platform tools for
+generic capabilities such as user management, authentication, release version management and deployment. Do not rebuild their
+internals when they already meet the current need. Native / standard-library capabilities remain preferred where sufficient.
+
+Bring a sourced comparison and a concrete recommendation to the owner: requirement coverage, boundary fit, maintenance maturity,
+license, security/privacy, stack compatibility, integration and ongoing cost, and the minimum OnlyAlpha-specific work. UI research
+also inspects actual screens under §3.3.2. Research is bounded to the feature and its real impact; unavailable sources are a gap,
+not a completed selection. Previously approved scope/choices need no repeat approval; new features and material selection changes
+need explicit confirmation before implementation, dependency installation or service introduction. Custom implementation requires
+evidence that existing capabilities and mature alternatives cannot satisfy the necessary requirements, and owner confirmation.
+
+Reuse never transfers OnlyAlpha business authority to a component or platform: authentication does not confer business or LIVE
+authorization, and deployment/release tooling cannot redefine semantic versions, fact identities or Runtime Generation. Preserve
+formal API boundaries, permissions, deterministic behavior, recovery, traceability and fail-closed semantics. Integrate only what
+the current workflow needs; this rule neither requires a heavyweight platform nor authorizes a repository-wide replacement effort.
+
 ## 3. Mandatory development loop
 
 Every normal product slice follows:

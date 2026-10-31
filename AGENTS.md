@@ -315,6 +315,26 @@ ID、查询数据库或切换调试工具；loading/empty/invalid/denied/unavail
 可从 UI 完成，UNKNOWN 不被包装成失败或盲重试；保留相关 keyboard/focus/responsive 行为。每个 Slice 必须明确用户
 步骤、必要输入、预期可见反馈与有依据的交互/耗时预算，并进行同路径 dogfooding，不用单一点击数或测试变绿代替可用性。
 
+#### 3.3.2 界面调研、信息层级与用户语言
+
+任何新增或修改用户可见界面，在实现前 MUST 调研与当前用户任务相符的成熟量化 / 金融产品界面，查看实际界面、官方截图或
+官方交互演示；只凭印象、阅读 API 文档或列出竞品名称不算界面调研。TradingView 可用于行情与图表，QuantConnect 等可用于
+研究与回测；对话式研究还应结合 owner 指定的对话产品参考。复用仍适用的已有调研，范围限于当前 Slice，不扩成全产品审计。
+当前任务上下文必须给出参考来源、观察到的布局 / 操作路径 / 信息层级、采用或不采用的理由，以及对应 OnlyAlpha 用户步骤。
+无法取得界面证据时应说明缺口，不得把推测称作已完成调研。外部产品不拥有 OnlyAlpha Domain、API、权限或执行 Authority。
+
+- 默认界面只展示完成当前任务所需的输入、关键金融 / 量化信息、当前状态与下一步。配置归入可发现的设置入口；
+  高级选项、代码、日志与诊断按需展开，不把工程说明、完整 schema 或安全契约整段堆在主界面。
+- 用户文案采用普通金融量化用户熟悉的词汇与自然中文，例如因子、收益率、回撤、样本区间、数据源、研究条件、模型。
+  `Fingerprint`、`Reducer`、`DTO`、`Lease`、`Revision Hash`、内部 ID、哈希、类名、原始错误码等实现概念不得作为默认标签、
+  必填输入、操作指引或错误说明；也不得只是机械翻译成同样难懂的中文。必要精确信息可放在诊断详情中。
+- 操作文案说清动作及对象；错误反馈优先说明发生了什么、是否已生效以及用户能如何继续。未知结果必须明确表示“结果尚未确认”，
+  保留查询原操作的恢复路径，不能用“失败，请重试”掩盖 UNKNOWN。不得泄露凭据或把原始异常直接当作用户提示。
+- 简洁不能隐藏用户决策必需的信息：实际数据来源、样本边界、费用 / 资源限制、权限范围、关键风险、不可逆效果及确认对象仍须在
+  相关操作处清楚呈现。精确身份和完整 provenance 继续由 owning Authority 保留，简化显示不修改契约或降低任何安全检查。
+- 实现前明确主次操作、默认 / 展开信息和空白 / 加载 / 错误状态；验收必须在真实 Shipping Web 中检查视觉层级、字号 / 间距、
+  对齐、滚动、窄屏与 keyboard / focus，以及文案能否让用户无需内部知识完成任务。组件渲染或测试通过不等于界面易用。
+
 ### 3.4 Simplicity / Accidental Complexity Control
 
 OnlyAlpha 使用 bounded Simplicity Review 消除 accidental complexity；它不删除 Constitution、Architecture / Contract、Accepted ADR、冻结 Required Behavior、correctness、security、reproducibility、data integrity、recovery、traceability、observability 或 required tests 所要求的 essential complexity。
@@ -357,6 +377,34 @@ REJECT_AS_ESSENTIAL
 不得把 Ponytail finding、`@ponytail-audit` 输出、debt ledger、PASS 结果或 review summary 提交成第二份仓库质量/进度 Authority。`@ponytail-audit` 也不得把普通任务扩展成全仓 cleanup；只有当前 Task Contract 或 Major Milestone contract 明确把 repository-wide complexity audit 纳入 Scope 时才能执行。
 
 Ponytail 不拥有任务验收 Authority，不替代 Baseline Validation、risk-specific evidence、bounded Independent Review、Constitution consistency 或现有 CI/quality gates。
+
+#### 3.4.1 成熟组件优先与新增功能选型确认
+
+工程精力优先投入 OnlyAlpha 的 canonical semantics、唯一 Authority、确定性、数据完整性、可恢复性及正式产品链路。
+UI 与通用配套能力 MUST 优先复用满足当前需求的成熟第三方组件 / 项目，不重复建设成熟生态已可靠解决的能力。
+UI 的表单、表格、对话框、菜单、布局与可访问性交互等，先复用项目已有组件体系，再评估成熟第三方方案；
+用户管理、通用身份认证、发行版本管理、部署、升级及类似非 OnlyAlpha 特有的能力，也必须先评估成熟项目、平台或标准工具。
+不得仅因“代码可控”“方便定制”或个人偏好就从零实现；已有实现、native / stdlib 或成熟依赖已满足需求时不得另造同类实现。
+
+每次新增功能，在选型及实现前 MUST 进行与当前功能相关的全网调研，并由 owner 明确确认方案：
+
+1. 先明确用户目标、现有可复用能力及真正属于 OnlyAlpha 的约束，再联网检索相关成熟项目 / 组件、官方文档、维护与发布情况、
+   适用案例及直接相关的已知问题；UI 同时遵守 §3.3.2 的实际界面调研要求。不能只凭模型记忆、过往偏好或一个候选直接定案。
+2. 在当前任务上下文给出有来源的候选比较、推荐方案及理由，说明需求覆盖、项目边界适配、维护成熟度、许可证、
+   安全 / 隐私、现有技术栈兼容性、接入与长期维护成本；调查深度按真实风险与 Impact Scope 确定。
+   “全网调研”要求主动跨相关来源查找与比较，不意味着无限穷举网站或扩大为全仓审计。
+3. 提交具体可审阅方案供 owner 确认，明确复用什么、OnlyAlpha 必须自行实现什么、依赖 / 服务 / 部署变化及主要取舍。
+   已明确批准的功能范围和选型不重复询问；新功能或实质改变已批准选型、边界、成本与安全条件时须重新确认。
+   未获确认或调研来源不可用时，不得先实现、安装依赖或引入服务，再补做确认；说明缺口并保留未决状态。
+4. 只有经调研证明现有能力与成熟方案不能满足当前必要需求时，才可提出自研；必须说明具体缺口、排除方案及理由，
+   经 owner 确认后实现最小必要部分。不得以假设未来需求扩大自研范围，也不得为单个小能力引入不必要的大型平台。
+
+本节补充 §3.4 的复用选择顺序；引入依赖必须有当前功能的实际消费者和已确认的必要性。第三方方案必须服从 Constitution、
+Architecture / Contract 与 Accepted ADR，不得取得 OnlyAlpha 的 Trading / Research / Risk / LIVE Authority，
+不得绕过 versioned API、权限、identity、确定性、审计、recovery 或 fail-closed。通用用户认证不代替 OnlyAlpha 的业务授权；
+发行 / 部署工具不定义 Strategy Revision、事实身份、Runtime Generation 或人工 LIVE 授权，也不自动授权第二套本地 Compose 拓扑。
+只实现当前边界所需的最小集成，不复制成熟项目内部实现、不新建平行状态真相，也不为本规则一次性替换全仓已有能力。
+调研与方案确认保留在当前任务上下文，不新增进度、选型认证或质量状态 Authority；长期设计决定按既有 Architecture / ADR 规则记录。
 
 ---
 
@@ -586,7 +634,8 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
 
 本地正式验证必须在唯一 `onlyalpha-dev` project 中通过 `deploy/docker-compose.dev.yml` 的正式验证入口执行，复用 dev
 服务和固定 dev 镜像集合，并遵守下述 §6.1；宿主 `.venv` 只允许用于快速 inner-loop 定位，其结果不得替代正式验收。
-验证必须绑定当前工作树并保留 `test-results/`。CI 可以使用独立 job namespace 和测试资源；这种 CI 生命周期不得默认搬到
+验证必须绑定当前工作树，并在验证、review 与远端提交核验完成前保留 `test-results/`；成功 push 后按 §9.2 清理本次过程数据。
+CI 可以使用独立 job namespace 和测试资源；这种 CI 生命周期不得默认搬到
 本地开发。明确依赖公网、Windows、硬件或真实账户的 external lane 在对应受控目标环境执行，不得伪装成容器 PASS。
 
 本地 PostgreSQL 测试必须通过唯一 canonical `deploy/docker-compose.dev.yml` 的 `test` profile 执行；
@@ -635,6 +684,12 @@ Coverage 是诊断与专项验证工具，不是普通任务默认 Gate，不得
   必须成套清理并重新初始化，禁止只删 user-data 后重绑未清理的数据库。普通启动不隐式清库，不因每轮验证自动重建。
   清理仅限明确归属本项目的开发资源；仍禁止 `down -v`、全局 `system/image/volume/builder prune` 或删除未知归属资源。
   保留固定 dev 镜像集合与其他项目。Docker Desktop 全局停启及其对其他服务的影响必须单独明确授权。
+- Owner 补充授权（2026-10-30）：开发阶段更新部署时，可直接删除已确认归属 `onlyalpha-dev` 的旧 dev 容器和本地开发数据卷，
+  成套重新初始化并部署当前工作树验证构建的最新版本；无需为旧开发数据保留、备份、格式兼容或该开发环境的重建重复申请授权。
+  仍须先盘点精确资源与引用、协调正在运行的工作并持有生命周期锁，使用唯一拓扑、固定 dev 镜像集合及正式构建 / 部署入口。
+  本授权不涉及其他项目、生产 / 真实账户数据、全局 Docker 清理或 Trading / LIVE 授权。
+  开发构建 / 部署失败留下待恢复标记时，Agent 可在持锁核对原操作身份、进程终止、实际镜像 / 容器 / 卷及命令结果后，
+  保留诊断日志并恢复该 dev 生命周期，按上述授权清理重建，无需再次向 owner 申请；不能只删除标记，把尚未核对的 UNKNOWN 当作未发生。
 - 不满足上述约束的旧 runner/命令不能作为本地开发入口。特别是会创建临时 project 并 `down -v` 的
   `deploy/run-tests.sh`、`deploy/run-web-e2e.sh` 调用模式只能用于其受控 CI 场景，不能因脚本已存在就继续在本地执行。
   未完成安全的共享 dev 入口时应报告入口缺口，不得偷偷退回平行部署或把文档约束宣称为已实现的机械保护。
@@ -792,6 +847,22 @@ Migration 的数字顺序前缀、正式 schema/API version、稳定 domain 编�
 Roadmap 只能描述建设地图和依赖关系，不得通过 completed/current/pending/ready/verified/progress percentage 取代当前源码事实。
 
 历史 Prompt 只能解释历史任务，不拥有产品目标、当前状态或下一步工作 Authority。
+
+---
+
+### 9.2 远端分支提交后的过程数据清理
+
+每次成功向远端分支提交（`git push`）后，MUST 先核实目标远端分支已包含本次提交，再清理本次工作产生且已不再使用的本地过程数据；
+适用于开发分支及主分支，不以 merge 或发布为前提。清理属于本次工作的收尾步骤，不得留作下一次任务的默认负担。
+
+- 执行前盘点精确路径、归属与使用状态，只清理已确认属于本项目、本次工作且不再被验证、review 或其他任务使用的产物。
+- 清理范围包括根目录及组件内的 `test-results/`（以及遗留 `test-result/`）、临时测试报告、日志、截图、录像、trace、
+  临时验证源码副本、测试缓存和临时构建产物；不得仅因目录被 gitignore 忽略就递归清空所有未跟踪文件。
+- 不删除源码、未提交改动、正式 fixture / golden / reference vectors、必要的 exact artifacts、immutable facts、运行数据、
+  密钥或凭据；不得把本规则当作删除 dev 容器、镜像、network、volume 或重置数据库的授权，相关资源仍遵守 §6.1。
+- push 失败、远端状态未核实或当前验证 / review 尚未结束时，保留对应证据。仍被使用或有明确保留要求的产物应暂缓清理，
+  在当前任务上下文说明精确路径、原因和清理时机；这不是永久豁免，也不得通过复制到其他目录规避清理。
+- 清理后核查目标产物已移除且工作区源码改动未受影响；在当前任务回复中简述清理范围与暂留项，不新增仓库清理报告或状态文件。
 
 ---
 

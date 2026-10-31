@@ -1,6 +1,7 @@
 // Human-only preparation, separate confirmation and original Run observation.
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { z } from "zod";
+import { Button } from "antd";
 import { request, type Study } from "./api";
 import {
     preparationContextSchema,
@@ -103,7 +104,12 @@ const runStates: Record<string, string> = {
 };
 const terminalRun = new Set(["COMPLETED", "FAILED", "CANCELLED", "CANCELED"]);
 function message(e: unknown) {
-    return e instanceof Error ? e.message : String(e);
+    const detail = e instanceof Error ? e.message : "";
+    return /[\u3400-\u9fff]/u.test(detail) &&
+        !/[{}[\]]/.test(detail) &&
+        !/[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+/.test(detail)
+        ? detail
+        : "暂时无法核对研究状态，请稍后刷新；原操作仍会保留，不会重复提交。";
 }
 export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemFeedback }: Props) {
     const key = "onlyalpha.factor.research." + study.snapshot.factor_proposal_fingerprint;
@@ -140,7 +146,7 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
         return actual;
     }, []);
     const loadPreparation = useCallback(
-        async (id: string) => {
+        async (id: string, observedRun: string | null = null) => {
             const tag = generation.current;
             const actual = await request(
                 `/api/v2/factor-study-preparations/commands/${id}`,
@@ -155,8 +161,9 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                     rejectedStaleConfirmation(actual))
             )
                 retain(null);
-            if (actual.run_id !== null) await loadRun(actual.run_id);
-            else {
+            if (actual.run_id !== null) {
+                if (actual.run_id !== observedRun) await loadRun(actual.run_id);
+            } else {
                 selected.current.run = null;
                 setRun(null);
             }
@@ -172,16 +179,18 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
             try {
                 // Reading a retained Run does not depend on new Source/context availability.
                 const failures: string[] = [];
+                let observedRun: string | null = null;
                 if (selected.current.run !== null)
                     try {
-                        await loadRun(selected.current.run);
+                        const actual = await loadRun(selected.current.run);
+                        if (tag === generation.current) observedRun = actual.run_id;
                     } catch (e) {
                         failures.push(message(e));
                     }
                 if (tag !== generation.current) return;
                 if (selected.current.preparation !== null)
                     try {
-                        await loadPreparation(selected.current.preparation);
+                        await loadPreparation(selected.current.preparation, observedRun);
                     } catch (e) {
                         failures.push(message(e));
                     }
@@ -245,6 +254,7 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
             busy ||
             reading ||
             preparation === null ||
+            (run !== null && terminalRun.has(run.state)) ||
             (["READY", "BLOCKED", "UNKNOWN", "CANCELLED"].includes(preparation.state) &&
                 (run === null || terminalRun.has(run.state)))
         )
@@ -294,7 +304,7 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                 throw new Error("本次研究提交结果未知，请核对原研究操作；不会创建第二次研究。");
             }
             await loadRun(actual.run_id);
-            onSystemFeedback?.("你已明确确认本次研究，backend 已接收单次 Research。");
+            onSystemFeedback?.("你已确认本次研究，研究任务已接收。");
         } else if (p.kind === "cancel-run") {
             const actual = await request(
                 `/api/v2/research/runs/${p.body.run_id}/cancellation`,
@@ -437,10 +447,10 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                     await loadRun(actual.run_id);
                     if (tag !== generation.current) return;
                     retain(null);
-                    onSystemFeedback?.("backend 已核对原 Research 已接收。");
+                    onSystemFeedback?.("已核对原研究任务，确认已经接收。");
                 } else if (matchesConfirmation(p, actual) && rejectedStaleConfirmation(actual)) {
                     retain(null);
-                } else setError("原 Research 尚未证明接收；请保持原操作身份，不要另建研究。");
+                } else setError("原研究是否已接收尚未确认，请核对原操作，不要重复创建研究。");
             } else {
                 await refresh();
                 setError(
@@ -460,7 +470,7 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
     return (
         <section aria-label="准备与运行研究">
             <h3>准备与运行研究</h3>
-            <p>先准备并启用这版研究环境，再单独确认一次 Research。准备不会启动研究。</p>
+            <p>先准备并启用这版研究环境，再单独确认本次研究。准备不会启动研究。</p>
             {context !== null && (
                 <>
                     <p>
@@ -469,11 +479,11 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                         分钟
                     </p>
                     <details>
-                        <summary>准备涉及哪些操作</summary>
+                        <summary>研究环境与版本详情</summary>
                         <p>
                             使用已确认因子，准备不可变数据集，并启用所选版本的研究环境；受保护样本不会读取。
                         </p>
-                        <p>backend {context.backend_version}</p>
+                        <p>研究服务版本：{context.backend_version}</p>
                         <pre>
                             {JSON.stringify(
                                 {
@@ -499,29 +509,35 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                 </p>
             )}
             {context?.new_work_status.state === "UNAVAILABLE" && (
-                <p role="alert">
+                <div role="alert">
                     {context.new_work_status.code ===
                     "RESEARCH_PREPARATION_INSUFFICIENT_BLOCK_SCOPE"
                         ? "研究样本范围不足：开发样本与样本外区间各自至少覆盖 10 个期望区块对应的有效配对范围。请扩大样本范围，通过聊天修改建议后再准备。原报告仍可查看。"
                         : "当前数据来源或研究环境暂不可用，不能准备或确认新的研究。原运行记录仍可查看和取消。"}
-                    <code>{context.new_work_status.code}</code>
-                </p>
+                    <details>
+                        <summary>诊断详情</summary>
+                        <code>{context.new_work_status.code}</code>
+                    </details>
+                </div>
             )}
             {preparation?.readiness.state === "UNAVAILABLE" && (
-                <p role="alert">
+                <div role="alert">
                     这份准备的输入证明暂不可核验，已阻止新的研究确认；请核对原准备任务。
-                    <code>{preparation.readiness.code}</code>
-                </p>
+                    <details>
+                        <summary>输入诊断详情</summary>
+                        <code>{preparation.readiness.code}</code>
+                    </details>
+                </div>
             )}
-            <button
-                type="button"
+            <Button
+                htmlType="button"
                 disabled={busy || reading}
                 onClick={() => {
                     if (!readingRef.current) void refresh();
                 }}
             >
                 刷新研究状态
-            </button>
+            </Button>
             {preparation !== null && (
                 <>
                     {context !== null && context.existing_preparations.length > 1 && (
@@ -552,15 +568,15 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
             {preparation === null ||
             preparation.state === "CANCELLED" ||
             (run !== null && terminalRun.has(run.state) && !current) ? (
-                <button
-                    type="button"
+                <Button
+                    htmlType="button"
                     disabled={blocked}
                     onClick={() => {
                         void prepare();
                     }}
                 >
                     准备并启用研究环境
-                </button>
+                </Button>
             ) : (
                 <>
                     {preparation.state === "READY" &&
@@ -570,39 +586,39 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                                 <p>
                                     核对当前因子、数据、周期、开发/样本外区间和序列依赖修正后，可在聊天发送“确认本次研究”。只运行一次。
                                 </p>
-                                <button
-                                    type="button"
+                                <Button
+                                    htmlType="button"
                                     disabled={blocked || preparation.readiness.state !== "VERIFIED"}
                                     onClick={() => {
                                         void confirmResearch();
                                     }}
                                 >
                                     确认本次研究
-                                </button>
+                                </Button>
                             </>
                         )}
                     {["INPUT_PENDING", "BLOCKED", "UNKNOWN"].includes(preparation.state) && (
-                        <button
-                            type="button"
+                        <Button
+                            htmlType="button"
                             disabled={busy || pending !== null}
                             onClick={() => {
                                 void preparationAction("resume");
                             }}
                         >
                             恢复原准备任务
-                        </button>
+                        </Button>
                     )}
                     {!["CANCELLED", "CANCEL_REQUESTED"].includes(preparation.state) &&
                         run === null && (
-                            <button
-                                type="button"
+                            <Button
+                                htmlType="button"
                                 disabled={busy || pending !== null}
                                 onClick={() => {
                                     void preparationAction("cancel-preparation");
                                 }}
                             >
                                 停止原准备任务
-                            </button>
+                            </Button>
                         )}
                     <details>
                         <summary>准备任务高级详情</summary>
@@ -613,17 +629,17 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
             {pending !== null && (
                 <div role="status">
                     <p>原操作尚未完成核对，不会重新创建操作。</p>
-                    <button
-                        type="button"
+                    <Button
+                        htmlType="button"
                         disabled={busy || reading}
                         onClick={() => {
                             void checkOriginal();
                         }}
                     >
                         核对原研究操作
-                    </button>
-                    <button
-                        type="button"
+                    </Button>
+                    <Button
+                        htmlType="button"
                         disabled={busy}
                         onClick={() => {
                             setBusy(true);
@@ -637,32 +653,45 @@ export function ResearchStudyPanel({ study, newWorkBlocked, actionRef, onSystemF
                         }}
                     >
                         重放同一原命令核对
-                    </button>
+                    </Button>
                 </div>
             )}
             {run !== null && (
                 <>
                     <p role="status">{runStates[run.state] ?? run.state}</p>
                     {workerFailure.success && (
-                        <p role="alert">
+                        <div role="alert">
                             {workerFailure.data.state === "UNKNOWN"
                                 ? "研究执行服务的结果未知"
                                 : "研究执行服务暂不可用"}
                             。运行状态以原记录为准；仍可查看证据或取消已登记的研究。
-                            <code>{workerFailure.data.code}</code>
-                        </p>
+                            <details>
+                                <summary>执行诊断详情</summary>
+                                <code>{workerFailure.data.code}</code>
+                            </details>
+                        </div>
                     )}
-                    {run.failure !== null && <p role="alert">{JSON.stringify(run.failure)}</p>}
+                    {run.failure !== null && (
+                        <div>
+                            <p role="alert">
+                                研究未能完成。可查看下方诊断详情，并保留本次研究记录。
+                            </p>
+                            <details>
+                                <summary>失败诊断详情</summary>
+                                <pre>{JSON.stringify(run.failure, null, 2)}</pre>
+                            </details>
+                        </div>
+                    )}
                     {!terminalRun.has(run.state) && (
-                        <button
-                            type="button"
+                        <Button
+                            htmlType="button"
                             disabled={busy || pending !== null}
                             onClick={() => {
                                 void cancelRun();
                             }}
                         >
                             取消本次研究
-                        </button>
+                        </Button>
                     )}
                     <ResearchReport run={run} />
                     <details>
@@ -751,8 +780,7 @@ function ResearchReport({ run }: { run: Run }) {
             </dl>
             {run.decision_provenance.state !== "VERIFIED" && (
                 <p role="alert">
-                    历史准入证明暂不可完整核验；以下为仍可核验的原统计产物，不代表完整 Evidence
-                    链或因子通过。
+                    历史准入证明暂不可完整核验；以下为仍可核验的原统计产物，不代表完整证据链或因子有效。
                 </p>
             )}
             {report.samples.map((sample) => (

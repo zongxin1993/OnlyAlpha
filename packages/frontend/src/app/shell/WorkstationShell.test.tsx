@@ -49,10 +49,10 @@ it("keeps one persistent workspace shell around every product destination", asyn
     }
 });
 
-it("states the browser authority boundary and reaches the workspace by keyboard", () => {
+it("shows product language in the footer and reaches the workspace by keyboard", () => {
     renderShell();
-    expect(screen.getByText("OnlyAlpha · 浏览器只做控制与呈现")).toBeInTheDocument();
-    expect(screen.getByText("服务端 Authority 必需")).toBeInTheDocument();
+    expect(screen.getByText("OnlyAlpha · 个人量化工作台")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).not.toHaveTextContent("Authority");
     expect(screen.getByRole("link", { name: "跳到工作区" })).toHaveAttribute(
         "href",
         "#workspace-content"

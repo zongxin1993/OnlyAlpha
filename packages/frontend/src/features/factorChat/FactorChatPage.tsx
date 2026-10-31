@@ -1,12 +1,27 @@
+import { migrateModelSave } from "./modelSave";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ModelSettings } from "./ModelSettings";
+import { Bubble, Conversations, Sender } from "@ant-design/x";
+import {
+    Alert,
+    Button,
+    Card,
+    Drawer,
+    Input,
+    InputNumber,
+    Modal,
+    Popover,
+    Select,
+    Spin
+} from "antd";
+import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider";
 import { ResearchStudyPanel, type ResearchStudyActions } from "./ResearchStudyPanel";
 import {
     ChatRequestError,
     commandSchema,
     connect,
     connectionSchema,
+    conversationSchema,
     modelsSchema,
     proposalSchema,
     registrationSchema,
@@ -18,10 +33,12 @@ import {
     studyContextSchema,
     type Access,
     type Chat,
+    type Conversation,
     type Model,
     type Proposal,
     type Study
 } from "./api";
+import { HistoricalStudyCard } from "./HistoricalStudyCard";
 import "./factorChat.css";
 const currentKey = "onlyalpha.agent.chat.selected";
 const pendingKey = "onlyalpha.agent.chat.pending";
@@ -60,6 +77,29 @@ const pendingFields = {
     binding: sha.optional()
 };
 const pendingSchema = z.discriminatedUnion("kind", [
+    z.strictObject({
+        ...pendingFields,
+        kind: z.literal("continue"),
+        body: z.strictObject({
+            model_revision: sha,
+            model_call_limit: z.number().int().positive(),
+            continuation: z.strictObject({
+                parent_session: z.uuid(),
+                parent_head: sha,
+                backend_command: z.uuid()
+            })
+        }),
+        authorization: z.strictObject({
+            schema_version: z.literal(1),
+            factor_proposal_fingerprint: sha,
+            session_id: z.uuid(),
+            workflow_fingerprint: sha,
+            model_revision: sha,
+            source_session_id: z.uuid(),
+            source_workflow_fingerprint: sha,
+            source_continuation_command_id: z.uuid().optional()
+        })
+    }),
     z.strictObject({ ...pendingFields, kind: z.literal("grant"), body: grantInput }),
     z.strictObject({
         ...pendingFields,
@@ -69,15 +109,7 @@ const pendingSchema = z.discriminatedUnion("kind", [
     }),
     z.strictObject({
         ...pendingFields,
-        kind: z.enum([
-            "model",
-            "create",
-            "message",
-            "stage",
-            "confirm",
-            "withdraw",
-            "study-withdraw"
-        ])
+        kind: z.enum(["create", "message", "stage", "confirm", "withdraw", "study-withdraw"])
     })
 ]);
 type Pending = z.infer<typeof pendingSchema>;
@@ -85,6 +117,7 @@ const backendKinds = ["confirm", "withdraw", "grant", "study-grant", "study-with
 const linkSchema = z.record(z.string(), z.strictObject({ fingerprint: sha, head: sha }));
 function pendingValue(): Pending | null {
     try {
+        migrateModelSave();
         return pendingSchema.parse(JSON.parse(sessionStorage.getItem(pendingKey) ?? "null"));
     } catch {
         return null;
@@ -102,6 +135,22 @@ const operation = z.strictObject({
     command_id: z.uuid(),
     operation_fingerprint: sha,
     effect: z.record(z.string(), z.unknown())
+});
+const continuationProof = z.strictObject({
+    schema_version: z.literal(1),
+    command_id: z.uuid(),
+    operation_fingerprint: sha,
+    snapshot: z.looseObject({
+        actor: z.literal("HUMAN"),
+        kind: z.literal("CONTINUE_FACTOR_STUDY"),
+        request: z.looseObject({
+            session_id: z.uuid(),
+            factor_proposal_fingerprint: sha,
+            workflow_fingerprint: sha,
+            model_revision: sha,
+            source_session_id: z.uuid()
+        })
+    })
 });
 const messages: Record<string, string> = {
     AGENT_WORKFLOW_UNAVAILABLE:
@@ -133,7 +182,12 @@ const messages: Record<string, string> = {
 };
 const readable = (e: unknown) => {
     const s = e instanceof Error ? e.message : String(e);
-    return messages[s] ?? s;
+    return (
+        messages[s] ??
+        (/^[A-Z][A-Z0-9_]+$/.test(s) || !/[\u4e00-\u9fff]/.test(s)
+            ? "操作未能完成，请先核对原操作的结果。"
+            : s)
+    );
 };
 function dependency(value: unknown): string {
     const v = z
@@ -164,7 +218,15 @@ export function FactorChatPage() {
     const [chat, setChat] = useState<Chat | null>(null);
     const [models, setModels] = useState<Model[]>([]);
     const [selectedModel, setSelectedModel] = useState("");
-    const [editor, setEditor] = useState<string | null>(null);
+    const { openSettings } = useSettings();
+    const [conversation, setConversation] = useState<Conversation | null>(null);
+    const [conversationError, setConversationError] = useState("");
+    const [search, setSearch] = useState("");
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [grantOpen, setGrantOpen] = useState(false);
+    const [following, setFollowing] = useState(true);
+    const viewport = useRef<HTMLDivElement>(null);
+    const composing = useRef(false);
     const [text, setText] = useState("");
     const [budget, setBudget] = useState(20);
     const [pending, setPending] = useState<Pending | null>(pendingValue);
@@ -214,10 +276,40 @@ export function FactorChatPage() {
                 setChat(current);
                 setAgentReady(true);
                 setAgentError("");
+                if (current === null) {
+                    setConversation(null);
+                    setConversationError("");
+                } else {
+                    try {
+                        const detail = await request(
+                            `/api/v1/agent/sessions/${current.id}/conversation`,
+                            conversationSchema,
+                            undefined,
+                            undefined,
+                            auth
+                        );
+                        if (tag !== generation.current) return;
+                        if (
+                            detail.id !== current.id ||
+                            detail.head !== current.head ||
+                            detail.model_revision !== current.model_revision
+                        )
+                            throw new Error("对话已发生变化，请重新载入后继续。");
+                        setConversation(detail);
+                        setConversationError("");
+                    } catch {
+                        if (tag === generation.current) {
+                            setConversation(null);
+                            setConversationError(
+                                "完整对话暂时无法载入；已保存的研究内容仍可查看。请重新载入。"
+                            );
+                        }
+                    }
+                }
             } catch (e) {
                 if (tag === generation.current) {
                     setAgentReady(false);
-                    setAgentError("Agent 暂不可用：" + readable(e));
+                    setAgentError("研究助手暂不可用：" + readable(e));
                 }
             }
         })();
@@ -231,7 +323,7 @@ export function FactorChatPage() {
             } catch (e) {
                 if (tag === generation.current) {
                     setConnection(null);
-                    setBackendError("backend 暂不可用：" + readable(e));
+                    setBackendError("研究服务暂不可用：" + readable(e));
                 }
             }
         })();
@@ -242,14 +334,31 @@ export function FactorChatPage() {
         const studyRef = owned === null ? links(studyLinksKey)[selected] : owned.study_reference;
         if (factorRef?.fingerprint) {
             try {
-                const view = await request(
-                    `/api/v2/factor-proposals/${factorRef.fingerprint}`,
-                    proposalSchema
-                );
+                const [view, authorization] = await Promise.all([
+                    request(`/api/v2/factor-proposals/${factorRef.fingerprint}`, proposalSchema),
+                    owned?.continuation
+                        ? request(
+                              `/api/v2/factor-study-continuations/${owned.continuation.backend_command}`,
+                              continuationProof
+                          )
+                        : Promise.resolve(null)
+                ]);
                 if (tag !== generation.current) return;
                 if (
+                    owned?.continuation &&
+                    (authorization?.command_id !== owned.continuation.backend_command ||
+                        authorization.snapshot.request.session_id !== selected ||
+                        authorization.snapshot.request.factor_proposal_fingerprint !==
+                            factorRef.fingerprint ||
+                        authorization.snapshot.request.workflow_fingerprint !== owned.workflow ||
+                        authorization.snapshot.request.model_revision !== owned.model_revision ||
+                        authorization.snapshot.request.source_session_id !==
+                            owned.continuation.parent_session)
+                )
+                    throw new Error("暂时无法验证原研究的接续授权，请刷新后重试。");
+                if (
                     view.fingerprint !== factorRef.fingerprint ||
-                    view.snapshot.origin.session_id !== selected ||
+                    (authorization === null && view.snapshot.origin.session_id !== selected) ||
                     view.snapshot.origin.event_fingerprint !== factorRef.head
                 )
                     throw new Error("登记提案与原对话不匹配，请核对原操作");
@@ -264,7 +373,7 @@ export function FactorChatPage() {
             } catch (e) {
                 if (tag === generation.current) {
                     setProposal(null);
-                    setBackendError("backend 暂不可用：因子提案无法核对，" + readable(e));
+                    setBackendError("研究服务暂不可用：因子提案无法核对，" + readable(e));
                 }
             }
         } else setProposal(null);
@@ -293,7 +402,7 @@ export function FactorChatPage() {
             } catch (e) {
                 if (tag === generation.current) {
                     setStudy(null);
-                    setBackendError("backend 暂不可用：研究方案无法核对，" + readable(e));
+                    setBackendError("研究服务暂不可用：研究方案无法核对，" + readable(e));
                 }
             }
         } else setStudy(null);
@@ -305,6 +414,20 @@ export function FactorChatPage() {
             sequence.current++;
         };
     }, [refresh]);
+    useEffect(() => {
+        const update = () => {
+            setPending(pendingValue());
+            void refresh();
+        };
+        window.addEventListener(settingsChangedEvent, update);
+        return () => {
+            window.removeEventListener(settingsChangedEvent, update);
+        };
+    }, [refresh]);
+    useEffect(() => {
+        if (following && viewport.current !== null)
+            viewport.current.scrollTop = viewport.current.scrollHeight;
+    }, [conversation, busy, following]);
     async function act(work: () => Promise<void>) {
         setBusy(true);
         setError("");
@@ -341,10 +464,14 @@ export function FactorChatPage() {
             p.command,
             auth()
         );
+        if (r.status === "ABANDONED") {
+            remember(null);
+            throw new Error("这版研究条件未保存，请修改后继续。");
+        }
         if (r.status !== "REGISTERED" || r.receipt === null)
             throw new Error(
                 r.status === "REJECTED"
-                    ? "提案登记被拒绝，请核对原操作后调整。"
+                    ? "这版研究条件未保存，请选择“修改研究条件”继续。"
                     : "提案登记结果待核对，不会自动重发。"
             );
         remember(null);
@@ -357,7 +484,7 @@ export function FactorChatPage() {
         const p: Pending = { kind: "create", resource: id, command: crypto.randomUUID() };
         remember(p);
         localStorage.setItem(currentKey, id);
-        await request(
+        const created = await request(
             `/api/v1/agent/sessions/${id}`,
             sessionSchema,
             { model_revision: m.revision, model_call_limit: budget },
@@ -367,6 +494,115 @@ export function FactorChatPage() {
         );
         remember(null);
         await refresh();
+        return created;
+    }
+    async function continueStudy(p: Extract<Pending, { kind: "continue" }>) {
+        // Both operations retain their exact identities if either response is lost.
+        const receipt = await request(
+            "/api/v2/factor-study-continuations",
+            operation,
+            p.authorization,
+            p.body.continuation.backend_command
+        );
+        if (
+            receipt.command_id !== p.body.continuation.backend_command ||
+            receipt.effect.continuation_command_id !== receipt.command_id
+        )
+            throw new Error("无法验证接续结果，请保留原操作后重试。");
+        const created = await request(
+            `/api/v1/agent/sessions/${p.resource}`,
+            sessionSchema,
+            p.body,
+            p.command,
+            auth(),
+            "PUT"
+        );
+        if (
+            created.id !== p.resource ||
+            created.continuation?.backend_command !== receipt.command_id
+        )
+            throw new Error("无法验证接续对话，原记录已保留。");
+        localStorage.setItem(currentKey, created.id);
+        remember(null);
+        setEditingFactor(false);
+        setText("");
+        await refresh();
+    }
+    async function modifyStudy() {
+        const pending = pendingValue();
+        if (pending?.kind === "continue") {
+            await continueStudy(pending);
+            return;
+        }
+        if (chat?.successor) {
+            selectChat(chat.successor);
+            return;
+        }
+        if (chat?.topic !== "STUDY") return;
+        const original =
+            pending?.kind === "stage" && pending.resource === chat.id
+                ? pending.command
+                : chat.study_reference?.fingerprint === null && !chat.study_reference.abandoned
+                  ? chat.study_reference.command
+                  : null;
+        if (original !== null) {
+            const result = await request(
+                `/api/v1/agent/sessions/${chat.id}/proposals/${original}/resolve`,
+                registrationSchema,
+                {},
+                undefined,
+                auth()
+            );
+            if (!["REGISTERED", "ABANDONED"].includes(result.status) || result.receipt === null)
+                throw new Error("暂时无法修改条件，请稍后重试。原研究和报告会保留。");
+            remember(null);
+        }
+        const current = await request(
+            `/api/v1/agent/sessions/${chat.id}`,
+            sessionSchema,
+            undefined,
+            undefined,
+            auth()
+        );
+        if (current.status !== "WORKFLOW_UNAVAILABLE") {
+            setText("");
+            await refresh();
+            return;
+        }
+        const remaining = current.model_call_limit - current.consumed;
+        const factor = current.factor_reference?.fingerprint;
+        if (!factor || !current.head || !current.current_workflow || remaining < 1)
+            throw new Error("当前研究暂时无法接续，已保存内容仍可查看。");
+        const id = crypto.randomUUID();
+        const backendCommand = crypto.randomUUID();
+        const p: Extract<Pending, { kind: "continue" }> = {
+            kind: "continue",
+            resource: id,
+            command: crypto.randomUUID(),
+            body: {
+                model_revision: current.model_revision,
+                model_call_limit: remaining,
+                continuation: {
+                    parent_session: current.id,
+                    parent_head: current.head,
+                    backend_command: backendCommand
+                }
+            },
+            authorization: {
+                schema_version: 1,
+                factor_proposal_fingerprint: factor,
+                session_id: id,
+                workflow_fingerprint: current.current_workflow,
+                model_revision: current.model_revision,
+                source_session_id: current.id,
+                source_workflow_fingerprint: current.workflow,
+                ...(current.continuation
+                    ? { source_continuation_command_id: current.continuation.backend_command }
+                    : {})
+            }
+        };
+        remember(p);
+        await continueStudy(p);
     }
     async function backendSubmission(p: Pending) {
         if (!backendKinds.includes(p.kind)) throw new Error("原操作类型不可提交");
@@ -543,8 +779,7 @@ export function FactorChatPage() {
             await confirm();
             return;
         }
-        if (chat === null) return;
-        const s = chat;
+        const s = chat ?? (await create());
         generation.current++;
         await withdrawStudy(s.id);
         if (topic === "FACTOR" && proposal !== null && proposal.is_current && !proposal.withdrawn) {
@@ -596,6 +831,10 @@ export function FactorChatPage() {
     }
     async function recover() {
         let p = pendingValue();
+        if (p?.kind === "continue") {
+            await continueStudy(p);
+            return;
+        }
         if (p?.binding !== undefined && p.binding !== auth().binding)
             throw new Error("原助手连接绑定不可用，请恢复原连接后核对；不会切换目标或重发。");
         const registration =
@@ -693,6 +932,8 @@ export function FactorChatPage() {
             await recover();
             return;
         }
+        if (o.status !== "ABANDONED")
+            throw new Error("尚未确认放弃结果，原操作仍待核对；不会重发或创建新身份。");
         remember(null);
         await refresh();
     }
@@ -720,516 +961,827 @@ export function FactorChatPage() {
     }
     const disabled = busy || pending !== null;
     const pendingRegistration =
-        chat?.factor_reference?.fingerprint === null
+        chat?.factor_reference?.fingerprint === null && !chat.factor_reference.abandoned
             ? chat.factor_reference
-            : chat?.study_reference?.fingerprint === null
+            : chat?.study_reference?.fingerprint === null && !chat.study_reference.abandoned
               ? chat.study_reference
               : null;
     const registrationPending = pendingRegistration !== null;
+    const studyRecovery =
+        chat?.topic === "STUDY" &&
+        (chat.successor != null ||
+            registrationPending ||
+            chat.status === "WORKFLOW_UNAVAILABLE" ||
+            pending?.kind === "stage" ||
+            pending?.kind === "continue");
     const blocked =
+        chat?.successor != null ||
         chat?.status === "OUTCOME_UNKNOWN" ||
         chat?.status === "WORKFLOW_UNAVAILABLE" ||
         registrationPending;
     const preview = proposal?.snapshot.preview;
-    return (
-        <section className="factor-chat-page" aria-label="聊天因子研究">
-            <header>
-                <h1>因子研究</h1>
-                <p>先确认因子，再讨论并单独确认研究条件；助手建议不会直接启动研究。</p>
-                <p>支持 OHLCV 四则运算、历史延迟和滚动均值。模型建议不代表科学结论。</p>
-            </header>
-            <div className="factor-chat-actions">
-                <button
-                    disabled={busy}
-                    onClick={() => {
-                        void act(async () => {
-                            const a = await connect();
-                            setAccess(a);
-                            await refresh(a);
-                        });
-                    }}
-                >
-                    重新连接助手
-                </button>
-                <button
-                    disabled={busy}
-                    onClick={() => {
-                        void act(recover);
-                    }}
-                >
-                    核对并重新载入
-                </button>
-            </div>
-            {agentError !== "" && (
-                <p role="status">{agentError}。已有登记提案仍由 backend 保存。</p>
-            )}
-            {backendError !== "" && (
-                <p role="status">{backendError}。对话历史可独立查看，正式操作暂停。</p>
-            )}
-            {connection?.grant_state === "ABSENT" && (
-                <section aria-label="提案登记权限">
-                    <p>
-                        启用助手仅允许登记因子提案：最多 100 次、24 小时，不允许确认、Research
-                        或交易。
-                    </p>
-                    <button
-                        disabled={disabled}
-                        onClick={() => {
-                            void act(grant);
-                        }}
-                    >
-                        启用助手的提案登记
-                    </button>
-                </section>
-            )}
-            {connection !== null && ["EXPIRED", "REVOKED"].includes(connection.grant_state) && (
-                <p role="status">
-                    提案登记权限已到期或撤销，请管理员更新服务连接后重新授权。原对话和已登记内容保留。
-                </p>
-            )}
-            <details className="factor-chat-models">
-                <summary>模型设置</summary>
-                <label>
-                    新对话的模型
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => {
-                            setSelectedModel(e.target.value);
-                        }}
-                    >
-                        <option value="">请选择</option>
-                        {models.map((m) => (
-                            <option key={m.id} value={m.id}>
-                                {m.name} · {m.model_version}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <button
-                    disabled={disabled || !agentReady}
-                    onClick={() => {
-                        setEditor("new");
-                    }}
-                >
-                    添加模型
-                </button>
-                <button
-                    disabled={disabled || !agentReady || selectedModel === ""}
-                    onClick={() => {
-                        setEditor(selectedModel);
-                    }}
-                >
-                    编辑模型设置
-                </button>
-                {access !== null && editor !== null && (
-                    <ModelSettings
-                        key={editor}
-                        access={access}
-                        blocked={pending !== null}
-                        onSettled={() => {
-                            setBusy(false);
-                        }}
-                        model={models.find((m) => m.id === editor) ?? null}
-                        onPending={(resource, command) => {
-                            setBusy(true);
-                            remember({ kind: "model", resource, command });
-                        }}
-                        onSaved={async () => {
-                            remember(null);
-                            setEditor(null);
-                            await refresh();
-                        }}
-                    />
-                )}
-            </details>
-            <div className="factor-chat-actions">
-                <label>
-                    新对话最多模型调用次数
-                    <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={budget}
-                        onChange={(e) => {
-                            setBudget(Number(e.target.value));
-                        }}
-                    />
-                </label>
-                <button
-                    disabled={disabled || !agentReady || selectedModel === ""}
-                    onClick={() => {
-                        void act(create);
-                    }}
-                >
-                    新建对话
-                </button>
-                <label>
-                    研究历史
-                    <select
-                        value={chat?.id ?? ""}
-                        disabled={disabled}
-                        onChange={(e) => {
-                            localStorage.setItem(currentKey, e.target.value);
-                            setText("");
-                            setEditingFactor(false);
-                            setProposal(null);
-                            setStudy(null);
-                            void act(() => refresh());
-                        }}
-                    >
-                        <option value="">选择已有对话</option>
-                        {items.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {typeof c.candidate?.name === "string"
-                                    ? c.candidate.name
-                                    : (c.messages
-                                          .find((m) => m.role === "user")
-                                          ?.content.slice(0, 32) ?? "新对话")}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </div>
-            {error !== "" && <p role="alert">{error}</p>}
-            {pending !== null && (
-                <>
-                    <p role="status">原操作结果待核对，不会自动重发或创建新身份。</p>
-                    {!backendKinds.includes(pending.kind) && (
-                        <button
-                            disabled={busy}
+    const title = (item: Chat) =>
+        typeof item.candidate?.name === "string"
+            ? item.candidate.name
+            : (item.messages.find((m) => m.role === "user")?.content.slice(0, 32) ?? "新研究");
+    function selectChat(id: string) {
+        generation.current++;
+        localStorage.setItem(currentKey, id);
+        setText("");
+        setEditingFactor(false);
+        setProposal(null);
+        setStudy(null);
+        setConversation(null);
+        setFollowing(true);
+        setHistoryOpen(false);
+        void act(() => refresh());
+    }
+    function newChat() {
+        generation.current++;
+        localStorage.removeItem(currentKey);
+        setChat(null);
+        setConversation(null);
+        setProposal(null);
+        setStudy(null);
+        setText("");
+        setEditingFactor(false);
+        setFollowing(true);
+        setHistoryOpen(false);
+    }
+    const factorCard = (
+        <Card size="small" className="factor-preview-card">
+            <section aria-label="因子预览">
+                <h2>因子预览</h2>
+                {proposal === null || preview === undefined ? (
+                    <p>澄清想法并登记后，预览会出现在这里。</p>
+                ) : (
+                    <>
+                        <h3>{preview.name}</h3>
+                        <p>{preview.purpose}</p>
+                        <h4>预测假设</h4>
+                        <p>{preview.hypothesis}</p>
+                        <h4>计算逻辑与公式</h4>
+                        <pre>{preview.formula}</pre>
+                        <p>仅使用已收盘数据；缺失值与除零按现有契约处理。</p>
+                        <h4>所需数据</h4>
+                        <ul>
+                            {Object.entries(preview.dependencies).map(([key, v]) => (
+                                <li key={key}>{dependency(v)}</li>
+                            ))}
+                        </ul>
+                        <details>
+                            <summary>高级详情：代码与契约</summary>
+                            <pre>{preview.draft.source_text}</pre>
+                            <pre>
+                                {JSON.stringify(
+                                    {
+                                        dependencies: preview.dependencies,
+                                        input: preview.draft.input_contract,
+                                        parameter: preview.draft.parameter_contract,
+                                        output: preview.draft.output_contract
+                                    },
+                                    null,
+                                    2
+                                )}
+                            </pre>
+                        </details>
+                        <p role="status">
+                            {proposal.confirmation !== null
+                                ? "计算内容已确认并保存"
+                                : proposal.withdrawn || !proposal.is_current
+                                  ? "此提案已撤回或更新，不能确认"
+                                  : "待确认当前因子"}
+                            {dirty && topic === "FACTOR" ? "；正在编辑新想法，旧预览不可确认" : ""}
+                        </p>
+                        <Button
+                            disabled={
+                                disabled ||
+                                dirty ||
+                                proposal.withdrawn ||
+                                !proposal.is_current ||
+                                proposal.confirmation !== null ||
+                                backendError !== ""
+                            }
                             onClick={() => {
-                                void act(abandon);
+                                void act(() => confirm());
                             }}
                         >
-                            放弃未接受的操作
-                        </button>
-                    )}
-                    {backendKinds.includes(pending.kind) && (
-                        <button
-                            disabled={busy}
-                            onClick={() => {
-                                void act(() => repeatBackend(pending));
-                            }}
-                        >
-                            {pending.kind === "confirm"
-                                ? "再次提交同一确认"
-                                : pending.kind === "withdraw" || pending.kind === "study-withdraw"
-                                  ? "再次提交同一撤回"
-                                  : "再次提交同一授权"}
-                        </button>
-                    )}
-                    {pending.kind === "stage" && (
-                        <>
-                            <p>
-                                登记未完成。返回历史只结束当前页面的等待，原操作仍保留且不会自动重发。
-                            </p>
-                            <button
-                                disabled={busy}
-                                onClick={() => {
-                                    void act(returnToHistory);
-                                }}
-                            >
-                                保留记录，返回研究历史
-                            </button>
-                            <details>
-                                <summary>原登记操作详情</summary>
-                                <code>{pending.command}</code>
-                            </details>
-                        </>
-                    )}
-                </>
-            )}
-            <div className="factor-chat-columns">
-                <section aria-label="因子讨论">
-                    <h2>讨论想法</h2>
-                    {researchFeedback !== "" && <p role="status">{researchFeedback}</p>}
-                    <div className="factor-chat-messages" aria-live="polite">
-                        {chat?.messages.map((m, i) => (
-                            <article key={i} className={m.role}>
-                                <strong>{m.role === "user" ? "我" : "Agent"}</strong>
-                                <p>{messages[m.content] ?? m.content}</p>
-                            </article>
-                        ))}
-                    </div>
-                    {chat === null ? (
-                        <p>配置模型后新建对话，描述你的因子想法。</p>
-                    ) : (
-                        <>
-                            <p>
-                                模型调用：{chat.consumed} / {chat.model_call_limit}
-                                。此对话保留创建时的模型和工作流绑定。
-                            </p>
-                            {blocked && (
-                                <p role="status">
-                                    {chat.status === "WORKFLOW_UNAVAILABLE"
-                                        ? messages.AGENT_WORKFLOW_UNAVAILABLE
-                                        : registrationPending
-                                          ? "提案登记未完成，当前对话只读。请核对原操作，或保留记录返回研究历史。"
-                                          : "模型仍在处理或结果未知；核对操作不会再次调用模型。"}
-                                </p>
-                            )}
-                            {registrationPending && pending === null && (
+                            确认当前因子
+                        </Button>
+                        {proposal.confirmation !== null &&
+                            proposal.is_current &&
+                            !proposal.withdrawn && (
                                 <>
-                                    <button
-                                        disabled={busy}
+                                    <p>允许助手提出最多10次研究条件建议，不会开始研究。</p>
+                                    <Button
+                                        disabled={
+                                            disabled ||
+                                            blocked ||
+                                            !agentReady ||
+                                            dirty ||
+                                            backendError !== ""
+                                        }
                                         onClick={() => {
-                                            void act(returnToHistory);
+                                            void act(beginStudy);
                                         }}
                                     >
-                                        保留记录，返回研究历史
-                                    </button>
-                                    <details>
-                                        <summary>原登记操作详情</summary>
-                                        <code>{pendingRegistration.command}</code>
-                                    </details>
+                                        讨论研究条件
+                                    </Button>
+                                    <Button
+                                        disabled={disabled || blocked || !agentReady}
+                                        onClick={() => {
+                                            setEditingFactor(true);
+                                            setText("");
+                                        }}
+                                    >
+                                        修改因子
+                                    </Button>
                                 </>
                             )}
-                            {chat.status === "READY" &&
-                                (chat.topic === "STUDY"
-                                    ? chat.study !== null
-                                    : chat.candidate !== null) &&
-                                (chat.topic === "STUDY"
-                                    ? chat.study_reference?.head
-                                    : chat.factor_reference?.head) !== chat.head &&
-                                pending === null && (
-                                    <button
-                                        disabled={busy || connection?.grant_state !== "ACTIVE"}
-                                        onClick={() => {
+                    </>
+                )}
+            </section>
+        </Card>
+    );
+    const studyCard =
+        study === null ? null : (
+            <Card size="small" className="factor-preview-card">
+                <section aria-label="研究方案">
+                    <h2>研究方案</h2>
+                    <>
+                        <h3>{preview?.name ?? "当前因子"} · 研究条件</h3>
+                        <dl>
+                            <dt>建议商品</dt>
+                            <dd>
+                                {study.snapshot.advice.source.instrument_id}
+                                （准备时验证实际可用性）
+                            </dd>
+                            <dt>数据来源</dt>
+                            <dd>详见下方研究环境的数据来源</dd>
+                            <dt>K线周期</dt>
+                            <dd>{study.snapshot.advice.timeframe_minutes} 分钟</dd>
+                            <dt>预测期限</dt>
+                            <dd>未来 {study.snapshot.advice.horizon_bars} 根K线</dd>
+                            <dt>开发样本（UTC）</dt>
+                            <dd>
+                                {study.snapshot.advice.start_at} 至{" "}
+                                {study.snapshot.advice.development_end_at}
+                            </dd>
+                            <dt>固定样本外区间（UTC）</dt>
+                            <dd>
+                                {study.snapshot.advice.development_end_at} 至{" "}
+                                {study.snapshot.advice.end_at}
+                            </dd>
+                            <dt>保留样本（UTC）</dt>
+                            <dd>
+                                {study.snapshot.advice.protected_start_at} 至{" "}
+                                {study.snapshot.advice.protected_end_at}（本次研究不读取）
+                            </dd>
+                            <dt>序列依赖修正</dt>
+                            <dd>
+                                期望区块长度 {study.snapshot.advice.expected_block_length}{" "}
+                                根；重采样 {study.snapshot.advice.replicates} 次；置信水平{" "}
+                                {study.snapshot.advice.confidence_bps / 100}%
+                            </dd>
+                        </dl>
+                        <p>{study.snapshot.advice.rationale}</p>
+                        <p role="status">
+                            {study.withdrawn || !study.is_current
+                                ? "研究方案已撤回或更新，请重新讨论条件。"
+                                : "研究条件建议已登记；请准备并启用研究环境，再单独确认本次研究。"}
+                            {dirty && topic === "STUDY"
+                                ? "正在修改条件，当前方案不可用于新的确认。"
+                                : ""}
+                        </p>
+                        <ResearchStudyPanel
+                            key={study.fingerprint}
+                            study={study}
+                            actionRef={researchAction}
+                            newWorkBlocked={
+                                disabled ||
+                                blocked ||
+                                dirty ||
+                                editingFactor ||
+                                proposal?.confirmation == null ||
+                                !proposal.is_current ||
+                                proposal.withdrawn
+                            }
+                            onSystemFeedback={setResearchFeedback}
+                        />
+                        <details>
+                            <summary>研究方案高级详情</summary>
+                            <pre>{JSON.stringify(study.snapshot.advice, null, 2)}</pre>
+                        </details>
+                    </>{" "}
+                </section>
+            </Card>
+        );
+    const history = (
+        <nav className="factor-history" aria-label="研究历史">
+            <div className="factor-history-heading">
+                <strong>研究历史</strong>
+            </div>
+            <Button block type="primary" disabled={disabled} onClick={newChat}>
+                ＋ 新建研究
+            </Button>
+            <Input
+                aria-label="搜索研究历史"
+                placeholder="搜索研究历史"
+                value={search}
+                onChange={(e) => {
+                    setSearch(e.target.value);
+                }}
+                allowClear
+            />
+            <Conversations
+                activeKey={chat?.id ?? ""}
+                items={items
+                    .filter((item) =>
+                        title(item).toLocaleLowerCase().includes(search.toLocaleLowerCase())
+                    )
+                    .map((item) => ({ key: item.id, label: title(item), disabled }))}
+                onActiveChange={selectChat}
+            />
+            {items.length === 0 && <p className="factor-chat-muted">你的研究会保存在这里</p>}
+        </nav>
+    );
+    const canSend =
+        !disabled &&
+        (!blocked || researchApprovalText) &&
+        (agentReady || researchApprovalText) &&
+        text.trim() !== "" &&
+        (approvalText || researchApprovalText || chat !== null || selectedModel !== "") &&
+        (approvalText || researchApprovalText || connection?.grant_state === "ACTIVE") &&
+        (approvalText ||
+            researchApprovalText ||
+            chat === null ||
+            chat.consumed < chat.model_call_limit) &&
+        (topic !== "STUDY" ||
+            (proposal?.confirmation != null && proposal.is_current && !proposal.withdrawn));
+    const hasFactorTurn =
+        conversation?.turns.some(
+            (turn) =>
+                turn.head === proposal?.snapshot.origin.event_fingerprint &&
+                turn.factor_reference?.fingerprint === proposal.fingerprint
+        ) ?? false;
+    const hasStudyTurn =
+        conversation?.turns.some(
+            (turn) =>
+                turn.head === study?.snapshot.origin.event_fingerprint &&
+                turn.study_reference?.fingerprint === study.fingerprint
+        ) ?? false;
+    return (
+        <section className="factor-chat-page" aria-label="聊天因子研究">
+            <aside className="factor-history-desktop">{history}</aside>
+            <Drawer
+                title="研究历史"
+                placement="left"
+                open={historyOpen}
+                onClose={() => {
+                    setHistoryOpen(false);
+                }}
+                size={280}
+                destroyOnHidden
+            >
+                {history}
+            </Drawer>
+            <main className="factor-chat-main">
+                <header className="factor-chat-header">
+                    <div className="factor-chat-title">
+                        <Button
+                            className="factor-history-toggle"
+                            type="text"
+                            aria-label="打开研究历史"
+                            onClick={() => {
+                                setHistoryOpen(true);
+                            }}
+                        >
+                            ☰
+                        </Button>
+                        <h1>因子研究</h1>
+                        <span>{chat === null ? "新研究" : title(chat)}</span>
+                    </div>
+                    <div className="factor-chat-header-actions">
+                        <Popover
+                            trigger="click"
+                            getPopupContainer={(trigger) => trigger.parentElement ?? trigger}
+                            content={
+                                <div className="factor-recovery-actions">
+                                    <Button disabled={busy} onClick={() => void act(recover)}>
+                                        核对并重新载入
+                                    </Button>
+                                    <Button
+                                        disabled={busy}
+                                        onClick={() =>
                                             void act(async () => {
-                                                await stage(chat);
-                                                await refresh();
-                                            });
-                                        }}
-                                    >
-                                        {chat.topic === "STUDY"
-                                            ? "登记当前研究方案"
-                                            : "登记当前因子预览"}
-                                    </button>
-                                )}
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    void act(send);
-                                }}
-                            >
-                                <label>
-                                    告诉 Agent 你的想法
-                                    <textarea
-                                        value={text}
-                                        maxLength={8000}
-                                        disabled={
-                                            disabled || (!agentReady && study === null) || blocked
+                                                const a = await connect();
+                                                setAccess(a);
+                                                await refresh(a);
+                                            })
                                         }
-                                        onChange={(e) => {
-                                            setText(e.target.value);
-                                        }}
-                                    />
-                                </label>
-                                <p>
-                                    当前讨论：
-                                    {topic === "STUDY"
-                                        ? "研究条件（保留已确认因子）"
-                                        : "因子计算内容"}
-                                </p>
-                                <button
-                                    disabled={
-                                        disabled ||
-                                        (!agentReady && !researchApprovalText) ||
-                                        blocked ||
-                                        (topic === "STUDY" &&
-                                            (proposal?.confirmation === null ||
-                                                proposal === null ||
-                                                !proposal.is_current ||
-                                                proposal.withdrawn)) ||
-                                        text.trim() === "" ||
-                                        (!approvalText &&
-                                            !researchApprovalText &&
-                                            connection?.grant_state !== "ACTIVE")
+                                    >
+                                        重新连接助手
+                                    </Button>
+                                </div>
+                            }
+                        >
+                            <Button type="text" aria-label="更多研究操作">
+                                •••
+                            </Button>
+                        </Popover>
+                    </div>
+                </header>
+                <div className="factor-chat-notices">
+                    {agentError !== "" && (
+                        <Alert
+                            type="warning"
+                            title="研究助手暂时无法连接。已保存的研究内容仍可查看。"
+                            action={
+                                <Button
+                                    size="small"
+                                    onClick={() =>
+                                        void act(async () => {
+                                            const a = await connect();
+                                            setAccess(a);
+                                            await refresh(a);
+                                        })
                                     }
                                 >
-                                    {busy ? "处理中…" : "发送"}
-                                </button>
-                                <p>
-                                    {topic === "STUDY"
-                                        ? "修改条件后需要重新准备。环境就绪后可发送“确认本次研究”，直接提交 backend，不会调用模型。"
-                                        : "确认预览时可发送“确认因子”。修改计算内容后需要重新确认。"}
-                                </p>
-                            </form>
-                        </>
+                                    重新连接
+                                </Button>
+                            }
+                        />
                     )}
-                </section>
-                <div className="factor-chat-context">
-                    <section aria-label="因子预览">
-                        <h2>因子预览</h2>
-                        {proposal === null || preview === undefined ? (
-                            <p>澄清想法并登记后，预览会出现在这里。</p>
-                        ) : (
-                            <>
-                                <h3>{preview.name}</h3>
-                                <p>{preview.purpose}</p>
-                                <h4>预测假设</h4>
-                                <p>{preview.hypothesis}</p>
-                                <h4>计算逻辑与公式</h4>
-                                <pre>{preview.formula}</pre>
-                                <p>仅使用已收盘数据；缺失值与除零按现有契约处理。</p>
-                                <h4>所需数据</h4>
-                                <ul>
-                                    {Object.entries(preview.dependencies).map(([key, v]) => (
-                                        <li key={key}>{dependency(v)}</li>
-                                    ))}
-                                </ul>
-                                <details>
-                                    <summary>高级详情：代码与契约</summary>
-                                    <pre>{preview.draft.source_text}</pre>
-                                    <pre>
-                                        {JSON.stringify(
-                                            {
-                                                dependencies: preview.dependencies,
-                                                input: preview.draft.input_contract,
-                                                parameter: preview.draft.parameter_contract,
-                                                output: preview.draft.output_contract
-                                            },
-                                            null,
-                                            2
-                                        )}
-                                    </pre>
-                                </details>
-                                <p role="status">
-                                    {proposal.confirmation !== null
-                                        ? "计算内容已确认并保存"
-                                        : proposal.withdrawn || !proposal.is_current
-                                          ? "此提案已撤回或更新，不能确认"
-                                          : "待确认当前因子"}
-                                    {dirty && topic === "FACTOR"
-                                        ? "；正在编辑新想法，旧预览不可确认"
-                                        : ""}
+                    {backendError !== "" && (
+                        <Alert type="warning" title="研究服务暂时不可用，确认和提交已暂停。" />
+                    )}
+                    {conversationError !== "" && (
+                        <Alert
+                            type="warning"
+                            title={conversationError}
+                            action={
+                                <Button
+                                    size="small"
+                                    disabled={busy}
+                                    onClick={() => void act(recover)}
+                                >
+                                    重新载入
+                                </Button>
+                            }
+                        />
+                    )}
+                    {error !== "" && (
+                        <Alert
+                            role="alert"
+                            type="error"
+                            title={error}
+                            closable={{
+                                onClose: () => {
+                                    setError("");
+                                }
+                            }}
+                        />
+                    )}
+                    {pending !== null &&
+                        !(
+                            chat?.topic === "STUDY" && ["stage", "continue"].includes(pending.kind)
+                        ) && (
+                            <section className="factor-chat-pending" aria-label="待核对的操作">
+                                <p role="status" id="factor-chat-pending-summary">
+                                    上一次操作的结果尚未确认，请先查看原操作结果。
                                 </p>
-                                <button
-                                    disabled={
-                                        disabled ||
-                                        dirty ||
-                                        proposal.withdrawn ||
-                                        !proposal.is_current ||
-                                        proposal.confirmation !== null ||
-                                        backendError !== ""
-                                    }
+                                <Button
+                                    size="small"
+                                    disabled={busy}
                                     onClick={() => {
-                                        void act(() => confirm());
+                                        void act(recover);
                                     }}
                                 >
-                                    确认当前因子
-                                </button>
-                                {proposal.confirmation !== null &&
-                                    proposal.is_current &&
-                                    !proposal.withdrawn && (
-                                        <>
-                                            <p>
-                                                讨论研究条件将允许助手为这个因子登记最多10次研究方案建议，并自动发送一次“请建议当前因子的研究条件”。已有许可会复用。此许可不允许准备、启用或运行研究。
-                                            </p>
-                                            <button
-                                                disabled={
-                                                    disabled ||
-                                                    blocked ||
-                                                    !agentReady ||
-                                                    dirty ||
-                                                    backendError !== ""
-                                                }
-                                                onClick={() => {
-                                                    void act(beginStudy);
-                                                }}
-                                            >
-                                                讨论研究条件
-                                            </button>
-                                            <button
-                                                disabled={disabled || blocked || !agentReady}
-                                                onClick={() => {
-                                                    setEditingFactor(true);
-                                                    setText("");
-                                                }}
-                                            >
-                                                修改因子
-                                            </button>
-                                        </>
-                                    )}
-                            </>
+                                    核对原操作
+                                </Button>
+                                {!backendKinds.includes(pending.kind) && (
+                                    <Button
+                                        size="small"
+                                        disabled={busy}
+                                        onClick={() => void act(abandon)}
+                                    >
+                                        放弃未接受的操作
+                                    </Button>
+                                )}
+                                {backendKinds.includes(pending.kind) && (
+                                    <Button
+                                        size="small"
+                                        disabled={busy}
+                                        onClick={() => void act(() => repeatBackend(pending))}
+                                    >
+                                        {pending.kind === "confirm"
+                                            ? "再次提交同一确认"
+                                            : pending.kind === "withdraw" ||
+                                                pending.kind === "study-withdraw"
+                                              ? "再次提交同一撤回"
+                                              : "再次提交同一授权"}
+                                    </Button>
+                                )}
+                                {pending.kind === "stage" && (
+                                    <>
+                                        <Button
+                                            size="small"
+                                            disabled={busy}
+                                            onClick={() => void act(returnToHistory)}
+                                        >
+                                            保留记录，返回研究历史
+                                        </Button>
+                                        <details>
+                                            <summary>原登记操作详情</summary>
+                                            <code>{pending.command}</code>
+                                        </details>
+                                    </>
+                                )}
+                            </section>
                         )}
-                    </section>
-                    <section aria-label="研究方案">
-                        <h2>研究方案</h2>
-                        {study === null ? (
-                            <p>
-                                确认因子后选择“讨论研究条件”，Agent会建议数据、周期和样本范围。没有可用数据源时先澄清；不会虚构已准备数据。
-                            </p>
-                        ) : (
-                            <>
-                                <h3>{preview?.name ?? "当前因子"} · 研究条件</h3>
-                                <dl>
-                                    <dt>建议商品</dt>
-                                    <dd>
-                                        {study.snapshot.advice.source.instrument_id}
-                                        （准备时验证实际可用性）
-                                    </dd>
-                                    <dt>数据来源</dt>
-                                    <dd>详见下方研究环境的数据来源</dd>
-                                    <dt>K线周期</dt>
-                                    <dd>{study.snapshot.advice.timeframe_minutes} 分钟</dd>
-                                    <dt>预测期限</dt>
-                                    <dd>未来 {study.snapshot.advice.horizon_bars} 根K线</dd>
-                                    <dt>开发样本（UTC）</dt>
-                                    <dd>
-                                        {study.snapshot.advice.start_at} 至{" "}
-                                        {study.snapshot.advice.development_end_at}
-                                    </dd>
-                                    <dt>固定样本外区间（UTC）</dt>
-                                    <dd>
-                                        {study.snapshot.advice.development_end_at} 至{" "}
-                                        {study.snapshot.advice.end_at}
-                                    </dd>
-                                    <dt>保留样本（UTC）</dt>
-                                    <dd>
-                                        {study.snapshot.advice.protected_start_at} 至{" "}
-                                        {study.snapshot.advice.protected_end_at}（本次研究不读取）
-                                    </dd>
-                                    <dt>序列依赖修正</dt>
-                                    <dd>
-                                        期望区块长度 {study.snapshot.advice.expected_block_length}{" "}
-                                        根；重采样 {study.snapshot.advice.replicates} 次；置信水平{" "}
-                                        {study.snapshot.advice.confidence_bps / 100}%
-                                    </dd>
-                                </dl>
-                                <p>{study.snapshot.advice.rationale}</p>
-                                <p role="status">
-                                    {study.withdrawn || !study.is_current
-                                        ? "研究方案已撤回或更新，请重新讨论条件。"
-                                        : "研究条件建议已登记；请准备并启用研究环境，再单独确认本次研究。"}
-                                    {dirty && topic === "STUDY"
-                                        ? "正在修改条件，当前方案不可用于新的确认。"
-                                        : ""}
-                                </p>
-                                <ResearchStudyPanel
-                                    key={study.fingerprint}
-                                    study={study}
-                                    actionRef={researchAction}
-                                    newWorkBlocked={
-                                        disabled ||
-                                        blocked ||
-                                        dirty ||
-                                        editingFactor ||
-                                        proposal?.confirmation == null ||
-                                        !proposal.is_current ||
-                                        proposal.withdrawn
-                                    }
-                                    onSystemFeedback={setResearchFeedback}
-                                />
-                                <details>
-                                    <summary>研究方案高级详情</summary>
-                                    <pre>{JSON.stringify(study.snapshot.advice, null, 2)}</pre>
-                                </details>
-                            </>
+                    {chat !== null && studyRecovery && (
+                        <Alert
+                            type="warning"
+                            title="可以修改研究条件后继续。已有研究和报告会保留。"
+                            action={
+                                <Button disabled={busy} onClick={() => void act(modifyStudy)}>
+                                    {chat.successor ? "继续接续研究" : "修改研究条件"}
+                                </Button>
+                            }
+                        />
+                    )}
+                    {chat?.continuation && (
+                        <p className="factor-chat-muted">
+                            已接续原研究，沿用原因子和模型。
+                            <Button
+                                type="link"
+                                onClick={() => {
+                                    if (chat.continuation)
+                                        selectChat(chat.continuation.parent_session);
+                                }}
+                            >
+                                查看先前讨论和报告
+                            </Button>
+                        </p>
+                    )}
+                    {connection?.grant_state === "ABSENT" && (
+                        <Alert
+                            type="info"
+                            title="启用助手后，即可讨论因子想法。"
+                            action={
+                                <Button
+                                    size="small"
+                                    disabled={disabled}
+                                    onClick={() => {
+                                        setGrantOpen(true);
+                                    }}
+                                >
+                                    启用助手
+                                </Button>
+                            }
+                        />
+                    )}
+                    {connection !== null &&
+                        ["EXPIRED", "REVOKED"].includes(connection.grant_state) && (
+                            <Alert
+                                type="warning"
+                                title="助手的使用许可已到期或撤销，请更新连接设置后重新授权。研究记录已保留。"
+                            />
                         )}
-                    </section>
                 </div>
-            </div>
+                <div
+                    className="factor-chat-transcript"
+                    ref={viewport}
+                    onScroll={() => {
+                        const node = viewport.current;
+                        if (node)
+                            setFollowing(
+                                node.scrollHeight - node.scrollTop - node.clientHeight < 48
+                            );
+                    }}
+                >
+                    <div className="factor-chat-reading">
+                        {chat === null && (
+                            <div className="factor-chat-welcome">
+                                <div className="factor-chat-welcome-symbol">α</div>
+                                <h2>从一个因子想法开始</h2>
+                                <p>描述你观察到的市场现象，一起梳理它的计算方法。</p>
+                                {models.length === 0 && agentReady && (
+                                    <Button
+                                        type="primary"
+                                        onClick={() => {
+                                            openSettings("models");
+                                        }}
+                                    >
+                                        添加模型
+                                    </Button>
+                                )}
+                            </div>
+                        )}
+                        {conversation?.turns.map((turn, index) => (
+                            <div className="factor-chat-turn" key={turn.head}>
+                                <Bubble
+                                    placement="end"
+                                    content={turn.user}
+                                    variant="filled"
+                                    className="factor-user-message"
+                                />
+                                <article aria-label={`助手回复 ${String(index + 1)}`}>
+                                    {turn.assistant !== null && (
+                                        <Bubble
+                                            content={messages[turn.assistant] ?? turn.assistant}
+                                            variant="borderless"
+                                        />
+                                    )}
+                                    {turn.status !== "READY" && (
+                                        <Alert
+                                            type="warning"
+                                            title={
+                                                turn.status === "OUTCOME_UNKNOWN"
+                                                    ? "模型连接中断，未收到完整回复。系统不会自动重复请求；已保存的内容仍可查看，可新建研究继续。"
+                                                    : "这次回复未能完成。请调整想法后继续。"
+                                            }
+                                        />
+                                    )}
+                                    {turn.head === proposal?.snapshot.origin.event_fingerprint &&
+                                    turn.factor_reference?.fingerprint === proposal.fingerprint
+                                        ? factorCard
+                                        : turn.candidate !== null && (
+                                              <Card
+                                                  size="small"
+                                                  className="factor-preview-card factor-preview-history"
+                                              >
+                                                  <section aria-label="历史因子建议">
+                                                      <span className="factor-chat-muted">
+                                                          {turn.head === chat?.head
+                                                              ? "待核对的因子建议"
+                                                              : "历史建议"}
+                                                      </span>
+                                                      <h3>
+                                                          {typeof turn.candidate.name === "string"
+                                                              ? turn.candidate.name
+                                                              : "因子建议"}
+                                                      </h3>
+                                                      <p>
+                                                          {typeof turn.candidate.purpose ===
+                                                          "string"
+                                                              ? turn.candidate.purpose
+                                                              : ""}
+                                                      </p>
+                                                      <p>
+                                                          {typeof turn.candidate.hypothesis ===
+                                                          "string"
+                                                              ? turn.candidate.hypothesis
+                                                              : ""}
+                                                      </p>
+                                                      <details>
+                                                          <summary>当时的计算内容</summary>
+                                                          <pre>
+                                                              {JSON.stringify(
+                                                                  turn.candidate.expression,
+                                                                  null,
+                                                                  2
+                                                              )}
+                                                          </pre>
+                                                      </details>
+                                                  </section>
+                                              </Card>
+                                          )}
+                                    {turn.head === study?.snapshot.origin.event_fingerprint &&
+                                    turn.study_reference?.fingerprint === study.fingerprint
+                                        ? studyCard
+                                        : turn.study !== null && (
+                                              <HistoricalStudyCard
+                                                  sessionId={conversation.id}
+                                                  head={turn.head}
+                                                  reference={turn.study_reference}
+                                                  advice={turn.study}
+                                              />
+                                          )}
+                                </article>
+                            </div>
+                        ))}
+                        {conversation === null &&
+                            chat?.messages.map((message, index) => (
+                                <Bubble
+                                    key={index}
+                                    placement={message.role === "user" ? "end" : "start"}
+                                    variant={message.role === "user" ? "filled" : "borderless"}
+                                    content={messages[message.content] ?? message.content}
+                                />
+                            ))}
+                        {proposal !== null && !hasFactorTurn && (
+                            <div className="factor-chat-saved">
+                                <p className="factor-chat-muted">已保存的因子</p>
+                                {factorCard}
+                            </div>
+                        )}
+                        {study !== null && !hasStudyTurn && (
+                            <div className="factor-chat-saved">{studyCard}</div>
+                        )}
+                        {busy && (
+                            <div role="status" className="factor-chat-working">
+                                <Spin size="small" /> 正在处理…
+                            </div>
+                        )}
+                        {researchFeedback !== "" && <p role="status">{researchFeedback}</p>}
+                        {blocked &&
+                            !studyRecovery &&
+                            (registrationPending ||
+                                chat?.status === "WORKFLOW_UNAVAILABLE" ||
+                                !conversation?.turns.some(
+                                    (turn) =>
+                                        turn.head === chat?.head &&
+                                        turn.status === "OUTCOME_UNKNOWN"
+                                )) && (
+                                <Alert
+                                    type="warning"
+                                    title={
+                                        chat?.status === "WORKFLOW_UNAVAILABLE"
+                                            ? "这项研究使用的助手版本暂不可用，记录已保留。"
+                                            : registrationPending
+                                              ? "研究内容的保存结果尚未确认，请先核对原操作。"
+                                              : "模型连接中断，未收到完整回复。系统不会自动重复请求；已保存的内容仍可查看，可新建研究继续。"
+                                    }
+                                />
+                            )}
+                        {registrationPending && pending === null && (
+                            <div className="factor-recovery-actions">
+                                <Button disabled={busy} onClick={() => void act(returnToHistory)}>
+                                    保留记录，返回研究历史
+                                </Button>
+                                <details>
+                                    <summary>原登记操作详情</summary>
+                                    <code>{pendingRegistration.command}</code>
+                                </details>
+                            </div>
+                        )}
+                        {chat?.status === "READY" &&
+                            (chat.topic === "STUDY"
+                                ? chat.study !== null
+                                : chat.candidate !== null) &&
+                            (chat.topic === "STUDY"
+                                ? chat.study_reference?.head
+                                : chat.factor_reference?.head) !== chat.head &&
+                            pending === null && (
+                                <Button
+                                    disabled={busy || connection?.grant_state !== "ACTIVE"}
+                                    onClick={() =>
+                                        void act(async () => {
+                                            await stage(chat);
+                                            await refresh();
+                                        })
+                                    }
+                                >
+                                    {chat.topic === "STUDY"
+                                        ? "保存当前研究建议"
+                                        : "保存当前因子建议"}
+                                </Button>
+                            )}
+                    </div>
+                </div>
+                {!following && (
+                    <Button
+                        className="factor-jump-latest"
+                        size="small"
+                        onClick={() => {
+                            setFollowing(true);
+                        }}
+                    >
+                        查看最新回复 ↓
+                    </Button>
+                )}
+                <div className="factor-chat-composer">
+                    <div
+                        className="factor-chat-composer-inner"
+                        onCompositionStartCapture={() => {
+                            composing.current = true;
+                        }}
+                        onCompositionEndCapture={() => {
+                            composing.current = false;
+                        }}
+                    >
+                        <Sender
+                            value={text}
+                            onChange={setText}
+                            placeholder="描述你的因子想法，或继续讨论研究条件…"
+                            aria-label="告诉助手你的想法"
+                            autoSize={{ minRows: 2, maxRows: 7 }}
+                            disabled={disabled || blocked}
+                            onKeyDown={(event) => {
+                                if (composing.current || event.nativeEvent.isComposing)
+                                    return false;
+                            }}
+                            onSubmit={() => {
+                                if (canSend && !composing.current) void act(send);
+                            }}
+                            suffix={(_node, { components: { SendButton } }) => (
+                                <SendButton aria-label="发送" disabled={!canSend} loading={busy} />
+                            )}
+                            footer={
+                                <div className="factor-composer-footer">
+                                    <Select
+                                        aria-label={
+                                            chat === null ? "新对话的模型" : "当前研究的模型"
+                                        }
+                                        placeholder="选择模型"
+                                        size="small"
+                                        variant="borderless"
+                                        disabled={chat !== null || disabled}
+                                        value={
+                                            chat !== null
+                                                ? chat.model_revision
+                                                : selectedModel || null
+                                        }
+                                        onChange={(value: string) => {
+                                            setSelectedModel(value);
+                                        }}
+                                        options={
+                                            chat !== null
+                                                ? [
+                                                      {
+                                                          value: chat.model_revision,
+                                                          label:
+                                                              conversation?.model.name ??
+                                                              "原研究模型"
+                                                      }
+                                                  ]
+                                                : models.map((model) => ({
+                                                      value: model.id,
+                                                      label: model.name
+                                                  }))
+                                        }
+                                    />
+                                    <div className="factor-composer-options">
+                                        {chat === null ? (
+                                            <Popover
+                                                trigger="click"
+                                                content={
+                                                    <label>
+                                                        最多调用模型的次数
+                                                        <InputNumber
+                                                            aria-label="新对话最多模型调用次数"
+                                                            min={1}
+                                                            max={100}
+                                                            value={budget}
+                                                            onChange={(value) => {
+                                                                setBudget(value ?? 20);
+                                                            }}
+                                                        />
+                                                    </label>
+                                                }
+                                            >
+                                                <Button type="text" size="small">
+                                                    研究选项
+                                                </Button>
+                                            </Popover>
+                                        ) : (
+                                            <span>
+                                                {chat.consumed} / {chat.model_call_limit} 次
+                                            </span>
+                                        )}
+                                        <Button
+                                            type="text"
+                                            size="small"
+                                            onClick={() => {
+                                                openSettings("models");
+                                            }}
+                                        >
+                                            管理模型
+                                        </Button>
+                                    </div>
+                                </div>
+                            }
+                        />
+                        <p className="factor-composer-hint">
+                            {chat === null
+                                ? `本次研究最多调用模型 ${String(budget)} 次`
+                                : topic === "STUDY"
+                                  ? "讨论研究条件 · 准备完成后，单独确认本次研究"
+                                  : "讨论因子 · 确认计算内容后再讨论研究条件"}
+                        </p>
+                    </div>
+                </div>
+            </main>
+            <Modal
+                title="启用研究助手"
+                open={grantOpen}
+                okText="允许并启用"
+                cancelText="暂不启用"
+                confirmLoading={busy}
+                onCancel={() => {
+                    setGrantOpen(false);
+                }}
+                onOk={() =>
+                    void act(async () => {
+                        await grant();
+                        setGrantOpen(false);
+                    })
+                }
+            >
+                <p>允许助手保存最多100次因子建议，有效期24小时。</p>
+                <p>这不会确认因子、开始研究或授权交易。每项研究仍由你单独确认。</p>
+            </Modal>
         </section>
     );
 }

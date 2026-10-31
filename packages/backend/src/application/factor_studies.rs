@@ -88,6 +88,33 @@ pub struct StageInput {
     pub origin: Origin,
     pub expected_study_fingerprint: Option<String>,
     pub advice: Advice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_command_id: Option<String>,
+}
+
+/// Human permission to keep the same confirmed Factor in a fresh Agent workflow.
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+#[schema(as = FactorStudyContinuationInput)]
+pub struct ContinuationInput {
+    pub schema_version: u8,
+    pub factor_proposal_fingerprint: String,
+    pub session_id: String,
+    pub workflow_fingerprint: String,
+    pub model_revision: String,
+    pub source_session_id: String,
+    pub source_workflow_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_continuation_command_id: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+#[schema(as = FactorStudyContinuationView)]
+pub struct ContinuationView {
+    pub schema_version: u8,
+    pub command_id: String,
+    pub operation_fingerprint: String,
+    pub snapshot: serde_json::Value,
 }
 /// Separate explicit Human staging permission. The original Factor grant alone
 /// cannot register studies, prepare/activate environments or run Research.
