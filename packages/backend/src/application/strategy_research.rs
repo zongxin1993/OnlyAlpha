@@ -11,6 +11,8 @@ type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "PRIVATE_STRATEGY_RESEARCH_CONTEXT_INVALID";
 const UNAVAILABLE: &str = "PRIVATE_STRATEGY_RESEARCH_CONTEXT_UNAVAILABLE";
 const WORK: usize = 8 * 1024 * 1024;
+mod decision;
+pub use decision::DecisionGraph;
 fn mapped(e: &'static str) -> &'static str {
     if e.ends_with("UNAVAILABLE") {
         UNAVAILABLE
@@ -391,6 +393,94 @@ mod tests {
         json!({"schema_version":1,"start":"2025-01-02T12:00:00Z","end":"2025-01-03T00:00:00Z",
          "targets":[{"instance_key":"forward_return","type_reference":{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1"},"parameters":{"exit_offset":{"kind":"FIXED","value":{"type":"INTEGER","value":5}}},"published_outputs":["target_value"],"primary_output":null,"input_bindings":[{"input_name":"entry_price","source":"bar.close"},{"input_name":"exit_price","source":"bar.close"}]}],
          "statistics":[{"variable":{"kind":"VARIABLE","instance_key":"momentum","output_name":"value"},"target_instance_key":"forward_return","definition":{"schema_version":1,"method":"IC","minimum_observations":2,"pairing_policy":"PAIRWISE_COMPLETE","universe_policy":"OBSERVED_PAIRWISE","rank_tie_method":"AVERAGE","weighting":"EQUAL","numeric":{"representation":"DECIMAL","precision":38,"output_quantum":"0.000000000001","rounding":"ROUND_HALF_EVEN"}}}],"display_metadata":{}})
+    }
+    fn calculation_fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../tests/application/fixtures/strategy_calculations.json"
+        ))
+        .unwrap()
+    }
+    #[test]
+    fn decision_graph_lowers_the_exact_calculations_and_three_native_terminals() {
+        let fixture = calculation_fixture();
+        let mut value = strategy();
+        value["calculations"] = fixture["instances"].clone();
+        value["factor_revision_dependencies"] = fixture["factor_revision_dependencies"].clone();
+        let definition = Definition::from_record(&value).unwrap();
+        let graph = DecisionGraph::derive(&definition, &fixture["nodes"]).unwrap();
+        assert_eq!(graph.graph().ordered_nodes().count(), 9);
+        let record = graph.record();
+        assert_eq!(
+            record["decision_graph_fingerprint"],
+            fixture["reference_decision_graph_fingerprint"]
+        );
+        assert_eq!(
+            record["signal_semantics"],
+            fixture["reference_signal_semantics"]
+        );
+        for (role, semantic) in [
+            ("eligibility", "ELIGIBILITY"),
+            ("entry", "ENTRY_SIGNAL"),
+            ("exit", "EXIT_SIGNAL"),
+        ] {
+            let id = record["signal_semantics"][role]["node_fingerprint"]
+                .as_str()
+                .unwrap();
+            let node = graph
+                .graph()
+                .ordered_nodes()
+                .find(|d| d.fingerprint() == id)
+                .unwrap()
+                .to_record();
+            assert_eq!(node["outputs"][0]["semantic_type"], semantic);
+            onlyalpha_calculation_bridge::native_predicates::PredicateCalculation::from_record(
+                &node,
+            )
+            .unwrap();
+        }
+        assert_eq!(record["signal_semantics"]["missing_decision"], "FALSE");
+        assert!(record.get("strategy_fingerprint").is_none());
+        let mut changed = fixture["nodes"].clone();
+        let row = changed
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["definition"]["type_id"] == "onlyalpha.operator.delay")
+            .unwrap();
+        row["definition"]["parameters"]["period"]["value"] = json!(19);
+        row["definition_fingerprint"] = json!(
+            onlyalpha_calculation::product::Definition::from_record(&row["definition"], WORK)
+                .unwrap()
+                .fingerprint()
+        );
+        assert!(DecisionGraph::derive(&definition, &changed).is_err());
+        assert!(DecisionGraph::derive(&definition, &json!([])).is_err());
+    }
+    #[test]
+    fn decision_graph_boolean_order_is_canonical_and_never_changes_strategy_semantics() {
+        let fixture = calculation_fixture();
+        let mut value = strategy();
+        value["calculations"] = fixture["instances"].clone();
+        value["factor_revision_dependencies"] = fixture["factor_revision_dependencies"].clone();
+        let a = value["eligibility"].clone();
+        let b = value["signals"]["entry"].clone();
+        value["signals"]["entry"] = json!({"kind":"AND","operands":[a,b]});
+        let first =
+            DecisionGraph::derive(&Definition::from_record(&value).unwrap(), &fixture["nodes"])
+                .unwrap();
+        value["signals"]["entry"]["operands"]
+            .as_array_mut()
+            .unwrap()
+            .reverse();
+        let second =
+            DecisionGraph::derive(&Definition::from_record(&value).unwrap(), &fixture["nodes"])
+                .unwrap();
+        assert_eq!(first.graph().fingerprint(), second.graph().fingerprint());
+        value["signals"]["entry"] = json!({"kind":"COMPARISON","operator":">","left":{"kind":"LITERAL","data_type":"DECIMAL","value":{"type":"DECIMAL","value":"2"}},"right":{"kind":"LITERAL","data_type":"DECIMAL","value":{"type":"DECIMAL","value":"1"}}});
+        assert!(
+            DecisionGraph::derive(&Definition::from_record(&value).unwrap(), &fixture["nodes"])
+                .is_err()
+        );
     }
     fn composition_inputs() -> (
         Value,

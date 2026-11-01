@@ -1,0 +1,616 @@
+{
+  "factor_revision_dependencies": [
+    {
+      "factor_id": "private.factor.volume_momentum",
+      "revision_fingerprint": "0a8c9287ff9e8db1fe01dd2b76460cafcefd010dcbf4ca328b39df3293900e7f"
+    }
+  ],
+  "instances": [
+    {
+      "input_bindings": [
+        {
+          "input_name": "value",
+          "source": "bar.close"
+        }
+      ],
+      "instance_key": "node_0",
+      "parameters": {
+        "period": {
+          "kind": "FIXED",
+          "value": {
+            "type": "INTEGER",
+            "value": 20
+          }
+        }
+      },
+      "primary_output": "value",
+      "published_outputs": [
+        "value"
+      ],
+      "type_reference": {
+        "kind": "INDICATOR",
+        "semantic_version": "1",
+        "type_id": "onlyalpha.operator.delay"
+      }
+    },
+    {
+      "input_bindings": [
+        {
+          "input_name": "value",
+          "source": "bar.volume"
+        }
+      ],
+      "instance_key": "node_1",
+      "parameters": {
+        "period": {
+          "kind": "FIXED",
+          "value": {
+            "type": "INTEGER",
+            "value": 20
+          }
+        }
+      },
+      "primary_output": "value",
+      "published_outputs": [
+        "value"
+      ],
+      "type_reference": {
+        "kind": "INDICATOR",
+        "semantic_version": "1",
+        "type_id": "onlyalpha.operator.rolling_mean"
+      }
+    },
+    {
+      "input_bindings": [
+        {
+          "input_name": "close",
+          "source": "bar.close"
+        },
+        {
+          "input_name": "close_lag_20",
+          "source": {
+            "instance_key": "node_0",
+            "kind": "VARIABLE",
+            "output_name": "value"
+          }
+        },
+        {
+          "input_name": "volume",
+          "source": "bar.volume"
+        },
+        {
+          "input_name": "volume_mean_20",
+          "source": {
+            "instance_key": "node_1",
+            "kind": "VARIABLE",
+            "output_name": "value"
+          }
+        }
+      ],
+      "instance_key": "momentum",
+      "parameters": {
+        "literal_1": {
+          "kind": "FIXED",
+          "value": {
+            "type": "DECIMAL",
+            "value": "1"
+          }
+        }
+      },
+      "primary_output": "value",
+      "published_outputs": [
+        "value"
+      ],
+      "type_reference": {
+        "kind": "FACTOR",
+        "semantic_version": "1",
+        "type_id": "private.factor.volume_momentum"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "definition": {
+        "extensions": {},
+        "factor_kind": "TIME_SERIES",
+        "input_bindings": {
+          "close": {
+            "node_fingerprint": null,
+            "output_name": "value",
+            "source": "bar.close"
+          },
+          "close_lag_20": {
+            "node_fingerprint": "143a99631ed98cf24c9a5c4df1ec7d4bab220c23345096a522f7295f2d7422cc",
+            "output_name": "value",
+            "source": null
+          },
+          "volume": {
+            "node_fingerprint": null,
+            "output_name": "value",
+            "source": "bar.volume"
+          },
+          "volume_mean_20": {
+            "node_fingerprint": "a51a843bc347ea2d7a1e9bc8be5af34e5f2a8b2f4052cf7346021b5034469567",
+            "output_name": "value",
+            "source": null
+          }
+        },
+        "inputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "close",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          },
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "close_lag_20",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          },
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "volume",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          },
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "volume_mean_20",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          }
+        ],
+        "kind": "FACTOR",
+        "missing_values": "PROPAGATE",
+        "numeric": {
+          "output_quantum": "0.000000000001",
+          "precision": 38,
+          "representation": "DECIMAL",
+          "rounding": "ROUND_HALF_EVEN"
+        },
+        "outputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "value",
+            "nullable": true,
+            "semantic_type": "FACTOR_VALUE",
+            "unit": null
+          }
+        ],
+        "parameters": {
+          "literal_1": {
+            "type": "DECIMAL",
+            "value": "1"
+          }
+        },
+        "schema_version": 2,
+        "semantic_version": "1",
+        "timestamp": "EVENT_TIME",
+        "type_id": "private.factor.volume_momentum",
+        "warmup": {
+          "initialization": "STATELESS",
+          "minimum_observations": 1,
+          "pre_ready_output": "NULL",
+          "ready_condition": "point inputs are available"
+        }
+      },
+      "definition_fingerprint": "e49341784929de5ea2f2abdf1f0238249f6789bd42d34090c5caab9369411d98",
+      "instance_key": "momentum",
+      "type_declaration": {
+        "descriptor": {
+          "execution_shape": "TIME_SERIES",
+          "factor_kind": "TIME_SERIES",
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "close",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "close_lag_20",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "volume",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            },
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "volume_mean_20",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "FACTOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 38,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "FACTOR_VALUE",
+              "unit": null
+            }
+          ],
+          "parameters": [
+            {
+              "default": "1",
+              "enum_values": [],
+              "maximum": null,
+              "minimum": null,
+              "name": "literal_1",
+              "parameter_type": "DECIMAL",
+              "required": false,
+              "uppercase": false
+            }
+          ],
+          "semantic_bounds": {
+            "value": null
+          },
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "private.factor.volume_momentum"
+        },
+        "parameter_values": [
+          {
+            "default": {
+              "type": "STRING",
+              "value": "1"
+            },
+            "enum_values": [],
+            "maximum": {
+              "type": "NULL",
+              "value": null
+            },
+            "minimum": {
+              "type": "NULL",
+              "value": null
+            }
+          }
+        ],
+        "schema_version": 1
+      }
+    },
+    {
+      "definition": {
+        "extensions": {},
+        "factor_kind": null,
+        "input_bindings": {
+          "value": {
+            "node_fingerprint": null,
+            "output_name": "value",
+            "source": "bar.close"
+          }
+        },
+        "inputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "value",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          }
+        ],
+        "kind": "INDICATOR",
+        "missing_values": "PROPAGATE",
+        "numeric": {
+          "output_quantum": "0.000000000001",
+          "precision": 28,
+          "representation": "DECIMAL",
+          "rounding": "ROUND_HALF_EVEN"
+        },
+        "outputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "value",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          }
+        ],
+        "parameters": {
+          "period": {
+            "type": "INTEGER",
+            "value": 20
+          }
+        },
+        "schema_version": 2,
+        "semantic_version": "1",
+        "timestamp": "EVENT_TIME",
+        "type_id": "onlyalpha.operator.delay",
+        "warmup": {
+          "initialization": "UPSTREAM",
+          "minimum_observations": 21,
+          "pre_ready_output": "NULL",
+          "ready_condition": "complete inclusive declared window is available"
+        }
+      },
+      "definition_fingerprint": "143a99631ed98cf24c9a5c4df1ec7d4bab220c23345096a522f7295f2d7422cc",
+      "instance_key": "node_0",
+      "type_declaration": {
+        "descriptor": {
+          "execution_shape": "TIME_SERIES",
+          "factor_kind": null,
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "INDICATOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 28,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "parameters": [
+            {
+              "default": null,
+              "enum_values": [],
+              "maximum": null,
+              "minimum": 1,
+              "name": "period",
+              "parameter_type": "INTEGER",
+              "required": true,
+              "uppercase": false
+            }
+          ],
+          "semantic_bounds": {
+            "value": null
+          },
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "onlyalpha.operator.delay"
+        },
+        "parameter_values": [
+          {
+            "default": {
+              "type": "NULL",
+              "value": null
+            },
+            "enum_values": [],
+            "maximum": {
+              "type": "NULL",
+              "value": null
+            },
+            "minimum": {
+              "type": "INTEGER",
+              "value": 1
+            }
+          }
+        ],
+        "schema_version": 1
+      }
+    },
+    {
+      "definition": {
+        "extensions": {},
+        "factor_kind": null,
+        "input_bindings": {
+          "value": {
+            "node_fingerprint": null,
+            "output_name": "value",
+            "source": "bar.volume"
+          }
+        },
+        "inputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "value",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          }
+        ],
+        "kind": "INDICATOR",
+        "missing_values": "PROPAGATE",
+        "numeric": {
+          "output_quantum": "0.000000000001",
+          "precision": 28,
+          "representation": "DECIMAL",
+          "rounding": "ROUND_HALF_EVEN"
+        },
+        "outputs": [
+          {
+            "data_type": "DECIMAL",
+            "dimensions": [
+              "TIME"
+            ],
+            "name": "value",
+            "nullable": true,
+            "semantic_type": "NUMERIC_SERIES",
+            "unit": null
+          }
+        ],
+        "parameters": {
+          "period": {
+            "type": "INTEGER",
+            "value": 20
+          }
+        },
+        "schema_version": 2,
+        "semantic_version": "1",
+        "timestamp": "EVENT_TIME",
+        "type_id": "onlyalpha.operator.rolling_mean",
+        "warmup": {
+          "initialization": "UPSTREAM",
+          "minimum_observations": 20,
+          "pre_ready_output": "NULL",
+          "ready_condition": "complete declared input window is available"
+        }
+      },
+      "definition_fingerprint": "a51a843bc347ea2d7a1e9bc8be5af34e5f2a8b2f4052cf7346021b5034469567",
+      "instance_key": "node_1",
+      "type_declaration": {
+        "descriptor": {
+          "execution_shape": "TIME_SERIES",
+          "factor_kind": null,
+          "inputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "kind": "INDICATOR",
+          "missing_values": "PROPAGATE",
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 28,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "outputs": [
+            {
+              "data_type": "DECIMAL",
+              "dimensions": [
+                "TIME"
+              ],
+              "name": "value",
+              "nullable": true,
+              "semantic_type": "NUMERIC_SERIES",
+              "unit": null
+            }
+          ],
+          "parameters": [
+            {
+              "default": null,
+              "enum_values": [],
+              "maximum": null,
+              "minimum": 1,
+              "name": "period",
+              "parameter_type": "INTEGER",
+              "required": true,
+              "uppercase": false
+            }
+          ],
+          "semantic_bounds": {
+            "value": null
+          },
+          "semantic_version": "1",
+          "timestamp": "EVENT_TIME",
+          "type_id": "onlyalpha.operator.rolling_mean"
+        },
+        "parameter_values": [
+          {
+            "default": {
+              "type": "NULL",
+              "value": null
+            },
+            "enum_values": [],
+            "maximum": {
+              "type": "NULL",
+              "value": null
+            },
+            "minimum": {
+              "type": "INTEGER",
+              "value": 1
+            }
+          }
+        ],
+        "schema_version": 1
+      }
+    }
+  ],
+  "reference_decision_graph_fingerprint": "e1eb7dfb706e06fdf60ffb1cb2426d4d28853d0b1805dd0b8eb12b8e80556896",
+  "reference_signal_semantics": {
+    "eligibility": {
+      "node_fingerprint": "59aa8d3c5997ec794afc7dcd3b1ccda8aee3d5e2d9bee913bf17c700a9bcfd2f",
+      "output_name": "value"
+    },
+    "entry": {
+      "node_fingerprint": "b9d866313364f0f5da5a5444b6657e29810d2e1020301e8aeaa687fd04e40245",
+      "output_name": "value"
+    },
+    "exit": {
+      "node_fingerprint": "09ca96a3c3bd5f06ae0cc07683ac00e2662226e61d0ef1a607b00c53f04c9703",
+      "output_name": "value"
+    },
+    "missing_decision": "FALSE",
+    "schema_version": 1
+  }
+}

@@ -1073,6 +1073,7 @@ def validate_calculation_sources(root: Path) -> None:
 # also materialized in isolated builds and covered by source_inputs hashing.
 _INFRASTRUCTURE_RESOURCES = {
     "packages/backend/src/application/strategy_research.rs": {
+        "../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
         "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
     },
     "packages/backend/src/application/private_strategy.rs": {

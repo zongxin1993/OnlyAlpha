@@ -56,6 +56,19 @@ instances. Python tests retain the normalized literal tuple and explicit positio
 ambient precision and test the common Arrow decimal128(38,18) input/literal envelope with exact output cardinality. Rust rejects
 wrong family/layout/operator/version and wrong arity before missing; compile-fail coverage prevents a missing required literal.
 
+## Bounded native Calculation consumer
+
+The Infrastructure calculation bridge exposes `native_predicates::PredicateCalculation` over the existing Product Definition2
+contract. It rematerializes exact version-1 DECIMAL reference/literal comparisons and nullable Boolean/terminal definitions;
+`from_record` rejects changes to resolved ports, parameters, missing policy, time, numeric or warmup semantics. Other scalar
+families are unavailable in this consumer and never select a Python fallback. Evaluation accepts exact input names, nullable
+Boolean values and the fixed-point DECIMAL text described above, and delegates behavior to the canonical Predicate crate.
+Null terminal values remain null until the owning Strategy applies its signal semantics.
+
+The bridge owns no Research permission, Runtime selection, equivalence certificate, Strategy identity or Freeze publication.
+Product lowering may combine these definitions with exact installed numerical definitions, but must separately anchor the
+immutable authoring composition, Dataset and original Runtime capability/implementation set before execution or publication.
+
 ## Independent vectors and validation
 
 `test-data/predicate/decimal-refs-v1.tsv` contains 264 independently declared cases across all six types. Expectations derive from
