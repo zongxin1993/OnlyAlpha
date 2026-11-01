@@ -13,6 +13,8 @@ const UNAVAILABLE: &str = "PRIVATE_STRATEGY_RESEARCH_CONTEXT_UNAVAILABLE";
 const WORK: usize = 8 * 1024 * 1024;
 mod decision;
 pub use decision::DecisionGraph;
+mod resolution;
+pub use resolution::ResolvedCalculations;
 fn mapped(e: &'static str) -> &'static str {
     if e.ends_with("UNAVAILABLE") {
         UNAVAILABLE

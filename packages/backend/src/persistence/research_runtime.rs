@@ -571,6 +571,28 @@ impl RuntimeInputHold {
         }
         self.core.as_ref().ok_or(INVALID)
     }
+    /// Select only an already physically verified wheel of this held Generation.
+    /// This does not discover an installed/current distribution or grant work.
+    pub(crate) fn distribution_artifact(&mut self, distribution: &str) -> Result<Value> {
+        self.verify()?;
+        let artifacts = self.artifacts.clone();
+        let mut selected = None;
+        for (path, digest, size) in artifacts {
+            let parent = path.rsplit_once('/').ok_or(INVALID)?.0;
+            let manifest = self.json(&format!("{parent}/manifest.json"))?;
+            if manifest["distribution_name"] != distribution {
+                continue;
+            }
+            if selected.is_some() || !path.ends_with(".whl") {
+                return Err(INVALID);
+            }
+            selected = Some(
+                json!({"path":self.root_path.join(path),"sha256":digest,"size":size,"distribution_version":manifest["distribution_version"]}),
+            );
+        }
+        self.verify()?;
+        selected.ok_or("RESEARCH_RUNTIME_DISTRIBUTION_UNAVAILABLE")
+    }
     pub(crate) fn execution_binding(&self) -> Result<Value> {
         let e = self
             .executor

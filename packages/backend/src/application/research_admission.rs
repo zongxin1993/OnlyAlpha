@@ -270,6 +270,59 @@ pub fn prepare(
     let record = json!({"schema_version":1,"contract":"ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1","runtime_generation_fingerprint":generation,"execution_binding":execution_binding,"runtime_work_binding":runtime.binding(),"factor_preparation_fingerprint":factor.fingerprint(),"factor_revision_fingerprint":factor.revision_fingerprint(),"input_window":w,"dataset_snapshot_fingerprint":snapshot,"dataset_materialization":materialized.lineage(),"dataset_construction_fingerprint":dataset.dataset().construction_fingerprint(),"algorithm_resolution":resolved});
     Ok(PreparedInputs { runtime, record })
 }
+/// Recompute the existing Manifest1 identities before comparing capabilities.
+/// The owning installed producer separately proves actual resource bytes.
+pub(crate) fn implementation_projection(record: &Value) -> Result<Value> {
+    exact(
+        record,
+        &[
+            "schema_version",
+            "calculation_type_reference",
+            "backend_kind",
+            "entrypoint_identity",
+            "resources",
+            "semantic_dependencies",
+            "implementation_bundle_fingerprint",
+            "implementation_fingerprint",
+        ],
+    )?;
+    exact(
+        &record["calculation_type_reference"],
+        &["kind", "type_id", "semantic_version"],
+    )?;
+    if record["schema_version"] != 1
+        || !matches!(
+            record["backend_kind"].as_str(),
+            Some("RESEARCH" | "TRADING")
+        )
+        || record["resources"].as_array().is_none_or(Vec::is_empty)
+        || !record["semantic_dependencies"].is_array()
+        || record["entrypoint_identity"]
+            .as_str()
+            .is_none_or(|s| s.trim().is_empty() || s.matches(':').count() != 1)
+        || record["implementation_bundle_fingerprint"]
+            != hash(
+                &json!({"domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":record["resources"]}),
+            )?
+    {
+        return Err(INVALID);
+    }
+    let mut identity = record.clone();
+    let fields = identity.as_object_mut().ok_or(INVALID)?;
+    fields.remove("resources");
+    fields.remove("implementation_fingerprint");
+    fields.insert(
+        "domain".into(),
+        json!("onlyalpha.calculation.implementation"),
+    );
+    if record["implementation_fingerprint"] != hash(&identity)? {
+        return Err(INVALID);
+    }
+    let r = &record["calculation_type_reference"];
+    Ok(
+        json!({"kind":r["kind"],"type_id":r["type_id"],"semantic_version":r["semantic_version"],"backend":record["backend_kind"],"implementation_fingerprint":record["implementation_fingerprint"]}),
+    )
+}
 pub(crate) fn check_binding(
     resolved: &Value,
     saved: &Value,
@@ -355,7 +408,7 @@ pub(crate) fn check_binding(
     let allowed = manifest["implementations"].as_array().ok_or(INVALID)?;
     for implementation in actual {
         let r = &implementation["calculation_type_reference"];
-        let expected = json!({"kind":r["kind"],"type_id":r["type_id"],"semantic_version":r["semantic_version"],"backend":implementation["backend_kind"],"implementation_fingerprint":implementation["implementation_fingerprint"]});
+        let expected = implementation_projection(implementation)?;
         if !allowed.contains(&expected) {
             return Err(INVALID);
         }
@@ -565,5 +618,37 @@ mod recovery_tests {
             error.recovery_owner().unwrap().state(),
             ProcessState::Joined
         );
+    }
+}
+
+#[cfg(test)]
+mod implementation_tests {
+    use super::*;
+    #[test]
+    fn implementation_body_must_match_its_original_bundle_and_capability_identity() {
+        let resources = json!([{"relative_path":"math/source.py","byte_sha256":"a".repeat(64)}]);
+        let bundle = hash(&json!({"domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":resources})).unwrap();
+        let mut value = json!({"schema_version":1,"calculation_type_reference":{"kind":"FACTOR","type_id":"private.factor.momentum","semantic_version":"1"},"backend_kind":"TRADING","entrypoint_identity":"math.source:Backend","resources":resources,"semantic_dependencies":[],"implementation_bundle_fingerprint":bundle});
+        let mut identity = value.clone();
+        identity.as_object_mut().unwrap().remove("resources");
+        identity["domain"] = json!("onlyalpha.calculation.implementation");
+        value["implementation_fingerprint"] = json!(hash(&identity).unwrap());
+        let projection = implementation_projection(&value).unwrap();
+        assert_eq!(
+            projection["implementation_fingerprint"],
+            value["implementation_fingerprint"]
+        );
+        for field in ["resources", "entrypoint_identity", "semantic_dependencies"] {
+            let mut changed = value.clone();
+            changed[field] = if field == "entrypoint_identity" {
+                json!("other:Backend")
+            } else {
+                json!([])
+            };
+            if field == "semantic_dependencies" {
+                changed[field] = json!([{"dependency_id":"other","semantic_version":"1","artifact_fingerprint":null}]);
+            }
+            assert!(implementation_projection(&changed).is_err(), "{field}");
+        }
     }
 }

@@ -616,3 +616,60 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
         call(native_probe, strategy_id, "composition", **arguments)["error"]
         == "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE"
     )
+
+
+def test_strategy_calculation_resolution_uses_held_generation_and_actual_installed_math(
+    native_probe: Path, database: str, tmp_path: Path
+) -> None:
+    root = Path(__file__).resolve().parents[4]
+    runtime = tmp_path / "runtime"
+    prepared = subprocess.run(
+        [
+            "python",
+            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
+            str(runtime),
+            "ready",
+            "--strategy-targets",
+            "--actual-algorithms",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    selected = json.loads(prepared.stdout)
+    strategy_id = "private.strategy.s" + uuid4().hex
+    value = draft(strategy_id)
+    calculation = value["definition"]["calculations"][0]
+    calculation["type_reference"]["type_id"] = "onlyalpha.operator.delay"
+    calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
+    calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
+    saved = call(native_probe, strategy_id, "save", draft=value, expected=None)
+    revision = call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+        "revision"
+    ]
+    arguments = {
+        "context": research_context(),
+        "runtime_root": str(runtime),
+        "runtime_generation": selected["generation"],
+        "revision_fingerprint": revision["revision_fingerprint"],
+        "algorithm_root": selected["algorithm_root"],
+        "algorithm_artifact": selected["algorithm_artifact"],
+    }
+    actual = call(native_probe, strategy_id, "resolution", **arguments)
+    assert "error" not in actual, actual
+    assert actual["runtime_generation_fingerprint"] == selected["generation"]
+    assert actual["runtime_generation_fingerprint"] != selected["ready"]
+    assert actual["composition"]["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
+    assert actual["algorithm_resolution"]["source_artifacts"] == []
+    assert len(actual["decision"]["decision_graph"]["nodes"]) == 7
+    assert len(actual["target_graph"]["nodes"]) == 1
+    assert "run_id" not in actual and "strategy_fingerprint" not in actual and "equivalence_evidence" not in actual
+    assert call(native_probe, strategy_id, "resolution", **arguments) == actual
+    # Controlled physical loss: an installed package cannot replace changed
+    # original Generation bytes. No Run/Freeze is created by this technical test.
+    artifacts = list((runtime / "artifacts").glob("*/*/artifact.whl"))
+    assert artifacts
+    original = artifacts[0]
+    original.chmod(0o644)
+    original.write_bytes(original.read_bytes() + b"changed")
+    assert "error" in call(native_probe, strategy_id, "resolution", **arguments)

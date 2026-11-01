@@ -21,11 +21,54 @@ impl DecisionGraph {
     /// The caller separately proves these exact installed observations against
     /// the held Runtime and immutable authoring composition. Values grant no authority.
     pub fn derive(strategy: &Strategy, observations: &Value) -> Result<Self> {
+        let strategy = strategy.to_record();
+        let mut builder = Builder::resolved(&strategy["calculations"], observations)?;
+        let mut signals = json!({"schema_version":1,"missing_decision":"FALSE"});
+        for (role, name, expression) in [
+            ("eligibility", "eligibility", &strategy["eligibility"]),
+            ("entry", "entry_signal", &strategy["signals"]["entry"]),
+            ("exit", "exit_signal", &strategy["signals"]["exit"]),
+        ] {
+            let root =
+                builder.expression(&canonical_expression(expression).map_err(|_| INVALID)?, 0)?;
+            let id = builder.predicate(
+                &format!("terminal.{name}"),
+                json!({}),
+                json!({"value":reference(&root)}),
+            )?;
+            signals[role] = json!({"node_fingerprint":id,"output_name":"value"});
+        }
+        let graph = Graph::from_record(
+            &json!({"schema_version":1,"nodes":builder.nodes.into_values().collect::<Vec<_>>()}),
+            WORK,
+        )
+        .map_err(|_| INVALID)?;
+        Ok(Self { graph, signals })
+    }
+    pub(crate) fn target_graph(context: &super::Context, observations: &Value) -> Result<Graph> {
+        let builder = Builder::resolved(&context.record()["targets"], observations)?;
+        Graph::from_record(
+            &json!({"schema_version":1,"nodes":builder.nodes.into_values().collect::<Vec<_>>()}),
+            WORK,
+        )
+        .map_err(|_| INVALID)
+    }
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+    pub fn record(&self) -> Value {
+        json!({"schema_version":1,"decision_graph_fingerprint":self.graph.fingerprint(),"decision_graph":self.graph.to_record(),"signal_semantics":self.signals})
+    }
+}
+fn reference(id: &str) -> Value {
+    json!({"node_fingerprint":id,"output_name":"value","source":null})
+}
+impl Builder {
+    fn resolved(instances: &Value, observations: &Value) -> Result<Self> {
         if observations.to_string().len() > WORK {
             return Err(UNAVAILABLE);
         }
-        let strategy = strategy.to_record();
-        let instances = strategy["calculations"].as_array().ok_or(INVALID)?;
+        let instances = instances.as_array().ok_or(INVALID)?;
         let observed = observations.as_array().ok_or(INVALID)?;
         if instances.len() != observed.len() {
             return Err(INVALID);
@@ -66,8 +109,7 @@ impl DecisionGraph {
                     return Err(INVALID);
                 }
             }
-            if record["kind"] == "TARGET"
-                || record["kind"] == "PREDICATE"
+            if record["kind"] == "PREDICATE"
                 || row["definition_fingerprint"] != definition.fingerprint()
                 || declarations.insert(key.to_owned(), declaration).is_some()
                 || builder
@@ -143,39 +185,8 @@ impl DecisionGraph {
                 json!({"alias":key,"definition":record}),
             );
         }
-        let mut signals = json!({"schema_version":1,"missing_decision":"FALSE"});
-        for (role, name, expression) in [
-            ("eligibility", "eligibility", &strategy["eligibility"]),
-            ("entry", "entry_signal", &strategy["signals"]["entry"]),
-            ("exit", "exit_signal", &strategy["signals"]["exit"]),
-        ] {
-            let root =
-                builder.expression(&canonical_expression(expression).map_err(|_| INVALID)?, 0)?;
-            let id = builder.predicate(
-                &format!("terminal.{name}"),
-                json!({}),
-                json!({"value":reference(&root)}),
-            )?;
-            signals[role] = json!({"node_fingerprint":id,"output_name":"value"});
-        }
-        let graph = Graph::from_record(
-            &json!({"schema_version":1,"nodes":builder.nodes.into_values().collect::<Vec<_>>()}),
-            WORK,
-        )
-        .map_err(|_| INVALID)?;
-        Ok(Self { graph, signals })
+        Ok(builder)
     }
-    pub fn graph(&self) -> &Graph {
-        &self.graph
-    }
-    pub fn record(&self) -> Value {
-        json!({"schema_version":1,"decision_graph_fingerprint":self.graph.fingerprint(),"decision_graph":self.graph.to_record(),"signal_semantics":self.signals})
-    }
-}
-fn reference(id: &str) -> Value {
-    json!({"node_fingerprint":id,"output_name":"value","source":null})
-}
-impl Builder {
     fn predicate(&mut self, name: &str, parameters: Value, bindings: Value) -> Result<String> {
         if self.nodes.len() >= 512 {
             return Err(UNAVAILABLE);

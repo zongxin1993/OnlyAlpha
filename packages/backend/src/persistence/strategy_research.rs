@@ -3,7 +3,7 @@
 use crate::{
     application::{
         private_assets,
-        strategy_research::{Composition, Context},
+        strategy_research::{Composition, Context, ResolvedCalculations},
     },
     persistence::{postgres::bounds, research_runtime::RuntimeInputHold},
 };
@@ -32,6 +32,30 @@ impl<'a> Composer<'a> {
     pub fn new(client: &'a mut Client) -> Self {
         Self { client }
     }
+    /// Mathematical resolution retains exact original work, not a new Run grant.
+    pub async fn resolve(
+        &mut self,
+        id: &str,
+        revision: &str,
+        context: &Context,
+        mut runtime: RuntimeInputHold,
+        installation: &onlyalpha_calculation_bridge::ChartInstallation,
+    ) -> std::result::Result<
+        ResolvedCalculations,
+        crate::application::research_admission::PreparationError,
+    > {
+        let (composition, strategy, factors) = self
+            .compose_inputs(id, revision, context, &mut runtime)
+            .await?;
+        ResolvedCalculations::resolve(
+            runtime,
+            installation,
+            &strategy,
+            context,
+            &factors,
+            &composition,
+        )
+    }
     /// Re-anchor every immutable input through its owner in one consistent DB
     /// transaction, retaining the caller's actual Runtime hold across publication.
     pub async fn compose(
@@ -41,6 +65,15 @@ impl<'a> Composer<'a> {
         context: &Context,
         runtime: &mut RuntimeInputHold,
     ) -> Result<Composition> {
+        Ok(self.compose_inputs(id, revision, context, runtime).await?.0)
+    }
+    async fn compose_inputs(
+        &mut self,
+        id: &str,
+        revision: &str,
+        context: &Context,
+        runtime: &mut RuntimeInputHold,
+    ) -> Result<(Composition, Value, BTreeMap<String, Value>)> {
         runtime.verify_artifacts().map_err(|_| UNAVAILABLE)?;
         let tx = self
             .client
@@ -88,6 +121,6 @@ impl<'a> Composer<'a> {
         tx.commit()
             .await
             .map_err(|_| "PRIVATE_STRATEGY_COMPOSITION_OUTCOME_UNKNOWN")?;
-        Ok(composition)
+        Ok((composition, strategy, factors))
     }
 }

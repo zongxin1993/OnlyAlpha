@@ -4,7 +4,10 @@ use onlyalpha_backend::{
 };
 use serde_json::{Value, json};
 pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value {
-    if request["action"] == "composition" {
+    if matches!(
+        request["action"].as_str(),
+        Some("composition" | "resolution")
+    ) {
         use onlyalpha_backend::{
             application::strategy_research::Context,
             persistence::{research_runtime::RuntimeInputHold, strategy_research::Composer},
@@ -17,6 +20,26 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
             request["runtime_generation"].as_str().unwrap(),
         )
         .expect("controlled storage fixture, not executable certification");
+        if request["action"] == "resolution" {
+            let installation = onlyalpha_calculation_bridge::ChartInstallation::open(
+                std::path::Path::new(request["algorithm_root"].as_str().unwrap()),
+                request["algorithm_artifact"].as_str().unwrap(),
+            )
+            .unwrap();
+            return match Composer::new(client)
+                .resolve(
+                    request["strategy_id"].as_str().unwrap(),
+                    request["revision_fingerprint"].as_str().unwrap(),
+                    &context,
+                    runtime,
+                    &installation,
+                )
+                .await
+            {
+                Ok(value) => value.record().clone(),
+                Err(error) => json!({"error":error.code()}),
+            };
+        }
         return match Composer::new(client)
             .compose(
                 request["strategy_id"].as_str().unwrap(),

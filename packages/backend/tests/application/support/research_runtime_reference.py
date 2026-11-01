@@ -29,7 +29,19 @@ from onlyalpha.quant_assets import only_quant_asset_distribution_artifact_manife
 
 root = Path(sys.argv[1])
 registry = OnlyRuntimeGenerationRegistry(root)
+actual_algorithms = "--actual-algorithms" in sys.argv
+algorithm_root = root.parent / "algorithms"
+algorithm_wheels = root.parent / "wheels"
+algorithm_info: dict[str, str] = {}
+if actual_algorithms:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+    from scripts.build_algorithm_sdk import install
+
+    algorithm_artifact = install(algorithm_wheels, algorithm_root)
+    algorithm_info = {"algorithm_root": str(algorithm_root), "algorithm_artifact": algorithm_artifact}
 core_bytes = b"controlled core bytes; this fixture proves storage, not SDK compatibility"
+if actual_algorithms:
+    core_bytes = next(algorithm_wheels.glob("onlyalpha-*.whl")).read_bytes()
 core_manifest = OnlyDistributionArtifactManifest(
     OnlyDistributionArtifactRole.CORE,
     OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
@@ -44,6 +56,8 @@ core_manifest = OnlyDistributionArtifactManifest(
 core = OnlyCoreExecutionIdentity("onlyalpha", "0.11.1", core_manifest.artifact_sha256)
 provider = quant_asset_provider()
 provider_bytes = b"controlled operator bytes; not an installed algorithm"
+if actual_algorithms:
+    provider_bytes = next(algorithm_wheels.glob("onlyalpha_plugin_operators-*.whl")).read_bytes()
 provider_manifest = only_quant_asset_distribution_artifact_manifest(
     source_repository="OnlyAlpha",
     source_revision="2" * 40,
@@ -82,6 +96,8 @@ if "--strategy-targets" in sys.argv:
     from onlyalpha_plugin_targets.registration import registrations as target_registrations
 
     target_bytes = b"controlled target bytes; no executable certification"
+    if actual_algorithms:
+        target_bytes = next(algorithm_wheels.glob("onlyalpha_plugin_targets-*.whl")).read_bytes()
     target_manifest = OnlyDistributionArtifactManifest(
         OnlyDistributionArtifactRole.CALCULATION,
         OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
@@ -153,7 +169,7 @@ if len(sys.argv) > 2:
     )
     sg = second.runtime_generation_fingerprint
     if sys.argv[2] == "ready":
-        print(json.dumps({"generation": g, "ready": sg}))
+        print(json.dumps({"generation": g, "ready": sg, **algorithm_info}))
         sys.exit(0)
     registry.activate_for_new_work(target=sg, expected_current=g, actor="fixture", occurred_at=now)
     registry.bind_new_work_exact("other", sg, owner="research", actor="fixture", occurred_at=now)
@@ -173,4 +189,4 @@ if len(sys.argv) > 2:
         target=fourth.runtime_generation_fingerprint, expected_current=sg, actor="fixture", occurred_at=now
     )
     registry.retire(sg, actor="fixture", occurred_at=now)
-print(json.dumps({"generation": g}))
+print(json.dumps({"generation": g, **algorithm_info}))
