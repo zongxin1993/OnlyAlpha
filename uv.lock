@@ -1287,6 +1287,7 @@ dependencies = [
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators" },
+    { name = "onlyalpha-plugin-targets" },
 ]
 
 [package.metadata]
@@ -1295,6 +1296,7 @@ requires-dist = [
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
     { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
+    { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
 ]
 
 [[package]]

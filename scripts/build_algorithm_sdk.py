@@ -52,12 +52,14 @@ INDICATORS = (
     "financial_semantics.py",
     "chart_factory.py",
 )
+TARGETS = ("registration.py", "research.py")
 OPERATORS = ("metadata.py", "registration.py", "semantics.py", "research.py", "trading.py")
 WORKER = (
     "chart_worker.py",
     "chart_isolation.py",
     "worker_io.py",
     "research_worker.py",
+    "research_resolution.py",
     "research_evaluation.py",
     "research_preparation.py",
     "sdk/__init__.py",
@@ -132,6 +134,13 @@ def build(output: Path) -> list[Path]:
         for name in OPERATORS
     }
     operators["onlyalpha_plugin_operators/__init__.py"] = b'"""Installed pure Operator algorithms."""\n'
+    targets = {
+        "onlyalpha_plugin_targets/" + name: (
+            ROOT / "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets" / name
+        ).read_bytes()
+        for name in TARGETS
+    }
+    targets["onlyalpha_plugin_targets/__init__.py"] = b'"""Installed pure Research Target algorithms."""\n'
     worker = {
         "onlyalpha_backend_algorithms/" + name: (
             ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms" / name
@@ -151,6 +160,7 @@ def build(output: Path) -> list[Path]:
         wheel(output, "onlyalpha", sdk, ()),
         wheel(output, "onlyalpha-plugin-indicators", plugin, ("onlyalpha", "pyarrow")),
         wheel(output, "onlyalpha-plugin-operators", operators, ("onlyalpha", "pyarrow")),
+        wheel(output, "onlyalpha-plugin-targets", targets, ("onlyalpha", "pyarrow")),
         wheel(
             output,
             "onlyalpha-backend-algorithms",

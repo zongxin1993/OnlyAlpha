@@ -1,4 +1,4 @@
-"""One-shot pure Factor source/Definition resolution, never Research authorization.
+"""One-shot pure Calculation source/Definition resolution, never Research authorization.
 
 No Factor observation is evaluated. Existing authoritative executable/equivalence
 facts must separately match the returned actual installed implementation records.
@@ -33,6 +33,43 @@ from onlyalpha_backend_algorithms.worker_io import read, verify_installation
 
 MAX_FRAME = 8 * 1024 * 1024
 CONTRACT = "ONLYALPHA_PRIVATE_FACTOR_RESOLVE_V1"
+INSTANCE_CONTRACT = "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+
+
+def resolve_calculations(payload: dict[str, Any], artifact: str) -> dict[str, object]:
+    from onlyalpha_backend_algorithms.research_resolution import resolve_instances
+
+    if (
+        set(payload)
+        != {
+            "schema_version",
+            "contract",
+            "sources",
+            "instances",
+            "core_artifact",
+            "operator_artifact",
+            "target_artifact",
+        }
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or payload["contract"] != INSTANCE_CONTRACT
+    ):
+        raise ValueError("RESEARCH_RESOLUTION_INPUT_INVALID")
+    core = verify_core(payload["core_artifact"])
+    operator = verify_distribution(
+        payload["operator_artifact"], "onlyalpha_plugin_operators", "onlyalpha-plugin-operators"
+    )
+    target = verify_distribution(payload["target_artifact"], "onlyalpha_plugin_targets", "onlyalpha-plugin-targets")
+    return {
+        **resolve_instances(payload["sources"], payload["instances"]),
+        **core,
+        "contract": INSTANCE_CONTRACT,
+        "algorithm_artifact": artifact,
+        "operator_artifact_sha256": operator["artifact_sha256"],
+        "operator_resources_fingerprint": operator["resources_fingerprint"],
+        "target_artifact_sha256": target["artifact_sha256"],
+        "target_resources_fingerprint": target["resources_fingerprint"],
+    }
 
 
 def resolve(payload: dict[str, Any], artifact: str) -> dict[str, object]:
@@ -142,7 +179,11 @@ def serve(root: Path, generation: str, artifact: str) -> None:
                 }
             elif sequence == 2 and request.WhichOneof("operation") == "research_resolve":
                 payload = json.loads(request.research_resolve.request_json)
-                result = resolve(cast(dict[str, Any], payload), artifact)
+                result = (
+                    resolve_calculations(payload, artifact)
+                    if payload.get("contract") == INSTANCE_CONTRACT
+                    else resolve(cast(dict[str, Any], payload), artifact)
+                )
                 result["isolation"] = restrict()
             elif sequence == 2 and request.WhichOneof("operation") == "research_evaluate":
                 from onlyalpha_backend_algorithms.research_evaluation import GraphEvaluator

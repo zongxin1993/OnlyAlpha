@@ -259,6 +259,7 @@ def test_managed_sdk_contains_source_execution_without_product_authoring(tmp_pat
     ) as archive:
         worker_names = set(archive.namelist())
     assert "onlyalpha_backend_algorithms/sdk/private_factor_execution.py" in worker_names
+    assert "onlyalpha_backend_algorithms/research_resolution.py" in worker_names
     assert "onlyalpha_backend_algorithms/sdk/private_factor_source.py" in worker_names
     assert "onlyalpha/quant_assets/private_factor_provider_snapshot.py" in names
     assert "onlyalpha/calculation/registry.py" in names
@@ -270,6 +271,7 @@ def test_managed_sdk_contains_source_execution_without_product_authoring(tmp_pat
         "onlyalpha/quant_assets/private_factor_provider_snapshot.py",
     }
     assert any(path.name.startswith("onlyalpha_plugin_operators-") for path in wheels)
+    assert any(path.name.startswith("onlyalpha_plugin_targets-") for path in wheels)
 
 
 def test_installed_research_source_resolution_is_not_execution(tmp_path: Path) -> None:

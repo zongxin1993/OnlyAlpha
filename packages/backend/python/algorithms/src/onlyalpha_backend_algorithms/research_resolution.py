@@ -1,0 +1,201 @@
+"""Pure installed Calculation resolution; no Research admission or business state."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from onlyalpha_plugin_operators.registration import registrations as operators
+from onlyalpha_plugin_targets.registration import registrations as targets
+
+from onlyalpha.algorithm.type_declaration import type_declaration
+from onlyalpha.calculation.definition import (
+    OnlyCalculationBackendKind,
+    OnlyCalculationDefinition,
+    OnlyCalculationKind,
+    OnlyCalculationReference,
+    OnlyCalculationTypeReference,
+    only_calculation_scalar_from_dict,
+)
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    _ADAPTER_FINGERPRINTS,
+    OnlyPrivateFactorAdapterV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+    OnlyPrivateFactorSourceArtifactManifestV1,
+    only_private_factor_backend_registrations,
+    only_validate_private_factor_revision,
+)
+from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
+
+MAX_WORK = 8 * 1024 * 1024
+
+
+def _exact(value: object, fields: set[str]) -> dict[str, Any]:
+    if type(value) is not dict or set(value) != fields:
+        raise ValueError("RESEARCH_CALCULATION_RESOLUTION_INVALID")
+    return value
+
+
+def _name(value: object) -> str:
+    if type(value) is not str or not value or len(value) > 4096 or any(c.isspace() for c in value):
+        raise ValueError("RESEARCH_CALCULATION_RESOLUTION_INVALID")
+    return value
+
+
+def registry_for_sources(
+    sources: list[dict[str, Any]],
+) -> tuple[OnlyCalculationRegistry, list[dict[str, object]]]:
+    """Public calculations need no artificial private Factor or authoring generation."""
+    if type(sources) is not list or len(sources) > 128 or len(json.dumps(sources).encode()) > MAX_WORK:
+        raise ValueError("RESEARCH_CALCULATION_RESOLUTION_BUDGET")
+    registry = OnlyCalculationRegistry()
+    for registration in (*operators(), *targets()):
+        registry.register(registration)
+    artifacts: dict[str, dict[str, object]] = {}
+    for raw in sources:
+        source = OnlyPrivateFactorExecutableSourceRecordV1.from_dict(raw)
+        if source.factor_id in artifacts:
+            raise ValueError("RESEARCH_CALCULATION_SOURCE_CONFLICT")
+        validation = only_validate_private_factor_revision(source)
+        manifest, code = OnlyPrivateFactorSourceArtifactManifestV1.materialize(source, validation)
+        for registration in only_private_factor_backend_registrations(
+            source,
+            manifest,
+            code,
+            OnlyPrivateFactorAdapterV1(
+                "RESEARCH", _ADAPTER_FINGERPRINTS["RESEARCH"], OnlyPrivateFactorIsolatedProgramHost()
+            ),
+            OnlyPrivateFactorAdapterV1(
+                "TRADING", _ADAPTER_FINGERPRINTS["TRADING"], OnlyPrivateFactorIsolatedProgramHost()
+            ),
+        ):
+            registry.register(registration)
+        artifacts[source.factor_id] = {
+            "source_artifact": manifest.to_dict(),
+            "validation_evidence": {
+                **validation.to_dict(),
+                "validation_evidence_fingerprint": validation.validation_evidence_fingerprint,
+            },
+        }
+    return registry, [artifacts[key] for key in sorted(artifacts)]
+
+
+def resolve_instances(sources: list[dict[str, Any]], instances: list[dict[str, Any]]) -> dict[str, Any]:
+    """Rematerialize through actual installed type-owned resolvers, never client descriptors."""
+    if type(instances) is not list or not 1 <= len(instances) <= 128 or len(json.dumps(instances).encode()) > MAX_WORK:
+        raise ValueError("RESEARCH_CALCULATION_RESOLUTION_BUDGET")
+    registry, artifacts = registry_for_sources(sources)
+    pending: dict[str, dict[str, Any]] = {}
+    for raw in instances:
+        row = _exact(
+            raw,
+            {"instance_key", "type_reference", "parameters", "published_outputs", "input_bindings", "primary_output"},
+        )
+        key = _name(row["instance_key"])
+        if re.fullmatch(r"[a-z][a-z0-9_]*", key) is None or key in pending:
+            raise ValueError("RESEARCH_CALCULATION_INSTANCE_INVALID")
+        pending[key] = row
+    resolved: dict[str, tuple[OnlyCalculationDefinition, set[str]]] = {}
+    nodes = []
+    while pending:
+        completed = []
+        for key in sorted(pending):
+            row = pending[key]
+            reference = OnlyCalculationTypeReference.from_dict(
+                _exact(row["type_reference"], {"kind", "type_id", "semantic_version"})
+            )
+            if reference.kind not in {
+                OnlyCalculationKind.INDICATOR,
+                OnlyCalculationKind.FACTOR,
+                OnlyCalculationKind.TARGET,
+            }:
+                raise ValueError("RESEARCH_CALCULATION_TYPE_UNAVAILABLE")
+            if type(row["parameters"]) is not dict or type(row["input_bindings"]) is not list:
+                raise ValueError("RESEARCH_CALCULATION_INSTANCE_INVALID")
+            parameters = {}
+            for name, binding in row["parameters"].items():
+                binding = _exact(binding, {"kind", "value"})
+                if binding["kind"] != "FIXED":
+                    raise ValueError("RESEARCH_CALCULATION_SWEEP_FORBIDDEN")
+                parameters[_name(name)] = only_calculation_scalar_from_dict(binding["value"])
+            bindings = {}
+            waiting = False
+            for binding in row["input_bindings"]:
+                binding = _exact(binding, {"input_name", "source"})
+                name = _name(binding["input_name"])
+                if name in bindings:
+                    raise ValueError("RESEARCH_CALCULATION_INPUT_CONFLICT")
+                source = binding["source"]
+                if type(source) is str:
+                    bindings[name] = OnlyCalculationReference(None, "value", _name(source))
+                else:
+                    source = _exact(source, {"kind", "instance_key", "output_name"})
+                    if source["kind"] != "VARIABLE":
+                        raise ValueError("RESEARCH_CALCULATION_INPUT_INVALID")
+                    parent = _name(source["instance_key"])
+                    if parent not in resolved:
+                        if parent not in pending:
+                            raise ValueError("RESEARCH_CALCULATION_INPUT_UNAVAILABLE")
+                        waiting = True
+                        continue
+                    definition, published = resolved[parent]
+                    output = _name(source["output_name"])
+                    if output not in published:
+                        raise ValueError("RESEARCH_CALCULATION_OUTPUT_UNAVAILABLE")
+                    bindings[name] = OnlyCalculationReference(definition.fingerprint, output, None)
+            if waiting:
+                continue
+            registration = registry.resolve(
+                reference.kind, reference.type_id, reference.semantic_version, OnlyCalculationBackendKind.RESEARCH
+            )
+            definition = registry.rematerialize_definition(reference, parameters, bindings)
+            outputs = row["published_outputs"]
+            if (
+                type(outputs) is not list
+                or not outputs
+                or any(type(v) is not str for v in outputs)
+                or len(set(outputs)) != len(outputs)
+            ):
+                raise ValueError("RESEARCH_CALCULATION_OUTPUT_INVALID")
+            available = {output.name for output in definition.outputs}
+            if (
+                not set(outputs).issubset(available)
+                or row["primary_output"] is not None
+                and row["primary_output"] not in outputs
+            ):
+                raise ValueError("RESEARCH_CALCULATION_OUTPUT_UNAVAILABLE")
+            implementations = []
+            for backend in (OnlyCalculationBackendKind.RESEARCH, OnlyCalculationBackendKind.TRADING):
+                try:
+                    actual = registry.resolve(reference.kind, reference.type_id, reference.semantic_version, backend)
+                except ValueError:
+                    if backend is OnlyCalculationBackendKind.TRADING:
+                        continue
+                    raise
+                if actual.definition_resolver is None or actual.implementation_manifest is None:
+                    raise ValueError("RESEARCH_CALCULATION_IMPLEMENTATION_UNAVAILABLE")
+                if actual.definition_resolver.resolve(parameters, bindings) != definition:
+                    raise ValueError("RESEARCH_CALCULATION_BACKEND_MISMATCH")
+                implementations.append(actual.implementation_manifest.to_dict())
+            nodes.append(
+                {
+                    "instance_key": key,
+                    "definition": dict(definition.to_dict()),
+                    "definition_fingerprint": definition.fingerprint,
+                    "type_declaration": type_declaration(registration.type_definition),
+                    "implementations": implementations,
+                }
+            )
+            resolved[key] = (definition, set(outputs))
+            completed.append(key)
+        if not completed:
+            raise ValueError("RESEARCH_CALCULATION_GRAPH_CYCLE")
+        for key in completed:
+            del pending[key]
+    return {
+        "schema_version": 1,
+        "nodes": sorted(nodes, key=lambda row: row["instance_key"]),
+        "source_artifacts": artifacts,
+    }
