@@ -27,3 +27,5 @@ pub mod research_submission;
 pub mod research_preparation;
 
 pub mod private_strategy_postgres;
+
+pub mod strategy_research;

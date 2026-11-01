@@ -471,5 +471,26 @@ pub(crate) async fn factor_revision_in_transaction(
     Ok(value)
 }
 
+/// Exact immutable Strategy content; no mutable head, Catalog or execution permission.
+pub(crate) async fn strategy_revision_in_transaction(
+    tx: &tokio_postgres::Transaction<'_>,
+    strategy_id: &str,
+    revision_fingerprint: &str,
+) -> Result<Value> {
+    id(strategy_id, "STRATEGY")?;
+    if !crate::is_sha256_hex(revision_fingerprint) {
+        return Err(Error::Invalid);
+    }
+    let record=tx.query_opt("SELECT strategy_id AS asset_id,revision_fingerprint,parent_revision_fingerprint,definition_fingerprint,CASE WHEN octet_length(payload::text)<=8388608 THEN payload::text ELSE NULL END AS payload,schema_version FROM private_strategy_revision WHERE strategy_id=$1 AND revision_fingerprint=$2",&[&strategy_id,&revision_fingerprint]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::NotFound)?;
+    if record
+        .try_get::<_, Option<String>>("payload")
+        .map_err(|_| Error::Corrupt)?
+        .is_none()
+    {
+        return Err(Error::Unavailable);
+    }
+    row("STRATEGY", &record)
+}
+
 #[cfg(test)]
 mod authoring_tests;

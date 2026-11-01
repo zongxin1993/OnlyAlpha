@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from onlyalpha_gateway_protocol.distribution import (
+    OnlyArtifactCalculationImplementation,
     OnlyArtifactSourceProvenanceAuthority,
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
@@ -74,10 +75,58 @@ native_manifest = OnlyDistributionArtifactManifest(
     core.fingerprint,
 )
 artifacts.put_once(native_manifest, native_bytes)
+# Actual public Target declarations, with controlled retained bytes. This is a
+# CALCULATION artifact, not a Quant Asset Provider or executable certification.
+extra_calculations = []
+if "--strategy-targets" in sys.argv:
+    from onlyalpha_plugin_targets.registration import registrations as target_registrations
+
+    target_bytes = b"controlled target bytes; no executable certification"
+    target_manifest = OnlyDistributionArtifactManifest(
+        OnlyDistributionArtifactRole.CALCULATION,
+        OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
+        "OnlyAlpha",
+        "2" * 40,
+        "onlyalpha-plugin-targets",
+        "0.11.1",
+        "onlyalpha_plugin_targets-0.11.1-py3-none-any.whl",
+        hashlib.sha256(target_bytes).hexdigest(),
+        len(target_bytes),
+        core.fingerprint,
+        implementations=tuple(
+            OnlyArtifactCalculationImplementation(
+                r.type_definition.kind.value,
+                r.type_definition.type_id,
+                r.type_definition.semantic_version,
+                r.backend.value,
+                r.implementation_manifest.implementation_fingerprint,
+            )
+            for r in target_registrations()
+            if r.implementation_manifest is not None
+        ),
+    )
+    artifacts.put_once(target_manifest, target_bytes)
+    extra_calculations.append(target_manifest)
+
+catalog_fingerprint = "4" * 64
+if "--strategy-targets" in sys.argv:
+    from onlyalpha.quant_assets import OnlyQuantAssetCatalogGeneration
+
+    catalog_fingerprint = OnlyQuantAssetCatalogGeneration((provider,)).generation_fingerprint
 manifest = OnlyRuntimeGenerationManifest(
     core,
-    (core_manifest.manifest_fingerprint, provider_manifest.manifest_fingerprint, native_manifest.manifest_fingerprint),
-    (core_manifest.artifact_sha256, provider_manifest.artifact_sha256, native_manifest.artifact_sha256),
+    (
+        core_manifest.manifest_fingerprint,
+        provider_manifest.manifest_fingerprint,
+        native_manifest.manifest_fingerprint,
+        *(m.manifest_fingerprint for m in extra_calculations),
+    ),
+    (
+        core_manifest.artifact_sha256,
+        provider_manifest.artifact_sha256,
+        native_manifest.artifact_sha256,
+        *(m.artifact_sha256 for m in extra_calculations),
+    ),
     (
         OnlyRuntimeProviderBinding(
             provider.manifest.provider_id,
@@ -86,9 +135,10 @@ manifest = OnlyRuntimeGenerationManifest(
             provider_manifest.artifact_sha256,
         ),
     ),
-    "4" * 64,
-    provider_manifest.implementations,
+    catalog_fingerprint,
+    (*provider_manifest.implementations, *(i for m in extra_calculations for i in m.implementations)),
 )
+
 g = manifest.runtime_generation_fingerprint
 now = datetime(2026, 10, 29, tzinfo=UTC)
 registry.prepare(manifest, actor="fixture", occurred_at=now)

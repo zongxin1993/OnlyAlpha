@@ -4,6 +4,32 @@ use onlyalpha_backend::{
 };
 use serde_json::{Value, json};
 pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value {
+    if request["action"] == "composition" {
+        use onlyalpha_backend::{
+            application::strategy_research::Context,
+            persistence::{research_runtime::RuntimeInputHold, strategy_research::Composer},
+        };
+        let context = Context::new(request["context"].clone()).expect("controlled context");
+        let mut runtime = RuntimeInputHold::open(
+            std::path::Path::new(request["runtime_root"].as_str().unwrap()),
+            "work",
+            "research",
+            request["runtime_generation"].as_str().unwrap(),
+        )
+        .expect("controlled storage fixture, not executable certification");
+        return match Composer::new(client)
+            .compose(
+                request["strategy_id"].as_str().unwrap(),
+                request["revision_fingerprint"].as_str().unwrap(),
+                &context,
+                &mut runtime,
+            )
+            .await
+        {
+            Ok(value) => value.record().clone(),
+            Err(code) => json!({"error":code}),
+        };
+    }
     let mut store = Strategies::new(client);
     let id = request["strategy_id"].as_str().unwrap();
     let owner = request["owner"].as_str().unwrap();

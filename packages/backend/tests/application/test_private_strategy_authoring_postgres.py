@@ -391,28 +391,8 @@ def test_strategy_exact_revision_read_never_substitutes_the_current_version(nati
     )
 
 
-def test_native_strategy_context_matches_the_public_authoring_contract(native_probe: Path, database: str) -> None:
-    from onlyalpha.quant_assets.private_strategy import (
-        OnlyPrivateStrategyDefinitionV1,
-        OnlyPrivateStrategyResearchContextV1,
-    )
-    from onlyalpha.research.definition.model import (
-        OnlyResearchDatasetSelection,
-        OnlyResearchDefinition,
-        OnlyResearchUniverseKind,
-        OnlyResearchUniverseSelection,
-    )
-
-    strategy_id = "private.strategy.s" + uuid4().hex
-    value = draft(strategy_id)["definition"]
-    value["eligibility"] = {
-        "kind": "AND",
-        "operands": [
-            value["signals"]["exit"],
-            {"kind": "AND", "operands": [value["signals"]["entry"], value["eligibility"]]},
-        ],
-    }
-    context = {
+def research_context() -> dict[str, Any]:
+    return {
         "schema_version": 1,
         "start": "2025-01-02T12:00:00Z",
         "end": "2025-01-03T00:00:00Z",
@@ -456,6 +436,30 @@ def test_native_strategy_context_matches_the_public_authoring_contract(native_pr
         ],
         "display_metadata": {"title": "Technical contract comparison"},
     }
+
+
+def test_native_strategy_context_matches_the_public_authoring_contract(native_probe: Path, database: str) -> None:
+    from onlyalpha.quant_assets.private_strategy import (
+        OnlyPrivateStrategyDefinitionV1,
+        OnlyPrivateStrategyResearchContextV1,
+    )
+    from onlyalpha.research.definition.model import (
+        OnlyResearchDatasetSelection,
+        OnlyResearchDefinition,
+        OnlyResearchUniverseKind,
+        OnlyResearchUniverseSelection,
+    )
+
+    strategy_id = "private.strategy.s" + uuid4().hex
+    value = draft(strategy_id)["definition"]
+    value["eligibility"] = {
+        "kind": "AND",
+        "operands": [
+            value["signals"]["exit"],
+            {"kind": "AND", "operands": [value["signals"]["entry"], value["eligibility"]]},
+        ],
+    }
+    context = research_context()
     result = call(native_probe, strategy_id, "context", definition=value, context=context)
     strategy = OnlyPrivateStrategyDefinitionV1.from_dict(value)
     reference_context = OnlyPrivateStrategyResearchContextV1.from_dict(context)
@@ -479,3 +483,136 @@ def test_native_strategy_context_matches_the_public_authoring_contract(native_pr
     assert result["context_fingerprint"] == reference_context.research_context_fingerprint
     assert result["definition"] == reference.to_dict()
     assert result["definition_fingerprint"] == reference.definition_fingerprint
+
+
+def test_strategy_composition_reanchors_exact_revision_and_retains_public_context(
+    native_probe: Path, database: str, tmp_path: Path
+) -> None:
+    import psycopg
+
+    root = Path(__file__).resolve().parents[4]
+    runtime = tmp_path / "runtime"
+    result = subprocess.run(
+        [
+            "python",
+            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
+            str(runtime),
+            "ready",
+            "--strategy-targets",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    generation = json.loads(result.stdout)["generation"]
+    strategy_id = "private.strategy.s" + uuid4().hex
+    value = draft(strategy_id)
+    calculation = value["definition"]["calculations"][0]
+    calculation["type_reference"]["type_id"] = "onlyalpha.operator.delay"
+    calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
+    calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
+    saved = call(native_probe, strategy_id, "save", draft=value, expected=None)
+    revision = call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+        "revision"
+    ]
+    arguments = {
+        "context": research_context(),
+        "runtime_root": str(runtime),
+        "runtime_generation": generation,
+        "revision_fingerprint": revision["revision_fingerprint"],
+    }
+    composition = call(native_probe, strategy_id, "composition", **arguments)
+    assert composition["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
+    assert composition["factor_revision_bindings"] == []
+    assert "strategy_fingerprint" not in composition and "runtime_generation_fingerprint" not in composition
+    changed = {
+        **value,
+        "semantic_version": "2",
+        "description": "second",
+        "base_revision_fingerprint": revision["revision_fingerprint"],
+    }
+    saved = call(native_probe, strategy_id, "save", draft=changed, expected=saved["result"]["draft_fingerprint"])
+    call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    assert call(native_probe, strategy_id, "composition", **arguments) == composition
+    with psycopg.connect(database) as connection:
+        row = connection.execute(
+            "SELECT count(*),min(research_context_payload::text) FROM private_strategy_research_composition WHERE private_strategy_id=%s",
+            (strategy_id,),
+        ).fetchone()
+        assert row[0] == 1
+        assert json.loads(row[1]) == research_context()
+
+    # Malformed append-only fixture: a self-consistent lineage identity with a
+    # mismatching retained Context must be rejected, not silently reused.
+    from onlyalpha.canonical import only_canonical_fingerprint
+
+    changed_context = research_context()
+    changed_context["display_metadata"] = {"title": "Different context"}
+    corrupt = {
+        **composition,
+        "research_context_fingerprint": only_canonical_fingerprint(
+            {
+                "contract": "ONLYALPHA_PRIVATE_STRATEGY_RESEARCH_CONTEXT_V1",
+                **changed_context,
+            }
+        ),
+    }
+    descriptor = {key: value for key, value in corrupt.items() if key != "composition_fingerprint"}
+    corrupt["composition_fingerprint"] = only_canonical_fingerprint(
+        {
+            "contract": "ONLYALPHA_PRIVATE_STRATEGY_RESEARCH_COMPOSITION_V1",
+            **descriptor,
+        }
+    )
+    with psycopg.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO private_strategy_research_composition(composition_fingerprint,schema_version,private_strategy_id,private_strategy_revision_fingerprint,private_strategy_definition_fingerprint,research_context_fingerprint,factor_revision_bindings,catalog_generation_fingerprint,research_definition_fingerprint,research_context_payload) VALUES(%s,1,%s,%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb)",
+            (
+                corrupt["composition_fingerprint"],
+                strategy_id,
+                revision["revision_fingerprint"],
+                revision["definition_fingerprint"],
+                corrupt["research_context_fingerprint"],
+                "[]",
+                composition["catalog_generation_fingerprint"],
+                composition["research_definition_fingerprint"],
+                json.dumps(research_context()),
+            ),
+        )
+    assert (
+        call(native_probe, strategy_id, "composition", **{**arguments, "context": changed_context})["error"]
+        == "PRIVATE_STRATEGY_COMPOSITION_CORRUPT"
+    )
+
+    # A public-only Generation with no Target capability cannot substitute for
+    # the originally selected generation, even with the same public Operator.
+    other_root = tmp_path / "public-only"
+    other = subprocess.run(
+        [
+            "python",
+            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
+            str(other_root),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    denied = call(
+        native_probe,
+        strategy_id,
+        "composition",
+        **{**arguments, "runtime_root": str(other_root), "runtime_generation": json.loads(other.stdout)["generation"]},
+    )
+    assert denied["error"] == "PRIVATE_STRATEGY_CALCULATION_UNAVAILABLE"
+
+    # Physical artifact loss is controlled fault injection on this fixture root.
+    target_manifest = next(
+        path
+        for path in (runtime / "artifacts").glob("*/*/manifest.json")
+        if json.loads(path.read_text())["role"] == "CALCULATION"
+    )
+    target_manifest.with_name("artifact.whl").unlink()
+    assert (
+        call(native_probe, strategy_id, "composition", **arguments)["error"]
+        == "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE"
+    )
