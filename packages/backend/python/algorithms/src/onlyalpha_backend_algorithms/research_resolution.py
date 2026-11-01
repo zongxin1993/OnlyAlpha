@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 from onlyalpha_plugin_operators.registration import registrations as operators
 from onlyalpha_plugin_targets.registration import registrations as targets
@@ -18,7 +19,8 @@ from onlyalpha.calculation.definition import (
     OnlyCalculationTypeReference,
     only_calculation_scalar_from_dict,
 )
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyCalculationRegistry
+from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
     _ADAPTER_FINGERPRINTS,
     OnlyPrivateFactorAdapterV1,
@@ -44,6 +46,31 @@ def _name(value: object) -> str:
     return value
 
 
+def private_calculation_records(registrations: Iterable[OnlyCalculationBackendRegistration]) -> list[dict[str, Any]]:
+    """Actual source-owned capabilities, shared by Factor and complete graph resolution."""
+    return cast(
+        list[dict[str, Any]],
+        json.loads(
+            only_canonical_json(
+                sorted(
+                    [
+                        {
+                            "type": row.type_definition.descriptor(),
+                            "backend": row.backend.value,
+                            "implementation_fingerprint": row.implementation_manifest.implementation_fingerprint,
+                            "state_capability": None if row.state_capability is None else row.state_capability.value,
+                            "checkpoint_schema_version": row.checkpoint_schema_version,
+                        }
+                        for row in registrations
+                        if row.implementation_manifest is not None
+                    ],
+                    key=only_canonical_fingerprint,
+                )
+            )
+        ),
+    )
+
+
 def registry_for_sources(
     sources: list[dict[str, Any]],
     host: OnlyPrivateFactorIsolatedProgramHost | None = None,
@@ -61,7 +88,7 @@ def registry_for_sources(
             raise ValueError("RESEARCH_CALCULATION_SOURCE_CONFLICT")
         validation = only_validate_private_factor_revision(source)
         manifest, code = OnlyPrivateFactorSourceArtifactManifestV1.materialize(source, validation)
-        for registration in only_private_factor_backend_registrations(
+        private = only_private_factor_backend_registrations(
             source,
             manifest,
             code,
@@ -71,9 +98,11 @@ def registry_for_sources(
             OnlyPrivateFactorAdapterV1(
                 "TRADING", _ADAPTER_FINGERPRINTS["TRADING"], host or OnlyPrivateFactorIsolatedProgramHost()
             ),
-        ):
+        )
+        for registration in private:
             registry.register(registration)
         artifacts[source.factor_id] = {
+            "private_calculations": private_calculation_records(private),
             "source_artifact": manifest.to_dict(),
             "validation_evidence": {
                 **validation.to_dict(),

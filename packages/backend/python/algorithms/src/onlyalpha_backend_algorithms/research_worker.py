@@ -20,6 +20,7 @@ from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCal
 from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from onlyalpha_backend_algorithms.chart_isolation import restrict
+from onlyalpha_backend_algorithms.research_resolution import private_calculation_records
 from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
     _ADAPTER_FINGERPRINTS,
     OnlyPrivateFactorAdapterV1,
@@ -134,24 +135,7 @@ def resolve(payload: dict[str, Any], artifact: str) -> dict[str, object]:
         },
         "graph": {"schema_version": 1, "nodes": nodes},
         "implementations": [implementations[key] for key in sorted(implementations)],
-        "private_calculations": json.loads(
-            only_canonical_json(
-                sorted(
-                    [
-                        {
-                            "type": r.type_definition.descriptor(),
-                            "backend": r.backend.value,
-                            "implementation_fingerprint": r.implementation_manifest.implementation_fingerprint,
-                            "state_capability": None if r.state_capability is None else r.state_capability.value,
-                            "checkpoint_schema_version": r.checkpoint_schema_version,
-                        }
-                        for r in private
-                        if r.implementation_manifest is not None
-                    ],
-                    key=only_canonical_fingerprint,
-                )
-            )
-        ),
+        "private_calculations": private_calculation_records(private),
         "source_projection_fingerprint": only_canonical_fingerprint(payload["source"]),
     }
 

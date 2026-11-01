@@ -186,6 +186,10 @@ def test_calculation_resolution_reuses_actual_factor_and_operator_definitions() 
         assert row["definition_fingerprint"] == node.fingerprint
         assert {value["backend_kind"] for value in row["implementations"]} == {"RESEARCH", "TRADING"}
     assert len(result["source_artifacts"]) == 1
+    private = result["source_artifacts"][0]["private_calculations"]
+    assert {row["backend"] for row in private} == {"RESEARCH", "TRADING"}
+    assert all(row["type"]["type_id"] == source["factor_id"] for row in private)
+    assert next(row for row in private if row["backend"] == "TRADING")["state_capability"] == "STATELESS"
 
 
 def test_public_only_resolution_needs_no_fake_factor_and_rejects_unclosed_inputs() -> None:
