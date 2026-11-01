@@ -613,4 +613,74 @@ mod tests {
             Some("PRIVATE_STRATEGY_DEFINITION_UNAVAILABLE")
         );
     }
+    #[test]
+    fn public_strategy_seed_uses_the_same_native_authoring_contract() {
+        let seed: Value = serde_json::from_str(include_str!(
+            "../../../../examples/private-assets/strategy/simple_momentum/strategy.json"
+        ))
+        .unwrap();
+        let mut value = seed["strategy"].clone();
+        value["definition"]["factor_revision_dependencies"] = json!([{"factor_id":"private.factor.simple_momentum","revision_fingerprint":"a".repeat(64)}]);
+        value["schema_version"] = json!(1);
+        value["base_revision_fingerprint"] = Value::Null;
+        value["description"] = seed["description"].clone();
+        let draft = Draft::new(value).unwrap();
+        let revision = draft.revision().unwrap();
+        crate::application::private_assets::revision("STRATEGY", &revision).unwrap();
+        assert_eq!(revision["strategy_id"], "private.strategy.simple_momentum");
+        assert!(revision.get("strategy_fingerprint").is_none());
+    }
+    #[test]
+    fn strategy_authoring_api_has_closed_dtos_and_implemented_human_routes() {
+        use crate::transport::{
+            routes::{Operation, operation},
+            wire::{PrivateStrategyRevisionDto, SavePrivateStrategyDraftDto},
+        };
+        let draft = json!({"schema_version":1,"strategy_id":"private.strategy.btc","semantic_version":"1","base_revision_fingerprint":null,"definition":definition(),"description":"BTC momentum","tags":[]});
+        let body = json!({"draft":draft,"expected_draft_fingerprint":null});
+        assert!(serde_json::from_value::<SavePrivateStrategyDraftDto>(body.clone()).is_ok());
+        let mut missing = body.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("expected_draft_fingerprint");
+        assert!(serde_json::from_value::<SavePrivateStrategyDraftDto>(missing).is_err());
+        let mut extra = body.clone();
+        extra["draft"]["account"] = json!("cash");
+        assert!(serde_json::from_value::<SavePrivateStrategyDraftDto>(extra).is_err());
+        let revision = Draft::new(draft).unwrap().revision().unwrap();
+        assert!(serde_json::from_value::<PrivateStrategyRevisionDto>(revision.clone()).is_ok());
+        let mut extra = revision;
+        extra["runtime"] = json!("BACKTEST");
+        assert!(serde_json::from_value::<PrivateStrategyRevisionDto>(extra).is_err());
+        for (method, path) in [
+            (http::Method::GET, "/api/v2/private-assets/strategies"),
+            (
+                http::Method::GET,
+                "/api/v2/private-assets/strategies/private.strategy.btc",
+            ),
+            (
+                http::Method::PUT,
+                "/api/v2/private-assets/strategies/private.strategy.btc/draft",
+            ),
+            (
+                http::Method::POST,
+                "/api/v2/private-assets/strategies/private.strategy.btc/revisions",
+            ),
+            (
+                http::Method::GET,
+                "/api/v2/private-assets/strategies/private.strategy.btc/commands/id",
+            ),
+            (
+                http::Method::GET,
+                "/api/v2/private-assets/strategies/private.strategy.btc/revisions/exact",
+            ),
+        ] {
+            assert_eq!(
+                operation(&method, path),
+                Some(Operation::Implemented),
+                "{path}"
+            );
+        }
+    }
 }

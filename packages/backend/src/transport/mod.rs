@@ -16,6 +16,7 @@ pub mod web_assets;
 pub mod wire;
 
 mod host_private_factors;
+mod host_private_strategies;
 
 pub mod host_agent_browser;
 pub mod host_factor_proposals;

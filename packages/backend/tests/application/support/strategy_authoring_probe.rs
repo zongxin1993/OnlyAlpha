@@ -11,6 +11,15 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
     let value = match request["action"].as_str().unwrap() {
         "read" => store.read(id).await,
         "list" => store.list().await,
+        "exact" => {
+            store
+                .exact(
+                    id,
+                    request["revision_fingerprint"].as_str().unwrap(),
+                    request["content_fingerprint"].as_str().unwrap(),
+                )
+                .await
+        }
         "command" => store.command(id, owner, &command).await,
         "save" => {
             store

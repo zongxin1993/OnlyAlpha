@@ -342,3 +342,50 @@ def test_strategy_command_reader_rejects_unknown_fields_even_with_self_consisten
         ).fetchall()
     for (command,) in commands:
         assert call(native_probe, strategy_id, "command", command_id=command).get("error") == "PRIVATE_STRATEGY_CORRUPT"
+
+
+def test_strategy_exact_revision_read_never_substitutes_the_current_version(native_probe: Path, database: str) -> None:
+    strategy_id = "private.strategy.s" + uuid4().hex
+    original = draft(strategy_id)
+    saved = call(native_probe, strategy_id, "save", draft=original, expected=None)
+    first = call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+        "revision"
+    ]
+    changed = {
+        **original,
+        "semantic_version": "2",
+        "base_revision_fingerprint": first["revision_fingerprint"],
+        "description": "second",
+    }
+    saved = call(native_probe, strategy_id, "save", draft=changed, expected=saved["result"]["draft_fingerprint"])
+    call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    assert (
+        call(
+            native_probe,
+            strategy_id,
+            "exact",
+            revision_fingerprint=first["revision_fingerprint"],
+            content_fingerprint=first["definition_fingerprint"],
+        )
+        == first
+    )
+    assert (
+        call(
+            native_probe,
+            strategy_id,
+            "exact",
+            revision_fingerprint=first["revision_fingerprint"],
+            content_fingerprint="b" * 64,
+        ).get("error")
+        == "PRIVATE_ASSET_EXACT_READ_MISMATCH"
+    )
+    assert (
+        call(
+            native_probe,
+            strategy_id,
+            "exact",
+            revision_fingerprint="b" * 64,
+            content_fingerprint=first["definition_fingerprint"],
+        ).get("error")
+        == "PRIVATE_ASSET_EXACT_REVISION_UNAVAILABLE"
+    )

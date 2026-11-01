@@ -6410,6 +6410,258 @@
         ],
         "type": "object"
       },
+      "PrivateStrategyAuthoringEntryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_draft": {
+            "type": "boolean"
+          },
+          "strategy_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_id",
+          "current_revision_fingerprint",
+          "has_draft",
+          "description"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyAuthoringInventoryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateStrategyAuthoringEntryDto"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "schema_version",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyAuthoringReceiptDto": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PrivateStrategyAuthoringResultDto"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "strategy_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "strategy_id",
+          "result"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyAuthoringResultDto": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateStrategyDraftDto"
+          },
+          "draft_fingerprint": {
+            "type": "string"
+          },
+          "revision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateStrategyRevisionDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "draft",
+          "draft_fingerprint",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyAuthoringStateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draft": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrivateStrategyDraftDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateStrategyRevisionDto"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "strategy_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_id",
+          "current_revision_fingerprint",
+          "draft",
+          "draft_fingerprint",
+          "revisions"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyDraftDto": {
+        "additionalProperties": false,
+        "properties": {
+          "base_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "definition": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "semantic_version": {
+            "type": "string"
+          },
+          "strategy_id": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_id",
+          "semantic_version",
+          "base_revision_fingerprint",
+          "definition",
+          "description",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "PrivateStrategyRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "definition_fingerprint": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parent_revision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          },
+          "semantic_version": {
+            "type": "string"
+          },
+          "strategy_id": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_id",
+          "semantic_version",
+          "parent_revision_fingerprint",
+          "definition",
+          "definition_fingerprint",
+          "revision_fingerprint",
+          "description",
+          "tags"
+        ],
+        "type": "object"
+      },
       "ProposalView": {
         "additionalProperties": false,
         "properties": {
@@ -6449,6 +6701,18 @@
         "type": "object"
       },
       "PublishPrivateFactorRevisionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_draft_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_draft_fingerprint"
+        ],
+        "type": "object"
+      },
+      "PublishPrivateStrategyRevisionDto": {
         "additionalProperties": false,
         "properties": {
           "expected_draft_fingerprint": {
@@ -6778,6 +7042,25 @@
         "required": [
           "draft",
           "initial_display",
+          "expected_draft_fingerprint"
+        ],
+        "type": "object"
+      },
+      "SavePrivateStrategyDraftDto": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateStrategyDraftDto"
+          },
+          "expected_draft_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "draft",
           "expected_draft_fingerprint"
         ],
         "type": "object"
@@ -15361,6 +15644,487 @@
         ]
       }
     },
+    "/api/v2/private-assets/strategies": {
+      "get": {
+        "operationId": "private_strategy_authoring_inventory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyAuthoringInventoryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-strategy-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/strategies/{strategy_id}": {
+      "get": {
+        "operationId": "private_strategy_authoring_state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyAuthoringStateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-strategy-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/strategies/{strategy_id}/commands/{command_id}": {
+      "get": {
+        "operationId": "private_strategy_authoring_command",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PrivateStrategyAuthoringReceiptDto"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-strategy-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/strategies/{strategy_id}/draft": {
+      "put": {
+        "operationId": "private_strategy_draft_save",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePrivateStrategyDraftDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyAuthoringReceiptDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-strategy-authoring"
+        ]
+      }
+    },
+    "/api/v2/private-assets/strategies/{strategy_id}/revisions": {
+      "post": {
+        "operationId": "private_strategy_revision_publish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishPrivateStrategyRevisionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyAuthoringReceiptDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "private-strategy-authoring"
+        ]
+      }
+    },
     "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}": {
       "get": {
         "operationId": "get_exact_private_strategy_revision_v2",
@@ -15391,7 +16155,52 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateStrategyRevisionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {

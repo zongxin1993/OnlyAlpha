@@ -3491,3 +3491,113 @@ pub struct PrivateFactorAuthoringInventoryDto {
     pub entries: Vec<PrivateFactorAuthoringEntryDto>,
 }
 strict_object!(PrivateFactorAuthoringInventoryDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyDraftDto {
+    pub schema_version: Version1,
+    pub strategy_id: String,
+    pub semantic_version: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub base_revision_fingerprint: Option<String>,
+    pub definition: std::collections::BTreeMap<String, JsonValue>,
+    pub description: String,
+    pub tags: Vec<String>,
+}
+strict_object!(PrivateStrategyDraftDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyRevisionDto {
+    pub schema_version: Version1,
+    pub strategy_id: String,
+    pub semantic_version: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub parent_revision_fingerprint: Option<String>,
+    pub definition: std::collections::BTreeMap<String, JsonValue>,
+    pub definition_fingerprint: String,
+    pub revision_fingerprint: String,
+    pub description: String,
+    pub tags: Vec<String>,
+}
+strict_object!(PrivateStrategyRevisionDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct SavePrivateStrategyDraftDto {
+    pub draft: PrivateStrategyDraftDto,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub expected_draft_fingerprint: Option<String>,
+}
+strict_object!(SavePrivateStrategyDraftDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PublishPrivateStrategyRevisionDto {
+    pub expected_draft_fingerprint: String,
+}
+strict_object!(PublishPrivateStrategyRevisionDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyAuthoringResultDto {
+    pub draft: PrivateStrategyDraftDto,
+    pub draft_fingerprint: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub revision: Option<PrivateStrategyRevisionDto>,
+}
+strict_object!(PrivateStrategyAuthoringResultDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyAuthoringReceiptDto {
+    pub schema_version: Version1,
+    pub command_id: String,
+    pub strategy_id: String,
+    pub result: PrivateStrategyAuthoringResultDto,
+}
+strict_object!(PrivateStrategyAuthoringReceiptDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyAuthoringStateDto {
+    pub schema_version: Version1,
+    pub strategy_id: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub current_revision_fingerprint: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft: Option<PrivateStrategyDraftDto>,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub draft_fingerprint: Option<String>,
+    pub revisions: Vec<PrivateStrategyRevisionDto>,
+}
+strict_object!(PrivateStrategyAuthoringStateDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyAuthoringEntryDto {
+    pub strategy_id: String,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub current_revision_fingerprint: Option<String>,
+    pub has_draft: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    #[schema(required = true)]
+    pub description: Option<String>,
+}
+strict_object!(PrivateStrategyAuthoringEntryDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct PrivateStrategyAuthoringInventoryDto {
+    pub schema_version: Version1,
+    pub entries: Vec<PrivateStrategyAuthoringEntryDto>,
+}
+strict_object!(PrivateStrategyAuthoringInventoryDto);

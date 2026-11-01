@@ -113,6 +113,11 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(browse_current_private_assets_v2))
  .routes(routes!(get_exact_private_factor_revision_v2))
  .routes(routes!(search_private_assets_v2))
+ .routes(routes!(private_strategy_authoring_inventory))
+ .routes(routes!(private_strategy_authoring_state))
+ .routes(routes!(private_strategy_draft_save))
+ .routes(routes!(private_strategy_revision_publish))
+ .routes(routes!(private_strategy_authoring_command))
  .routes(routes!(get_exact_private_strategy_revision_v2))
  .routes(routes!(get_qualification_decision_api_v2_qualification_decisions_decision_fingerprint_get))
  .routes(routes!(list_qualification_policies_api_v2_qualification_policies_get))
@@ -632,12 +637,12 @@ async fn search_private_assets_v2(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}", operation_id = "get_exact_private_strategy_revision_v2", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path),("revision_fingerprint" = String, Path),("content_fingerprint" = String, Query)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/private-assets/strategies/{strategy_id}/revisions/{revision_fingerprint}", operation_id = "get_exact_private_strategy_revision_v2", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path),("revision_fingerprint" = String, Path),("content_fingerprint" = String, Query)), responses((status = 200, body = PrivateStrategyRevisionDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn get_exact_private_strategy_revision_v2(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<PrivateStrategyRevisionDto>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(get, path = "/api/v2/qualification-decisions/{decision_fingerprint}", operation_id = "get_qualification_decision_api_v2_qualification_decisions__decision_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("decision_fingerprint" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
@@ -1202,7 +1207,7 @@ mod policy_tests {
                 &Method::GET,
                 "/api/v2/private-assets/strategies/id/revisions/pin"
             ),
-            Some(Operation::Deferred)
+            Some(Operation::Implemented)
         );
         assert_eq!(
             operation(&Method::POST, "/api/v2/agent/sessions"),
@@ -1445,4 +1450,44 @@ async fn study_continuation_read(
 ) -> Response {
     verify::<crate::application::factor_studies::ContinuationView>(host.dispatch(request).await)
         .await
+}
+
+#[utoipa::path(get, path = "/api/v2/private-assets/strategies", operation_id = "private_strategy_authoring_inventory", tag = "private-strategy-authoring", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = PrivateStrategyAuthoringInventoryDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_strategy_authoring_inventory(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<PrivateStrategyAuthoringInventoryDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get, path = "/api/v2/private-assets/strategies/{strategy_id}", operation_id = "private_strategy_authoring_state", tag = "private-strategy-authoring", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path)), responses((status = 200, body = PrivateStrategyAuthoringStateDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_strategy_authoring_state(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<PrivateStrategyAuthoringStateDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(put, path = "/api/v2/private-assets/strategies/{strategy_id}/draft", operation_id = "private_strategy_draft_save", tag = "private-strategy-authoring", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path),("Idempotency-Key" = String, Header)), request_body = SavePrivateStrategyDraftDto, responses((status = 200, body = PrivateStrategyAuthoringReceiptDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_strategy_draft_save(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<PrivateStrategyAuthoringReceiptDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post, path = "/api/v2/private-assets/strategies/{strategy_id}/revisions", operation_id = "private_strategy_revision_publish", tag = "private-strategy-authoring", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path),("Idempotency-Key" = String, Header)), request_body = PublishPrivateStrategyRevisionDto, responses((status = 200, body = PrivateStrategyAuthoringReceiptDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_strategy_revision_publish(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<PrivateStrategyAuthoringReceiptDto>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get, path = "/api/v2/private-assets/strategies/{strategy_id}/commands/{command_id}", operation_id = "private_strategy_authoring_command", tag = "private-strategy-authoring", security(("LocalDeveloperCookie" = [])), params(("strategy_id" = String, Path),("command_id" = String, Path)), responses((status = 200, body = Option<PrivateStrategyAuthoringReceiptDto>),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
+async fn private_strategy_authoring_command(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<Option<PrivateStrategyAuthoringReceiptDto>>(host.dispatch(request).await).await
 }

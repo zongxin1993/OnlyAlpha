@@ -78,6 +78,41 @@ impl<'a> Strategies<'a> {
     pub fn new(client: &'a mut Client) -> Self {
         Self { client }
     }
+    pub async fn exact(&mut self, id: &str, revision: &str, content: &str) -> Result<Value> {
+        valid_id(id)?;
+        if !crate::is_sha256_hex(revision) || !crate::is_sha256_hex(content) {
+            return Err(INVALID);
+        }
+        let tx = self
+            .client
+            .build_transaction()
+            .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
+        bounds(&tx).await.map_err(command_error)?;
+        let row = tx.query_opt("SELECT strategy_id AS asset_id,revision_fingerprint,parent_revision_fingerprint,definition_fingerprint,CASE WHEN octet_length(payload::text)<=8388608 THEN payload::text ELSE NULL END AS payload,schema_version FROM private_strategy_revision WHERE strategy_id=$1 AND revision_fingerprint=$2", &[&id,&revision]).await.map_err(db)?.ok_or("PRIVATE_ASSET_EXACT_REVISION_UNAVAILABLE")?;
+        if row
+            .try_get::<_, Option<String>>("payload")
+            .map_err(|_| CORRUPT)?
+            .is_none()
+        {
+            return Err(UNAVAILABLE);
+        }
+        let value = private_assets::row("STRATEGY", &row).map_err(|e| {
+            if e == private_assets::Error::Unavailable {
+                UNAVAILABLE
+            } else {
+                CORRUPT
+            }
+        })?;
+        if value["definition_fingerprint"] != content {
+            return Err("PRIVATE_ASSET_EXACT_READ_MISMATCH");
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(value)
+    }
     pub async fn read(&mut self, id: &str) -> Result<Value> {
         valid_id(id)?;
         let tx = self
