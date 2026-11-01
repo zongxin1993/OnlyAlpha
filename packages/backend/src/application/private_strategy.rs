@@ -144,6 +144,17 @@ pub(crate) fn normalize_instances(
             &c["type_reference"],
             &["kind", "type_id", "semantic_version"],
         )?;
+        let instance_key = name(&c["instance_key"])?.to_owned();
+        if !instance_key
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_lowercase)
+            || !instance_key
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(INVALID);
+        }
         let t = &c["type_reference"];
         let reference = TypeReference::new(
             name(&t["kind"])?,
@@ -180,9 +191,7 @@ pub(crate) fn normalize_instances(
         }
         if unique.is_empty()
             || (!c["primary_output"].is_null() && !unique.contains(name(&c["primary_output"])?))
-            || variables
-                .insert(name(&c["instance_key"])?.to_owned(), unique)
-                .is_some()
+            || variables.insert(instance_key, unique).is_some()
         {
             return Err(INVALID);
         }
@@ -481,6 +490,17 @@ mod tests {
             "factor_revision_dependencies":[{"factor_id":"private.factor.price_volume","revision_fingerprint":"a".repeat(64)}],
             "eligibility":{"kind":"COMPARISON","operator":">","left":{"kind":"DATASET_FIELD","field_name":"close"},"right":decimal("0")},
             "signals":{"entry":{"kind":"COMPARISON","operator":">=","left":variable,"right":decimal("0.001")},"exit":{"kind":"COMPARISON","operator":"<=","left":variable,"right":decimal("0")}}})
+    }
+    #[test]
+    fn strategy_calculation_instance_names_follow_the_public_authoring_contract() {
+        for bad in ["Momentum", "1momentum", "with.dot", "量"] {
+            let mut value = definition();
+            value["calculations"][0]["instance_key"] = json!(bad);
+            for role in ["entry", "exit"] {
+                value["signals"][role]["left"]["instance_key"] = json!(bad);
+            }
+            assert!(Definition::from_record(&value).is_err(), "accepted {bad}");
+        }
     }
     #[test]
     fn private_strategy_definition_keeps_exact_factor_and_excludes_execution_configuration() {

@@ -230,6 +230,149 @@ fn canonical_expression(value: &Value) -> Result<Value> {
         _ => Err(INVALID),
     }
 }
+/// Composition1 lineage value. This constructor validates values only; the
+/// production composer must re-anchor revisions through PostgreSQL and retain
+/// the exact RuntimeInputHold. It grants no Run, admission or Freeze authority.
+#[derive(Clone, Debug)]
+pub struct Composition(Value);
+impl Composition {
+    pub fn derive(
+        revision: &Value,
+        context: &Context,
+        manifest: &Value,
+        factors: &std::collections::BTreeMap<String, Value>,
+    ) -> Result<Self> {
+        const INVALID: &str = "PRIVATE_STRATEGY_COMPOSITION_INVALID";
+        const MISMATCH: &str = "PRIVATE_STRATEGY_COMPOSITION_FACTOR_BINDING_MISMATCH";
+        let mut size = revision
+            .to_string()
+            .len()
+            .checked_add(context.record().to_string().len())
+            .and_then(|n| n.checked_add(manifest.to_string().len()))
+            .ok_or(UNAVAILABLE)?;
+        for factor in factors.values() {
+            size = size
+                .checked_add(factor.to_string().len())
+                .ok_or(UNAVAILABLE)?;
+        }
+        if size > WORK {
+            return Err(UNAVAILABLE);
+        }
+        crate::application::private_assets::revision("STRATEGY", revision).map_err(|_| INVALID)?;
+        let definition = Definition::from_record(&revision["definition"]).map_err(|_| INVALID)?;
+        let d = definition.to_record();
+        let research = context.definition(&definition)?;
+        let dependencies = rows(&d["factor_revision_dependencies"])?;
+        if dependencies.len() != factors.len()
+            || !manifest["catalog_generation_fingerprint"]
+                .as_str()
+                .is_some_and(crate::is_sha256_hex)
+        {
+            return Err(INVALID);
+        }
+        let bindings = manifest["private_factor_bindings"]
+            .as_array()
+            .ok_or(INVALID)?;
+        let implementations = manifest["implementations"].as_array().ok_or(INVALID)?;
+        for dependency in dependencies {
+            let id = dependency["factor_id"].as_str().ok_or(INVALID)?;
+            let factor = factors.get(id).ok_or(MISMATCH)?;
+            crate::application::private_assets::revision("FACTOR", factor).map_err(|_| INVALID)?;
+            if factor["factor_id"] != id
+                || factor["revision_fingerprint"] != dependency["revision_fingerprint"]
+            {
+                return Err(MISMATCH);
+            }
+            let mut matched = bindings.iter().filter(|b| b["entry"]["factor_id"] == id);
+            let binding = matched.next().ok_or(MISMATCH)?;
+            if matched.next().is_some() {
+                return Err(MISMATCH);
+            }
+            for key in [
+                "provider_snapshot_fingerprint",
+                "runtime_artifact_fingerprint",
+            ] {
+                if !binding[key].as_str().is_some_and(crate::is_sha256_hex) {
+                    return Err(MISMATCH);
+                }
+            }
+            let entry = &binding["entry"];
+            for key in [
+                "factor_id",
+                "revision_fingerprint",
+                "semantic_version",
+                "source_sha256",
+                "factor_api_version",
+                "factor_api_contract_fingerprint",
+            ] {
+                if entry[key] != factor[key] {
+                    return Err(MISMATCH);
+                }
+            }
+            if !entry["research_implementation_fingerprint"]
+                .as_str()
+                .is_some_and(crate::is_sha256_hex)
+                || implementations
+                    .iter()
+                    .filter(|i| {
+                        i["kind"] == "FACTOR"
+                            && i["type_id"] == id
+                            && i["semantic_version"] == factor["semantic_version"]
+                            && i["backend"] == "RESEARCH"
+                            && i["implementation_fingerprint"]
+                                == entry["research_implementation_fingerprint"]
+                    })
+                    .count()
+                    != 1
+            {
+                return Err(MISMATCH);
+            }
+        }
+        for calculation in rows(&d["calculations"])?
+            .iter()
+            .chain(rows(&context.record()["targets"])?)
+        {
+            let reference = &calculation["type_reference"];
+            let mut matched = implementations.iter().filter(|i| {
+                i["kind"] == reference["kind"]
+                    && i["type_id"] == reference["type_id"]
+                    && i["semantic_version"] == reference["semantic_version"]
+                    && i["backend"] == "RESEARCH"
+            });
+            let implementation = matched
+                .next()
+                .ok_or("PRIVATE_STRATEGY_CALCULATION_UNAVAILABLE")?;
+            if matched.next().is_some()
+                || !implementation["implementation_fingerprint"]
+                    .as_str()
+                    .is_some_and(crate::is_sha256_hex)
+            {
+                return Err(INVALID);
+            }
+            if reference["kind"] == "FACTOR"
+                && reference["type_id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("private.factor."))
+            {
+                let factor = factors
+                    .get(reference["type_id"].as_str().ok_or(INVALID)?)
+                    .ok_or(MISMATCH)?;
+                if reference["semantic_version"] != factor["semantic_version"] {
+                    return Err(MISMATCH);
+                }
+            }
+        }
+        let mut record = json!({"schema_version":1,"private_strategy_id":revision["strategy_id"],"private_strategy_revision_fingerprint":revision["revision_fingerprint"],"private_strategy_definition_fingerprint":revision["definition_fingerprint"],"research_context_fingerprint":context.fingerprint()?,"factor_revision_bindings":dependencies,"catalog_generation_fingerprint":manifest["catalog_generation_fingerprint"],"research_definition_fingerprint":research.fingerprint()?});
+        record["contract"] = json!("ONLYALPHA_PRIVATE_STRATEGY_RESEARCH_COMPOSITION_V1");
+        let fingerprint = hash(&record).map_err(|_| INVALID)?;
+        record.as_object_mut().ok_or(INVALID)?.remove("contract");
+        record["composition_fingerprint"] = json!(fingerprint);
+        Ok(Self(record))
+    }
+    pub fn record(&self) -> &Value {
+        &self.0
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +391,98 @@ mod tests {
         json!({"schema_version":1,"start":"2025-01-02T12:00:00Z","end":"2025-01-03T00:00:00Z",
          "targets":[{"instance_key":"forward_return","type_reference":{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1"},"parameters":{"exit_offset":{"kind":"FIXED","value":{"type":"INTEGER","value":5}}},"published_outputs":["target_value"],"primary_output":null,"input_bindings":[{"input_name":"entry_price","source":"bar.close"},{"input_name":"exit_price","source":"bar.close"}]}],
          "statistics":[{"variable":{"kind":"VARIABLE","instance_key":"momentum","output_name":"value"},"target_instance_key":"forward_return","definition":{"schema_version":1,"method":"IC","minimum_observations":2,"pairing_policy":"PAIRWISE_COMPLETE","universe_policy":"OBSERVED_PAIRWISE","rank_tie_method":"AVERAGE","weighting":"EQUAL","numeric":{"representation":"DECIMAL","precision":38,"output_quantum":"0.000000000001","rounding":"ROUND_HALF_EVEN"}}}],"display_metadata":{}})
+    }
+    fn composition_inputs() -> (
+        Value,
+        Context,
+        Value,
+        std::collections::BTreeMap<String, Value>,
+    ) {
+        use crate::application::private_assets::authoring::{
+            API_FINGERPRINT, Draft as FactorDraft,
+        };
+        let factor=FactorDraft::new(json!({"schema_version":1,"factor_id":"private.factor.simple_momentum","semantic_version":"1","base_revision_fingerprint":null,"source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"},"previous_close":{"type":"DECIMAL"}},"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Technical metadata fixture","economic_rationale":"Contract only","category":"price","tags":[]})).unwrap().revision().unwrap();
+        let mut d = strategy();
+        d["factor_revision_dependencies"][0]["revision_fingerprint"] =
+            factor["revision_fingerprint"].clone();
+        let revision=crate::application::private_strategy::Draft::new(json!({"schema_version":1,"strategy_id":"private.strategy.composition","semantic_version":"1","base_revision_fingerprint":null,"definition":d,"description":"Contract fixture","tags":[]})).unwrap().revision().unwrap();
+        let context = Context::new(context()).unwrap();
+        // Only value-level metadata. No READY/executable/equivalence claim is made.
+        let manifest = json!({"catalog_generation_fingerprint":"a".repeat(64),"private_factor_bindings":[{"provider_snapshot_fingerprint":"b".repeat(64),"runtime_artifact_fingerprint":"c".repeat(64),"entry":{"factor_id":factor["factor_id"],"revision_fingerprint":factor["revision_fingerprint"],"semantic_version":factor["semantic_version"],"source_sha256":factor["source_sha256"],"factor_api_version":factor["factor_api_version"],"factor_api_contract_fingerprint":factor["factor_api_contract_fingerprint"],"research_implementation_fingerprint":"d".repeat(64)}}],"implementations":[{"kind":"FACTOR","type_id":factor["factor_id"],"semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"d".repeat(64)},{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"e".repeat(64)}]});
+        let factors =
+            std::collections::BTreeMap::from([("private.factor.simple_momentum".into(), factor)]);
+        (revision, context, manifest, factors)
+    }
+    #[test]
+    fn composition_is_exact_lineage_and_not_a_second_strategy_or_runtime_identity() {
+        let (revision, context, manifest, factors) = composition_inputs();
+        let composition = Composition::derive(&revision, &context, &manifest, &factors).unwrap();
+        let record = composition.record();
+        assert_eq!(
+            record["private_strategy_revision_fingerprint"],
+            revision["revision_fingerprint"]
+        );
+        assert_eq!(
+            record["research_definition_fingerprint"],
+            context
+                .definition(&Definition::from_record(&revision["definition"]).unwrap())
+                .unwrap()
+                .fingerprint()
+                .unwrap()
+        );
+        assert!(record.get("strategy_fingerprint").is_none());
+        assert!(record.get("runtime_generation_fingerprint").is_none());
+        let mut descriptor = record.clone();
+        descriptor
+            .as_object_mut()
+            .unwrap()
+            .remove("composition_fingerprint");
+        descriptor["contract"] = json!("ONLYALPHA_PRIVATE_STRATEGY_RESEARCH_COMPOSITION_V1");
+        assert_eq!(
+            record["composition_fingerprint"],
+            hash(&descriptor).unwrap()
+        );
+        assert_eq!(
+            Composition::derive(&revision, &context, &manifest, &factors)
+                .unwrap()
+                .record(),
+            record
+        );
+    }
+    #[test]
+    fn composition_rejects_missing_or_changed_exact_factor_and_runtime_capabilities() {
+        let (revision, context, manifest, factors) = composition_inputs();
+        assert!(
+            Composition::derive(
+                &revision,
+                &context,
+                &manifest,
+                &std::collections::BTreeMap::new()
+            )
+            .is_err()
+        );
+        for key in [
+            "revision_fingerprint",
+            "source_sha256",
+            "semantic_version",
+            "factor_api_contract_fingerprint",
+        ] {
+            let mut changed = manifest.clone();
+            changed["private_factor_bindings"][0]["entry"][key] = json!("f".repeat(64));
+            assert!(
+                Composition::derive(&revision, &context, &changed, &factors).is_err(),
+                "{key}"
+            );
+        }
+        let mut changed = manifest.clone();
+        changed["private_factor_bindings"] = json!([]);
+        assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
+        let mut changed = manifest.clone();
+        changed["implementations"][1]["backend"] = json!("TRADING");
+        assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
+        let mut changed = manifest;
+        changed["implementations"][0]["semantic_version"] = json!("2");
+        assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
     }
     #[test]
     fn context_derives_the_public_research_definition_without_overriding_strategy() {
@@ -277,6 +512,15 @@ mod tests {
             }
         }
         assert_eq!(definition.fingerprint().unwrap(), hash(&semantic).unwrap());
+    }
+    #[test]
+    fn target_instance_names_follow_the_same_public_authoring_contract() {
+        for bad in ["ForwardReturn", "1return", "with.dot", "收益"] {
+            let mut value = context();
+            value["targets"][0]["instance_key"] = json!(bad);
+            value["statistics"][0]["target_instance_key"] = json!(bad);
+            assert!(Context::new(value).is_err(), "accepted {bad}");
+        }
     }
     #[test]
     fn context_cannot_override_strategy_or_accept_unclosed_or_future_inputs() {
