@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "PRIVATE_STRATEGY_DEFINITION_INVALID";
 const LIMIT: usize = 262144;
+const SOURCE_WORK: usize = 8 * 1024 * 1024;
+const UNAVAILABLE: &str = "PRIVATE_STRATEGY_DEFINITION_UNAVAILABLE";
 fn exact(v: &Value, keys: &[&str]) -> Result<()> {
     let o = v.as_object().ok_or(INVALID)?;
     if o.len() != keys.len() || keys.iter().any(|k| !o.contains_key(*k)) {
@@ -18,39 +20,37 @@ fn exact(v: &Value, keys: &[&str]) -> Result<()> {
     Ok(())
 }
 fn name(v: &Value) -> Result<&str> {
-    v.as_str()
-        .filter(|s| {
-            !s.is_empty()
-                && s.len() <= 512
-                && !s.chars().any(|c| c.is_whitespace() || c.is_control())
-        })
-        .ok_or(INVALID)
+    let value = v.as_str().ok_or(INVALID)?;
+    if value.len() > 4096 {
+        return Err(UNAVAILABLE);
+    }
+    if value.is_empty() || value.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(INVALID);
+    }
+    Ok(value)
 }
 fn rows(v: &Value) -> Result<&Vec<Value>> {
-    v.as_array().filter(|a| a.len() <= 256).ok_or(INVALID)
-}
-fn scalar(v: &Value) -> Result<Value> {
-    onlyalpha_calculation::product::normalize_scalar(v, 16384).map_err(|_| INVALID)
-}
-// Only called after the bounded structural parser has checked this tree.
-fn normalize_expression(v: &mut Value) -> Result<()> {
-    match v["kind"].as_str() {
-        Some("COMPARISON") => {
-            for side in ["left", "right"] {
-                if v[side]["kind"] == "LITERAL" {
-                    v[side]["value"] = scalar(&v[side]["value"])?;
-                }
-            }
-        }
-        Some("NOT") => normalize_expression(&mut v["operand"])?,
-        Some("AND" | "OR") => {
-            for child in v["operands"].as_array_mut().ok_or(INVALID)? {
-                normalize_expression(child)?;
-            }
-        }
-        _ => return Err(INVALID),
+    let values = v.as_array().ok_or(INVALID)?;
+    if values.len() > 4096 {
+        return Err(UNAVAILABLE);
     }
-    Ok(())
+    Ok(values)
+}
+fn scalar(v: &Value, work: &mut usize) -> Result<Value> {
+    let normalized = onlyalpha_calculation::product::normalize_scalar(v, *work).map_err(|e| {
+        if e == onlyalpha_calculation::product::Error::Unavailable {
+            UNAVAILABLE
+        } else {
+            INVALID
+        }
+    })?;
+    let cost = v
+        .to_string()
+        .len()
+        .checked_add(normalized.to_string().len())
+        .ok_or(UNAVAILABLE)?;
+    *work = work.checked_sub(cost).ok_or(UNAVAILABLE)?;
+    Ok(normalized)
 }
 type Variables = BTreeMap<String, BTreeSet<String>>;
 fn variable(v: &Value, variables: &Variables) -> Result<()> {
@@ -68,7 +68,7 @@ fn variable(v: &Value, variables: &Variables) -> Result<()> {
     }
     Ok(())
 }
-fn operand(v: &Value, variables: &Variables) -> Result<()> {
+fn operand(v: &mut Value, variables: &Variables, work: &mut usize) -> Result<()> {
     match v["kind"].as_str() {
         Some("VARIABLE") => variable(v, variables),
         Some("DATASET_FIELD") => {
@@ -84,14 +84,15 @@ fn operand(v: &Value, variables: &Variables) -> Result<()> {
             {
                 return Err(INVALID);
             }
-            scalar(&v["value"]).map(|_| ())
+            v["value"] = scalar(&v["value"], work)?;
+            Ok(())
         }
         _ => Err(INVALID),
     }
 }
-fn expression(v: &Value, variables: &Variables, depth: usize) -> Result<()> {
+fn expression(v: &mut Value, variables: &Variables, depth: usize, work: &mut usize) -> Result<()> {
     if depth > 32 {
-        return Err(INVALID);
+        return Err(UNAVAILABLE);
     }
     match v["kind"].as_str() {
         Some("COMPARISON") => {
@@ -99,21 +100,20 @@ fn expression(v: &Value, variables: &Variables, depth: usize) -> Result<()> {
             if !["==", "!=", "<", "<=", ">", ">="].contains(&name(&v["operator"])?) {
                 return Err(INVALID);
             }
-            operand(&v["left"], variables)?;
-            operand(&v["right"], variables)
+            operand(&mut v["left"], variables, work)?;
+            operand(&mut v["right"], variables, work)
         }
         Some("NOT") => {
             exact(v, &["kind", "operand"])?;
-            expression(&v["operand"], variables, depth + 1)
+            expression(&mut v["operand"], variables, depth + 1, work)
         }
         Some("AND" | "OR") => {
             exact(v, &["kind", "operands"])?;
-            let operands = rows(&v["operands"])?;
-            if operands.len() < 2 {
+            if rows(&v["operands"])?.len() < 2 {
                 return Err(INVALID);
             }
-            for child in operands {
-                expression(child, variables, depth + 1)?;
+            for child in v["operands"].as_array_mut().ok_or(INVALID)? {
+                expression(child, variables, depth + 1, work)?;
             }
             Ok(())
         }
@@ -124,8 +124,8 @@ fn expression(v: &Value, variables: &Variables, depth: usize) -> Result<()> {
 pub struct Definition(Value);
 impl Definition {
     pub fn from_record(v: &Value) -> Result<Self> {
-        if v.to_string().len() > LIMIT {
-            return Err(INVALID);
+        if v.to_string().len() > SOURCE_WORK {
+            return Err(UNAVAILABLE);
         }
         exact(
             v,
@@ -195,10 +195,11 @@ impl Definition {
         if recipe.target() != &semantic {
             return Err(INVALID);
         }
-        let calculations = rows(&record["calculations"])?;
-        if calculations.is_empty() {
+        if rows(&record["calculations"])?.is_empty() {
             return Err(INVALID);
         }
+        let mut work = SOURCE_WORK;
+        let calculations = record["calculations"].as_array_mut().ok_or(INVALID)?;
         let mut variables = Variables::new();
         let mut private = BTreeSet::new();
         for c in calculations {
@@ -235,14 +236,14 @@ impl Definition {
                     .map_err(|_| INVALID)?;
                 private.insert(reference.type_id().to_owned());
             }
-            let parameters = c["parameters"].as_object().ok_or(INVALID)?;
+            let parameters = c["parameters"].as_object_mut().ok_or(INVALID)?;
             for (key, p) in parameters {
                 name(&json!(key))?;
                 exact(p, &["kind", "value"])?;
                 if p["kind"] != "FIXED" {
                     return Err(INVALID);
                 }
-                scalar(&p["value"])?;
+                p["value"] = scalar(&p["value"], &mut work)?;
             }
             let outputs = rows(&c["published_outputs"])?;
             let mut unique = BTreeSet::new();
@@ -262,7 +263,7 @@ impl Definition {
         }
         // Exact reference closure is checked before any resolver/algorithm is selected.
         let mut edges = BTreeMap::<String, BTreeSet<String>>::new();
-        for c in calculations {
+        for c in rows(&record["calculations"])? {
             let mut input_names = BTreeSet::new();
             let mut parents = BTreeSet::new();
             for binding in rows(&c["input_bindings"])? {
@@ -307,22 +308,15 @@ impl Definition {
         if dependencies.keys().ne(private.iter()) {
             return Err(INVALID);
         }
-        expression(&record["eligibility"], &variables, 0)?;
+        expression(&mut record["eligibility"], &variables, 0, &mut work)?;
         exact(&record["signals"], &["entry", "exit"])?;
         for role in ["entry", "exit"] {
-            expression(&record["signals"][role], &variables, 0)?;
-        }
-        normalize_expression(&mut record["eligibility"])?;
-        for role in ["entry", "exit"] {
-            normalize_expression(&mut record["signals"][role])?;
+            expression(&mut record["signals"][role], &variables, 0, &mut work)?;
         }
         record["factor_revision_dependencies"] = json!(dependencies.values().collect::<Vec<_>>());
         let calculations = record["calculations"].as_array_mut().ok_or(INVALID)?;
         calculations.sort_by(|a, b| a["instance_key"].as_str().cmp(&b["instance_key"].as_str()));
         for c in calculations {
-            for p in c["parameters"].as_object_mut().ok_or(INVALID)?.values_mut() {
-                p["value"] = scalar(&p["value"])?;
-            }
             c["published_outputs"]
                 .as_array_mut()
                 .ok_or(INVALID)?
@@ -332,8 +326,8 @@ impl Definition {
                 .ok_or(INVALID)?
                 .sort_by(|a, b| a["input_name"].as_str().cmp(&b["input_name"].as_str()));
         }
-        if record.to_string().len() > LIMIT {
-            return Err(INVALID);
+        if record.to_string().len() > SOURCE_WORK {
+            return Err(UNAVAILABLE);
         }
         Ok(Self(record))
     }
@@ -394,6 +388,9 @@ impl Draft {
             }
         }
         value["tags"] = json!(tags);
+        if value.to_string().len() > LIMIT {
+            return Err(INVALID);
+        }
         let draft = Self(value);
         draft.revision()?;
         Ok(draft)
@@ -594,5 +591,26 @@ mod tests {
                 scalar
             );
         }
+    }
+    #[test]
+    fn private_strategy_source_capacity_is_not_corruption_or_runtime_admission() {
+        let mut wide = definition();
+        let original = wide["calculations"][0].clone();
+        for i in 0..256 {
+            let mut row = original.clone();
+            row["instance_key"] = json!(format!("node_{i}"));
+            wide["calculations"].as_array_mut().unwrap().push(row);
+        }
+        assert!(Definition::from_record(&wide).is_ok());
+        let mut large = definition();
+        let key = "x".repeat(4097);
+        large["calculations"][0]["instance_key"] = json!(key);
+        for role in ["entry", "exit"] {
+            large["signals"][role]["left"]["instance_key"] = json!(key);
+        }
+        assert_eq!(
+            Definition::from_record(&large).err(),
+            Some("PRIVATE_STRATEGY_DEFINITION_UNAVAILABLE")
+        );
     }
 }

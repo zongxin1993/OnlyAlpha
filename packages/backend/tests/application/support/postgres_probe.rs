@@ -1,6 +1,7 @@
 //! Technical infrastructure probe: never a Shipping Product endpoint.
 mod market_storage_probe;
 mod factor_studies_probe;
+mod strategy_authoring_probe;
 mod research_namespace_probe;
 use onlyalpha_backend::application::command::{
     Admission, Binding, CommandId, CommandKind, Error, Outcome, OutcomeKind, Put, Receipt,
@@ -706,6 +707,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
    Ok(match op {
     "factor-proposal"=>factor_proposal(&request,&mut client).await,
     "factor-authoring"=>factor_authoring(&request,&mut client).await,
+    "strategy-authoring"=>strategy_authoring_probe::run(&request,&mut client).await,
     value if value.starts_with("workspace-")=>match workspace(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     value if value.starts_with("watchlist-")=>match watchlist(&request,&mut client).await {Ok(value)=>value,Err(error)=>json!({"error":error.code()})},
     "credential"=>credential(&request,&mut client).await.map_err(|_|Error::Unavailable)?,

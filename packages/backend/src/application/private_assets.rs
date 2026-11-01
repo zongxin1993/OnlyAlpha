@@ -195,7 +195,13 @@ pub(crate) fn revision(kind: &str, value: &Value) -> Result<()> {
     } else {
         let definition =
             crate::application::private_strategy::Definition::from_record(&value["definition"])
-                .map_err(|_| Error::Corrupt)?;
+                .map_err(|code| {
+                    if code == "PRIVATE_STRATEGY_DEFINITION_UNAVAILABLE" {
+                        Error::Unavailable
+                    } else {
+                        Error::Corrupt
+                    }
+                })?;
         if definition.to_record() != value["definition"] {
             return Err(Error::Corrupt);
         }
@@ -424,12 +430,7 @@ impl<'a> PrivateAssets<'a> {
         crate::persistence::postgres::bounds(&tx)
             .await
             .map_err(|_| Error::Unavailable)?;
-        let found=tx.query_opt("SELECT factor_id AS asset_id,revision_fingerprint,parent_revision_fingerprint,CASE WHEN pg_catalog.octet_length(payload::text)<=8388608 THEN source_text ELSE NULL END AS source_text,source_sha256,CASE WHEN pg_catalog.octet_length(payload::text)<=8388608 THEN payload::text ELSE NULL END AS payload,pg_catalog.octet_length(payload::text) AS payload_bytes,schema_version FROM private_factor_revision WHERE factor_id=$1 AND revision_fingerprint=$2",&[&factor_id,&revision_fingerprint]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::NotFound)?;
-        let bytes: i32 = found.try_get("payload_bytes").map_err(|_| Error::Corrupt)?;
-        if usize::try_from(bytes).map_err(|_| Error::Corrupt)? > WORK {
-            return Err(Error::Unavailable);
-        }
-        let payload = row("FACTOR", &found)?;
+        let payload = factor_revision_in_transaction(&tx, factor_id, revision_fingerprint).await?;
         if payload["factor_id"] != factor_id
             || payload["revision_fingerprint"] != revision_fingerprint
             || payload["source_sha256"] != content_fingerprint
@@ -445,6 +446,29 @@ impl<'a> PrivateAssets<'a> {
             },
         })
     }
+}
+
+/// One owning exact-revision read for API metadata and transactional Strategy dependencies.
+/// This returns authoring content only, never executable admission or a source grant.
+pub(crate) async fn factor_revision_in_transaction(
+    tx: &tokio_postgres::Transaction<'_>,
+    factor_id: &str,
+    fingerprint: &str,
+) -> Result<Value> {
+    id(factor_id, "FACTOR")?;
+    sha(&json!(fingerprint)).map_err(|_| Error::Invalid)?;
+    let found=tx.query_opt("SELECT factor_id AS asset_id,revision_fingerprint,parent_revision_fingerprint,CASE WHEN octet_length(payload::text)<=8388608 AND octet_length(source_text)<=8388608 THEN source_text ELSE NULL END AS source_text,source_sha256,CASE WHEN octet_length(payload::text)<=8388608 THEN payload::text ELSE NULL END AS payload,octet_length(payload::text) AS payload_bytes,octet_length(source_text) AS source_bytes,schema_version FROM private_factor_revision WHERE factor_id=$1 AND revision_fingerprint=$2",&[&factor_id,&fingerprint]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::NotFound)?;
+    for field in ["payload_bytes", "source_bytes"] {
+        let size: i32 = found.try_get(field).map_err(|_| Error::Corrupt)?;
+        if usize::try_from(size).map_err(|_| Error::Corrupt)? > WORK {
+            return Err(Error::Unavailable);
+        }
+    }
+    let value = row("FACTOR", &found)?;
+    if value["factor_id"] != factor_id || value["revision_fingerprint"] != fingerprint {
+        return Err(Error::Mismatch);
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

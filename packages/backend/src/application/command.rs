@@ -95,10 +95,12 @@ text_enum!(CommandKind, InvalidCommandKind, {
     ClearIntegrationSecret => "CLEAR_INTEGRATION_SECRET", ResetIntegrationDraftContract => "RESET_INTEGRATION_DRAFT_CONTRACT",
     PublishIntegrationRevision => "PUBLISH_INTEGRATION_REVISION", SetIntegrationLifecycle => "SET_INTEGRATION_LIFECYCLE",
     CreateChartCalculation => "CREATE_CHART_CALCULATION", SaveWatchlists => "SAVE_WATCHLISTS", SaveWorkspace => "SAVE_WORKSPACE",
+    SavePrivateStrategyDraft => "SAVE_PRIVATE_STRATEGY_DRAFT", PublishPrivateStrategyRevision => "PUBLISH_PRIVATE_STRATEGY_REVISION",
     SavePrivateFactorDraft => "SAVE_PRIVATE_FACTOR_DRAFT", PublishPrivateFactorRevision => "PUBLISH_PRIVATE_FACTOR_REVISION",
     UpdatePrivateFactorDisplay => "UPDATE_PRIVATE_FACTOR_DISPLAY",
 });
 text_enum!(OutcomeKind, InvalidOutcomeKind, {
+    PrivateStrategyAuthoring => "PRIVATE_STRATEGY_AUTHORING",
     FactorStudyOperation => "FACTOR_STUDY_OPERATION",
     ResearchPreparationOperation => "RESEARCH_PREPARATION_OPERATION",
     FactorProposalOperation => "FACTOR_PROPOSAL_OPERATION",

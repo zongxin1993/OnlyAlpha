@@ -41,10 +41,11 @@
 
 ### Task 2: Strategy research and sole Freeze publication
 
-**Files:** Modify `application/research_run.rs`, `application/research_run_execution.rs`, `application/frozen_strategy.rs`, `persistence/research_run.rs`, `transport/host.rs`, `transport/routes.rs`; create focused `application/strategy_research.rs`, `transport/host_strategy.rs` and persistence owner as needed by existing schema.
+**Files:** Modify `application/research_run.rs`, `application/research_run_execution.rs`, `application/frozen_strategy.rs`, `persistence/research_submission.rs`, `persistence/research_execution.rs`, `persistence/research_evidence.rs`, `transport/host.rs`, `transport/routes.rs`; create focused `application/strategy_research.rs`, `transport/host_strategy.rs` and persistence owner as needed by existing schema.
 
 **Interfaces:** Existing `POST /api/v2/research/runs/private-strategy`, `POST /api/v2/strategy-freezes`, `GET /api/v2/strategies/{strategy_fingerprint}`; retain exact command identity and public Strategy Revision contract.
 
+- [ ] Add durable Strategy draft/publication commands using the existing private Strategy tables and global command receipts; expose them through strict versioned DTOs and Human ingress.
 - [ ] Add failing tests for PRIVATE_STRATEGY origin, exact composition/runtime binding and refusal to Freeze a Factor-only statistical result.
 - [ ] Add immutable composition derivation/verification following ADR 0133/0134 and existing storage schema; assert exact runtime/catalog/Factor bindings and rejection of missing or changed revisions.
 - [ ] Execute strategy graph research with exact Factor implementation and sealed development inputs; produce vector/stream signal equivalence evidence.
