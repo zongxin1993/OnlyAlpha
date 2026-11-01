@@ -233,3 +233,24 @@ fn positive_exponent_zero_keeps_original_product_fixed_decimal_identity() {
         );
     }
 }
+
+#[test]
+fn product_scalar_normalization_reuses_decimal_scale_sign_and_bounded_reader_semantics() {
+    use onlyalpha_calculation::product::normalize_scalar;
+    for (input, expected) in [("1e-3", "0.001"), ("-0.00", "-0.00"), ("0E+2", "0")] {
+        let value = json!({"type":"DECIMAL","value":input});
+        assert_eq!(
+            normalize_scalar(&value, WORK).unwrap(),
+            json!({"type":"DECIMAL","value":expected})
+        );
+        assert_eq!(normalize_scalar(&value, 0), Err(Error::Unavailable));
+    }
+    for value in [
+        json!({"type":"DECIMAL","value":"NaN"}),
+        json!({"type":"INTEGER","value":true}),
+        json!({"type":"BOOLEAN","value":1}),
+        json!({"type":"NULL","value":null,"extra":1}),
+    ] {
+        assert_eq!(normalize_scalar(&value, WORK), Err(Error::Invalid));
+    }
+}

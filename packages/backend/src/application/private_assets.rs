@@ -82,7 +82,7 @@ fn sha(v: &Value) -> Result<&str> {
     }
     Ok(s)
 }
-fn id(s: &str, kind: &str) -> Result<()> {
+pub(crate) fn id(s: &str, kind: &str) -> Result<()> {
     let prefix = format!("private.{}.", kind.to_lowercase());
     let tail = s.strip_prefix(&prefix).ok_or(Error::Invalid)?;
     if !tail.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
@@ -121,7 +121,7 @@ fn canonical_json_values(v: &Value, depth: usize) -> Result<()> {
     }
     Ok(())
 }
-fn revision(kind: &str, value: &Value) -> Result<()> {
+pub(crate) fn revision(kind: &str, value: &Value) -> Result<()> {
     let common = [
         "schema_version",
         "semantic_version",
@@ -193,7 +193,10 @@ fn revision(kind: &str, value: &Value) -> Result<()> {
             canonical_json_values(&value[field], 0)?;
         }
     } else {
-        if !value["definition"].is_object() {
+        let definition =
+            crate::application::private_strategy::Definition::from_record(&value["definition"])
+                .map_err(|_| Error::Corrupt)?;
+        if definition.to_record() != value["definition"] {
             return Err(Error::Corrupt);
         }
         canonical_json_values(&value["definition"], 0)?;

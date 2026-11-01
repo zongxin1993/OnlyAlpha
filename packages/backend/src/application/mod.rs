@@ -8,6 +8,7 @@ pub mod integration_configuration;
 pub mod integration_resolver;
 pub mod market_product;
 pub mod private_assets;
+pub mod private_strategy;
 pub mod qualification_policy;
 pub mod source_access;
 pub mod strategy_projection;
@@ -28,5 +29,5 @@ pub mod research_specification;
 pub mod research_novelty;
 pub mod research_run;
 
-pub mod research_run_execution;
 pub mod factor_studies;
+pub mod research_run_execution;

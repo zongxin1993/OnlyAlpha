@@ -144,6 +144,13 @@ fn scalar(v: &Value, work: &mut Work) -> Result<Value> {
     };
     Ok(json!({"type":v["type"],"value":normalized}))
 }
+/// Normalize the existing Product tagged-scalar wire value with a shared read budget.
+/// This is value parsing only; it confers no calculation or Runtime admission.
+pub fn normalize_scalar(value: &Value, max_work: usize) -> Result<Value> {
+    let mut work = Work(max_work);
+    work.scan(value)?;
+    scalar(value, &mut work)
+}
 fn ports(v: &Value) -> Result<BTreeSet<&str>> {
     let a = v.as_array().ok_or(Error::Invalid)?;
     let mut names = BTreeSet::new();
