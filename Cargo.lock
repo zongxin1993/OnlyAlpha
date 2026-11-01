@@ -1487,6 +1487,7 @@ dependencies = [
  "onlyalpha-domain",
  "onlyalpha-gateway-protocol",
  "onlyalpha-market-data-pipeline",
+ "onlyalpha-predicates",
  "onlyalpha-strategy",
  "prost",
  "serde_json",

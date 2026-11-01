@@ -473,6 +473,7 @@ def test_product_application_isolation_has_only_domain_and_its_declared_registry
     workspace = tomllib.loads(manifest.read_text())["workspace"]
     assert set(workspace["members"]) == {
         "crates/onlyalpha-kernel/domain",
+        "crates/onlyalpha-kernel/predicates",
         "crates/onlyalpha-kernel/calculation",
         "crates/onlyalpha-kernel/market_data/construction",
         "crates/onlyalpha-kernel/strategy",
@@ -504,6 +505,7 @@ def test_product_application_isolation_has_only_domain_and_its_declared_registry
     packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
     assert {package["name"] for package in packages if "source" not in package} == {
         "onlyalpha-domain",
+        "onlyalpha-predicates",
         "onlyalpha-calculation",
         "onlyalpha-market-data-construction",
         "onlyalpha-strategy",
@@ -533,7 +535,7 @@ def test_product_application_isolation_has_only_domain_and_its_declared_registry
         "onlyalpha-plugin-tushare",
     }
     assert not (manifest.parent / "src/onlyalpha").exists()
-    assert not (manifest.parent / "crates/onlyalpha-kernel/predicates").exists()
+    assert (manifest.parent / "crates/onlyalpha-kernel/predicates/Cargo.toml").is_file()
 
 
 def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> None:
@@ -544,6 +546,7 @@ def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> N
     manifest = isolated_backend(ROOT, tmp_path / "http")
     assert set(tomllib.loads(manifest.read_text())["workspace"]["members"]) == {
         "crates/onlyalpha-kernel/domain",
+        "crates/onlyalpha-kernel/predicates",
         "crates/onlyalpha-kernel/calculation",
         "crates/onlyalpha-kernel/market_data/construction",
         "crates/onlyalpha-kernel/strategy",
@@ -580,6 +583,7 @@ def test_http_server_isolation_excludes_python_http_sources(tmp_path: Path) -> N
     packages = tomllib.loads(manifest.with_name("Cargo.lock").read_text())["package"]
     assert {package["name"] for package in packages if "source" not in package} == {
         "onlyalpha-domain",
+        "onlyalpha-predicates",
         "onlyalpha-calculation",
         "onlyalpha-market-data-construction",
         "onlyalpha-strategy",

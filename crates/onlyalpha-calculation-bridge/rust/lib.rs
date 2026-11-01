@@ -17,3 +17,5 @@ pub use strategy_preparation::StrategyPreparation;
 
 mod chart_installation;
 pub use chart_installation::ChartInstallation;
+
+pub mod native_predicates;

@@ -13,7 +13,7 @@ def test_worker_and_protocol_build_as_declared_closures(tmp_path: Path) -> None:
     worker = check.isolated_calculation_bridge(check.ROOT, tmp_path / "worker").parent
     assert (worker / "crates/onlyalpha-kernel/calculation/Cargo.toml").is_file()
     assert (worker / "crates/onlyalpha-kernel/domain/Cargo.toml").is_file()
-    assert not (worker / "crates/onlyalpha-kernel/predicates").exists()
+    assert (worker / "crates/onlyalpha-kernel/predicates/Cargo.toml").is_file()
     assert not (worker / "src/onlyalpha").exists()
 
 

@@ -194,6 +194,7 @@ POSITION_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 ACCOUNT_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 
 WORKER_DEPENDENCIES = {
+    "onlyalpha-predicates": {"path": "../onlyalpha-kernel/predicates"},
     "onlyalpha-strategy": {"path": "../onlyalpha-kernel/strategy"},
     "onlyalpha-market-data-pipeline": {"path": "../onlyalpha-kernel/market_data/pipeline"},
     "onlyalpha-calculation": {"path": "../onlyalpha-kernel/calculation"},
@@ -1071,6 +1072,13 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 _INFRASTRUCTURE_RESOURCES = {
+    "packages/backend/src/application/strategy_research.rs": {
+        "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
+    },
+    "packages/backend/src/application/private_strategy.rs": {
+        "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
+        "../../../../test-data/strategy/product-sources-v1.jsonl": "test-data/strategy/product-sources-v1.jsonl",
+    },
     "packages/backend/src/application/research_novelty.rs": {
         "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
     },
@@ -1437,6 +1445,7 @@ def isolated_backend(root: Path, destination: Path) -> Path:
         root,
         destination,
         (
+            "predicates",
             "domain",
             "calculation",
             "market_data_construction",
@@ -1579,6 +1588,7 @@ def isolated_backtest(root: Path, destination: Path) -> Path:
         root,
         destination,
         (
+            "predicates",
             "domain",
             "clock",
             "order",
@@ -1641,6 +1651,7 @@ def isolated_calculation_bridge(root: Path, destination: Path) -> Path:
         root,
         destination,
         (
+            "predicates",
             "domain",
             "calculation",
             "market_data_state",
