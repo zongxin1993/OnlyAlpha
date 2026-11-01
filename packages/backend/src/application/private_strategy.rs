@@ -12,14 +12,14 @@ const INVALID: &str = "PRIVATE_STRATEGY_DEFINITION_INVALID";
 const LIMIT: usize = 262144;
 const SOURCE_WORK: usize = 8 * 1024 * 1024;
 const UNAVAILABLE: &str = "PRIVATE_STRATEGY_DEFINITION_UNAVAILABLE";
-fn exact(v: &Value, keys: &[&str]) -> Result<()> {
+pub(crate) fn exact(v: &Value, keys: &[&str]) -> Result<()> {
     let o = v.as_object().ok_or(INVALID)?;
     if o.len() != keys.len() || keys.iter().any(|k| !o.contains_key(*k)) {
         return Err(INVALID);
     }
     Ok(())
 }
-fn name(v: &Value) -> Result<&str> {
+pub(crate) fn name(v: &Value) -> Result<&str> {
     let value = v.as_str().ok_or(INVALID)?;
     if value.len() > 4096 {
         return Err(UNAVAILABLE);
@@ -29,14 +29,14 @@ fn name(v: &Value) -> Result<&str> {
     }
     Ok(value)
 }
-fn rows(v: &Value) -> Result<&Vec<Value>> {
+pub(crate) fn rows(v: &Value) -> Result<&Vec<Value>> {
     let values = v.as_array().ok_or(INVALID)?;
     if values.len() > 4096 {
         return Err(UNAVAILABLE);
     }
     Ok(values)
 }
-fn scalar(v: &Value, work: &mut usize) -> Result<Value> {
+pub(crate) fn scalar(v: &Value, work: &mut usize) -> Result<Value> {
     let normalized = onlyalpha_calculation::product::normalize_scalar(v, *work).map_err(|e| {
         if e == onlyalpha_calculation::product::Error::Unavailable {
             UNAVAILABLE
@@ -52,8 +52,8 @@ fn scalar(v: &Value, work: &mut usize) -> Result<Value> {
     *work = work.checked_sub(cost).ok_or(UNAVAILABLE)?;
     Ok(normalized)
 }
-type Variables = BTreeMap<String, BTreeSet<String>>;
-fn variable(v: &Value, variables: &Variables) -> Result<()> {
+pub(crate) type Variables = BTreeMap<String, BTreeSet<String>>;
+pub(crate) fn variable(v: &Value, variables: &Variables) -> Result<()> {
     exact(v, &["kind", "instance_key", "output_name"])?;
     if v["kind"] != "VARIABLE"
         || !variables
@@ -119,6 +119,142 @@ fn expression(v: &mut Value, variables: &Variables, depth: usize, work: &mut usi
         }
         _ => Err(INVALID),
     }
+}
+pub(crate) fn normalize_instances(
+    values: &mut Value,
+    kinds: &[&str],
+    work: &mut usize,
+) -> Result<(Variables, BTreeSet<String>)> {
+    let calculations = values.as_array_mut().ok_or(INVALID)?;
+    let mut variables = Variables::new();
+    let mut private = BTreeSet::new();
+    for c in calculations {
+        exact(
+            c,
+            &[
+                "instance_key",
+                "type_reference",
+                "parameters",
+                "published_outputs",
+                "input_bindings",
+                "primary_output",
+            ],
+        )?;
+        exact(
+            &c["type_reference"],
+            &["kind", "type_id", "semantic_version"],
+        )?;
+        let t = &c["type_reference"];
+        let reference = TypeReference::new(
+            name(&t["kind"])?,
+            name(&t["type_id"])?,
+            name(&t["semantic_version"])?,
+        )
+        .map_err(|_| INVALID)?;
+        if !kinds.contains(&reference.kind()) {
+            return Err(INVALID);
+        }
+        if reference.type_id().starts_with("private.factor.") {
+            if reference.kind() != "FACTOR" {
+                return Err(INVALID);
+            }
+            crate::application::private_assets::authoring::validate_id(reference.type_id())
+                .map_err(|_| INVALID)?;
+            private.insert(reference.type_id().to_owned());
+        }
+        let parameters = c["parameters"].as_object_mut().ok_or(INVALID)?;
+        for (key, p) in parameters {
+            name(&json!(key))?;
+            exact(p, &["kind", "value"])?;
+            if p["kind"] != "FIXED" {
+                return Err(INVALID);
+            }
+            p["value"] = scalar(&p["value"], work)?;
+        }
+        let outputs = rows(&c["published_outputs"])?;
+        let mut unique = BTreeSet::new();
+        for output in outputs {
+            if !unique.insert(name(output)?.to_owned()) {
+                return Err(INVALID);
+            }
+        }
+        if unique.is_empty()
+            || (!c["primary_output"].is_null() && !unique.contains(name(&c["primary_output"])?))
+            || variables
+                .insert(name(&c["instance_key"])?.to_owned(), unique)
+                .is_some()
+        {
+            return Err(INVALID);
+        }
+    }
+    let calculations = values.as_array_mut().ok_or(INVALID)?;
+    calculations.sort_by(|a, b| a["instance_key"].as_str().cmp(&b["instance_key"].as_str()));
+    for c in calculations {
+        let mut inputs = BTreeSet::new();
+        for binding in rows(&c["input_bindings"])? {
+            exact(binding, &["input_name", "source"])?;
+            if !inputs.insert(name(&binding["input_name"])?) {
+                return Err(INVALID);
+            }
+            if binding["source"].is_string() {
+                name(&binding["source"])?;
+            } else {
+                let source = &binding["source"];
+                exact(source, &["kind", "instance_key", "output_name"])?;
+                if source["kind"] != "VARIABLE" {
+                    return Err(INVALID);
+                }
+                name(&source["instance_key"])?;
+                name(&source["output_name"])?;
+            }
+        }
+
+        c["published_outputs"]
+            .as_array_mut()
+            .ok_or(INVALID)?
+            .sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+        c["input_bindings"]
+            .as_array_mut()
+            .ok_or(INVALID)?
+            .sort_by(|a, b| a["input_name"].as_str().cmp(&b["input_name"].as_str()));
+    }
+    Ok((variables, private))
+}
+pub(crate) fn validate_instances(calculations: &[Value], variables: &Variables) -> Result<()> {
+    // Exact reference closure is checked before any resolver/algorithm is selected.
+    let mut edges = BTreeMap::<String, BTreeSet<String>>::new();
+    for c in calculations {
+        let mut input_names = BTreeSet::new();
+        let mut parents = BTreeSet::new();
+        for binding in rows(&c["input_bindings"])? {
+            exact(binding, &["input_name", "source"])?;
+            if !input_names.insert(name(&binding["input_name"])?) {
+                return Err(INVALID);
+            }
+            if binding["source"].is_string() {
+                name(&binding["source"])?;
+            } else {
+                variable(&binding["source"], variables)?;
+                parents.insert(name(&binding["source"]["instance_key"])?.to_owned());
+            }
+        }
+        edges.insert(name(&c["instance_key"])?.to_owned(), parents);
+    }
+    while !edges.is_empty() {
+        let ready: BTreeSet<_> = edges
+            .iter()
+            .filter(|(_, p)| p.is_empty())
+            .map(|(id, _)| id.clone())
+            .collect();
+        if ready.is_empty() {
+            return Err(INVALID);
+        }
+        edges.retain(|id, _| !ready.contains(id));
+        for parents in edges.values_mut() {
+            parents.retain(|id| !ready.contains(id));
+        }
+    }
+    Ok(())
 }
 #[derive(Clone, Debug)]
 pub struct Definition(Value);
@@ -199,101 +335,12 @@ impl Definition {
             return Err(INVALID);
         }
         let mut work = SOURCE_WORK;
-        let calculations = record["calculations"].as_array_mut().ok_or(INVALID)?;
-        let mut variables = Variables::new();
-        let mut private = BTreeSet::new();
-        for c in calculations {
-            exact(
-                c,
-                &[
-                    "instance_key",
-                    "type_reference",
-                    "parameters",
-                    "published_outputs",
-                    "input_bindings",
-                    "primary_output",
-                ],
-            )?;
-            exact(
-                &c["type_reference"],
-                &["kind", "type_id", "semantic_version"],
-            )?;
-            let t = &c["type_reference"];
-            let reference = TypeReference::new(
-                name(&t["kind"])?,
-                name(&t["type_id"])?,
-                name(&t["semantic_version"])?,
-            )
-            .map_err(|_| INVALID)?;
-            if !["INDICATOR", "FACTOR"].contains(&reference.kind()) {
-                return Err(INVALID);
-            }
-            if reference.type_id().starts_with("private.factor.") {
-                if reference.kind() != "FACTOR" {
-                    return Err(INVALID);
-                }
-                crate::application::private_assets::authoring::validate_id(reference.type_id())
-                    .map_err(|_| INVALID)?;
-                private.insert(reference.type_id().to_owned());
-            }
-            let parameters = c["parameters"].as_object_mut().ok_or(INVALID)?;
-            for (key, p) in parameters {
-                name(&json!(key))?;
-                exact(p, &["kind", "value"])?;
-                if p["kind"] != "FIXED" {
-                    return Err(INVALID);
-                }
-                p["value"] = scalar(&p["value"], &mut work)?;
-            }
-            let outputs = rows(&c["published_outputs"])?;
-            let mut unique = BTreeSet::new();
-            for output in outputs {
-                if !unique.insert(name(output)?.to_owned()) {
-                    return Err(INVALID);
-                }
-            }
-            if unique.is_empty()
-                || (!c["primary_output"].is_null() && !unique.contains(name(&c["primary_output"])?))
-                || variables
-                    .insert(name(&c["instance_key"])?.to_owned(), unique)
-                    .is_some()
-            {
-                return Err(INVALID);
-            }
-        }
-        // Exact reference closure is checked before any resolver/algorithm is selected.
-        let mut edges = BTreeMap::<String, BTreeSet<String>>::new();
-        for c in rows(&record["calculations"])? {
-            let mut input_names = BTreeSet::new();
-            let mut parents = BTreeSet::new();
-            for binding in rows(&c["input_bindings"])? {
-                exact(binding, &["input_name", "source"])?;
-                if !input_names.insert(name(&binding["input_name"])?) {
-                    return Err(INVALID);
-                }
-                if binding["source"].is_string() {
-                    name(&binding["source"])?;
-                } else {
-                    variable(&binding["source"], &variables)?;
-                    parents.insert(name(&binding["source"]["instance_key"])?.to_owned());
-                }
-            }
-            edges.insert(name(&c["instance_key"])?.to_owned(), parents);
-        }
-        while !edges.is_empty() {
-            let ready: BTreeSet<_> = edges
-                .iter()
-                .filter(|(_, p)| p.is_empty())
-                .map(|(id, _)| id.clone())
-                .collect();
-            if ready.is_empty() {
-                return Err(INVALID);
-            }
-            edges.retain(|id, _| !ready.contains(id));
-            for parents in edges.values_mut() {
-                parents.retain(|id| !ready.contains(id));
-            }
-        }
+        let (variables, private) = normalize_instances(
+            &mut record["calculations"],
+            &["INDICATOR", "FACTOR"],
+            &mut work,
+        )?;
+        validate_instances(rows(&record["calculations"])?, &variables)?;
         let mut dependencies = BTreeMap::new();
         for d in rows(&record["factor_revision_dependencies"])? {
             exact(d, &["factor_id", "revision_fingerprint"])?;
@@ -314,18 +361,6 @@ impl Definition {
             expression(&mut record["signals"][role], &variables, 0, &mut work)?;
         }
         record["factor_revision_dependencies"] = json!(dependencies.values().collect::<Vec<_>>());
-        let calculations = record["calculations"].as_array_mut().ok_or(INVALID)?;
-        calculations.sort_by(|a, b| a["instance_key"].as_str().cmp(&b["instance_key"].as_str()));
-        for c in calculations {
-            c["published_outputs"]
-                .as_array_mut()
-                .ok_or(INVALID)?
-                .sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-            c["input_bindings"]
-                .as_array_mut()
-                .ok_or(INVALID)?
-                .sort_by(|a, b| a["input_name"].as_str().cmp(&b["input_name"].as_str()));
-        }
         if record.to_string().len() > SOURCE_WORK {
             return Err(UNAVAILABLE);
         }

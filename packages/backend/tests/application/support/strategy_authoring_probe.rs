@@ -9,6 +9,19 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
     let owner = request["owner"].as_str().unwrap();
     let command = CommandId::new(request["command_id"].as_str().unwrap()).unwrap();
     let value = match request["action"].as_str().unwrap() {
+        "context" => {
+            use onlyalpha_backend::application::{
+                private_strategy::Definition, strategy_research::Context,
+            };
+            (|| {
+                let strategy = Definition::from_record(&request["definition"])?;
+                let context = Context::new(request["context"].clone())?;
+                let definition = context.definition(&strategy)?;
+                Ok(
+                    json!({"context":context.record(),"context_fingerprint":context.fingerprint()?,"definition":definition.record(),"definition_fingerprint":definition.fingerprint()?}),
+                )
+            })()
+        }
         "read" => store.read(id).await,
         "list" => store.list().await,
         "exact" => {

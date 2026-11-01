@@ -389,3 +389,93 @@ def test_strategy_exact_revision_read_never_substitutes_the_current_version(nati
         ).get("error")
         == "PRIVATE_ASSET_EXACT_REVISION_UNAVAILABLE"
     )
+
+
+def test_native_strategy_context_matches_the_public_authoring_contract(native_probe: Path, database: str) -> None:
+    from onlyalpha.quant_assets.private_strategy import (
+        OnlyPrivateStrategyDefinitionV1,
+        OnlyPrivateStrategyResearchContextV1,
+    )
+    from onlyalpha.research.definition.model import (
+        OnlyResearchDatasetSelection,
+        OnlyResearchDefinition,
+        OnlyResearchUniverseKind,
+        OnlyResearchUniverseSelection,
+    )
+
+    strategy_id = "private.strategy.s" + uuid4().hex
+    value = draft(strategy_id)["definition"]
+    value["eligibility"] = {
+        "kind": "AND",
+        "operands": [
+            value["signals"]["exit"],
+            {"kind": "AND", "operands": [value["signals"]["entry"], value["eligibility"]]},
+        ],
+    }
+    context = {
+        "schema_version": 1,
+        "start": "2025-01-02T12:00:00Z",
+        "end": "2025-01-03T00:00:00Z",
+        "targets": [
+            {
+                "instance_key": "forward_return",
+                "type_reference": {
+                    "kind": "TARGET",
+                    "type_id": "onlyalpha.target.forward_return",
+                    "semantic_version": "1",
+                },
+                "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
+                "published_outputs": ["target_value"],
+                "primary_output": None,
+                "input_bindings": [
+                    {"input_name": "entry_price", "source": "bar.close"},
+                    {"input_name": "exit_price", "source": "bar.close"},
+                ],
+            }
+        ],
+        "statistics": [
+            {
+                "variable": {"kind": "VARIABLE", "instance_key": "momentum", "output_name": "value"},
+                "target_instance_key": "forward_return",
+                "definition": {
+                    "schema_version": 1,
+                    "method": "IC",
+                    "minimum_observations": 2,
+                    "pairing_policy": "PAIRWISE_COMPLETE",
+                    "universe_policy": "OBSERVED_PAIRWISE",
+                    "rank_tie_method": "AVERAGE",
+                    "weighting": "EQUAL",
+                    "numeric": {
+                        "representation": "DECIMAL",
+                        "precision": 38,
+                        "output_quantum": "0.000000000001",
+                        "rounding": "ROUND_HALF_EVEN",
+                    },
+                },
+            }
+        ],
+        "display_metadata": {"title": "Technical contract comparison"},
+    }
+    result = call(native_probe, strategy_id, "context", definition=value, context=context)
+    strategy = OnlyPrivateStrategyDefinitionV1.from_dict(value)
+    reference_context = OnlyPrivateStrategyResearchContextV1.from_dict(context)
+    reference = OnlyResearchDefinition(
+        OnlyResearchDatasetSelection(
+            OnlyResearchUniverseSelection(
+                OnlyResearchUniverseKind.SINGLE_INSTRUMENT, tuple(value["universe"]["instruments"])
+            ),
+            strategy.market_input.bar_semantic,
+            reference_context.start,
+            reference_context.end,
+        ),
+        strategy.calculations,
+        strategy.eligibility,
+        strategy.signals,
+        reference_context.targets,
+        reference_context.statistics,
+        display_metadata=reference_context.display_metadata,
+    )
+    assert result["context"] == reference_context.to_dict()
+    assert result["context_fingerprint"] == reference_context.research_context_fingerprint
+    assert result["definition"] == reference.to_dict()
+    assert result["definition_fingerprint"] == reference.definition_fingerprint

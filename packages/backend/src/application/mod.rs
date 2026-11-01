@@ -31,3 +31,5 @@ pub mod research_run;
 
 pub mod factor_studies;
 pub mod research_run_execution;
+
+pub mod strategy_research;
