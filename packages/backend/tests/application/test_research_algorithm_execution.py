@@ -219,6 +219,29 @@ def test_public_only_resolution_needs_no_fake_factor_and_rejects_unclosed_inputs
     changed["input_bindings"][0]["source"] = {"kind": "VARIABLE", "instance_key": "missing", "output_name": "value"}
     with pytest.raises(ValueError):
         resolve_instances([], [changed])
+
     changed["input_bindings"][0]["source"]["instance_key"] = "delay"
     with pytest.raises(ValueError):
         resolve_instances([], [changed])
+
+
+def test_full_numeric_graph_observes_actual_vector_and_streaming_backends() -> None:
+    from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
+
+    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
+    program = CalculationGraphEvaluator([source], vector["graph"])
+    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": str(100 + i), "volume": "200"}} for i in range(720)]
+    result = program.evaluate(rows, include_trading=True)
+    research = {row["node_fingerprint"]: row["values"] for row in result["outputs"]}
+    trading = {row["node_fingerprint"]: row["values"] for row in result["trading_outputs"]}
+    assert research == trading
+    values = research[vector["root_fingerprint"]]["value"]
+    assert values[:20] == [None] * 20
+    assert Decimal(values[20]) == Decimal("0.2")
+    assert Decimal(values[40]) == Decimal("0.166666666667")
+    assert len(values) == 720
+    rows[1]["values"]["close"] = None
+    gapped = program.evaluate(rows, include_trading=True)
+    assert [row["values"] for row in gapped["outputs"]] == [row["values"] for row in gapped["trading_outputs"]]
+    assert "equivalence_evidence" not in result and "strategy_fingerprint" not in result

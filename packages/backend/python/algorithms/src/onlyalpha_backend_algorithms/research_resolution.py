@@ -46,6 +46,7 @@ def _name(value: object) -> str:
 
 def registry_for_sources(
     sources: list[dict[str, Any]],
+    host: OnlyPrivateFactorIsolatedProgramHost | None = None,
 ) -> tuple[OnlyCalculationRegistry, list[dict[str, object]]]:
     """Public calculations need no artificial private Factor or authoring generation."""
     if type(sources) is not list or len(sources) > 128 or len(json.dumps(sources).encode()) > MAX_WORK:
@@ -65,10 +66,10 @@ def registry_for_sources(
             manifest,
             code,
             OnlyPrivateFactorAdapterV1(
-                "RESEARCH", _ADAPTER_FINGERPRINTS["RESEARCH"], OnlyPrivateFactorIsolatedProgramHost()
+                "RESEARCH", _ADAPTER_FINGERPRINTS["RESEARCH"], host or OnlyPrivateFactorIsolatedProgramHost()
             ),
             OnlyPrivateFactorAdapterV1(
-                "TRADING", _ADAPTER_FINGERPRINTS["TRADING"], OnlyPrivateFactorIsolatedProgramHost()
+                "TRADING", _ADAPTER_FINGERPRINTS["TRADING"], host or OnlyPrivateFactorIsolatedProgramHost()
             ),
         ):
             registry.register(registration)

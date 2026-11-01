@@ -72,9 +72,11 @@ def exchange(
         generation="a" * 64,
         sequence=2,
         **{
-            operation: (wire.ResearchPrepare if operation == "research_prepare" else wire.ResearchResolve)(
-                request_json=only_canonical_json(payload).encode()
-            )
+            operation: {
+                "research_prepare": wire.ResearchPrepare,
+                "research_resolve": wire.ResearchResolve,
+                "research_evaluate": wire.ResearchEvaluate,
+            }[operation](request_json=only_canonical_json(payload).encode())
         },
     )
     frames = b"".join(
@@ -162,6 +164,29 @@ def test_installed_calculation_resolution_uses_exact_target_and_operator_resourc
     assert actual["target_artifact_sha256"] == request["target_artifact"]["sha256"]
     assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     assert "equivalence_evidence" not in actual and "runtime_generation_fingerprint" not in actual
+    evaluated = exchange(
+        installation,
+        artifact,
+        {
+            "resolution": request,
+            "rows": [{"at_ns": i * 60_000_000_000, "values": {"close": str(10 + i)}} for i in range(8)],
+        },
+        "research_evaluate",
+    )
+    assert evaluated.WhichOneof("outcome") == "result", evaluated
+    observation = json.loads(evaluated.result.record_json)
+    assert observation["evaluation"]["outputs"][0]["values"]["target_value"] == [
+        "0.500000000000",
+        "0.454545454545",
+        "0.416666666667",
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert observation["evaluation"]["trading_outputs"] == []
+    assert observation["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     for name in ("core_artifact", "operator_artifact", "target_artifact"):
         changed = json.loads(json.dumps(request))
         changed[name]["sha256"] = "f" * 64

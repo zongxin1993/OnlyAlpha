@@ -179,6 +179,8 @@ def serve(root: Path, generation: str, artifact: str) -> None:
                 }
             elif sequence == 2 and request.WhichOneof("operation") == "research_resolve":
                 payload = json.loads(request.research_resolve.request_json)
+                if type(payload) is not dict:
+                    raise ValueError("RESEARCH_RESOLUTION_INPUT_INVALID")
                 result = (
                     resolve_calculations(payload, artifact)
                     if payload.get("contract") == INSTANCE_CONTRACT
@@ -186,18 +188,36 @@ def serve(root: Path, generation: str, artifact: str) -> None:
                 )
                 result["isolation"] = restrict()
             elif sequence == 2 and request.WhichOneof("operation") == "research_evaluate":
-                from onlyalpha_backend_algorithms.research_evaluation import GraphEvaluator
+                from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator, GraphEvaluator
 
                 payload = json.loads(request.research_evaluate.request_json)
-                if set(payload) != {"resolution", "rows", "root_fingerprint"}:
+                if type(payload) is not dict or type(payload.get("resolution")) is not dict:
                     raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
-                result = resolve(payload["resolution"], artifact)
-                program = GraphEvaluator(
-                    payload["resolution"]["source"], payload["resolution"]["graph"], payload["root_fingerprint"]
-                )
-                isolation = restrict()
-                result["evaluation"] = program.evaluate(payload["rows"])
-                result["isolation"] = isolation
+                if payload["resolution"].get("contract") == INSTANCE_CONTRACT:
+                    if set(payload) != {"resolution", "rows"}:
+                        raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
+                    result = resolve_calculations(payload["resolution"], artifact)
+                    graph = {
+                        "schema_version": 1,
+                        "nodes": [
+                            {"alias": row["instance_key"], "definition": row["definition"]}
+                            for row in cast(list[dict[str, Any]], result["nodes"])
+                        ],
+                    }
+                    calculations = CalculationGraphEvaluator(payload["resolution"]["sources"], graph)
+                    isolation = restrict()
+                    result["evaluation"] = calculations.evaluate(payload["rows"], include_trading=True)
+                    result["isolation"] = isolation
+                else:
+                    if set(payload) != {"resolution", "rows", "root_fingerprint"}:
+                        raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
+                    result = resolve(payload["resolution"], artifact)
+                    program = GraphEvaluator(
+                        payload["resolution"]["source"], payload["resolution"]["graph"], payload["root_fingerprint"]
+                    )
+                    isolation = restrict()
+                    result["evaluation"] = program.evaluate(payload["rows"])
+                    result["isolation"] = isolation
             elif sequence == 2 and request.WhichOneof("operation") == "research_prepare":
                 from onlyalpha_backend_algorithms.research_preparation import prepare
 

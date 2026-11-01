@@ -5,27 +5,20 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import pyarrow as pa  # type: ignore[import-untyped]
-from onlyalpha_plugin_operators.registration import registrations
-from onlyalpha_plugin_operators.research import OnlyOfficialResearchOperatorBackend
 
-from onlyalpha.calculation.definition import OnlyCalculationBackendKind
+from onlyalpha.calculation.definition import OnlyCalculationBackendKind, OnlyCalculationDefinition, OnlyCalculationKind
 from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
+from onlyalpha.calculation.registry import OnlyTradingBackendFactory
 from onlyalpha.canonical import only_canonical_fingerprint
+from onlyalpha_backend_algorithms.research_resolution import registry_for_sources
 from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
-    _ADAPTER_FINGERPRINTS,
-    OnlyPrivateFactorAdapterV1,
     OnlyPrivateFactorIsolatedProgramHost,
-    OnlyPrivateFactorResearchBackendV1,
     OnlyPrivateFactorSourceArtifactManifestV1,
     only_execute_private_factor_program,
-    only_private_factor_backend_registrations,
-    only_validate_private_factor_revision,
 )
-from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
 
 
 class ManagedProgramHost(OnlyPrivateFactorIsolatedProgramHost):
@@ -41,35 +34,28 @@ class ManagedProgramHost(OnlyPrivateFactorIsolatedProgramHost):
         return only_execute_private_factor_program(manifest, source, inputs, parameters)
 
 
-class GraphEvaluator:
-    def __init__(self, source_record: dict[str, Any], graph_record: dict[str, Any], root: str) -> None:
-        source = OnlyPrivateFactorExecutableSourceRecordV1.from_dict(source_record)
-        validation = only_validate_private_factor_revision(source)
-        manifest, code = OnlyPrivateFactorSourceArtifactManifestV1.materialize(source, validation)
-        graph = OnlyCalculationGraphDefinition.from_dict(graph_record)
-        if not 1 <= len(graph.nodes) <= 128:
+class ResearchBackend(Protocol):
+    def execute(
+        self, definition: OnlyCalculationDefinition, inputs: Mapping[str, pa.Array]
+    ) -> Mapping[str, pa.Array]: ...
+
+
+class TradingBackend(Protocol):
+    def update(self, inputs: Mapping[str, object]) -> Mapping[str, object]: ...
+
+
+class CalculationGraphEvaluator:
+    def __init__(self, sources: list[dict[str, Any]], graph_record: dict[str, Any]) -> None:
+        self.graph = OnlyCalculationGraphDefinition.from_dict(graph_record)
+        if not 1 <= len(self.graph.nodes) <= 128:
             raise ValueError("RESEARCH_EVALUATION_BUDGET_EXCEEDED")
-        if root not in {n.fingerprint for n in graph.nodes}:
-            raise ValueError("RESEARCH_EVALUATION_ROOT_MISMATCH")
-        registry = OnlyCalculationRegistry()
-        for registration in (
-            *registrations(),
-            *only_private_factor_backend_registrations(
-                source,
-                manifest,
-                code,
-                OnlyPrivateFactorAdapterV1("RESEARCH", _ADAPTER_FINGERPRINTS["RESEARCH"], ManagedProgramHost()),
-                OnlyPrivateFactorAdapterV1("TRADING", _ADAPTER_FINGERPRINTS["TRADING"], ManagedProgramHost()),
-            ),
-        ):
-            registry.register(registration)
-        self.source, self.graph, self.registry, self.root = source, graph, registry, root
+        self.registry, _ = registry_for_sources(sources, ManagedProgramHost())
         pa.array([Decimal("1")], type=pa.decimal128(38, 18))
 
-    def evaluate(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def evaluate(self, rows: list[dict[str, Any]], *, include_trading: bool = False) -> dict[str, Any]:
         if not 1 <= len(rows) <= 8192:
             raise ValueError("RESEARCH_EVALUATION_BUDGET_EXCEEDED")
-        source, graph, registry, root = self.source, self.graph, self.registry, self.root
+        graph, registry = self.graph, self.registry
         times = []
         for row in rows:
             if set(row) != {"at_ns", "values"} or type(row["at_ns"]) is not int or row["at_ns"] < 0:
@@ -83,6 +69,8 @@ class GraphEvaluator:
                 raise ValueError("RESEARCH_EVALUATION_AXIS_INVALID")
         workspace: dict[str, Mapping[str, pa.Array]] = {}
         implementations = {}
+        streaming: dict[str, dict[str, list[object]]] = {}
+        trading_implementations = {}
         for node in graph.ordered_nodes:
             definition = node.definition
             registration = registry.resolve(
@@ -97,7 +85,7 @@ class GraphEvaluator:
                 if reference.node_fingerprint is not None:
                     inputs[name] = workspace[reference.node_fingerprint][reference.output_name]
                 else:
-                    values = [row["values"][reference.source] for row in rows]
+                    values = [row["values"][str(reference.source).removeprefix("bar.")] for row in rows]
                     if any(
                         v is not None
                         and (
@@ -112,13 +100,34 @@ class GraphEvaluator:
                     if any(v is not None and not v.is_finite() for v in decimals):
                         raise ValueError("RESEARCH_EVALUATION_DECIMAL_INVALID")
                     inputs[name] = pa.array(decimals, type=pa.decimal128(38, 18))
-            workspace[node.fingerprint] = cast(
-                OnlyOfficialResearchOperatorBackend | OnlyPrivateFactorResearchBackendV1, registration.provider
-            ).execute(definition, inputs)
+            workspace[node.fingerprint] = cast(ResearchBackend, registration.provider).execute(definition, inputs)
             implementations[node.fingerprint] = registration.implementation_manifest.implementation_fingerprint
-        root_node = next(n for n in graph.nodes if n.fingerprint == root)
-        if root_node.definition.type_id != source.factor_id or set(workspace[root]) != {"value"}:
-            raise ValueError("RESEARCH_EVALUATION_ROOT_MISMATCH")
+            if include_trading and definition.kind is not OnlyCalculationKind.TARGET:
+                trading = registry.resolve(
+                    definition.kind, definition.type_id, definition.semantic_version, OnlyCalculationBackendKind.TRADING
+                )
+                if trading.implementation_manifest is None or trading.definition_resolver is None:
+                    raise ValueError("RESEARCH_IMPLEMENTATION_UNAVAILABLE")
+                if trading.definition_resolver.resolve(definition.parameters, definition.input_bindings) != definition:
+                    raise ValueError("RESEARCH_DEFINITION_MISMATCH")
+                backend = cast(
+                    TradingBackend, cast(OnlyTradingBackendFactory, trading.provider).create(definition, None)
+                )
+                columns = {
+                    name: streaming[reference.node_fingerprint][reference.output_name]
+                    if reference.node_fingerprint is not None
+                    else inputs[name].to_pylist()
+                    for name, reference in definition.input_bindings.items()
+                }
+                observed: dict[str, list[object]] = {port.name: [] for port in definition.outputs}
+                for index in range(len(rows)):
+                    observed_row = backend.update({name: column[index] for name, column in columns.items()})
+                    if set(observed_row) != set(observed):
+                        raise ValueError("RESEARCH_EVALUATION_OUTPUT_INVALID")
+                    for name, value in observed_row.items():
+                        observed[name].append(value)
+                streaming[node.fingerprint] = observed
+                trading_implementations[node.fingerprint] = trading.implementation_manifest.implementation_fingerprint
         outputs = [
             {
                 "node_fingerprint": key,
@@ -130,14 +139,48 @@ class GraphEvaluator:
             }
             for key in sorted(workspace)
         ]
-        return {
+        result = {
             "schema_version": 1,
             "graph_fingerprint": graph.fingerprint,
             "input_fingerprint": only_canonical_fingerprint(rows),
             "axis": times,
-            "feature": [None if v is None else format(v, "f") for v in workspace[root]["value"].to_pylist()],
             "outputs": outputs,
         }
+        if include_trading:
+            result["trading_outputs"] = [
+                {
+                    "node_fingerprint": key,
+                    "implementation_fingerprint": trading_implementations[key],
+                    "values": {
+                        name: [None if v is None else format(v, "f") for v in column]
+                        for name, column in streaming[key].items()
+                    },
+                }
+                for key in sorted(streaming)
+            ]
+        return result
+
+
+class GraphEvaluator:
+    """Existing single Factor output projection over the shared finite graph math."""
+
+    def __init__(self, source_record: dict[str, Any], graph_record: dict[str, Any], root: str) -> None:
+        self.program = CalculationGraphEvaluator([source_record], graph_record)
+        node = next((n for n in self.program.graph.nodes if n.fingerprint == root), None)
+        if (
+            node is None
+            or node.definition.type_id != source_record["factor_id"]
+            or {p.name for p in node.definition.outputs} != {"value"}
+        ):
+            raise ValueError("RESEARCH_EVALUATION_ROOT_MISMATCH")
+        self.root = root
+
+    def evaluate(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        result = self.program.evaluate(rows)
+        result["feature"] = next(
+            row["values"]["value"] for row in result["outputs"] if row["node_fingerprint"] == self.root
+        )
+        return result
 
 
 def evaluate_graph(
