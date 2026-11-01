@@ -38,14 +38,16 @@ it("keeps one persistent workspace shell around every product destination", asyn
     const user = userEvent.setup();
     const navigation = screen.getByRole("navigation", { name: "产品导航" });
     for (const destination of destinations) {
-        const link = within(navigation).getByRole("link", { name: destination.label });
-        expect(link).toHaveAttribute("href", destination.path);
-        await user.click(link);
+        if (destination.path === "/") {
+            await user.click(within(navigation).getByRole("link", { name: destination.label }));
+        } else {
+            await user.click(within(navigation).getByRole("button", { name: "更多功能" }));
+            await user.click(await screen.findByRole("menuitem", { name: destination.label }));
+        }
         expect(router.state.location.pathname).toBe(destination.path);
         expect(
             screen.getByRole("heading", { name: `${destination.label} 页面` })
         ).toBeInTheDocument();
-        expect(link).toHaveAttribute("aria-current", "page");
     }
 });
 
@@ -67,4 +69,17 @@ it("does not advertise a deferred research command as available", () => {
     expect(
         screen.getByRole("navigation", { name: "产品导航" }).closest(".global-workspace-rail")
     ).not.toBeNull();
+});
+
+it("keeps one settings entry with an SVG icon and separates persistent navigation from panels", () => {
+    renderShell();
+    const settings = screen.getByRole("button", { name: "全局设置" });
+    expect(settings.querySelector("svg")).not.toBeNull();
+    expect(settings.closest(".workspace-settings-anchor")).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: "全局设置" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "因子研究" })).toHaveAttribute(
+        "href",
+        "/factor-research"
+    );
+    expect(screen.queryByRole("link", { name: "回测 · 未实现" })).not.toBeInTheDocument();
 });

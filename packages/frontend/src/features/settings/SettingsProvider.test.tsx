@@ -248,3 +248,15 @@ it.each(["ACCEPTED", "ABANDONED"])(
         expect(writes.map((call) => call[0])).toEqual([`/api/v1/agent/models/${id}`]);
     }
 );
+
+it("does not connect to models or recover saves until model settings is opened", async () => {
+    render(
+        <SettingsProvider>
+            <Entry />
+        </SettingsProvider>
+    );
+    expect(vi.mocked(request)).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "设置模型" }));
+    await screen.findByText("尚未配置模型");
+    expect(vi.mocked(request)).toHaveBeenCalled();
+});

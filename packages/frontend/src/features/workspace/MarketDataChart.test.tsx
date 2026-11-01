@@ -442,7 +442,7 @@ it("offers visible symbol search and preserves a manual choice after unchanged s
     await waitFor(() => {
         expect(queryBars).toHaveBeenCalledTimes(2);
     });
-    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await user.click(screen.getByText("图表设置", { selector: "summary[aria-label=设置]" }));
     await user.click(
         within(requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))).getByRole(
             "button",
@@ -509,7 +509,7 @@ it.each(["name", "revision"])(
             display_name: "Updated source",
             ...(change === "revision" ? { integration_revision_fingerprint: "c".repeat(64) } : {})
         };
-        await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+        await user.click(screen.getByText("图表设置", { selector: "summary[aria-label=设置]" }));
         await user.click(
             within(
                 requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))
@@ -1195,8 +1195,8 @@ it("shows exact candle notes only under the pointer and preserves query and rend
     });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     const requests = queryBars.mock.calls.length;
-    await user.click(screen.getByText("", { selector: "summary[aria-label=图表类型]" }));
-    await user.click(screen.getByRole("button", { name: "收盘线" }));
+    await user.click(screen.getByRole("button", { name: "图表类型" }));
+    await user.click(await screen.findByRole("menuitem", { name: "收盘线" }));
     expect(screen.getByTestId("price-chart")).toHaveAttribute("data-chart-type", "LINE");
     expect(queryBars).toHaveBeenCalledTimes(requests);
     expect(acquisition).not.toHaveBeenCalled();
@@ -1911,7 +1911,34 @@ it("offers only the sources the Market Data Product reports as eligible", async 
             .map((item) => item.textContent)
     ).toEqual([
         "未选择数据源",
-        "Fixture Source · 当前 Revision · aaaaaaaa · 可采集",
-        "Testnet Source · 当前 Revision · aaaaaaaa · 可采集"
+        "Fixture Source · 当前配置 · 可采集",
+        "Testnet Source · 当前配置 · 可采集"
     ]);
+});
+
+it("reloads chart sources on global settings close without resetting the chosen period", async () => {
+    const source = marketDataSource();
+    const listSources = vi.fn(() => Promise.resolve([source]));
+    renderWorkspace(
+        marketDataClient({
+            listSources,
+            listInstruments: () => Promise.resolve([marketDataInstrument()]),
+            queryBars: (_ref, query) => Promise.resolve(marketDataBarsForQuery(query))
+        })
+    );
+    const user = userEvent.setup();
+    await selectSource(user);
+    await selectBtcInstrument(user);
+    await waitFor(() => {
+        expect(streams.requests).toHaveLength(1);
+    });
+    const before = listSources.mock.calls.length;
+    const period = screen.getByRole<HTMLSelectElement>("combobox", { name: "时间周期" }).value;
+    act(() => {
+        window.dispatchEvent(new Event("onlyalpha-settings-changed"));
+    });
+    await waitFor(() => {
+        expect(listSources).toHaveBeenCalledTimes(before + 1);
+    });
+    expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue(period);
 });

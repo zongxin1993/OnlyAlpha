@@ -1,7 +1,8 @@
+import "./toolbars.css";
 import { useState } from "react";
-import { Button } from "antd";
+import { Button, Dropdown, Tooltip } from "antd";
 import { useSettings } from "../../features/settings/SettingsProvider";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 export interface WorkspaceShellSlots {
@@ -20,6 +21,8 @@ const products = [
 
 export function WorkstationShell() {
     const { openSettings } = useSettings();
+    const navigate = useNavigate();
+    const location = useLocation();
     const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
     const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
     return (
@@ -38,31 +41,54 @@ export function WorkstationShell() {
             </div>
             <aside className="global-workspace-rail" aria-label="功能导航">
                 <nav className="product-rail" aria-label="产品导航">
-                    {products.map((product) => (
-                        <NavLink
-                            key={product.to}
-                            aria-label={product.label}
-                            title={product.label}
-                            to={product.to}
-                            end={product.to === "/"}
-                            className={({ isActive }) =>
-                                isActive ? "primary-nav-link active" : "primary-nav-link"
-                            }
-                        >
-                            <WorkspaceIcon name={product.icon} />
-                        </NavLink>
+                    {products.slice(0, 2).map((product) => (
+                        <Tooltip key={product.to} title={product.label} placement="left">
+                            <NavLink
+                                aria-label={product.label}
+                                to={product.to}
+                                end={product.to === "/"}
+                                className={({ isActive }) =>
+                                    isActive ? "primary-nav-link active" : "primary-nav-link"
+                                }
+                            >
+                                <WorkspaceIcon name={product.to === "/" ? "candles" : "research"} />
+                            </NavLink>
+                        </Tooltip>
                     ))}
+                    <Dropdown
+                        trigger={["click"]}
+                        placement="bottomLeft"
+                        menu={{
+                            items: products.slice(2).map((product) => ({
+                                key: product.to,
+                                label: product.label,
+                                icon: <WorkspaceIcon name={product.icon} />
+                            })),
+                            onClick: ({ key }) => {
+                                void navigate(key);
+                            }
+                        }}
+                    >
+                        <Button type="text" className="rail-button" aria-label="更多功能">
+                            <WorkspaceIcon name="more" />
+                        </Button>
+                    </Dropdown>
                 </nav>
                 <div ref={setRailHost} className="workspace-panel-host" />
-                <Button
-                    aria-label="全局设置"
-                    title="设置"
-                    onClick={() => {
-                        openSettings("models");
-                    }}
-                >
-                    <span aria-hidden="true">⚙</span>
-                </Button>
+                <div className="workspace-settings-anchor">
+                    <Tooltip title="设置" placement="left">
+                        <Button
+                            type="text"
+                            className="rail-button"
+                            aria-label="全局设置"
+                            onClick={() => {
+                                openSettings(location.pathname === "/" ? "chart" : "models");
+                            }}
+                        >
+                            <WorkspaceIcon name="settings" />
+                        </Button>
+                    </Tooltip>
+                </div>
             </aside>
             <footer className="status-surface">
                 <span className="status-dot" aria-hidden="true" />

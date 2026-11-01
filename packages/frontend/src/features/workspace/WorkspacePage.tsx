@@ -1,3 +1,5 @@
+import { Button, Tooltip, Dropdown } from "antd";
+import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider";
 import { useOutletContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
@@ -39,6 +41,13 @@ const tools: readonly {
 ];
 
 export function WorkspacePage() {
+    const { chartSettingsHost, setChartAvailable, openSettings } = useSettings();
+    useEffect(() => {
+        setChartAvailable(true);
+        return () => {
+            setChartAvailable(false);
+        };
+    }, [setChartAvailable]);
     const slots = useOutletContext<WorkspaceShellSlots | null>();
     const toolbarHost = slots?.toolbarHost ?? null;
     const railHost = slots?.railHost ?? null;
@@ -92,6 +101,13 @@ export function WorkspacePage() {
             ? "default"
             : "restore";
     const marketData = useMarketDataChart({ startup });
+    const { refreshSources } = marketData;
+    useEffect(() => {
+        window.addEventListener(settingsChangedEvent, refreshSources);
+        return () => {
+            window.removeEventListener(settingsChangedEvent, refreshSources);
+        };
+    }, [refreshSources]);
     const studyRestoration = useMemo(() => {
         const saved = workspace.restoration;
         return saved?.configuration == null
@@ -241,7 +257,7 @@ export function WorkspacePage() {
                     setPanelOpen(true);
                 }}
             >
-                <WorkspaceIcon name="results" />
+                <WorkspaceIcon name="watchlist" />
             </button>
             <button
                 type="button"
@@ -254,20 +270,68 @@ export function WorkspacePage() {
                     setPanelOpen(true);
                 }}
             >
-                <WorkspaceIcon name="shield" />
+                <WorkspaceIcon name="data" />
             </button>
+        </div>
+    );
+    const chartSettings = (
+        <div className="workspace-settings__menu">
+            <p className="workspace-settings__heading">图表设置</p>
+            <details className="chart-region__settings">
+                <summary className="workspace-settings__action">
+                    <WorkspaceIcon name="candles" />
+                    <span>行情设置</span>
+                    <span className="workspace-settings__chevron">
+                        <WorkspaceIcon name="down" />
+                    </span>
+                </summary>
+                <label className="chart-region__source">
+                    <span className="visually-hidden">数据源</span>
+                    <select
+                        aria-label="数据源"
+                        value={marketData.sourceId}
+                        onChange={(event) => {
+                            marketData.selectSource(event.target.value);
+                        }}
+                    >
+                        <option value="">未选择数据源</option>
+                        {marketData.selectableSources.map((item) => (
+                            <option
+                                key={marketDataSourceChoiceKey(item)}
+                                value={marketDataSourceChoiceKey(item)}
+                            >
+                                {item.display_name} ·{" "}
+                                {item.is_current_revision ? "当前配置" : "历史配置"} ·{" "}
+                                {item.new_work_status === "AVAILABLE" ? "可采集" : "仅封存历史"}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </details>
+            <details className="workspace-indicator-status">
+                <summary className="workspace-settings__action">
+                    <WorkspaceIcon name="analysis" />
+                    <span>指标状态</span>
+                    <span className="workspace-settings__chevron">
+                        <WorkspaceIcon name="down" />
+                    </span>
+                </summary>
+                <div className="workspace-settings__panel" ref={setStudyStatusHost} />
+            </details>
+            <hr className="workspace-settings__divider" />
             <button
                 type="button"
-                className="rail-button"
-                aria-pressed={bottomTab === "backtest"}
-                aria-label="回测"
-                title="回测"
+                className="workspace-settings__action"
                 onClick={() => {
-                    setBottomTab("backtest");
-                    setBottomCollapsed(false);
+                    if (chartSettingsHost === null) setManagerOpen(true);
+                    else openSettings("sources");
                 }}
             >
-                <WorkspaceIcon name="runs" />
+                <WorkspaceIcon name="database" />
+                <span>管理数据源</span>
+                <span className="workspace-settings__chevron">
+                    <WorkspaceIcon name="expand" />
+                </span>
             </button>
         </div>
     );
@@ -280,7 +344,7 @@ export function WorkspacePage() {
                 title={realInstrument?.instrument_id}
                 onClick={openSearch}
             >
-                <span aria-hidden="true">⌕</span> {realInstrument?.display_symbol ?? "搜索商品"}
+                <WorkspaceIcon name="search" /> {realInstrument?.display_symbol ?? "搜索商品"}
             </button>
             <div className="chart-region__controls">
                 <div className="chart-region__search">
@@ -346,124 +410,30 @@ export function WorkspacePage() {
                     ) : null}
                 </div>
             </div>
-            <details
-                className="chart-region__chart-type"
-                onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                        event.currentTarget.open = false;
-                        event.currentTarget.querySelector("summary")?.focus();
+            <Dropdown
+                trigger={["click"]}
+                menu={{
+                    selectedKeys: [chartType],
+                    items: [
+                        {
+                            key: "CANDLESTICK",
+                            label: "蜡烛图",
+                            icon: <WorkspaceIcon name="candles" />
+                        },
+                        { key: "LINE", label: "收盘线", icon: <WorkspaceIcon name="line" /> }
+                    ],
+                    onClick: ({ key }) => {
+                        if (key === "CANDLESTICK" || key === "LINE") setChartType(key);
                     }
                 }}
             >
-                <summary aria-label="图表类型" title="图表类型">
+                <Button type="text" aria-label="图表类型" className="chart-region__chart-type">
                     <WorkspaceIcon name={chartType === "CANDLESTICK" ? "candles" : "line"} />
                     <WorkspaceIcon name="down" />
-                </summary>
-                <div className="chart-type-options">
-                    {(
-                        [
-                            { value: "CANDLESTICK", label: "蜡烛图", icon: "candles" },
-                            { value: "LINE", label: "收盘线", icon: "line" }
-                        ] as const
-                    ).map((item) => (
-                        <button
-                            type="button"
-                            key={item.value}
-                            aria-label={item.label}
-                            title={item.label}
-                            aria-pressed={chartType === item.value}
-                            onClick={(event) => {
-                                setChartType(item.value);
-                                const menu = event.currentTarget.closest("details");
-                                if (menu) {
-                                    menu.open = false;
-                                    menu.querySelector("summary")?.focus();
-                                }
-                            }}
-                        >
-                            <WorkspaceIcon name={item.icon} />
-                        </button>
-                    ))}
-                </div>
-            </details>
+                </Button>
+            </Dropdown>
             <div className="workspace-study-picker" ref={setPickerHost} />
             <div className="workspace-management-host" ref={setManagementHost} />
-            <details
-                className="workspace-settings"
-                onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                        event.currentTarget.open = false;
-                        event.currentTarget.querySelector("summary")?.focus();
-                    }
-                }}
-            >
-                <summary aria-label="设置" title="设置">
-                    <WorkspaceIcon name="settings" />
-                </summary>
-                <div className="workspace-settings__menu">
-                    <p className="workspace-settings__heading">图表设置</p>
-                    <details className="chart-region__settings">
-                        <summary className="workspace-settings__action">
-                            <WorkspaceIcon name="candles" />
-                            <span>行情设置</span>
-                            <span className="workspace-settings__chevron">
-                                <WorkspaceIcon name="down" />
-                            </span>
-                        </summary>
-                        <label className="chart-region__source">
-                            <span className="visually-hidden">数据源</span>
-                            <select
-                                aria-label="数据源"
-                                value={marketData.sourceId}
-                                onChange={(event) => {
-                                    marketData.selectSource(event.target.value);
-                                }}
-                            >
-                                <option value="">未选择数据源</option>
-                                {marketData.selectableSources.map((item) => (
-                                    <option
-                                        key={marketDataSourceChoiceKey(item)}
-                                        value={marketDataSourceChoiceKey(item)}
-                                    >
-                                        {item.display_name} ·{" "}
-                                        {item.is_current_revision
-                                            ? "当前 Revision"
-                                            : "历史 Revision"}{" "}
-                                        · {item.integration_revision_fingerprint.slice(0, 8)} ·{" "}
-                                        {item.new_work_status === "AVAILABLE"
-                                            ? "可采集"
-                                            : "仅封存历史"}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    </details>
-                    <details className="workspace-indicator-status">
-                        <summary className="workspace-settings__action">
-                            <WorkspaceIcon name="analysis" />
-                            <span>指标状态</span>
-                            <span className="workspace-settings__chevron">
-                                <WorkspaceIcon name="down" />
-                            </span>
-                        </summary>
-                        <div className="workspace-settings__panel" ref={setStudyStatusHost} />
-                    </details>
-                    <hr className="workspace-settings__divider" />
-                    <button
-                        type="button"
-                        className="workspace-settings__action"
-                        onClick={() => {
-                            setManagerOpen(true);
-                        }}
-                    >
-                        <WorkspaceIcon name="database" />
-                        <span>管理数据源</span>
-                        <span className="workspace-settings__chevron">
-                            <WorkspaceIcon name="expand" />
-                        </span>
-                    </button>
-                </div>
-            </details>
         </div>
     );
 
@@ -483,21 +453,30 @@ export function WorkspacePage() {
                 aria-orientation="vertical"
             >
                 {tools.map((tool) => (
-                    <button
-                        key={tool.id}
-                        type="button"
-                        className="rail-button"
-                        aria-pressed={activeTool === tool.id}
-                        title={tool.label}
-                        onClick={() => {
-                            setActiveTool(tool.id);
-                        }}
-                    >
-                        <WorkspaceIcon name={tool.icon} />
-                        <span className="visually-hidden">{tool.label}</span>
-                    </button>
+                    <Tooltip key={tool.id} title={tool.label} placement="right">
+                        <Button
+                            type="text"
+                            className="rail-button"
+                            aria-pressed={activeTool === tool.id}
+                            title={tool.label}
+                            onClick={() => {
+                                setActiveTool(tool.id);
+                            }}
+                        >
+                            <WorkspaceIcon name={tool.icon} />
+                            <span className="visually-hidden">{tool.label}</span>
+                        </Button>
+                    </Tooltip>
                 ))}
             </div>
+            {chartSettingsHost !== null ? (
+                createPortal(chartSettings, chartSettingsHost)
+            ) : (
+                <details className="workspace-settings">
+                    <summary aria-label="设置">图表设置</summary>
+                    {chartSettings}
+                </details>
+            )}
             <section className="chart-region" aria-label="主图">
                 {toolbarHost === null ? toolbar : createPortal(toolbar, toolbarHost)}
                 <header className="chart-region__header" hidden={credentials.localSession}>

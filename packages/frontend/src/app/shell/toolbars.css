@@ -1,0 +1,121 @@
+/* One visual vocabulary for chart controls and both rails. */
+.workstation-shell .global-workspace-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    background: var(--surface);
+}
+.workstation-shell .product-rail,
+.workstation-shell .workspace-tray {
+    gap: 4px;
+    padding: 8px 0;
+}
+.workstation-shell .workspace-settings-anchor {
+    margin-top: auto;
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+}
+.workstation-shell .rail-button,
+.workstation-shell .product-rail .primary-nav-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    box-shadow: none;
+    background: transparent;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+.workstation-shell .rail-button:hover,
+.workstation-shell .primary-nav-link:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+.workstation-shell .rail-button[aria-pressed="true"],
+.workstation-shell .primary-nav-link.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.workstation-shell .workspace-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+.workstation-shell .workspace-rail {
+    background: var(--surface);
+    gap: 4px;
+    padding-top: 8px;
+}
+.workstation-shell .workspace-chart-toolbar {
+    min-height: 48px;
+    padding: 4px 8px;
+    gap: 6px;
+}
+.workstation-shell .workspace-chart-toolbar button,
+.workstation-shell .workspace-chart-toolbar .chart-region__timeframe {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    min-height: 32px;
+    width: auto;
+    margin: 0;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+}
+.workstation-shell .workspace-chart-toolbar button:hover:not(:disabled) {
+    background: var(--surface-2);
+}
+.workstation-shell .workspace-chart-toolbar .chart-region__controls {
+    margin-left: 0;
+}
+.workstation-shell .workspace-chart-toolbar .chart-region__search {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+.workstation-shell .workspace-study-picker,
+.workstation-shell .workspace-management-host {
+    padding-left: 6px;
+    border-left: 1px solid var(--line);
+}
+.chart-settings-content .workspace-settings__menu {
+    position: static;
+    width: 100%;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+}
+.chart-settings-content .workspace-settings__panel,
+.chart-settings-content .chart-region__source {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    box-shadow: none;
+}
+@media (max-width: 800px) {
+    .workstation-shell .workspace-chart-toolbar {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+    }
+    .workstation-shell .workspace-chart-toolbar > * {
+        flex-shrink: 0;
+    }
+}
+.global-settings .ant-tabs-tab-disabled {
+    display: none;
+}

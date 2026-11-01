@@ -15,10 +15,12 @@ import {
 import { finishModelSave } from "../factorChat/modelSave";
 import "./settings.css";
 export const settingsChangedEvent = "onlyalpha-settings-changed";
-type Section = "models" | "sources";
+type Section = "models" | "sources" | "chart";
 const SettingsContext = createContext<{
     openSettings: (section: Section) => void;
-}>({ openSettings: () => undefined });
+    chartSettingsHost: HTMLDivElement | null;
+    setChartAvailable: (available: boolean) => void;
+}>({ openSettings: () => undefined, chartSettingsHost: null, setChartAvailable: () => undefined });
 export function useSettings() {
     return useContext(SettingsContext);
 }
@@ -28,6 +30,8 @@ function changed() {
 export function SettingsProvider({ children }: { readonly children: ReactNode }) {
     const [section, setSection] = useState<Section>("models");
     const [open, setOpen] = useState(false);
+    const [chartSettingsHost, setChartSettingsHost] = useState<HTMLDivElement | null>(null);
+    const [chartAvailable, setChartAvailable] = useState(false);
     return (
         <ConfigProvider
             locale={zhCN}
@@ -44,6 +48,8 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
         >
             <SettingsContext.Provider
                 value={{
+                    chartSettingsHost,
+                    setChartAvailable,
                     openSettings: (next) => {
                         setSection(next);
                         setOpen(true);
@@ -56,7 +62,7 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
                     title="设置"
                     open={open}
                     size={760}
-                    destroyOnHidden
+                    forceRender
                     onClose={() => {
                         setOpen(false);
                         changed();
@@ -66,16 +72,37 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
                     <Tabs
                         activeKey={section}
                         onChange={(key) => {
-                            if (key === "models" || key === "sources") setSection(key);
+                            if (key === "models" || key === "sources" || key === "chart")
+                                setSection(key);
                         }}
                         destroyOnHidden
                         items={[
                             {
+                                key: "chart",
+                                label: "图表",
+                                disabled: !chartAvailable,
+                                forceRender: true,
+                                destroyOnHidden: false,
+                                children: (
+                                    <div
+                                        className="chart-settings-content"
+                                        ref={setChartSettingsHost}
+                                    />
+                                )
+                            },
+                            {
                                 key: "sources",
                                 label: "数据源",
-                                children: <DataSourceManager variant="page" />
+                                children:
+                                    open && section === "sources" ? (
+                                        <DataSourceManager variant="page" />
+                                    ) : null
                             },
-                            { key: "models", label: "模型", children: <ModelManager /> }
+                            {
+                                key: "models",
+                                label: "模型",
+                                children: open && section === "models" ? <ModelManager /> : null
+                            }
                         ]}
                     />
                 </Drawer>

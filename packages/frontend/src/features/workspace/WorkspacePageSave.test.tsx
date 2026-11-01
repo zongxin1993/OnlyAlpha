@@ -111,10 +111,8 @@ it("restores saved selection, saves only after an explicit click, and reloads co
     );
     const user = userEvent.setup();
     await user.selectOptions(screen.getByRole("combobox", { name: "时间周期" }), "1");
-    await waitFor(() => {
-        expect(screen.getByRole("button", { name: "保存工作区" })).toBeEnabled();
-    });
-    await user.click(screen.getByRole("button", { name: "保存工作区" }));
+    await user.click(screen.getByRole("button", { name: /工作区/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "保存工作区" }));
     await user.click(screen.getByRole("button", { name: /^保存$/ }));
     expect(writes).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "确认覆盖" }));
@@ -138,7 +136,12 @@ it("restores saved selection, saves only after an explicit click, and reloads co
         version: 3,
         workspaces: [{ workspace_id: workspaceId, name: "观察", configuration }]
     };
-    await user.click(screen.getByRole("button", { name: "载入工作区" }));
+    await user.click(screen.getByRole("button", { name: /工作区/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "载入工作区" }));
+    await user.click(screen.getByRole("button", { name: "关闭工作区窗口" }));
+    expect(screen.getByRole("button", { name: /工作区/ })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("menuitem", { name: "载入工作区" }));
     await user.click(await screen.findByRole("button", { name: "观察 · 当前" }));
     await waitFor(() => {
         expect(vi.mocked(readTemporaryMarketData).mock.calls.at(-1)?.[2].bar_semantic).toEqual(

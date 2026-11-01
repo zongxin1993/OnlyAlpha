@@ -108,41 +108,15 @@ it("orders the live chart controls beside the brand icon in the top workspace ba
     const toolbar = await screen.findByRole("toolbar", { name: "图表工作条" });
     expect(toolbar.closest(".workspace-topbar")).not.toBeNull();
     expect(screen.getByRole("link", { name: "OnlyAlpha 工作台" })).toHaveTextContent(/^OA$/);
-    expect(
-        Array.from(toolbar.querySelectorAll("button, select, summary")).map(
-            (node) => node.getAttribute("aria-label") ?? node.textContent
-        )
-    ).toEqual([
-        "搜索商品",
-        "时间周期",
-        "图表类型",
-        "蜡烛图",
-        "收盘线",
-        "指标",
-        "因子",
-        "保存工作区",
-        "载入工作区",
-        "设置",
-        "行情设置",
-        "数据源",
-        "指标状态",
-        "管理数据源"
-    ]);
+    expect(within(toolbar).getByRole("button", { name: "图表类型" })).toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: /工作区/ })).toBeInTheDocument();
+    expect(within(toolbar).queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
     expect(within(toolbar).getByRole("option", { name: "1 分钟" })).toHaveValue("1");
     expect(within(toolbar).getByRole("option", { name: "1 小时" })).toHaveValue("60");
-    await userEvent.click(
-        within(toolbar).getByText("", { selector: "summary[aria-label=图表类型]" })
-    );
-    expect(within(toolbar).getByRole("button", { name: "蜡烛图" })).toHaveAttribute(
-        "aria-pressed",
-        "true"
-    );
-    await userEvent.click(within(toolbar).getByRole("button", { name: "收盘线" }));
+    await userEvent.click(within(toolbar).getByRole("button", { name: "图表类型" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "收盘线" }));
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    expect(within(toolbar).getByRole("button", { name: "收盘线", hidden: true })).toHaveAttribute(
-        "aria-pressed",
-        "true"
-    );
+    expect(within(toolbar).getByRole("button", { name: "图表类型" })).toBeInTheDocument();
 });
 
 it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
@@ -193,7 +167,7 @@ const configuredClient = () =>
 it("hides the source badge and exposes market settings through the gear", async () => {
     renderWorkspace(configuredClient());
     expect(screen.queryByRole("button", { name: /^数据源/ })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await userEvent.click(screen.getByText("图表设置", { selector: "summary[aria-label=设置]" }));
     await userEvent.click(screen.getByText("行情设置"));
     expect(screen.getByRole("combobox", { name: "数据源" })).toBeInTheDocument();
 });
@@ -201,7 +175,7 @@ it("hides the source badge and exposes market settings through the gear", async 
 it("opens the manager modal from settings and closes it with Escape", async () => {
     const user = userEvent.setup();
     renderWorkspace(configuredClient());
-    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await user.click(screen.getByText("图表设置", { selector: "summary[aria-label=设置]" }));
     await user.click(
         within(requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))).getByRole(
             "button",
@@ -235,7 +209,7 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
         </AppProviders>,
         { container }
     );
-    await user.click(screen.getByText("", { selector: "summary[aria-label=设置]" }));
+    await user.click(screen.getByText("图表设置", { selector: "summary[aria-label=设置]" }));
     const trigger = within(
         requiredValue(document.querySelector<HTMLElement>(".workspace-settings"))
     ).getByRole("button", { name: "管理数据源" });

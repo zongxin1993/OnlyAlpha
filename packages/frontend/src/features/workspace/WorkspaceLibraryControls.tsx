@@ -1,3 +1,5 @@
+import { Button, Dropdown } from "antd";
+import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { WorkspaceConfiguration } from "../../api/workspace/client";
@@ -22,18 +24,17 @@ export function WorkspaceLibraryControls({
     const [target, setTarget] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const dialog = useRef<HTMLDialogElement>(null);
-    const returnFocus = useRef<HTMLElement | null>(null);
+    const returnFocus = useRef<HTMLButtonElement>(null);
     const blocked = workspace.busy || workspace.pending !== null;
     useEffect(() => {
         if (mode === null) return;
         dialog.current?.showModal();
+        const trigger = returnFocus.current;
         return () => {
-            returnFocus.current?.focus();
+            trigger?.focus();
         };
     }, [mode]);
     const open = (next: "save" | "load") => {
-        returnFocus.current =
-            document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setName(workspace.activeWorkspace?.name ?? "我的工作区");
         setTarget(null);
         setError(null);
@@ -74,25 +75,35 @@ export function WorkspaceLibraryControls({
     };
     return (
         <div className="workspace-library-controls">
-            <button
-                type="button"
-                disabled={blocked || workspace.book === null || configuration === null || !ready}
-                title={dirty ? "保存当前未保存配置" : "保存工作区"}
-                onClick={() => {
-                    open("save");
+            <Dropdown
+                trigger={["click"]}
+                menu={{
+                    items: [
+                        {
+                            key: "save",
+                            label: "保存工作区",
+                            disabled:
+                                blocked ||
+                                workspace.book === null ||
+                                configuration === null ||
+                                !ready
+                        },
+                        { key: "load", label: "载入工作区", disabled: blocked }
+                    ],
+                    onClick: ({ key }) => {
+                        if (key === "save" || key === "load") open(key);
+                    }
                 }}
             >
-                保存工作区
-            </button>
-            <button
-                type="button"
-                disabled={blocked}
-                onClick={() => {
-                    open("load");
-                }}
-            >
-                载入工作区
-            </button>
+                <Button
+                    ref={returnFocus}
+                    type="text"
+                    title={dirty ? "工作区有未保存的更改" : "工作区"}
+                >
+                    工作区
+                    <WorkspaceIcon name="down" />
+                </Button>
+            </Dropdown>
             {workspace.pending !== null && (
                 <button
                     type="button"
