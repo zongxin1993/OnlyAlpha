@@ -431,7 +431,7 @@ pub use manual_backtest::{extend_manual_backtest,open_manual_backtest_existing};
 pub(crate) use manual_backtest::manual_backtest_policy;
 
 mod runtime;
-pub use runtime::initialize_runtime_registry;
+pub use runtime::{initialize_runtime_registry,initialize_backtest_evidence};
 
 #[cfg(test)]
 pub(crate) use runtime::{InitializationFault, fail_initialization_for_test};

@@ -340,7 +340,6 @@ def _initialize_deployment(dsn: str, user_data_root: Path, native_backend: Path 
     binding.initialize(identity)
     if _native_research_namespace(backend, user_data_root, fresh=False) != identity:
         raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
-    layout.backtest_evidence_root.mkdir(parents=True, exist_ok=True)
     return str(identity)
 
 

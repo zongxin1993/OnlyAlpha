@@ -114,6 +114,18 @@ The same physical AuthoritySession covers schema/server compatibility, namespace
 
 The result is only an empty append-only Generation journal and its original lock. No artifact, Generation, activation or work binding is created. The Backtest browser fixture uses this as an explicitly declared Infrastructure precondition before any metadata, Source or user business steps. Factor authoring, Strategy saving, actual environment preparation, validation, Freeze, admission and Run submission remain the normal Shipping Web workflow. It does not turn missing historical Runtime state into a fresh initialization opportunity.
 
+## Empty native Backtest Evidence provisioning
+
+After provisioning the empty Runtime Registry, provision the empty Backtest Evidence owner before accepting any business command:
+
+```text
+onlyalpha-backend --initialize-fresh-backtest-evidence ABSOLUTE_USER_DATA_ROOT ABSOLUTE_SCHEMA_ROOT
+```
+
+The same fresh-deployment, schema, namespace, original AuthoritySession and explicit transport checks apply. An existing `backtest` path, including an empty/partial directory, file or symlink, is refused. The operator only creates `backtest/evidence/sha256` and the original source lock; it creates no Run, execution journal or Evidence. Runtime reads never repair a missing owner.
+
+Success follows layout readback, directory fsync, repeated deployment checks and positive session closure. Any uncertainty after attempting publication returns `BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN`, preserves the original paths and emits no success receipt. Repeating initialization cannot adopt those paths. The Backtest browser fixture calls this explicit operator before business steps; Python tooling no longer publishes an incomplete empty Evidence directory.
+
 ## Formal verification resource policy
 
 `AGENTS.md` §6.1 owns the local verification/debugging rules: use the single

@@ -181,8 +181,52 @@ fn runtime_initialization_reply(
     }
 }
 
+async fn initialize_backtest_evidence(
+    root: &std::path::Path,
+    schema: &std::path::Path,
+) -> Result<serde_json::Value, String> {
+    let schema =
+        onlyalpha_backend::bootstrap::configuration::load_schema_history(schema, 8 * 1024 * 1024)
+            .map_err(|error| error.code().to_owned())?;
+    let mut session = namespace_operator_session().await?;
+    let result = onlyalpha_backend::bootstrap::research_namespace::initialize_backtest_evidence(
+        root,
+        &schema,
+        &mut session,
+    )
+    .await
+    .map_err(str::to_owned);
+    let closed = session
+        .close()
+        .await
+        .map_err(|error| error.code().to_owned());
+    backtest_evidence_initialization_reply(result, closed)
+}
+fn backtest_evidence_initialization_reply(
+    result: Result<serde_json::Value, String>,
+    closed: Result<(), String>,
+) -> Result<serde_json::Value, String> {
+    match (result, closed) {
+        (Err(code), _) => Err(code),
+        (Ok(mut value), Ok(())) => {
+            value["schema_version"] = serde_json::json!(1);
+            Ok(value)
+        }
+        (_, Err(_)) => Err("BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN".into()),
+    }
+}
+
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [command, root, schema] = args.as_slice()
+        && command == "--initialize-fresh-backtest-evidence"
+    {
+        let value =
+            initialize_backtest_evidence(std::path::Path::new(root), std::path::Path::new(schema))
+                .await?;
+        println!("{value}");
+        return Ok(());
+    }
     if let [command, root, schema] = args.as_slice()
         && command == "--initialize-fresh-runtime-registry"
     {
@@ -351,6 +395,29 @@ async fn run() -> Result<(), String> {
 #[cfg(test)]
 mod initialization_tests {
     use super::*;
+    #[test]
+    fn evidence_initialization_reply_never_reports_success_after_uncertain_close() {
+        let value = serde_json::json!({"semantic_store_id":"22222222-2222-4222-8222-222222222222","initialized":true});
+        assert_eq!(
+            backtest_evidence_initialization_reply(
+                Ok(value.clone()),
+                Err("POSTGRES_UNAVAILABLE".into())
+            )
+            .unwrap_err(),
+            "BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN"
+        );
+        let success = backtest_evidence_initialization_reply(Ok(value), Ok(())).unwrap();
+        assert_eq!(success["schema_version"], 1);
+        assert_eq!(success["initialized"], true);
+        assert_eq!(
+            backtest_evidence_initialization_reply(
+                Err("original failure".into()),
+                Err("POSTGRES_UNAVAILABLE".into())
+            )
+            .unwrap_err(),
+            "original failure"
+        );
+    }
     #[test]
     fn runtime_initialization_reply_never_reports_success_after_uncertain_close() {
         let value = serde_json::json!({"active_for_new_work":null,"states":{}});

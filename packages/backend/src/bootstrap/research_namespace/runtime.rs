@@ -146,3 +146,66 @@ async fn initialize_owned(
     .await;
     published.map_err(|_: &'static str| UNKNOWN)
 }
+
+/// Explicit empty Backtest Evidence Infrastructure. Never repairs an existing
+/// owner or publishes a business fact. The Registry must already be provisioned.
+pub async fn initialize_backtest_evidence(
+    user_data: &Path,
+    schema: &SchemaHistory,
+    session: &mut AuthoritySession,
+) -> Result<Value> {
+    let mut owned = session.take_ownership();
+    let result = initialize_evidence_owned(user_data, schema, &mut owned).await;
+    match result {
+        Ok(value) => {
+            session.restore_ownership(owned);
+            Ok(value)
+        }
+        Err(code) => {
+            let _ = owned.close().await;
+            Err(code)
+        }
+    }
+}
+async fn initialize_evidence_owned(
+    user_data: &Path,
+    schema: &SchemaHistory,
+    session: &mut AuthoritySession,
+) -> Result<Value> {
+    const UNKNOWN: &str = "BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN";
+    let id = open_existing(user_data)?;
+    verify_empty_deployment(session, schema, &id).await?;
+    let parent = Directory::open(user_data)?;
+    // Prove the existing Registry before publication; never initialize a
+    // missing Runtime as a side effect of provisioning Evidence.
+    Registry::inspect(&user_data.join("runtime"))?;
+    match fs::statat(&parent.fd, "backtest", fs::AtFlags::SYMLINK_NOFOLLOW) {
+        Err(rustix::io::Errno::NOENT) => {}
+        Ok(_) => return Err("BACKTEST_EVIDENCE_INITIALIZATION_CONFLICT"),
+        Err(_) => return Err("BACKTEST_EVIDENCE_UNAVAILABLE"),
+    }
+    parent.verify()?;
+    let published=async {
+        fs::mkdirat(&parent.fd,"backtest",fs::Mode::from_raw_mode(0o700)).map_err(|_|UNKNOWN)?;
+        let backtest=parent.child("backtest",false)?;
+        super::source_owner(&backtest,"evidence")?;
+        fs::fsync(&backtest.fd).map_err(|_|UNKNOWN)?;
+        fs::fsync(&parent.fd).map_err(|_|UNKNOWN)?;
+        #[cfg(test)] match NEXT_FAULT.with(std::cell::Cell::take) {
+            Some(InitializationFault::Readback)=>return Err(UNKNOWN),
+            Some(InitializationFault::Guard)=>{
+                session.client_mut().await.map_err(|_|UNKNOWN)?.query_one("SELECT pg_catalog.pg_advisory_unlock(1329199301::pg_catalog.int4,5::pg_catalog.int4)",&[]).await.map_err(|_|UNKNOWN)?;
+            },None=>{},
+        }
+        let _verified=crate::persistence::backtest_evidence::Store::open(&backtest.path,&user_data.join("research"),&user_data.join("runtime"))?;
+        let evidence=backtest.child("evidence",false)?;
+        let entries=crate::security::protected_files::directory_entries(&backtest.fd,&mut 1024).map_err(|_|UNKNOWN)?;
+        if entries!=vec![std::ffi::OsString::from("evidence")]{return Err(UNKNOWN);}
+        if !crate::security::protected_files::directory_entries(&evidence.child("sha256",false)?.fd,&mut 1024).map_err(|_|UNKNOWN)?.is_empty(){return Err(UNKNOWN);}
+        parent.verify()?;backtest.verify()?;
+        if open_existing(user_data)?!=id{return Err(UNKNOWN);}
+        verify_empty_deployment(session,schema,&id).await?;
+        Ok(json!({"semantic_store_id":id.value(),"initialized":true}))
+    }.await;
+    published.map_err(|_: &'static str| UNKNOWN)
+}

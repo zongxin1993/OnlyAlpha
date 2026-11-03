@@ -73,6 +73,37 @@ def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any
     return verify_artifacts(directory, source_inputs(root), backend, frontend_version=frontend, manifest_sha256=digest)
 
 
+def initialize_backtest_evidence(backend: Path, resources: Path, data: Path, dsn: str, namespace: str) -> None:
+    """Explicit empty Infrastructure owner, before any business acceptance."""
+    result = subprocess.run(
+        [str(backend), "--initialize-fresh-backtest-evidence", str(data), str(resources / "schema")],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    def unique(fields: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = dict(fields)
+        if len(value) != len(fields):
+            raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
+        return value
+
+    if len(result.stdout) > 32768:
+        raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
+    payload = json.loads(result.stdout, object_pairs_hook=unique)
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "semantic_store_id", "initialized"}
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or payload["semantic_store_id"] != namespace
+        or payload["initialized"] is not True
+    ):
+        raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
+
+
 def initialize_runtime_registry(backend: Path, resources: Path, data: Path, dsn: str) -> None:
     """Infrastructure precondition only: no Generation, activation or work exists."""
     result = subprocess.run(
@@ -714,7 +745,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         connection.execute("CREATE SCHEMA public")
     subprocess.run([sys.executable, "-m", "scripts.database", "migrate"], cwd=ROOT, check=True)
     data = output / "user-data"
-    for relative in ("backtest/evidence", "secrets"):
+    for relative in ("secrets",):
         (data / relative).mkdir(parents=True, mode=0o700)
     key = data / "secrets/dev-master-key"
     key.write_bytes(os.urandom(32))
@@ -754,6 +785,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         raise ValueError("NATIVE_E2E_CONTAINED_POSTGRES_TRANSPORT_REQUIRED")
     if args.backtest_market_input:
         initialize_runtime_registry(executable, resources, data, make_conninfo(dsn, sslmode="disable"))
+        initialize_backtest_evidence(executable, resources, data, make_conninfo(dsn, sslmode="disable"), deployment_id)
     if _extend_strategy_research(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
         raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     if _extend_manual_backtest(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:

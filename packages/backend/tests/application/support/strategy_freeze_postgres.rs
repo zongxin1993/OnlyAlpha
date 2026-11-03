@@ -70,6 +70,10 @@ async fn actual_command_boundary() {
     println!("FREEZE_TEST_BACKEND_PID {backend_pid}");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut session = AuthoritySession::acquire(client, driver).await.unwrap();
+    if let Some(phase)=phase.strip_prefix("evidence-initialize:") {
+        runtime_registry_init::run_evidence(&mut session,&root,phase).await;
+        return;
+    }
     if let Some(phase)=phase.strip_prefix("runtime-initialize:") {
         runtime_registry_init::run(&mut session,&root,phase).await;
         return;

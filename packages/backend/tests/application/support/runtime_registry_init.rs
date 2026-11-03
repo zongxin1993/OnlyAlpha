@@ -43,3 +43,36 @@ pub async fn run(session: &mut AuthoritySession, root: &Path, phase: &str) {
     );
     println!("RUNTIME_INITIALIZATION_PUBLISHED_FAULT: PASS {phase}");
 }
+
+pub async fn run_evidence(session: &mut AuthoritySession, root: &Path, phase: &str) {
+    let schema = configuration::load_schema_history(
+        Path::new(&std::env::var("ONLYALPHA_RUNTIME_INITIALIZE_TEST_SCHEMA").unwrap()),
+        8 * 1024 * 1024,
+    )
+    .unwrap();
+    let fault = match phase {
+        "readback" => research_namespace::InitializationFault::Readback,
+        "guard" => research_namespace::InitializationFault::Guard,
+        _ => panic!("unknown controlled fault"),
+    };
+    assert!(!root.join("backtest").exists());
+    research_namespace::fail_initialization_for_test(fault);
+    assert_eq!(
+        research_namespace::initialize_backtest_evidence(root, &schema, session)
+            .await
+            .unwrap_err(),
+        "BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN"
+    );
+    assert!(session.verify().await.is_err());
+    assert_eq!(
+        std::fs::read(root.join("backtest/evidence/.source-cut.lock")).unwrap(),
+        b""
+    );
+    assert_eq!(
+        std::fs::read_dir(root.join("backtest/evidence/sha256"))
+            .unwrap()
+            .count(),
+        0
+    );
+    println!("BACKTEST_EVIDENCE_INITIALIZATION_PUBLISHED_FAULT: PASS {phase}");
+}
