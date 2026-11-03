@@ -992,6 +992,8 @@ def test_declared_product_resources_are_in_fingerprinted_isolated_closure(tmp_pa
     inputs = source_inputs(manifest.parent)
     original = source_inputs(check.ROOT)
     resources = [
+        "database/clickhouse/migrations/0001_market_data_foundation.sql",
+        "database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql",
         "packages/backend/src/application/chart/admission-vector.json",
         "packages/backend/src/application/chart/admission-definition.json",
         "test-data/domain/instrument-records-v2.jsonl",

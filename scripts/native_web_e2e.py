@@ -31,18 +31,36 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from onlyalpha.persistence.clickhouse import (
-    OnlyClickHouseClient,
-    OnlyClickHouseConfig,
-    OnlyClickHouseMigrationAuthority,
-    only_assert_clickhouse_test_database,
-)
 from onlyalpha.persistence.postgres import only_assert_postgres_test_database
 from scripts.dev_verification import source_inputs
 from scripts.native_workstation_build import build
 from scripts.runtime_artifacts import product_versions, verify_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def clickhouse_namespace(backend: Path, database: str, *, initialize: bool) -> None:
+    command = "--initialize-test-clickhouse" if initialize else "--drop-test-clickhouse"
+    result = subprocess.run([str(backend), command, database], check=True, capture_output=True, text=True, timeout=30)
+    record = json.loads(result.stdout)
+    field = "applied" if initialize else "dropped"
+    if (
+        not isinstance(record, dict)
+        or set(record) != {"schema_version", "database", field}
+        or type(record["schema_version"]) is not int
+        or record["schema_version"] != 1
+        or record["database"] != database
+        or (
+            initialize
+            and record[field]
+            != [
+                "0001_market_data_foundation",
+                "0002_market_data_integration_runtime_provenance",
+            ]
+        )
+        or (not initialize and record[field] is not True)
+    ):
+        raise ValueError("NATIVE_CLICKHOUSE_NAMESPACE_RESPONSE_INVALID")
 
 
 def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any]:
@@ -61,6 +79,7 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
     Never use this precondition for the authoring UI's creation/publication goal.
     """
     from onlyalpha.algorithm.private_factor import ONLY_PRIVATE_FACTOR_API_V1
+
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
@@ -613,17 +632,6 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                 raise ValueError("CONTROLLED_SOURCE_RECORDED_INPUT_INVALID")
             external_fixture.update(recorded)
     database = "onlyalpha_test_native_host_" + operation.replace("-", "")
-    only_assert_clickhouse_test_database(database)
-    ch = OnlyClickHouseClient(
-        OnlyClickHouseConfig(
-            os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
-            database=database,
-            user=os.environ["ONLYALPHA_TEST_CLICKHOUSE_USER"],
-            password=os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
-            storage_policy=os.environ["ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY"],
-        )
-    )
-    OnlyClickHouseMigrationAuthority(ch).migrate()
     pg = conninfo_to_dict(dsn)
     pg_user = pg.get("user")
     pg_database = pg.get("dbname")
@@ -805,6 +813,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         selected_artifact(ROOT, resources, selected_sha)
         return result
 
+    clickhouse_namespace(executable, database, initialize=True)
     try:
         if args.agent:
             with agent_database(dsn, output, data, resources / "agent") as agent_root:
@@ -821,7 +830,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                 result = run_host("restored")
         return result
     finally:
-        ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+        clickhouse_namespace(executable, database, initialize=False)
 
 
 if __name__ == "__main__":

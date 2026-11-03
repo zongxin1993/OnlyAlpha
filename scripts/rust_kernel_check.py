@@ -1110,6 +1110,10 @@ _EXECUTION_SOURCE_TESTS = (
     "valuation_ledger_view_tests.rs",
 )
 _INFRASTRUCTURE_RESOURCES = {
+    "packages/backend/src/persistence/market_data/physical.rs": {
+        "../../../../../database/clickhouse/migrations/0001_market_data_foundation.sql": "database/clickhouse/migrations/0001_market_data_foundation.sql",
+        "../../../../../database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql": "database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql",
+    },
     **{
         f"crates/onlyalpha-kernel/execution/src/{name}": {
             "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",

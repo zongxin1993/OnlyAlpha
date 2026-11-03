@@ -2,11 +2,42 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 
 import pytest
 
 from scripts import native_web_e2e
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"schema_version": True, "database": "onlyalpha_test_owned", "applied": ["0001_schema"]},
+        {"schema_version": 1, "database": "onlyalpha_test_other", "applied": ["0001_schema"]},
+        {"schema_version": 1, "database": "onlyalpha_test_owned", "applied": []},
+        {"schema_version": 1, "database": "onlyalpha_test_owned", "applied": [None]},
+        *[
+            {"schema_version": 1, "database": "onlyalpha_test_owned", "applied": ids}
+            for ids in [
+                [""],
+                ["0001_market_data_foundation"],
+                ["0001_market_data_foundation", "0001_market_data_foundation"],
+                ["0002_market_data_integration_runtime_provenance", "0001_market_data_foundation"],
+                ["0001_market_data_foundation", "unknown"],
+            ]
+        ],
+    ],
+)
+def test_native_clickhouse_initialization_requires_its_own_complete_receipt(monkeypatch, tmp_path, record):
+    monkeypatch.setattr(
+        native_web_e2e.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, json.dumps(record)),
+    )
+    with pytest.raises(ValueError, match="NATIVE_CLICKHOUSE_NAMESPACE_RESPONSE_INVALID"):
+        native_web_e2e.clickhouse_namespace(tmp_path / "backend", "onlyalpha_test_owned", initialize=True)
 
 
 def test_invalid_selected_artifact_is_rejected_before_database_access(tmp_path, monkeypatch):

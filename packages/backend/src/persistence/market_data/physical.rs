@@ -85,13 +85,21 @@ impl ClickHouse {
         })
     }
     async fn request(&self, sql: String, params: &[(&str, String)]) -> Result<String> {
+        self.request_in(&self.database, sql, params).await
+    }
+    async fn request_in(
+        &self,
+        database: &str,
+        sql: String,
+        params: &[(&str, String)],
+    ) -> Result<String> {
         if sql.len() > self.max_bytes {
             return Err(Error::Unavailable);
         }
         let mut url = self.url.clone();
         {
             let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("database", &self.database);
+            pairs.append_pair("database", database);
             for (key, value) in params {
                 pairs.append_pair(key, value);
             }
@@ -126,8 +134,16 @@ impl ClickHouse {
         String::from_utf8(bytes).map_err(|_| Error::Unprovable)
     }
     async fn rows(&self, sql: String, params: &[(&str, String)]) -> Result<Vec<Value>> {
+        self.rows_in(&self.database, sql, params).await
+    }
+    async fn rows_in(
+        &self,
+        database: &str,
+        sql: String,
+        params: &[(&str, String)],
+    ) -> Result<Vec<Value>> {
         let raw = self
-            .request(format!("{sql} FORMAT JSONEachRow"), params)
+            .request_in(database, format!("{sql} FORMAT JSONEachRow"), params)
             .await?;
         let rows = raw
             .lines()
@@ -143,6 +159,97 @@ impl ClickHouse {
         let rows = self.rows("SELECT version() AS version".into(), &[]).await?;
         if rows.len() != 1 || !text(&rows[0]["version"])?.starts_with("26.3.") {
             return Err(Error::Unavailable);
+        }
+        Ok(())
+    }
+    async fn schema_execute(&self, database: &str, sql: String) -> Result<()> {
+        let response = self
+            .request_in(database, sql, &[("wait_end_of_query", "1".into())])
+            .await?;
+        // HTTP 200 can precede an execution error. Only a fully read empty DDL
+        // response acknowledges success; any unexpected body leaves outcome unknown.
+        if !response.trim().is_empty() {
+            return Err(Error::Unknown);
+        }
+        Ok(())
+    }
+    /// Explicit infrastructure initialization, never adoption or repair of an
+    /// existing database. A lost response leaves the same namespace UNKNOWN.
+    pub async fn initialize_test_schema(&self, storage_policy: &str) -> Result<Vec<String>> {
+        self.test_database()?;
+        let migrations = test_schema_migrations(storage_policy)?;
+        let version = self
+            .rows_in("default", "SELECT version() AS version".into(), &[])
+            .await?;
+        if version.len() != 1 || !text(&version[0]["version"])?.starts_with("26.3.") {
+            return Err(Error::Unavailable);
+        }
+        // CREATE without IF NOT EXISTS is the exclusive fresh-namespace claim.
+        self.schema_execute("default", format!("CREATE DATABASE {}", self.database))
+            .await?;
+        for (id, hash, statements) in &migrations {
+            for statement in statements {
+                self.schema_execute(&self.database, statement.clone())
+                    .await?;
+            }
+            self.schema_execute(&self.database, format!("INSERT INTO onlyalpha_schema_migration (migration_id,checksum_sha256,applied_at) SETTINGS async_insert=0 VALUES ('{id}','{hash}',now64(9))")).await?;
+        }
+        let recorded = self.rows("SELECT migration_id, checksum_sha256 FROM onlyalpha_schema_migration ORDER BY migration_id".into(), &[]).await?;
+        if recorded.len() != migrations.len()
+            || recorded
+                .iter()
+                .zip(&migrations)
+                .any(|(row, (id, hash, _))| {
+                    row["migration_id"].as_str() != Some(id)
+                        || row["checksum_sha256"].as_str() != Some(hash.as_str())
+                })
+        {
+            return Err(Error::Unprovable);
+        }
+        let tables = self.rows("SELECT name, storage_policy FROM system.tables WHERE database=currentDatabase() AND name IN ('market_raw_event','market_trade','market_bar','market_reference_price') ORDER BY name".into(), &[]).await?;
+        let mut names = BTreeSet::new();
+        for row in &tables {
+            if row["storage_policy"].as_str() != Some(storage_policy)
+                || !names.insert(text(&row["name"])?.to_owned())
+            {
+                return Err(Error::Unprovable);
+            }
+        }
+        if names != TABLES.iter().map(|name| (*name).to_owned()).collect() {
+            return Err(Error::Unprovable);
+        }
+        for table in TABLES {
+            let actual = self.rows(format!("SELECT name FROM system.columns WHERE database=currentDatabase() AND table='{table}'"), &[]).await?;
+            let actual_names = actual
+                .iter()
+                .map(|row| text(&row["name"]).map(str::to_owned))
+                .collect::<Result<BTreeSet<_>>>()?;
+            let expected = columns(table)?
+                .into_iter()
+                .map(|(name, _)| name.to_owned())
+                .collect::<BTreeSet<_>>();
+            if actual_names.len() != actual.len() || actual_names != expected {
+                return Err(Error::Unprovable);
+            }
+        }
+        Ok(migrations
+            .into_iter()
+            .map(|(id, _, _)| id.to_owned())
+            .collect())
+    }
+    pub async fn drop_test_database(&self) -> Result<()> {
+        self.test_database()?;
+        self.schema_execute("default", format!("DROP DATABASE {} SYNC", self.database))
+            .await?;
+        Ok(())
+    }
+    fn test_database(&self) -> Result<()> {
+        if self
+            .database
+            .strip_prefix("onlyalpha_test_")
+            .is_none_or(str::is_empty)
+        {
+            return Err(Error::Invalid);
         }
         Ok(())
     }
@@ -191,6 +298,45 @@ impl ClickHouse {
         self.request(format!("INSERT INTO {table} SETTINGS async_insert=0, wait_for_async_insert=1, insert_deduplicate=1 FORMAT JSONEachRow\n{body}"),&[]).await?;
         Ok(())
     }
+}
+fn test_schema_migrations(policy: &str) -> Result<Vec<(&'static str, String, Vec<String>)>> {
+    identifier(policy)?;
+    let sources = [
+        (
+            "0001_market_data_foundation",
+            include_str!(
+                "../../../../../database/clickhouse/migrations/0001_market_data_foundation.sql"
+            ),
+        ),
+        (
+            "0002_market_data_integration_runtime_provenance",
+            include_str!(
+                "../../../../../database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql"
+            ),
+        ),
+    ];
+    sources
+        .into_iter()
+        .map(|(id, sql)| {
+            // These owned DDL sources contain no quoted semicolons. Refuse an
+            // unsupported script before creating a database, rather than mis-split it.
+            let statements = sql
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    if s.bytes().filter(|byte| *byte == b'\'').count() % 2 != 0 {
+                        return Err(Error::Invalid);
+                    }
+                    Ok(s.replace("{storage_policy}", policy))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if statements.is_empty() {
+                return Err(Error::Invalid);
+            }
+            Ok((id, hash(sql.as_bytes()), statements))
+        })
+        .collect()
 }
 impl std::fmt::Debug for ClickHouseConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -664,6 +810,184 @@ pub(super) fn verify_published(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_schema_binds_the_original_sql_bytes_and_refuses_policy_injection() {
+        let migrations = test_schema_migrations("default").unwrap();
+        assert_eq!(migrations.len(), 2);
+        assert_eq!(
+            migrations[0].1,
+            "4daa95922af511fe124a5eed1c17d4d0877fa5298340db5a9d0330b7a380be9e"
+        );
+        assert_eq!(
+            migrations[1].1,
+            "97878e76c396f7f29abb6649e98be0aa2a71e84dbc4c4fdce0584633327176c4"
+        );
+        assert_eq!(migrations[0].2.len(), 5);
+        assert_eq!(migrations[1].2.len(), 1);
+        assert!(test_schema_migrations("default'; DROP DATABASE onlyalpha; --").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_schema_lost_create_response_remains_unknown() {
+        use axum::body::{Body, to_bytes};
+        use hyper_util::rt::TokioIo;
+        use std::sync::{Arc, Mutex};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = seen.clone();
+        let server = tokio::spawn(async move {
+            for fail in [false, true] {
+                let (stream, _) = listener.accept().await.unwrap();
+                let recorded = recorded.clone();
+                let service = hyper::service::service_fn(
+                    move |request: http::Request<hyper::body::Incoming>| {
+                        let recorded = recorded.clone();
+                        async move {
+                            assert_eq!(
+                                request.uri().query(),
+                                Some(if fail {
+                                    "database=default&wait_end_of_query=1"
+                                } else {
+                                    "database=default"
+                                })
+                            );
+                            let body = to_bytes(Body::new(request.into_body()), 8192)
+                                .await
+                                .unwrap();
+                            recorded
+                                .lock()
+                                .unwrap()
+                                .push(String::from_utf8(body.to_vec()).unwrap());
+                            if fail {
+                                return Err(std::io::Error::from(
+                                    std::io::ErrorKind::ConnectionReset,
+                                ));
+                            }
+                            Ok(http::Response::new(Body::from(
+                                "{\"version\":\"26.3.11.1\"}\n",
+                            )))
+                        }
+                    },
+                );
+                let outcome = hyper::server::conn::http1::Builder::new()
+                    .keep_alive(false)
+                    .serve_connection(TokioIo::new(stream), service)
+                    .await;
+                if fail {
+                    assert!(outcome.is_err());
+                } else {
+                    outcome.unwrap();
+                }
+            }
+        });
+        let client = ClickHouse::new(ClickHouseConfig {
+            url,
+            database: "onlyalpha_test_transport_loss".into(),
+            user: "operator".into(),
+            password: "unused".into(),
+            timeout: Duration::from_secs(1),
+            tls_roots_pem: vec![],
+            max_bytes: 1024 * 1024,
+            max_rows: 100,
+        })
+        .unwrap();
+        assert_eq!(
+            client.initialize_test_schema("default").await,
+            Err(Error::Unknown)
+        );
+        server.await.unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                "SELECT version() AS version FORMAT JSONEachRow",
+                "CREATE DATABASE onlyalpha_test_transport_loss"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_schema_http_success_with_error_body_is_not_ddl_success() {
+        use axum::body::Body;
+        use hyper_util::rt::TokioIo;
+        for initialize in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                for version in if initialize {
+                    vec![true, false]
+                } else {
+                    vec![false]
+                } {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    let service = hyper::service::service_fn(
+                        move |request: http::Request<hyper::body::Incoming>| async move {
+                            if !version {
+                                assert!(
+                                    request
+                                        .uri()
+                                        .query()
+                                        .unwrap()
+                                        .contains("wait_end_of_query=1")
+                                );
+                            }
+                            Ok::<_, std::convert::Infallible>(http::Response::new(Body::from(
+                                if version {
+                                    "{\"version\":\"26.3.11.1\"}\n"
+                                } else {
+                                    "Code: 999. DB::Exception: query failed after headers."
+                                },
+                            )))
+                        },
+                    );
+                    hyper::server::conn::http1::Builder::new()
+                        .keep_alive(false)
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await
+                        .unwrap();
+                }
+            });
+            let client = ClickHouse::new(ClickHouseConfig {
+                url,
+                database: "onlyalpha_test_error_body".into(),
+                user: "operator".into(),
+                password: "unused".into(),
+                timeout: Duration::from_secs(1),
+                tls_roots_pem: vec![],
+                max_bytes: 1024 * 1024,
+                max_rows: 100,
+            })
+            .unwrap();
+            let result = if initialize {
+                client.initialize_test_schema("default").await.map(|_| ())
+            } else {
+                client.drop_test_database().await
+            };
+            assert_eq!(result, Err(Error::Unknown));
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schema_rejects_non_test_database_before_any_connection() {
+        let client = ClickHouse::new(ClickHouseConfig {
+            url: "http://127.0.0.1:9/".into(),
+            database: "onlyalpha".into(),
+            user: "operator".into(),
+            password: "unused".into(),
+            timeout: Duration::from_secs(1),
+            tls_roots_pem: vec![],
+            max_bytes: 1024 * 1024,
+            max_rows: 100,
+        })
+        .unwrap();
+        assert_eq!(
+            client.initialize_test_schema("default").await,
+            Err(Error::Invalid)
+        );
+        assert_eq!(client.drop_test_database().await, Err(Error::Invalid));
+    }
+
     #[test]
     fn every_physical_column_and_utf8_byte_length_participates_in_the_digest() {
         for table in TABLES {

@@ -104,36 +104,99 @@ async fn main() {
 /// this command needs no Web, algorithms or market-data services. NoTls is used
 /// only when the operator's DSN explicitly selects Disable; Prefer/Require are
 /// rejected rather than downgraded. All errors are credential-safe codes.
-async fn extend_research_namespace(root: &std::path::Path, manual_backtest: bool) -> Result<onlyalpha_backend::bootstrap::deployment::SemanticStoreId, String> {
+async fn extend_research_namespace(
+    root: &std::path::Path,
+    manual_backtest: bool,
+) -> Result<onlyalpha_backend::bootstrap::deployment::SemanticStoreId, String> {
     use onlyalpha_backend::persistence::authority_session::AuthoritySession;
-    let dsn=zeroize::Zeroizing::new(required("ONLYALPHA_POSTGRES_DSN").map_err(str::to_owned)?);
-    let mut pg:tokio_postgres::Config=dsn.as_str().parse().map_err(|_|"POSTGRES_CONFIGURATION_INVALID".to_owned())?;
-    if pg.get_ssl_mode()!=tokio_postgres::config::SslMode::Disable {
+    let dsn = zeroize::Zeroizing::new(required("ONLYALPHA_POSTGRES_DSN").map_err(str::to_owned)?);
+    let mut pg: tokio_postgres::Config = dsn
+        .as_str()
+        .parse()
+        .map_err(|_| "POSTGRES_CONFIGURATION_INVALID".to_owned())?;
+    if pg.get_ssl_mode() != tokio_postgres::config::SslMode::Disable {
         return Err("OPERATOR_POSTGRES_TRANSPORT_DENIED".into());
     }
-    pg.connect_timeout(Duration::from_secs(5)).options("-c search_path=pg_catalog,public,pg_temp");
-    let (client,connection)=tokio::time::timeout(Duration::from_secs(5),pg.connect(tokio_postgres::NoTls)).await
-        .map_err(|_|"POSTGRES_UNAVAILABLE".to_owned())?.map_err(|_|"POSTGRES_UNAVAILABLE".to_owned())?;
-    let mut session=AuthoritySession::acquire(client,tokio::spawn(connection)).await.map_err(|e|e.code().to_owned())?;
-    let result=if manual_backtest {
-        onlyalpha_backend::bootstrap::research_namespace::extend_manual_backtest(root,&mut session).await
-    }else{
-        onlyalpha_backend::bootstrap::research_namespace::extend_strategy(root,&mut session).await
-    }.map_err(str::to_owned);
-    let closed=session.close().await.map_err(|e|e.code().to_owned());
-    match (result,closed) {
-        (Err(code),_)=>Err(code),
-        (Ok(identity),Ok(()))=>Ok(identity),
-        (_,Err(code))=>Err(code),
+    pg.connect_timeout(Duration::from_secs(5))
+        .options("-c search_path=pg_catalog,public,pg_temp");
+    let (client, connection) =
+        tokio::time::timeout(Duration::from_secs(5), pg.connect(tokio_postgres::NoTls))
+            .await
+            .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?
+            .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?;
+    let mut session = AuthoritySession::acquire(client, tokio::spawn(connection))
+        .await
+        .map_err(|e| e.code().to_owned())?;
+    let result = if manual_backtest {
+        onlyalpha_backend::bootstrap::research_namespace::extend_manual_backtest(root, &mut session)
+            .await
+    } else {
+        onlyalpha_backend::bootstrap::research_namespace::extend_strategy(root, &mut session).await
+    }
+    .map_err(str::to_owned);
+    let closed = session.close().await.map_err(|e| e.code().to_owned());
+    match (result, closed) {
+        (Err(code), _) => Err(code),
+        (Ok(identity), Ok(())) => Ok(identity),
+        (_, Err(code)) => Err(code),
     }
 }
 
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if let [command,root]=args.as_slice() {
-        if matches!(command.as_str(),"--extend-strategy-research-namespace"|"--extend-manual-backtest-namespace") {
-            let identity=extend_research_namespace(std::path::Path::new(root),command=="--extend-manual-backtest-namespace").await?;
-            println!("{}",serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()}));
+    if let [command, database] = args.as_slice()
+        && matches!(
+            command.as_str(),
+            "--initialize-test-clickhouse" | "--drop-test-clickhouse"
+        )
+    {
+        let client =
+            onlyalpha_backend::persistence::market_data::ClickHouse::new(ClickHouseConfig {
+                url: required("ONLYALPHA_TEST_CLICKHOUSE_URL")?,
+                database: database.clone(),
+                user: required("ONLYALPHA_TEST_CLICKHOUSE_USER")?,
+                password: required("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD")?,
+                timeout: Duration::from_secs(5),
+                tls_roots_pem: vec![],
+                max_bytes: 1024 * 1024,
+                max_rows: 100,
+            })
+            .map_err(|e| e.code().to_owned())?;
+        if command == "--initialize-test-clickhouse" {
+            let applied = client
+                .initialize_test_schema(&required("ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY")?)
+                .await
+                .map_err(|e| e.code().to_owned())?;
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":1,"database":database,"applied":applied})
+            );
+        } else {
+            client
+                .drop_test_database()
+                .await
+                .map_err(|e| e.code().to_owned())?;
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":1,"database":database,"dropped":true})
+            );
+        }
+        return Ok(());
+    }
+    if let [command, root] = args.as_slice() {
+        if matches!(
+            command.as_str(),
+            "--extend-strategy-research-namespace" | "--extend-manual-backtest-namespace"
+        ) {
+            let identity = extend_research_namespace(
+                std::path::Path::new(root),
+                command == "--extend-manual-backtest-namespace",
+            )
+            .await?;
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()})
+            );
             return Ok(());
         }
     }
