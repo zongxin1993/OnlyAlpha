@@ -29,9 +29,3 @@ def test_risk_rejects_effects_and_reverse_edges(tmp_path: Path, code: str) -> No
     source.write_text(code)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         check.validate_risk_sources(tmp_path)
-
-
-def test_actual_python_risk_matches_independent_literals() -> None:
-    from scripts.risk_reference_check import reference_outputs
-
-    assert len(reference_outputs()) == 5

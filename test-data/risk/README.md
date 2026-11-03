@@ -1,3 +1,3 @@
-# Risk common reference vectors
+# Risk independent reference vectors
 
-`decisions-v1.jsonl` pins real Python single-order quantity Pipeline outcomes against independently specified limits. `reservations-v1.jsonl` pins actual Python partial-fill/terminal risk-exposure conservation. Rust consumes the same literals. This valid subset does not assert parity with Python ID-only deduplication, silent overfill clipping or incremental restore. Native output comparison is mandatory in both profiles.
+`decisions-v1.jsonl` pins independently specified single-order quantity limits, enforcing outcomes and observing counts. `reservations-v1.jsonl` pins exact partial-fill/terminal risk-exposure conservation. Native lifecycle tests execute the real decision and reservation owners and assert every literal directly; the output checker does not import a Python Pipeline or Reservation Manager. Existing identity, overfill, UNKNOWN, permission, fail-closed and complete recovery tests remain separate native requirements. These vectors do not certify Runtime admission or product acceptance.
