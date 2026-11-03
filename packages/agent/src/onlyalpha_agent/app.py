@@ -95,13 +95,23 @@ class SessionInput(Closed):
 class MessageInput(Closed):
     expected: str | None
     text: str = Field(min_length=1, max_length=8000)
-    topic: Literal["FACTOR", "STUDY"] = "FACTOR"
+    topic: Literal["FACTOR", "STUDY", "BACKTEST_ANALYSIS"] = "FACTOR"
+    backtest_run_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+    analysis_assertion: str | None = Field(default=None, min_length=1, max_length=12288)
     factor_proposal_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def topic_binding(self) -> "MessageInput":
         if (self.topic == "STUDY") != (self.factor_proposal_fingerprint is not None):
             raise ValueError("Study messages require an exact Factor reference")
+        if (self.topic == "BACKTEST_ANALYSIS") != (
+            self.backtest_run_id is not None and self.analysis_assertion is not None
+        ):
+            raise ValueError("Analysis messages require an exact signed result")
+        if self.topic != "BACKTEST_ANALYSIS" and (
+            self.backtest_run_id is not None or self.analysis_assertion is not None
+        ):
+            raise ValueError("Analysis data is only allowed for analysis")
         return self
 
 
@@ -153,6 +163,15 @@ class CommandView(Closed):
     outcome: dict[str, Any] | None
 
 
+class BacktestReference(Closed):
+    run_id: str
+    specification_fingerprint: str
+    strategy_fingerprint: str
+    evidence_fingerprint: str
+    result_fingerprint: str
+    determinism_fingerprint: str
+
+
 class SessionView(Closed):
     id: str
     workflow: str
@@ -166,7 +185,8 @@ class SessionView(Closed):
     candidate: dict[str, Any] | None
     factor_reference: ProposalReference | None
     study_reference: ProposalReference | None
-    topic: Literal["FACTOR", "STUDY"]
+    topic: Literal["FACTOR", "STUDY", "BACKTEST_ANALYSIS"]
+    backtest_reference: BacktestReference | None = Field(default=None, exclude_if=lambda value: value is None)
     study: dict[str, Any] | None
     execution_admitted: Literal[False]
     continuation: dict[str, Any] | None = None
@@ -185,7 +205,8 @@ class ConversationModel(Closed):
 
 class ConversationTurn(Closed):
     head: str
-    topic: Literal["FACTOR", "STUDY"]
+    topic: Literal["FACTOR", "STUDY", "BACKTEST_ANALYSIS"]
+    backtest_reference: BacktestReference | None = Field(default=None, exclude_if=lambda value: value is None)
     user: str
     assistant: str | None
     status: Literal["READY", "FAILED", "OUTCOME_UNKNOWN"]
@@ -258,6 +279,10 @@ def create_app(settings: Settings) -> FastAPI:
     @app.exception_handler(Conflict)
     async def conflict(request: Request, exc: Conflict) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=409)
+
+    @app.exception_handler(Denied)
+    async def analysis_denied(request: Request, exc: Denied) -> JSONResponse:
+        return JSONResponse({"error": str(exc)}, status_code=403)
 
     @app.exception_handler(Missing)
     async def missing(request: Request, exc: Missing) -> JSONResponse:
@@ -440,11 +465,15 @@ def create_app(settings: Settings) -> FastAPI:
                     except (backend.Unknown, backend.Rejected, ValueError) as error:
                         raise HTTPException(503, "AGENT_STUDY_CONTEXT_UNAVAILABLE") from error
                     binding = connection.fingerprint()
-                message = (
-                    body.model_dump()
-                    if body.topic == "STUDY"
-                    else body.model_dump(exclude={"topic", "factor_proposal_fingerprint"})
-                )
+                if body.topic == "STUDY":
+                    message = body.model_dump(exclude={"backtest_run_id", "analysis_assertion"})
+                elif body.topic == "BACKTEST_ANALYSIS":
+                    message = body.model_dump(exclude={"factor_proposal_fingerprint"})
+                else:
+                    # Preserve the original Factor intent/bytes and Study input.
+                    message = body.model_dump(
+                        exclude={"topic", "factor_proposal_fingerprint", "backtest_run_id", "analysis_assertion"}
+                    )
                 accepted = store.accept_message(sid, p.subject, cid, message, context, binding)
                 if not accepted and store.result(cid) is None:
                     return store.view(sid, p.subject, app.state.workflow)
@@ -458,8 +487,8 @@ def create_app(settings: Settings) -> FastAPI:
 
             def invoke(plan: Any) -> Any:
                 profile, secret, request = store.model_input(str(cid))
-                if plan.get("topic", "FACTOR") == "STUDY":
-                    return model.invoke(profile, secret, request, "STUDY")
+                if plan.get("topic", "FACTOR") in {"STUDY", "BACKTEST_ANALYSIS"}:
+                    return model.invoke(profile, secret, request, plan["topic"])
                 return model.invoke(profile, secret, request)
 
             graph = workflow.graph(store, str(cid), invoke if accepted else None, PostgresSaver(store.conn))
@@ -539,11 +568,13 @@ def create_app(settings: Settings) -> FastAPI:
 
     def stage(sid: str, expected: str, cid: str, p: Principal, allow_new: bool) -> Any:
         require(p, "chat:write", True)
-        if settings.backend_url is None or settings.backend_credential is None:
-            raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
-        connection = backend.Connection(settings.backend_url, settings.backend_credential)
         with Store(settings) as store, store.session_lock(str(sid)):
             current = store.view(str(sid), p.subject, app.state.workflow)
+            if current["topic"] == "BACKTEST_ANALYSIS":
+                raise Conflict("AGENT_ANALYSIS_READ_ONLY")
+            if settings.backend_url is None or settings.backend_credential is None:
+                raise HTTPException(503, "AGENT_BACKEND_NOT_CONFIGURED")
+            connection = backend.Connection(settings.backend_url, settings.backend_credential)
             if current["status"] == "WORKFLOW_UNAVAILABLE" and allow_new:
                 raise HTTPException(409, "AGENT_WORKFLOW_UNAVAILABLE")
             old = store.conn.execute("SELECT 1 FROM agent_backend_plan WHERE command=%s", (cid,)).fetchone()

@@ -14,6 +14,15 @@ pub struct Binding {
 pub struct Assessment {
     pub(crate) value: Value,
 }
+/// A deterministic fee estimate only; it is not an Order binding or a booked application.
+#[derive(Clone, Debug)]
+pub struct FeeQuote {
+    value: Value,
+}
+impl FeeQuote {
+    pub fn record(&self) -> Value { self.value.clone() }
+    pub fn fingerprint(&self) -> String { digest(&self.value) }
+}
 impl Binding {
     pub fn record(&self) -> Value {
         self.value.clone()
@@ -315,6 +324,33 @@ impl Catalog {
             value: json!({"schema_version":1,"catalog":self.value,"subject":subject,"day":day}),
         })
     }
+    /// Quote one entire hypothetical fill against this exact Catalog and day.
+    /// Subject explicitly excludes execution identities; no accrual is created.
+    pub fn quote_one_fill(
+        &self,
+        subject: Value,
+        day: u64,
+        time: impl Into<bigdecimal::num_bigint::BigInt>,
+        basis: Value,
+        liquidity: Option<&str>,
+    ) -> Result<FeeQuote, Error> {
+        bound(&subject, 0)?;
+        bound(&basis, 0)?;
+        analytical_subject(&subject)?;
+        if subject["account"] != self.value["broker_contract"]["account"]
+            || subject["broker"] != self.value["broker_contract"]["broker"]
+        { return Err(err("FEE_BROKER_ACCOUNT_SCOPE")); }
+        let time = instant_record(time.into())?;
+        let precision = validate_basis(&subject, &basis, &basis, liquidity)?;
+        let components = assess_components(&subject, &self.selected(&subject, day)?, &basis, &basis, liquidity, precision)?;
+        let mut charges = BigDecimal::zero();
+        let mut rebates = BigDecimal::zero();
+        for component in &components {
+            let target = num(&component["target"])?;
+            if component["identity"]["direction"] == "CHARGE" { charges += target; } else { rebates += target; }
+        }
+        Ok(FeeQuote { value: json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","catalog":self.value,"subject":subject,"day":day,"time":time,"basis":basis,"liquidity":liquidity,"components":components,"charges":amount(&charges,precision)?,"rebates":amount(&rebates,precision)?}) })
+    }
     pub(crate) fn read_binding(v: &Value) -> Result<Binding, Error> {
         fields(v, &["schema_version", "catalog", "subject", "day"])?;
         let b =
@@ -380,86 +416,8 @@ impl Catalog {
     ) -> Result<Assessment, Error> {
         let time = instant_record(time.into())?;
         text(&json!(trade))?;
-        if let Some(l) = liquidity {
-            one(&json!(l), &["MAKER", "TAKER"])?;
-        }
-        let precision = currency(&b.value["subject"]["currency"])?;
-        for values in [&fill, &cumulative] {
-            fields(values, &["notional", "quantity", "contracts", "currency"])?;
-            for k in ["notional", "quantity"] {
-                num(&values[k])?;
-            }
-            if !values["contracts"].is_null() {
-                num(&values["contracts"])?;
-            }
-            if values["currency"] != b.value["subject"]["currency"]["code"] {
-                return Err(err("FEE_FX_UNSUPPORTED"));
-            }
-        }
-        let mut components = Vec::new();
-        for s in self.resolved(b, day)? {
-            for r in array(&s["rules"])? {
-                let subject = &b.value["subject"];
-                if !applies_to_subject(r, subject) {
-                    continue;
-                }
-                if !r["liquidity"].is_null() {
-                    let role = liquidity.ok_or_else(|| err("FEE_LIQUIDITY_REQUIRED"))?;
-                    if r["liquidity"] != role {
-                        continue;
-                    }
-                }
-                let values = if r["scope"] == "FILL" {
-                    &fill
-                } else {
-                    &cumulative
-                };
-                let mut raw = BigDecimal::zero();
-                for t in array(&r["terms"])? {
-                    let base = if t["kind"] == "FIXED" {
-                        BigDecimal::from(1)
-                    } else {
-                        let key = match text(&t["basis"])? {
-                            "NOTIONAL" => "notional",
-                            "QUANTITY" => "quantity",
-                            _ => "contracts",
-                        };
-                        if values[key].is_null() {
-                            return Err(err("FEE_BASIS_UNSUPPORTED"));
-                        }
-                        num(&values[key])?
-                    };
-                    raw += base * num(&t["amount"])?;
-                }
-                let bounds = |mut n: BigDecimal| -> Result<BigDecimal, Error> {
-                    if !r["minimum"].is_null() {
-                        n = n.max(num(&r["minimum"])?);
-                    }
-                    if !r["maximum"].is_null() {
-                        n = n.min(num(&r["maximum"])?);
-                    }
-                    Ok(n)
-                };
-                let q = num(&r["quantum"])?;
-                let target = if r["pipeline"] == "BOUNDS_THEN_ROUND" {
-                    round(&bounds(raw.clone())?, &q, text(&r["rounding"])?)?
-                } else {
-                    bounds(round(&raw, &q, text(&r["rounding"])?)?)?
-                };
-                let monetary = amount(&target, precision)?;
-                if num(&monetary)? != target {
-                    return Err(err("FEE_MONEY_PRECISION"));
-                }
-                let identity = json!({"namespace":s["namespace"],"family":s["family"],"version":s["version"],"schedule":digest(&s),"rule":r["id"],"rule_fingerprint":digest(r),"scope":r["scope"],"resolution":r["resolution"],"direction":r["direction"],"type":r["type"],"authority":r["authority"]});
-                components.push(
-                    json!({"identity":identity,"raw":amount(&raw,precision)?,"target":monetary}),
-                );
-            }
-        }
-        if components.is_empty() {
-            return Err(err("FEE_NO_MATCHING_RULE"));
-        }
-        components.sort_by_key(|v| digest(&v["identity"]));
+        let precision = validate_basis(&b.value["subject"], &fill, &cumulative, liquidity)?;
+        let components = assess_components(&b.value["subject"], &self.resolved(b, day)?, &fill, &cumulative, liquidity, precision)?;
         Ok(Assessment {
             value: json!({"schema_version":1,"catalog":self.value,"binding":b.value,"day":day,"trade":trade,"time":time,"fill":fill,"cumulative":cumulative,"liquidity":liquidity,"components":components}),
         })
@@ -592,4 +550,93 @@ fn applies_to_subject(r: &Value, subject: &Value) -> bool {
     ["side", "offset"]
         .iter()
         .all(|k| r[k].is_null() || r[k] == subject[k])
+}
+
+/// Validate the same basis and liquidity language before any schedule selection.
+fn validate_basis(subject: &Value, fill: &Value, cumulative: &Value, liquidity: Option<&str>) -> Result<u8, Error> {
+    if let Some(l) = liquidity {
+        one(&json!(l), &["MAKER", "TAKER"])?;
+    }
+    let precision = currency(&subject["currency"])?;
+    for values in [fill, cumulative] {
+        fields(values, &["notional", "quantity", "contracts", "currency"])?;
+        for k in ["notional", "quantity"] {
+            num(&values[k])?;
+        }
+        if !values["contracts"].is_null() {
+            num(&values["contracts"])?;
+        }
+        if values["currency"] != subject["currency"]["code"] {
+            return Err(err("FEE_FX_UNSUPPORTED"));
+        }
+    }
+    Ok(precision)
+}
+
+/// Shared formula/bounds/rounding for real assessments and explicit one-fill analysis.
+fn assess_components(subject: &Value, schedules: &[Value], fill: &Value, cumulative: &Value, liquidity: Option<&str>, precision: u8) -> Result<Vec<Value>, Error> {
+    let mut components = Vec::new();
+    for s in schedules {
+        for r in array(&s["rules"])? {
+            if !applies_to_subject(r, subject) {
+                continue;
+            }
+            if !r["liquidity"].is_null() {
+                let role = liquidity.ok_or_else(|| err("FEE_LIQUIDITY_REQUIRED"))?;
+                if r["liquidity"] != role {
+                    continue;
+                }
+            }
+            let values = if r["scope"] == "FILL" {
+                fill
+            } else {
+                cumulative
+            };
+            let mut raw = BigDecimal::zero();
+            for t in array(&r["terms"])? {
+                let base = if t["kind"] == "FIXED" {
+                    BigDecimal::from(1)
+                } else {
+                    let key = match text(&t["basis"])? {
+                        "NOTIONAL" => "notional",
+                        "QUANTITY" => "quantity",
+                        _ => "contracts",
+                    };
+                    if values[key].is_null() {
+                        return Err(err("FEE_BASIS_UNSUPPORTED"));
+                    }
+                    num(&values[key])?
+                };
+                raw += base * num(&t["amount"])?;
+            }
+            let bounds = |mut n: BigDecimal| -> Result<BigDecimal, Error> {
+                if !r["minimum"].is_null() {
+                    n = n.max(num(&r["minimum"])?);
+                }
+                if !r["maximum"].is_null() {
+                    n = n.min(num(&r["maximum"])?);
+                }
+                Ok(n)
+            };
+            let q = num(&r["quantum"])?;
+            let target = if r["pipeline"] == "BOUNDS_THEN_ROUND" {
+                round(&bounds(raw.clone())?, &q, text(&r["rounding"])?)?
+            } else {
+                bounds(round(&raw, &q, text(&r["rounding"])?)?)?
+            };
+            let monetary = amount(&target, precision)?;
+            if num(&monetary)? != target {
+                return Err(err("FEE_MONEY_PRECISION"));
+            }
+            let identity = json!({"namespace":s["namespace"],"family":s["family"],"version":s["version"],"schedule":digest(s),"rule":r["id"],"rule_fingerprint":digest(r),"scope":r["scope"],"resolution":r["resolution"],"direction":r["direction"],"type":r["type"],"authority":r["authority"]});
+            components.push(
+                json!({"identity":identity,"raw":amount(&raw,precision)?,"target":monetary}),
+            );
+        }
+    }
+    if components.is_empty() {
+        return Err(err("FEE_NO_MATCHING_RULE"));
+    }
+    components.sort_by_key(|v| digest(&v["identity"]));
+    Ok(components)
 }

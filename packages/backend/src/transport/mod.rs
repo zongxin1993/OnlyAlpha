@@ -17,6 +17,7 @@ pub mod wire;
 
 mod host_private_factors;
 mod host_private_strategies;
+mod host_strategy_context;
 
 pub mod host_agent_browser;
 pub mod host_factor_proposals;
@@ -27,3 +28,12 @@ pub(crate) mod host_research_context;
 pub(crate) mod host_research_inputs;
 pub(crate) mod host_research_preparation;
 pub mod research_wire;
+
+mod host_strategy;
+pub(crate) mod host_backtest;
+
+mod host_qualification;
+
+mod host_backtest_analysis;
+
+mod host_manual_backtest_context;

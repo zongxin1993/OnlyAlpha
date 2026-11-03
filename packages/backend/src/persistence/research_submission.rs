@@ -1,5 +1,6 @@
 //! Same-database Human authorization, existing Run + Novelty Admission + global Receipt.
 //! Study staging seals a Novelty decision separately; submission never fabricates ADMIT.
+pub mod strategy;
 use crate::application::{
     command::{Admission, Binding, CommandId, CommandKind, Outcome, OutcomeKind, Receipt},
     factor_content::hash,
@@ -282,7 +283,7 @@ pub(crate) async fn submit_prepared(
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
     let preparation = selection.2;
-    if preparation.request.research_command_id != selection.0.command.value()
+    if preparation.request.research_command() != selection.0.command.value()
         || preparation.outputs["ready"]["prepared_study"] != selection.0.record()?
         || preparation.outputs["ready"]["prepared_inputs"] != *inputs.record()
     {
@@ -442,7 +443,7 @@ async fn submit_checked(
     if let Some(previous) = &request.parent_run_id {
         let previous = load_in_transaction(&tx, previous, Some(owner)).await?;
         if previous.run_id() == expected_run
-            || previous.specification().revision["factor_id"]
+            || previous.factor_specification()?.revision["factor_id"]
                 != request.specification.revision["factor_id"]
             || !prior_ids.iter().any(|id| id == previous.run_id())
         {
@@ -514,7 +515,7 @@ pub async fn load(client: &mut Client, id: &str, owner: Option<&str>) -> Result<
     tx.commit().await.map_err(db)?;
     Ok(run)
 }
-async fn load_in_transaction(
+pub(crate) async fn load_in_transaction(
     tx: &Transaction<'_>,
     id: &str,
     owner: Option<&str>,
@@ -539,7 +540,9 @@ async fn load_in_transaction(
         return Err("RESEARCH_RUN_NOT_FOUND");
     }
     let payload = text(&row, "specification_payload")?.to_owned();
-    let spec: Specification = serde_json::from_str(&payload).map_err(db)?;
+    let spec = crate::application::research_run::NativeSpecification::from_record(
+        &serde_json::from_str(&payload).map_err(db)?,
+    )?;
     // The immutable member set was verified above, including its Admission V2 hash.
     // Carry its exact original leaves into the read composition, not a copied Group claim.
     let command = CommandId::new(text(&auth, "command_id")?).map_err(db)?;
@@ -749,42 +752,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
     {
         return Err("RESEARCH_FACTOR_REVISION_UNAVAILABLE");
     }
-    let n=tx.query_opt("SELECT row_to_json(n)::text FROM research_novelty_admission n WHERE run_id=$1::text::uuid",&[&id]).await.map_err(db)?.ok_or("RESEARCH_AUTHORIZATION_CORRUPT")?;
-    let parent: Value =
-        serde_json::from_str(&n.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
-    if parent["command_id"] != command.value()
-        || parent["command_fingerprint"] != expected
-        || parent["admission_fingerprint"] != row["admission_resolution_fingerprint"]
-        || parent["decision_group_fingerprint"] != v["decision_group_fingerprint"]
-        || parent["schema_version"] != 2
-    {
-        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
-    }
-    // Complete member set and exact original canonical Admission V2 identity.
-    let members=tx.query("SELECT row_to_json(s)::text FROM research_novelty_admission_subject s WHERE command_id=$1::text::uuid ORDER BY ordinal LIMIT 33",&[&command.value()]).await.map_err(db)?;
-    if members.len() != 1 {
-        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
-    }
-    let mut member: Value =
-        serde_json::from_str(&members[0].try_get::<_, String>(0).map_err(db)?).map_err(db)?;
-    if member["command_id"] != command.value()
-        || member["admission_fingerprint"] != parent["admission_fingerprint"]
-        || member["ordinal"] != 0
-        || member["evaluation_subject_fingerprint"] != req.specification.subject()?.fingerprint()?
-    {
-        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
-    }
-    member.as_object_mut().ok_or(INVALID)?.remove("command_id");
-    member
-        .as_object_mut()
-        .ok_or(INVALID)?
-        .remove("admission_fingerprint");
-    let rebuilt = json!({"domain":"onlyalpha.research.novelty-admission-v2","schema_version":2,"command_id":command.value(),"command_fingerprint":expected,
-        "decision_group_fingerprint":parent["decision_group_fingerprint"],"subject_set_fingerprint":parent["subject_set_fingerprint"],
-        "action_source_manifest_fingerprint":parent["action_source_manifest_fingerprint"],"runtime_work_id":id,"run_id":id,"members":[member]});
-    if hash(&rebuilt)? != row["admission_resolution_fingerprint"] {
-        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
-    }
+    verify_novelty_member(tx,row,&command,&expected,text(&v,"decision_group_fingerprint")?,&req.specification.subject()?).await?;
     Ok(v)
 }
 
@@ -852,6 +820,7 @@ pub async fn cancel(
     bounds(&tx).await.map_err(db)?;
     Commands::lock_command(&tx, &command).await.map_err(db)?;
     let run = load_in_transaction(&tx, id, Some(owner)).await?;
+    run.factor_specification()?;
     match Commands::verify_binding_in_transaction(&tx, &command)
         .await
         .map_err(db)?
@@ -963,6 +932,7 @@ pub async fn submission_outcome(
 /// Complete trial occurrence relation, bounded to the retained same-factor prefix.
 /// Each predecessor is verified once; its ancestor list is not recursively traversed.
 pub(crate) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> Result<Value> {
+    if row["specification_schema_version"]==5 {return strategy::verify_authorization(tx,row).await;}
     let v = verify_authorization_record(tx, row).await?;
     let id = text(row, "run_id")?;
     let first:Option<i64>=tx.query_one("SELECT min(event_index) FROM research_source_history WHERE source_family='RESEARCH_RUN' AND source_row->>'run_id'=$1",&[&id]).await.map_err(db)?.try_get(0).map_err(db)?;
@@ -1013,4 +983,62 @@ pub(crate) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> R
         return Err("RESEARCH_AUTHORIZATION_CORRUPT");
     }
     Ok(v)
+}
+
+/// One complete immutable Novelty Admission2 member relation, shared by the two
+/// actual native Research families. This is a reader, never an ADMIT constructor.
+async fn verify_novelty_member(
+    tx: &Transaction<'_>, row: &Value, command: &CommandId, expected: &str,
+    group: &str, subject: &crate::application::research_novelty::Subject,
+) -> Result<()> {
+    let id=text(row,"run_id")?;
+    let n=tx.query_opt("SELECT row_to_json(n)::text FROM research_novelty_admission n WHERE run_id=$1::text::uuid",&[&id]).await.map_err(db)?.ok_or("RESEARCH_AUTHORIZATION_CORRUPT")?;
+    let parent: Value =
+        serde_json::from_str(&n.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
+    if parent["run_id"] != id || parent["runtime_work_id"] != id || parent["command_id"] != command.value()
+        || parent["command_fingerprint"] != expected
+        || parent["admission_fingerprint"] != row["admission_resolution_fingerprint"]
+        || parent["decision_group_fingerprint"] != group
+        || parent["schema_version"] != 2
+    {
+        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
+    }
+    // Complete member set and exact original canonical Admission V2 identity.
+    let members=tx.query("SELECT row_to_json(s)::text FROM research_novelty_admission_subject s WHERE command_id=$1::text::uuid ORDER BY ordinal LIMIT 33",&[&command.value()]).await.map_err(db)?;
+    if members.len() != 1 {
+        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
+    }
+    let mut member: Value =
+        serde_json::from_str(&members[0].try_get::<_, String>(0).map_err(db)?).map_err(db)?;
+    if member["command_id"] != command.value()
+        || member["admission_fingerprint"] != parent["admission_fingerprint"]
+        || member["ordinal"] != 0
+        || member["evaluation_subject_fingerprint"] != subject.fingerprint()?
+    {
+        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
+    }
+    member.as_object_mut().ok_or(INVALID)?.remove("command_id");
+    member
+        .as_object_mut()
+        .ok_or(INVALID)?
+        .remove("admission_fingerprint");
+    let rebuilt = json!({"domain":"onlyalpha.research.novelty-admission-v2","schema_version":2,"command_id":command.value(),"command_fingerprint":expected,
+        "decision_group_fingerprint":parent["decision_group_fingerprint"],"subject_set_fingerprint":parent["subject_set_fingerprint"],
+        "action_source_manifest_fingerprint":parent["action_source_manifest_fingerprint"],"runtime_work_id":id,"run_id":id,"members":[member]});
+    if hash(&rebuilt)? != row["admission_resolution_fingerprint"] {
+        return Err("RESEARCH_AUTHORIZATION_CORRUPT");
+    }
+    Ok(())
+}
+/// Worker candidates only. A returned ID grants no Attempt or executable work;
+/// the caller must load its original verified authorization before claiming it.
+pub async fn pending_native_run_ids(client:&mut Client)->Result<Vec<String>> {
+    let tx=client.transaction().await.map_err(db)?;
+    bounds(&tx).await.map_err(db)?;
+    tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp").await.map_err(db)?;
+    let rows=tx.query("SELECT r.run_id::text FROM research_run r WHERE ((r.specification_schema_version=4 AND r.origin_kind='GENERAL' AND r.strategy_research_composition_fingerprint IS NULL) OR (r.specification_schema_version=5 AND r.origin_kind='PRIVATE_STRATEGY' AND r.strategy_research_composition_fingerprint IS NOT NULL)) AND r.authoring_provenance IS NULL AND r.state IN ('QUEUED','RUNNING','CANCEL_REQUESTED') AND NOT EXISTS(SELECT 1 FROM research_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE' AND a.lease_expires_at>clock_timestamp()) ORDER BY r.queued_at,r.run_id LIMIT 10001",&[]).await.map_err(db)?;
+    if rows.len()>10000 {return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED");}
+    let ids=rows.iter().map(|r|r.try_get(0).map_err(db)).collect::<Result<Vec<String>>>()?;
+    tx.commit().await.map_err(db)?;
+    Ok(ids)
 }

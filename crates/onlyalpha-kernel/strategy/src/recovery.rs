@@ -312,7 +312,7 @@ impl<C: NodePort> Executor<C> {
         }
         self.failed = true;
         let result=catch_unwind(AssertUnwindSafe(||{let port=self.port.capture().map_err(|_|bad())?;self.validate_components(&port)?;
-   let mut v=json!({"schema_version":1,"program":self.program.to_record(),"processed":self.processed,"chain":self.chain,"last_init_ns":self.last_init.as_ref().map(|t|t.unix_nanos().to_string()),"states":self.states.iter().map(|(k,s)|json!([k,s.capture()])).collect::<Vec<_>>(),"commitments":self.commitments.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"requests":self.requests.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"accepted":self.accepted.iter().map(|(k,a)|json!({"instrument":k,"bar":a.bar.to_record(),"init_ns":a.init.unix_nanos().to_string(),"parent":a.parent,"previous":a.previous,"count":a.count,"outcome":a.outcome.to_record(),"calls":a.calls})).collect::<Vec<_>>(),"port":port});
+   let mut v=json!({"schema_version":2,"program_fingerprint":self.program.fingerprint(),"processed":self.processed,"chain":self.chain,"last_init_ns":self.last_init.as_ref().map(|t|t.unix_nanos().to_string()),"states":self.states.iter().map(|(k,s)|json!([k,s.capture()])).collect::<Vec<_>>(),"commitments":self.commitments.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"requests":self.requests.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"accepted":self.accepted.iter().map(|(k,a)|json!({"instrument":k,"bar":a.bar.to_record(),"init_ns":a.init.unix_nanos().to_string(),"parent":a.parent,"previous":a.previous,"count":a.count,"outcome":a.outcome.to_record(),"calls":a.calls})).collect::<Vec<_>>(),"port":port});
    v["component_bindings"]=manifest(&v)?;if v.to_string().len()>MAX_CHECKPOINT{return Err(bad());}Ok(v)
   })).unwrap_or(Err(StrategyError("STRATEGY_PRODUCER_PANIC")));
         if result.is_ok() {
@@ -328,11 +328,16 @@ impl<C: NodePort> Executor<C> {
         if v.to_string().as_bytes() != bytes || record_fingerprint(&v) != expected {
             return Err(bad());
         }
+        let (program_key, expected_program) = match v["schema_version"].as_u64() {
+            Some(1) => ("program", self.program.to_record()),
+            Some(2) => ("program_fingerprint", json!(self.program.fingerprint())),
+            _ => return Err(bad()),
+        };
         object(
             &v,
             &[
                 "schema_version",
-                "program",
+                program_key,
                 "processed",
                 "chain",
                 "last_init_ns",
@@ -344,8 +349,7 @@ impl<C: NodePort> Executor<C> {
                 "component_bindings",
             ],
         )?;
-        if v["schema_version"] != 1
-            || v["program"] != self.program.to_record()
+        if v[program_key] != expected_program
             || v["component_bindings"] != manifest(&v)?
         {
             return Err(bad());

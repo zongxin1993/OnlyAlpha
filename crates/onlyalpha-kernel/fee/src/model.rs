@@ -141,29 +141,20 @@ pub(crate) fn round(n: &BigDecimal, q: &BigDecimal, mode: &str) -> Result<BigDec
     }
     Ok(BigDecimal::from(units) * q)
 }
+const ANALYTICAL_SUBJECT_FIELDS: &[&str] = &[
+    "engine", "runtime", "account", "broker", "gateway", "generation", "runtime_kind",
+    "cluster", "revision", "instrument", "market", "venue", "instrument_class", "currency", "side", "offset",
+];
 pub(crate) fn scope(v: &Value) -> Result<(), Error> {
-    fields(
-        v,
-        &[
-            "engine",
-            "runtime",
-            "account",
-            "broker",
-            "gateway",
-            "generation",
-            "runtime_kind",
-            "cluster",
-            "revision",
-            "order",
-            "instrument",
-            "market",
-            "venue",
-            "instrument_class",
-            "currency",
-            "side",
-            "offset",
-        ],
-    )?;
+    let mut keys = ANALYTICAL_SUBJECT_FIELDS.to_vec();
+    keys.push("order");
+    validate_subject(v, &keys)
+}
+pub(crate) fn analytical_subject(v: &Value) -> Result<(), Error> {
+    validate_subject(v, ANALYTICAL_SUBJECT_FIELDS)
+}
+fn validate_subject(v: &Value, keys: &[&str]) -> Result<(), Error> {
+    fields(v, keys)?;
     for (k, x) in v.as_object().expect("object") {
         if k != "currency" {
             text(x)?;

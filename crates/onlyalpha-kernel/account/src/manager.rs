@@ -1,10 +1,16 @@
 use crate::model::*;
 use bigdecimal::Zero;
 use serde_json::{Value, json};
+#[derive(Clone)]
 pub struct Manager {
     pub(crate) config: Value,
     pub(crate) precision: u8,
     pub(crate) state: State,
+    pub(crate) checkpoint_version: u8,
+    // Rebuildable canonical byte count; neither state nor source authority.
+    pub(crate) journal_bytes: usize,
+    // Pure canonical encoding of this immutable state, never a source proof.
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<(Vec<u8>,String)>>,
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {
@@ -15,7 +21,21 @@ impl Manager {
             config,
             precision: p,
             state: State::new(cash),
+            checkpoint_version: 4,
+            journal_bytes: 0,
+            checkpoint_cache: std::sync::OnceLock::new(),
         })
+    }
+    /// Explicit bounded self-contained dictionary format. Existing `new` stays schema4.
+    pub fn new_checkpoint5(config: Value) -> Result<Self, Error> {
+        let mut owner = Self::new(config)?;
+        owner.checkpoint_version = 5;
+        Ok(owner)
+    }
+    pub(crate) fn fresh(&self) -> Result<Self, Error> {
+        let mut owner = Self::new(self.config.clone())?;
+        owner.checkpoint_version = self.checkpoint_version;
+        Ok(owner)
     }
     pub fn snapshot(&self) -> Value {
         let mut snapshot = self.state.snapshot(self.precision);
@@ -37,6 +57,13 @@ impl Manager {
             .reservations
             .get(id)
             .map(|r| r.record(self.precision))
+    }
+    /// Original accepted valuation intents in journal order. This borrowed data
+    /// query neither encodes a checkpoint nor supplies a source or Ready proof.
+    pub fn valuation_intents(&self) -> impl Iterator<Item = &Value> {
+        self.state.journal.iter()
+            .filter(|command| command["op"] == "VALUATION")
+            .map(|command| &command["payload"]["intent"])
     }
     pub fn state(&self) -> Value {
         json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"margin":self.state.margin,"margin_owner":self.state.margin_owner,"position_trades":self.state.position_trades,"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
@@ -75,6 +102,8 @@ impl Manager {
         self.apply_inner(&command)
     }
     pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
+        #[cfg(test)]
+        crate::recovery::ACCOUNT_COMMAND_REPLAYS.with(|count| count.set(count.get() + 1));
         if input.to_string().len()
             > if input["op"] == "VALUATION" {
                 32 * 1024 * 1024
@@ -110,7 +139,8 @@ impl Manager {
         let op = text(&r["op"])?;
         let mut command = input.clone();
         command["payload"] = normalize_payload(op, &r["payload"], self.precision)?;
-        let h = hash(&command);
+        let encoded = serde_json::to_vec(&command)?;
+        let h = digest(&encoded);
         if let Some(old) = self.state.receipts.get(&cid) {
             return Ok(outcome(if old == &h {
                 Status::Duplicate
@@ -172,6 +202,9 @@ impl Manager {
             config: self.config.clone(),
             precision: self.precision,
             state: self.state.clone(),
+            checkpoint_version: self.checkpoint_version,
+            journal_bytes: self.journal_bytes,
+            checkpoint_cache: std::sync::OnceLock::new(),
         };
         let status = if duplicate {
             Status::Duplicate
@@ -195,8 +228,15 @@ impl Manager {
         for a in aliases {
             candidate.state.semantic.insert(a, sh.clone());
         }
-        candidate.state.journal.push(command);
+        candidate.journal_bytes = candidate.journal_bytes
+            .checked_add(encoded.len())
+            .and_then(|size| size.checked_add(usize::from(!candidate.state.journal.is_empty())))
+            .ok_or_else(|| err("ACCOUNT_CHECKPOINT_BOUND"))?;
+        candidate.state.journal.push(std::sync::Arc::new(command));
         candidate.state.validate()?;
+        if candidate.checkpoint_version == 5 {
+            crate::recovery::check_expanded_size(&candidate.config, &candidate.state(), candidate.journal_bytes)?;
+        }
         if admission {
             candidate.state.validate_admission()?;
             if candidate.checkpoint()?.0.len() > MAX_CHECKPOINT {

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -52,9 +53,8 @@ AT = datetime(2026, 10, 22, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[4]
 
 
-@pytest.fixture(scope="session")
 @functools.cache
-def market_probe() -> Path:
+def _build_market_probe(*, release: bool = False) -> Path:
     # A formal frozen-source process can prepare this producer before pytest's
     # scenario budget, then reuse that same build. Never reuse a persisted binary.
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
@@ -70,6 +70,7 @@ def market_probe() -> Path:
             "build",
             "--frozen",
             "--offline",
+            *(["--release"] if release else ["--config", "profile.dev.package.onlyalpha-backend.debug=0"]),
             "--target",
             target,
             "-j1",
@@ -82,7 +83,13 @@ def market_probe() -> Path:
         env=env,
         check=True,
     )
-    return output / target / "debug/examples/command-postgres-probe"
+    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
+
+
+@pytest.fixture(scope="session")
+def market_probe() -> Path:
+    # Ordinary DB/storage tests retain their original dev producer.
+    return _build_market_probe()
 
 
 @contextmanager
@@ -112,20 +119,46 @@ def database(postgres_dsn: str) -> Iterator[OnlyClickHouseClient]:
         yield client
 
 
-def probe(binary: Path, client: OnlyClickHouseClient, op: str, **values: Any) -> dict[str, Any]:
+def _strategy_probe_diagnostics(stderr: str | bytes | None) -> None:
+    import sys
+
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    # Only bounded static phase/line labels from the existing source diagnostics.
+    # Never dump the request, stdout, environment, arbitrary child errors or IDs.
+    for line in (stderr or "").splitlines()[-256:]:
+        if re.fullmatch(
+            r"\[strategy-(?:evaluation|evidence)\] (?:phase=[a-z][a-z0-9-]{0,63}|invalid line=[0-9]{1,10}|input-pin=[a-z][a-z0-9-]{0,63})",
+            line,
+        ):
+            print(line, file=sys.stderr, flush=True)
+
+
+def probe(
+    binary: Path, client: OnlyClickHouseClient, op: str, *, process_timeout: int = 30, **values: Any
+) -> dict[str, Any]:
     request = {"op": op, "at": AT.isoformat(), "database": client.config.database, "url": client.config.url, **values}
     env = dict(os.environ)
     env.update(ONLYALPHA_CLICKHOUSE_USER=client.config.user, ONLYALPHA_CLICKHOUSE_PASSWORD=client.config.password)
-    result = subprocess.run(
-        [str(binary)],
-        input=json.dumps({"op": "market-storage", "request": request}),
-        text=True,
-        capture_output=True,
-        timeout=30,
-        env=env,
-    )
+    try:
+        result = subprocess.run(
+            [str(binary)],
+            input=json.dumps({"op": "market-storage", "request": request}),
+            text=True,
+            capture_output=True,
+            timeout=process_timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as error:
+        if op in {"strategy-evidence-phase", "strategy-worker-phase"}:
+            _strategy_probe_diagnostics(error.stderr)
+        raise
     assert result.returncode == 0, result.stderr
     parsed = cast(dict[str, Any], json.loads(result.stdout))
+    if op == "strategy-evidence-phase" and "error" in parsed:
+        # Preserve the exact returned error/old assertions and the same safe
+        # phase surface for both ordinary errors and outer-harness timeouts.
+        _strategy_probe_diagnostics(result.stderr)
     if op == "dataset-research" and "error" in parsed:
         parsed["worker_stderr"] = result.stderr
     return parsed
@@ -1699,3 +1732,954 @@ def test_native_one_run_research_uses_real_confirmation_and_immutable_evidence(
         for statistic in report["statistics"]:
             assert statistic["analysis"]["pearson"]["uncertainty_status"] == "AVAILABLE", statistic["analysis"]
             assert statistic["analysis"]["spearman"]["uncertainty_status"] == "AVAILABLE", statistic["analysis"]
+
+
+def test_native_strategy_environment_retains_target_calculation_artifact_without_provider_substitution(
+    native_environment_case: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    import hashlib
+
+    from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest
+
+    from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest
+
+    case = native_environment_case
+    root, executable, artifact, vector = (case[k] for k in ["root", "executable", "artifact", "vector"])
+
+    def run(kind: str, runtime: Path, fresh: bool) -> dict[str, Any]:
+        result = subprocess.run(
+            [str(executable)],
+            input=json.dumps(
+                {
+                    "op": "runtime-environment",
+                    "preparation_kind": kind,
+                    "factor": vector,
+                    "release_root": str(root),
+                    "runtime_root": str(runtime),
+                    "algorithm_artifact": artifact,
+                    "fresh": fresh,
+                    "at": "2026-11-01T01:00:00Z",
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        record = cast(dict[str, Any], json.loads(result.stdout))
+        assert "error" not in record, (record, result.stderr)
+        return record
+
+    # Separate exact requests preserve the original Factor wire and history.
+    legacy_root = tmp_path / "use_test_factor_runtime"
+    legacy = run("FACTOR", legacy_root, True)
+    assert not any(i["kind"] == "TARGET" for i in legacy["manifest"]["implementations"])
+    legacy_history = (legacy_root / "generation-events.jsonl").read_bytes()
+    runtime = tmp_path / "use_test_strategy_runtime"
+    first = run("STRATEGY", runtime, True)
+    manifest = OnlyRuntimeGenerationManifest.from_dict(first["manifest"])
+    assert first["snapshot"] == {
+        "active_for_new_work": None,
+        "states": {manifest.runtime_generation_fingerprint: "READY"},
+    }
+    assert (
+        len(manifest.artifact_sha256s)
+        == len(OnlyRuntimeGenerationManifest.from_dict(legacy["manifest"]).artifact_sha256s) + 1
+    )
+    artifacts = [
+        json.loads((runtime / "artifacts" / digest[:2] / digest / "manifest.json").read_text())
+        for digest in manifest.artifact_sha256s
+    ]
+    targets = [m for m in artifacts if m["distribution_name"] == "onlyalpha-plugin-targets"]
+    assert len(targets) == 1
+    target = targets[0]
+    assert OnlyDistributionArtifactManifest.from_dict(target).to_dict() == target
+    assert target["role"] == "CALCULATION" and target["schema_version"] == 1
+    assert target["tested_core_execution_fingerprint"] == manifest.core_execution.fingerprint
+    assert target["assets"] == []
+    assert all(target[k] is None for k in ("provider_id", "provider_version", "provider_content_fingerprint"))
+    assert target["implementations"]
+    assert all(i["kind"] == "TARGET" and i["backend"] == "RESEARCH" for i in target["implementations"])
+    assert all(i in first["manifest"]["implementations"] for i in target["implementations"])
+    wheel = next((root / "wheels").glob("onlyalpha_plugin_targets-*.whl"))
+    assert target["artifact_sha256"] == hashlib.sha256(wheel.read_bytes()).hexdigest()
+    retained = runtime / "artifacts" / target["artifact_sha256"][:2] / target["artifact_sha256"] / "artifact.whl"
+    assert retained.read_bytes() == wheel.read_bytes()
+    # Target is a Calculation library, not another Quant Asset Provider.
+    assert first["manifest"]["providers"] == legacy["manifest"]["providers"]
+    assert first["proof"]["catalog"] == legacy["proof"]["catalog"]
+    observation = first["proof"]["algorithm_observation"]
+    assert observation["contract"] == "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
+    assert observation["target_artifact_sha256"] == target["artifact_sha256"]
+    projected = [
+        {
+            "kind": c["type"]["kind"],
+            "type_id": c["type"]["type_id"],
+            "semantic_version": c["type"]["semantic_version"],
+            "backend": c["backend"],
+            "implementation_fingerprint": c["implementation_fingerprint"],
+        }
+        for c in observation["target_calculations"]
+    ]
+    assert sorted(projected, key=only_canonical_fingerprint) == sorted(
+        target["implementations"], key=only_canonical_fingerprint
+    )
+    history = (runtime / "generation-events.jsonl").read_bytes()
+    assert run("STRATEGY", runtime, False) == first
+    assert (runtime / "generation-events.jsonl").read_bytes() == history
+    assert (legacy_root / "generation-events.jsonl").read_bytes() == legacy_history
+    # A missing selected Target wheel refuses the whole explicit request.
+    missing = wheel.with_suffix(".retained")
+    wheel.rename(missing)
+    try:
+        result = subprocess.run(
+            [str(executable)],
+            input=json.dumps(
+                {
+                    "op": "runtime-environment",
+                    "preparation_kind": "STRATEGY",
+                    "factor": vector,
+                    "release_root": str(root),
+                    "runtime_root": str(tmp_path / "use_test_missing_target"),
+                    "algorithm_artifact": artifact,
+                    "fresh": True,
+                    "at": "2026-11-01T01:00:00Z",
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        assert "error" in json.loads(result.stdout)
+        assert not (tmp_path / "use_test_missing_target").exists()
+    finally:
+        missing.rename(wheel)
+
+
+def strategy_preparation_case(
+    native_environment_case: dict[str, Any],
+    market_probe: Path,
+    database: OnlyClickHouseClient,
+    tmp_path: Path,
+    fault: str = "normal",
+    work_id: str = "use_test_strategy_prepare",
+    runtime_root: Path | None = None,
+    first_bar_start: datetime | None = None,
+    manual_only: bool = False,
+) -> dict[str, Any]:
+    from uuid import uuid4
+
+    from onlyalpha.core.ranges import OnlyTimeRange
+    from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
+    from packages.backend.tests.application.test_private_strategy_authoring_postgres import call as author
+
+    # Reuse the real sealed-release producer, rather than a caller-authored
+    # Runtime manifest or a value-test preparation grant.
+    case = native_environment_case
+    executable, release, artifact, vector = (case[k] for k in ["executable", "root", "artifact", "vector"])
+    runtime = runtime_root if runtime_root is not None else tmp_path / "use_test_strategy_runtime"
+    generation = None
+    if not manual_only:
+        try:
+            result = subprocess.run(
+                [str(executable)],
+                input=json.dumps(
+                    {
+                        "op": "runtime-environment",
+                        "preparation_kind": "STRATEGY",
+                        "factor": vector,
+                        "release_root": str(release),
+                        "runtime_root": str(runtime),
+                        "algorithm_artifact": artifact,
+                        "fresh": True,
+                        "bind_work": work_id,
+                        "activation_command": str(uuid4()),
+                        "at": "2026-11-01T01:00:00Z",
+                    }
+                ),
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as error:
+            # Preserve the original deadline and expose only the probe's bounded
+            # phase markers; the request and deployment environment are not logged.
+            for line in (error.stderr or b"").decode("utf-8", errors="replace").splitlines():
+                if line.startswith("[runtime-environment] phase="):
+                    print(line, flush=True)
+            raise
+        environment = json.loads(result.stdout)
+        assert "error" not in environment, (environment, result.stderr)
+        generation = environment["manifest"]["runtime_generation_fingerprint"]
+        assert environment["snapshot"]["active_for_new_work"] == generation
+    saved = author(
+        market_probe,
+        vector["draft"]["factor_id"],
+        "save",
+        op="factor-authoring",
+        factor_id=vector["draft"]["factor_id"],
+        draft=vector["draft"],
+        expected=None,
+    )
+    assert "error" not in saved, saved
+    published = author(
+        market_probe,
+        vector["draft"]["factor_id"],
+        "publish",
+        op="factor-authoring",
+        factor_id=vector["draft"]["factor_id"],
+        expected=saved["result"]["draft_fingerprint"],
+    )
+    assert published["result"]["revision"] == vector["revision"]
+
+    # Controlled market inputs enter through existing WAL/seal/catalog owners.
+    # They are technical inputs, never claimed as real Binance observations.
+    seed, seed_segment = retained(tmp_path / "seed", segment_id="use-test-strategy-seed")
+    evidence = seed.read_sealed(seed_segment.segment_id)[0].evidence
+    evaluating = manual_only or fault == "evaluate" or fault.startswith("eval-")
+    row_count = 740 if evaluating else 28
+    updates = tuple(
+        bar_update(
+            i,
+            close="101.20200000" if i == 20 else "100.89900000" if i == 21 else "101.00000000",
+            first_bar_start=first_bar_start,
+        )
+        for i in range(row_count)
+    )
+    facts = tuple(
+        OnlyCanonicalMarketFactRecord.bind(
+            update,
+            evidence,
+            segment_id="use-test-strategy-input",
+            ts_ingest_ns=123,
+            normalizer_id="native-reference",
+            normalizer_version="1",
+        )
+        for update in updates
+    )
+    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=32 * 1024 * 1024, now=lambda: AT)
+    wal.open_segment("use-test-strategy-input")
+    wal.append(OnlyMarketDataRecordBundle(evidence, facts))
+    segment = wal.seal(sealed_at=AT)
+    assert "error" not in drain(executable, database, wal, segment)
+    scope = segment.recovery_scope()
+    composed = probe(
+        executable, database, "compose", scope=_scope_payload(scope), refs=[(segment.segment_id, segment.content_hash)]
+    )
+    assert "error" not in composed, composed
+    first_update = updates[0].payload
+    assert isinstance(first_update, OnlyBarUpdate)
+    first = first_update.bar.ts_event
+    definition = OnlyResearchDatasetDefinition(
+        (first_update.bar.instrument_id,),
+        first_update.bar.bar_type.semantic,
+        OnlyTimeRange(first, first + timedelta(minutes=row_count)),
+    )
+    dataset_root = tmp_path / "datasets"
+    dataset_root.mkdir()
+
+    calculations = json.loads(
+        (ROOT / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
+    )
+    seed_strategy = json.loads((ROOT / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text())[
+        "strategy"
+    ]["definition"]
+    seed_strategy["calculations"] = calculations["instances"]
+    seed_strategy["factor_revision_dependencies"] = calculations["factor_revision_dependencies"]
+    seed_strategy["signals"]["entry"]["operator"] = ">="
+    seed_strategy["signals"]["entry"]["right"]["value"]["value"] = "0.001"
+    seed_strategy["universe"] = {"kind": "SINGLE_INSTRUMENT", "instruments": [str(first_update.bar.instrument_id)]}
+    seed_strategy["market_input"]["bar_semantic"] = definition.to_dict()["bar_semantic"]
+    seed_strategy["market_input"]["construction_requirement"]["recipe"] = _scope_payload(scope)["bar_construction"][
+        "plan"
+    ]["resolved_recipe"]
+    strategy_id = "private.strategy.use_test_s" + uuid4().hex
+    strategy = {
+        "schema_version": 1,
+        "strategy_id": strategy_id,
+        "base_revision_fingerprint": None,
+        "semantic_version": "1",
+        "description": "Actual input proof",
+        "tags": [],
+        "definition": seed_strategy,
+    }
+    saved = author(market_probe, strategy_id, "save", draft=strategy, expected=None)
+    assert "error" not in saved, saved
+    revision = author(market_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+        "revision"
+    ]
+    context = None
+    if not manual_only:
+        reference = json.loads(
+            (ROOT / "packages/backend/tests/application/fixtures/strategy_specification.json").read_text()
+        )
+        context = {
+            "schema_version": 1,
+            "start": (first + timedelta(minutes=20)).isoformat(),
+            "end": (first + timedelta(minutes=29 if fault == "window" else row_count)).isoformat(),
+            "targets": [
+                {
+                    "instance_key": "forward_return",
+                    "type_reference": {
+                        "kind": "TARGET",
+                        "type_id": "onlyalpha.target.forward_return",
+                        "semantic_version": "1",
+                    },
+                    "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
+                    "published_outputs": ["target_value"],
+                    "primary_output": None,
+                    "input_bindings": [
+                        {"input_name": "entry_price", "source": "bar.close"},
+                        {"input_name": "exit_price", "source": "bar.close"},
+                    ],
+                }
+            ],
+            "statistics": [
+                {
+                    "variable": {"kind": "VARIABLE", "instance_key": "momentum", "output_name": "value"},
+                    "target_instance_key": "forward_return",
+                    "definition": reference["specification"]["statistics"][0]["definition"],
+                }
+            ],
+            "display_metadata": {},
+        }
+        if evaluating:
+            rank = context["statistics"][0]
+            context["statistics"].append({**rank, "definition": {**rank["definition"], "method": "RANK_IC"}})
+    selected = executable
+    if fault == "native":
+        selected = tmp_path / "different-backend-image"
+        selected.write_bytes(executable.read_bytes() + b"\n# different actual loaded native image\n")
+        selected.chmod(0o500)
+    arguments = dict(
+        id=composed["revision"]["revision_id"],
+        definition=definition.to_dict(),
+        scope=_scope_payload(scope),
+        dataset_root=str(dataset_root),
+        strategy_id=strategy_id,
+        strategy_revision=revision["revision_fingerprint"],
+        strategy_context=context,
+        strategy_fault=fault,
+        strategy_evaluation=evaluating,
+        runtime_root=str(runtime),
+        runtime_generation=generation,
+        algorithm_root=str(release / "algorithms"),
+        algorithm_artifact=artifact,
+    )
+    return dict(
+        selected=selected,
+        arguments=arguments,
+        vector=vector,
+        revision=revision,
+        strategy_id=strategy_id,
+        evaluating=evaluating,
+        updates=updates,
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "normal",
+        "context",
+        "window",
+        "missing-composition",
+        "native",
+        "evaluate",
+        "eval-spec",
+        "eval-cancel",
+        "eval-dataset",
+    ],
+)
+def test_actual_strategy_preparation_consumes_composer_runtime_and_sealed_dataset(
+    native_environment_case: dict[str, Any],
+    market_probe: Path,
+    database: OnlyClickHouseClient,
+    postgres_dsn: str,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    prepared_case = strategy_preparation_case(native_environment_case, market_probe, database, tmp_path, fault)
+    selected, arguments, vector, revision, strategy_id, evaluating = (
+        prepared_case[k] for k in ["selected", "arguments", "vector", "revision", "strategy_id", "evaluating"]
+    )
+    actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
+    with psycopg.connect(postgres_dsn) as conn:
+        assert conn.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT count(*) FROM product_command_admission WHERE command_kind IN ('CREATE_RESEARCH_RUN','FREEZE_STRATEGY','PROMOTE_STRATEGY')"
+        ).fetchone() == (0,)
+        compositions = conn.execute(
+            "SELECT count(*) FROM private_strategy_research_composition WHERE private_strategy_id=%s", (strategy_id,)
+        ).fetchone()
+    if fault in {"context", "window", "missing-composition", "native"}:
+        expected = {
+            "context": "RESEARCH_EXECUTABLE_INPUT_MISMATCH",
+            "window": "RESEARCH_EXECUTABLE_INPUT_MISMATCH",
+            "missing-composition": "PRIVATE_STRATEGY_COMPOSITION_CORRUPT",
+            "native": "RESEARCH_NATIVE_IMAGE_MISMATCH",
+        }[fault]
+        assert actual == {"error": expected}
+        assert compositions == ((0,) if fault == "missing-composition" else (1,))
+        return
+    if fault in {"eval-spec", "eval-cancel", "eval-dataset"}:
+        expected = {
+            "eval-spec": "STRATEGY_RESEARCH_EVALUATION_INPUT_MISMATCH",
+            "eval-cancel": "RESEARCH_EXECUTION_CANCELLED",
+            "eval-dataset": "DATASET_SNAPSHOT_CORRUPT",
+        }[fault]
+        assert actual == {"error": expected}, actual
+        assert compositions == (1,)
+        if fault == "eval-dataset":
+            manifests = list(Path(arguments["dataset_root"]).glob("sha256/*/*/manifest.json"))
+            assert len(manifests) == 1 and manifests[0].read_bytes() == b"not an immutable Dataset manifest"
+        return
+    assert "error" not in actual, actual
+    prepared, spec = actual["prepared_inputs"], actual["specification"]
+    assert prepared["contract"] == "ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1"
+    assert spec["schema_version"] == 5 and spec["kind"] == "PRIVATE_STRATEGY_RESEARCH"
+    assert prepared["runtime_work_binding"]["work_id"] == "use_test_strategy_prepare"
+    assert prepared["composition"] == actual["original_resolution"]["composition"]
+    assert prepared["composition"]["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
+    assert prepared["input_window"] == spec["input_window"]
+    assert prepared["input_window"]["warmup_bars"] == 20
+    assert prepared["dataset_snapshot_fingerprint"] == spec["scientific_specification"]["dataset_snapshot_fingerprint"]
+    assert prepared["run_specification_fingerprint"] == actual["specification_fingerprint"]
+    request = prepared["algorithm_resolution_request"]
+    assert request["contract"] == "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+    assert request["sources"][0]["revision_fingerprint"] == vector["revision"]["revision_fingerprint"]
+    assert request["target_artifact"]["sha256"] == prepared["algorithm_resolution"]["target_artifact_sha256"]
+    assert prepared["algorithm_resolution"] == actual["original_resolution"]["algorithm_resolution"]
+    assert prepared["native_implementations"]
+    assert all(i["calculation_type_reference"]["kind"] == "PREDICATE" for i in prepared["native_implementations"])
+    bindings = {b["node_fingerprint"]: b for b in spec["implementation_bindings"]}
+    predicates = [
+        n["definition"] for n in spec["decision"]["decision_graph"]["nodes"] if n["definition"]["kind"] == "PREDICATE"
+    ]
+    assert len(bindings) == len(spec["decision"]["decision_graph"]["nodes"])
+    assert len(prepared["native_implementations"]) == 2 * len({d["type_id"] for d in predicates})
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
+    for definition_record in predicates:
+        node = OnlyCalculationDefinition.from_dict(definition_record).fingerprint
+        for backend, key in [
+            ("RESEARCH", "research_implementation_fingerprint"),
+            ("TRADING", "trading_implementation_fingerprint"),
+        ]:
+            manifests = [
+                m
+                for m in prepared["native_implementations"]
+                if m["backend_kind"] == backend
+                and all(
+                    m["calculation_type_reference"][field] == definition_record[field]
+                    for field in ("kind", "type_id", "semantic_version")
+                )
+            ]
+            assert len(manifests) == 1
+            assert bindings[node][key] == manifests[0]["implementation_fingerprint"]
+    for node in prepared["algorithm_resolution"]["nodes"]:
+        if node["definition"]["kind"] == "TARGET":
+            assert [m["backend_kind"] for m in node["implementations"]] == ["RESEARCH"]
+            assert node["definition_fingerprint"] not in bindings
+        else:
+            for implementation in node["implementations"]:
+                key = (
+                    "research_implementation_fingerprint"
+                    if implementation["backend_kind"] == "RESEARCH"
+                    else "trading_implementation_fingerprint"
+                )
+                assert bindings[node["definition_fingerprint"]][key] == implementation["implementation_fingerprint"]
+    assert "strategy_fingerprint" not in prepared and "strategy_fingerprint" not in spec
+    if evaluating:
+        _assert_actual_strategy_evaluation(actual, prepared_case["updates"])
+    assert probe(selected, database, "dataset-strategy-prepare", **arguments) == actual
+
+
+def _assert_actual_strategy_evaluation(
+    actual: dict[str, Any], updates: tuple[OnlyMarketDataInboundUpdate, ...]
+) -> None:
+    """Independent value checks over two actual numerical producers; no evidence grant."""
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+    from onlyalpha.domain.time import OnlyTimestamp
+    from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
+    from onlyalpha.research.evaluation.result import OnlyResearchStatisticRow, OnlyResearchStatisticStatus
+
+    evaluation, spec = actual["evaluation"], actual["specification"]
+    assert evaluation["schema_version"] == 1
+    assert evaluation["contract"] == "ONLYALPHA_STRATEGY_EVALUATION_OBSERVATION_V1"
+    assert evaluation["run_specification_fingerprint"] == actual["specification_fingerprint"]
+    assert (
+        evaluation["dataset_snapshot_fingerprint"] == spec["scientific_specification"]["dataset_snapshot_fingerprint"]
+    )
+    assert evaluation["input_window"] == spec["input_window"]
+    # The scientific Calculation/Statistics axis stays the full immutable Dataset.
+    # Warmup is intrinsic NULL; the separate report window contains 720 samples.
+    assert all(isinstance(update.payload, OnlyBarUpdate) for update in updates)
+    axis = [
+        OnlyTimestamp.from_datetime(cast(OnlyBarUpdate, update.payload).bar.ts_event).to_unix_nanos()
+        for update in updates
+    ]
+    assert len(axis) == 740 and evaluation["axis"] == axis
+    assert evaluation["observation_count"] == 720
+    assert evaluation["axis"][-1] < int(spec["input_window"]["observation_end_ns"])
+    research = {row["node_fingerprint"]: row for row in evaluation["research_outputs"]}
+    streaming = {row["node_fingerprint"]: row for row in evaluation["streaming_outputs"]}
+    nodes = {
+        OnlyCalculationDefinition.from_dict(row["definition"]).fingerprint: row["definition"]
+        for row in spec["decision"]["decision_graph"]["nodes"]
+    }
+    bindings = {row["node_fingerprint"]: row for row in spec["implementation_bindings"]}
+    assert len(research) == len(evaluation["research_outputs"]) == len(nodes)
+    assert len(streaming) == len(evaluation["streaming_outputs"]) == len(nodes)
+    assert research.keys() == streaming.keys() == nodes.keys()
+    for node, definition in nodes.items():
+        assert research[node]["implementation_fingerprint"] == bindings[node]["research_implementation_fingerprint"]
+        assert streaming[node]["implementation_fingerprint"] == bindings[node]["trading_implementation_fingerprint"]
+        # Every port and every row is compared, including all native Predicates.
+        assert research[node]["values"] == streaming[node]["values"]
+        assert set(research[node]["values"]) == {port["name"] for port in definition["outputs"]}
+        assert all(len(column) == 740 for column in research[node]["values"].values())
+    factor = next(key for key, definition in nodes.items() if definition["kind"] == "FACTOR")
+    feature = research[factor]["values"]["value"]
+    null = {"type": "NULL", "value": None}
+    assert feature[:20] == [null] * 20
+    assert feature[20] == {"type": "DECIMAL", "value": "0.002"}
+    assert feature[21] == {"type": "DECIMAL", "value": "-0.001"}
+    for key, definition in nodes.items():
+        if definition["type_id"] == "onlyalpha.operator.delay":
+            assert research[key]["values"]["value"][:20] == [null] * 20
+            assert research[key]["values"]["value"][20] == {"type": "DECIMAL", "value": "101"}
+        if definition["type_id"] == "onlyalpha.operator.rolling_mean":
+            assert research[key]["values"]["value"][:19] == [null] * 19
+            assert research[key]["values"]["value"][19] == {"type": "DECIMAL", "value": "2"}
+    restored = evaluation["restoration"]
+    assert restored["processed_rows"] == 370
+    assert restored["before_checkpoint_fingerprint"] == restored["restored_checkpoint_fingerprint"]
+    assert len(restored["before_checkpoint_fingerprint"]) == 64
+    decisions = evaluation["decisions"]
+    assert len(decisions) == len(axis) and [row["at_ns"] for row in decisions] == axis
+    assert all(row["status"] == "BLOCKED" and row["decision"] is None for row in decisions[:20])
+    for index, row in enumerate(decisions[20:], 20):
+        assert row["status"] == "READY"
+        for role in ("eligibility", "entry", "exit"):
+            selector = spec["decision"]["signal_semantics"][role]
+            observed = research[selector["node_fingerprint"]]["values"][selector["output_name"]][index]
+            assert row["decision"][role] is (False if observed["type"] == "NULL" else observed["value"])
+    assert decisions[20]["decision"] == {"eligibility": True, "entry": True, "exit": False}
+    assert decisions[21]["decision"] == {"eligibility": True, "entry": False, "exit": True}
+    targets = {row["node_fingerprint"]: row for row in evaluation["target_outputs"]}
+    target_definitions = {
+        OnlyCalculationDefinition.from_dict(row["definition"]).fingerprint: row["definition"]
+        for row in spec["target_graph"]["nodes"]
+    }
+    assert targets.keys() == target_definitions.keys() and not targets.keys() & streaming.keys()
+    assert len(targets) == 1
+    target = next(iter(targets.values()))["values"]["target_value"]
+    assert target[-5:] == [null] * 5 and all(value["type"] == "DECIMAL" for value in target[:-5])
+    assert target[15] == {"type": "DECIMAL", "value": "0.002"}
+    assert all(len(row["values"]["target_value"]) == 740 for row in targets.values())
+    for node in actual["prepared_inputs"]["algorithm_resolution"]["nodes"]:
+        if node["definition"]["kind"] == "TARGET":
+            assert [m["backend_kind"] for m in node["implementations"]] == ["RESEARCH"]
+            assert (
+                targets[node["definition_fingerprint"]]["implementation_fingerprint"]
+                == node["implementations"][0]["implementation_fingerprint"]
+            )
+    statistics = evaluation["statistics"]
+    assert len(statistics) == len(spec["scientific_specification"]["statistics"]) == 2
+    assert {result["plan"]["definition"]["method"] for result in statistics} == {"IC", "RANK_IC"}
+    for result in statistics:
+        plan = OnlyResearchStatisticsPlan.from_dict(result["plan"])
+        assert plan.statistics_fingerprint == result["statistics_fingerprint"]
+        assert plan.definition.method.value in {"IC", "RANK_IC"}
+        assert plan.feature.node_fingerprint == factor
+        assert plan.target.node_fingerprint in targets
+        assert [row["ts_event_ns"] for row in result["rows"]] == axis
+        assert len(result["rows"]) == 740
+        for index, row in enumerate(result["rows"]):
+            # Existing public Stats1: one cross-section per timestamp, not one
+            # 720-observation time-series correlation or invented significance.
+            count = int(feature[index]["type"] != "NULL" and target[index]["type"] != "NULL")
+            expected = OnlyResearchStatisticRow(
+                axis[index], None, count, OnlyResearchStatisticStatus.INSUFFICIENT_OBSERVATIONS
+            )
+            assert row == expected.semantic_payload()
+    _assert_complete_strategy_profiles(evaluation, nodes, bindings)
+    assert (
+        not {
+            "run_id",
+            "research_result_fingerprint",
+            "freeze_relation",
+            "published_strategy_revision",
+            "permission",
+            "equivalence_evidence",
+        }
+        & evaluation.keys()
+    )
+
+
+@pytest.mark.parametrize(
+    "mode", ["normal", "source-denied", "physical-loss", "cancel-await", "sql-error", "commit-no-reply"]
+)
+def test_strategy_submission_reuses_original_command_and_run_with_physical_session_fencing(
+    native_environment_case: dict[str, Any],
+    market_probe: Path,
+    database: OnlyClickHouseClient,
+    postgres_dsn: str,
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    from uuid import UUID, uuid4
+
+    from onlyalpha.research.novelty.model import OnlyNoveltyPolicyRevisionV1
+    from onlyalpha.research.novelty.store import OnlyNoveltyPolicyStore
+
+    command = str(uuid4())
+    digest = bytearray(
+        hashlib.sha256(b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V4\x1f" + command.encode()).digest()[:16]
+    )
+    digest[6], digest[8] = (digest[6] & 15) | 64, (digest[8] & 63) | 128
+    work_id = str(UUID(bytes=bytes(digest)))
+    case = strategy_preparation_case(native_environment_case, market_probe, database, tmp_path, work_id=work_id)
+    selected, arguments = case["selected"], case["arguments"]
+    semantic = tmp_path / "use_test_semantic"
+    research = semantic / "research"
+    dataset_root, projection = research / "datasets", research / "experiment-memory"
+    dataset_root.mkdir(parents=True)
+    projection.mkdir()
+    policy = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_novelty.json").read_text())[
+        "policy"
+    ]
+    OnlyNoveltyPolicyStore(semantic).put(OnlyNoveltyPolicyRevisionV1.from_dict(policy))
+    roots = {
+        "RESEARCH_RESULT": str(research / "results"),
+        "RESEARCH_STATISTICS": str(research / "statistics-results"),
+        "RESEARCH_FACTOR_PAIR_STATISTICS": str(research / "statistics-results"),
+        "RESEARCH_SUMMARY_STATISTICS": str(research / "statistics-results"),
+    }
+    for family, name in [
+        ("AGENT_PROVENANCE", "agent-provenance"),
+        ("QUALIFICATION_DECISION", "qualification-decisions"),
+        ("SEARCH_PROVENANCE", "search-provenance"),
+    ]:
+        directory = research / name
+        directory.mkdir()
+        (directory / "sha256").mkdir()
+        (directory / ".source-cut.lock").touch(mode=0o600)
+        roots[family] = str(directory)
+    review_file = tmp_path / "use_test_original_review.json"
+    arguments.update(
+        dataset_root=str(dataset_root),
+        research_command=command,
+        submission_mode=mode,
+        semantic_root=str(semantic),
+        research_root=str(research),
+        projection_root=str(projection),
+        source_roots=roots,
+        initialize_evidence=True,
+        review_file=str(review_file),
+    )
+    if mode == "commit-no-reply":
+        payload = {
+            "op": "dataset-strategy-prepare",
+            "at": AT.isoformat(),
+            "database": database.config.database,
+            "url": database.config.url,
+            **arguments,
+        }
+        environment = {
+            **os.environ,
+            "ONLYALPHA_CLICKHOUSE_USER": database.config.user,
+            "ONLYALPHA_CLICKHOUSE_PASSWORD": database.config.password,
+        }
+        crashed = subprocess.run(
+            [str(selected)],
+            input=json.dumps({"op": "market-storage", "request": payload}),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=environment,
+        )
+        assert crashed.returncode == 86, crashed.stdout + crashed.stderr
+        review = json.loads(review_file.read_text())
+        actual = {"run_id": work_id, **review}
+    else:
+        actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
+        assert "error" not in actual, actual
+    from tests.support.postgres_link import wait_no_advisory_locks
+
+    wait_no_advisory_locks(postgres_dsn, actual["backend_pid"])
+    with psycopg.connect(postgres_dsn) as conn:
+        counts = [
+            conn.execute(f"SELECT count(*) FROM {table} WHERE run_id=%s", (work_id,)).fetchone()[0]
+            for table in ("research_run", "research_strategy_study_authorization", "research_novelty_admission")
+        ]
+        commands = conn.execute(
+            "SELECT count(*) FROM product_command_admission WHERE command_id=%s", (command,)
+        ).fetchone()[0]
+        receipts = conn.execute(
+            "SELECT count(*) FROM product_command_receipt WHERE command_id=%s", (command,)
+        ).fetchone()[0]
+        if mode in ("source-denied", "physical-loss", "cancel-await", "sql-error"):
+            assert counts == [0, 0, 0]
+            assert commands == receipts == 0
+            assert actual["writer_valid"] is (mode == "source-denied")
+            return
+        assert counts == [1, 1, 1] and commands == receipts == 1
+        row = conn.execute(
+            "SELECT specification_schema_version,origin_kind,strategy_research_composition_fingerprint,specification_fingerprint,specification_payload FROM research_run WHERE run_id=%s",
+            (work_id,),
+        ).fetchone()
+        assert row[0:2] == (5, "PRIVATE_STRATEGY") and len(row[2]) == 64
+        specification = json.loads(row[4])
+        assert row[3] == only_canonical_fingerprint(specification)
+        science = only_canonical_fingerprint(specification["scientific_specification"])
+        assert row[3] != science
+        auth = json.loads(
+            conn.execute(
+                "SELECT payload FROM research_strategy_study_authorization WHERE run_id=%s", (work_id,)
+            ).fetchone()[0]
+        )
+        assert auth["specification_fingerprint"] == row[3]
+        assert auth["scientific_specification_fingerprint"] == science
+        assert auth["composition_fingerprint"] == row[2]
+        assert auth["prepared_inputs"]["runtime_work_binding"]["work_id"] == work_id
+        assert conn.execute(
+            "SELECT count(*) FROM research_factor_study_authorization WHERE run_id=%s", (work_id,)
+        ).fetchone() == (0,)
+        attempts = conn.execute(
+            "SELECT state,attempt_number FROM research_run_attempt WHERE run_id=%s", (work_id,)
+        ).fetchall()
+        assert attempts == ([] if mode == "commit-no-reply" else [("CANCELLED", 1)])
+    # A fresh process only asks for the original accepted Command. It cannot
+    # depend on an available Runtime, current Source permission or mutable head.
+    runtime = Path(arguments["runtime_root"])
+    unavailable = runtime.with_name("use_test_runtime_unavailable")
+    runtime.rename(unavailable)
+    try:
+        recovered = probe(
+            selected,
+            database,
+            "strategy-submission-outcome",
+            scope=arguments["scope"],
+            study=actual["study"],
+            study_fingerprint=actual["study_fingerprint"],
+        )
+        assert recovered == {
+            "run_id": work_id,
+            "state": "QUEUED" if mode == "commit-no-reply" else "CANCELLED",
+            "specification_fingerprint": row[3],
+            "scientific_specification_fingerprint": science,
+        }
+    finally:
+        unavailable.rename(runtime)
+    # Forward DDL must require a Strategy5 authorization for every Strategy5
+    # Run in the same commit, rather than treating a valid payload as a grant.
+    with psycopg.connect(postgres_dsn) as conn:
+        with pytest.raises(psycopg.Error):
+            with conn.transaction():
+                other = str(uuid4())
+                conn.execute(
+                    "INSERT INTO research_run SELECT (jsonb_populate_record(NULL::research_run,to_jsonb(r)||jsonb_build_object('run_id',%s::text))).* FROM research_run r WHERE run_id=%s",
+                    (other, work_id),
+                )
+                conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        assert conn.execute("SELECT count(*) FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == (1,)
+    # An internally consistent hash over a corrupted authorization is still not
+    # its original scientific proof. Recovery refuses it without healing facts.
+    from onlyalpha.canonical import only_canonical_json
+
+    corrupted = {**auth, "scientific_specification_fingerprint": "f" * 64}
+    raw = only_canonical_json(corrupted)
+    with psycopg.connect(postgres_dsn) as conn:
+        conn.execute("ALTER TABLE research_strategy_study_authorization DISABLE TRIGGER USER")
+        conn.execute(
+            "UPDATE research_strategy_study_authorization SET payload=%s,fingerprint=%s WHERE run_id=%s",
+            (raw, hashlib.sha256(raw.encode()).hexdigest(), work_id),
+        )
+        conn.execute("ALTER TABLE research_strategy_study_authorization ENABLE TRIGGER USER")
+    refused = probe(
+        selected,
+        database,
+        "strategy-submission-outcome",
+        scope=arguments["scope"],
+        study=actual["study"],
+        study_fingerprint=actual["study_fingerprint"],
+    )
+    assert refused == {"error": "RESEARCH_AUTHORIZATION_CORRUPT"}
+    with psycopg.connect(postgres_dsn) as conn:
+        assert conn.execute(
+            "SELECT payload FROM research_strategy_study_authorization WHERE run_id=%s", (work_id,)
+        ).fetchone() == (raw,)
+        assert conn.execute("SELECT count(*) FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT count(*) FROM product_command_receipt WHERE command_id=%s", (command,)
+        ).fetchone() == (1,)
+
+
+def _assert_complete_strategy_profiles(
+    evaluation: dict[str, Any], nodes: dict[str, Any], bindings: dict[str, Any]
+) -> None:
+    from itertools import product
+
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+    from onlyalpha.calculation.equivalence import only_required_calculation_equivalence_profile
+
+    fixed = {
+        "FLAT_SEQUENCE",
+        "NEGATIVE_SLOPE_SEQUENCE",
+        "POSITIVE_SLOPE_SEQUENCE",
+        "QUANTIZATION_BOUNDARY",
+        "WARMUP_AND_STEADY_STATE",
+        "ZERO_BOUNDARY",
+    }
+    graph_cases = {case["case_id"]: case for case in evaluation["graph_cases"]}
+    assert len(graph_cases) == len(evaluation["graph_cases"]) == 6 and graph_cases.keys() == fixed
+    work = len(evaluation["axis"])
+    for case in graph_cases.values():
+        assert len(case["rows"]) == len(case["axis"]) >= evaluation["input_window"]["warmup_bars"] + 2
+        assert [row["at_ns"] for row in case["rows"]] == case["axis"]
+        research = {row["node_fingerprint"]: row for row in case["research_outputs"]}
+        streaming = {row["node_fingerprint"]: row for row in case["streaming_outputs"]}
+        assert research.keys() == streaming.keys() == nodes.keys()
+        for node in nodes:
+            assert research[node]["values"] == streaming[node]["values"]
+            assert research[node]["implementation_fingerprint"] == bindings[node]["research_implementation_fingerprint"]
+            assert streaming[node]["implementation_fingerprint"] == bindings[node]["trading_implementation_fingerprint"]
+        work += len(case["rows"])
+    profiles = {node["node_fingerprint"]: node for node in evaluation["node_profiles"]}
+    assert len(profiles) == len(evaluation["node_profiles"]) == len(nodes) and profiles.keys() == nodes.keys()
+    for key, node in profiles.items():
+        definition = OnlyCalculationDefinition.from_dict(nodes[key])
+        required = only_required_calculation_equivalence_profile(definition)
+        assert node["profile_covered_cases"] == list(required.cases)
+        assert node["research_implementation_fingerprint"] == bindings[key]["research_implementation_fingerprint"]
+        assert node["trading_implementation_fingerprint"] == bindings[key]["trading_implementation_fingerprint"]
+        cases = {row["case_id"]: row for row in node["cases"]}
+        assert len(cases) == len(node["cases"]) == len(required.cases) and cases.keys() == set(required.cases)
+        for case in cases.values():
+            assert 1 <= len(case["inputs"]) <= 8192
+            assert len(case["research_outputs"]) == len(case["trading_outputs"]) == len(case["inputs"])
+            assert case["research_outputs"] == case["trading_outputs"]
+            assert all(set(row) == {port.name for port in definition.inputs} for row in case["inputs"])
+            assert all(set(row) == {port.name for port in definition.outputs} for row in case["research_outputs"])
+            work += len(case["inputs"])
+        for port in definition.inputs:
+            if port.nullable:
+                actual = [row[port.name] for row in cases["NULLABLE_INPUT_SEMANTICS"]["inputs"]]
+                assert {"type": "NULL", "value": None} in actual
+                assert any(value["type"] != "NULL" for value in actual)
+        literal = nodes[key]["parameters"].get("literal")
+        if literal is not None and literal["type"] == "DECIMAL":
+            from decimal import Decimal
+
+            inputs = cases["QUANTIZATION_BOUNDARY"]["inputs"]
+            port = definition.inputs[0].name
+            equal = [
+                index
+                for index, row in enumerate(inputs)
+                if row[port]["type"] == "DECIMAL" and Decimal(row[port]["value"]) == Decimal(literal["value"])
+            ]
+            assert equal, "literal equality is a real controlled boundary, not a coverage label"
+            operation = definition.type_id.split(".compare.")[1].split(".")[0]
+            expected = {"eq": True, "ne": False, "lt": False, "le": True, "gt": False, "ge": True}[operation]
+            assert all(
+                cases["QUANTIZATION_BOUNDARY"]["research_outputs"][index]["value"]
+                == {"type": "BOOLEAN", "value": expected}
+                for index in equal
+            )
+        booleans = [port.name for port in definition.inputs if port.data_type.value == "BOOLEAN"]
+        if booleans:
+            actual = {
+                tuple((row[name]["type"], row[name]["value"]) for name in booleans)
+                for row in cases["BOOLEAN_TRUTH_NULL_SEMANTICS"]["inputs"]
+            }
+            assert actual == set(product((("BOOLEAN", False), ("BOOLEAN", True), ("NULL", None)), repeat=len(booleans)))
+    assert work <= 8192
+
+
+def test_runtime_evidence_reads_original_released_generation_without_execution_or_current_image(
+    native_environment_case: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    from uuid import uuid4
+
+    case = native_environment_case
+    executable, release, artifact, vector = (case[k] for k in ["executable", "root", "artifact", "vector"])
+    runtime = tmp_path / "use_test_evidence_runtime"
+    work = "use_test_original_strategy_evidence"
+
+    def call(op: str, binary: Path = executable, **values: Any) -> dict[str, Any]:
+        request = {
+            "op": op,
+            "runtime_root": str(runtime),
+            "work_id": work,
+            "owner": "research",
+            "generation": generation,
+            "at": "2026-11-02T00:00:00Z",
+            **values,
+        }
+        result = subprocess.run([str(binary)], input=json.dumps(request), text=True, capture_output=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    made = subprocess.run(
+        [str(executable)],
+        input=json.dumps(
+            {
+                "op": "runtime-environment",
+                "preparation_kind": "STRATEGY",
+                "factor": vector,
+                "release_root": str(release),
+                "runtime_root": str(runtime),
+                "algorithm_artifact": artifact,
+                "fresh": True,
+                "bind_work": work,
+                "activation_command": str(uuid4()),
+                "at": "2026-11-01T01:00:00Z",
+            }
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=30,
+    )
+    environment = json.loads(made.stdout)
+    assert "error" not in environment, (environment, made.stderr)
+    generation = environment["manifest"]["runtime_generation_fingerprint"]
+    before = call("runtime-evidence-read")
+    assert before["manifest"] == environment["manifest"] and before["input_available"] is True
+    assert before["binding"]["work_id"] == work and before["binding"]["reason"] == "research"
+    for wrong in [{"work_id": "use_test_foreign_work"}, {"owner": "foreign-owner"}, {"generation": "f" * 64}]:
+        assert "error" in call("runtime-evidence-read", **wrong)
+    released = call("runtime-work-release")
+    assert released["event"]["kind"] == "RuntimeWorkReleased"
+    assert released["event"]["generation_fingerprint"] == generation and released["event"]["work_id"] == work
+    assert released["event"]["reason"] == "research"
+    ledger = (runtime / "generation-events.jsonl").read_bytes()
+    assert call("runtime-work-release", at="2026-11-03T00:00:00Z") == released
+    assert (runtime / "generation-events.jsonl").read_bytes() == ledger
+    for wrong in [{"work_id": "use_test_foreign_work"}, {"owner": "foreign-owner"}, {"generation": "f" * 64}]:
+        assert "error" in call("runtime-work-release", **wrong)
+        assert (runtime / "generation-events.jsonl").read_bytes() == ledger
+    # Historical reading proves the retained original artifact. It must not
+    # manufacture its native manifests from this differently loaded current ELF.
+    other_image = tmp_path / "use_test_different_current_image"
+    other_image.write_bytes(executable.read_bytes() + b"\n# different current image; retained history unchanged\n")
+    other_image.chmod(0o500)
+    historical = call("runtime-evidence-read", binary=other_image)
+    assert historical["manifest"] == before["manifest"] and historical["binding"] == before["binding"]
+    assert historical["input_available"] is False
+    assert (runtime / "generation-events.jsonl").read_bytes() == ledger
+    retained_elf = next(runtime.glob("artifacts/*/*/artifact.elf"))
+    retained_elf.chmod(0o700)
+    with retained_elf.open("r+b") as stream:
+        stream.seek(-1, 2)
+        last = stream.read(1)
+        stream.seek(-1, 2)
+        stream.write(bytes([last[0] ^ 1]))
+    retained_elf.chmod(0o500)
+    assert "error" in call("runtime-evidence-read"), "retained physical bytes are mandatory even after release"

@@ -1417,6 +1417,7 @@ dependencies = [
  "httparse",
  "hyper",
  "hyper-util",
+ "onlyalpha-account",
  "onlyalpha-backtest",
  "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
@@ -1450,6 +1451,8 @@ dependencies = [
 name = "onlyalpha-backtest"
 version = "0.11.1"
 dependencies = [
+ "base64 0.23.1",
+ "flate2",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",
  "onlyalpha-domain",
@@ -1457,7 +1460,10 @@ dependencies = [
  "onlyalpha-market-data-pipeline",
  "onlyalpha-runtime-persistence",
  "onlyalpha-strategy",
+ "rusqlite",
  "serde_json",
+ "sha2",
+ "zstd",
 ]
 
 [[package]]
@@ -1657,6 +1663,7 @@ dependencies = [
  "futures-util",
  "http",
  "onlyalpha-domain",
+ "onlyalpha-fee",
  "onlyalpha-integration-contract",
  "onlyalpha-market-data-construction",
  "onlyalpha-metadata-json",
@@ -1707,12 +1714,15 @@ dependencies = [
 name = "onlyalpha-runtime-persistence"
 version = "0.11.1"
 dependencies = [
+ "base64 0.23.1",
  "bigdecimal",
+ "flate2",
  "onlyalpha-domain",
  "onlyalpha-execution",
  "onlyalpha-risk",
  "rusqlite",
  "serde_json",
+ "zstd",
 ]
 
 [[package]]

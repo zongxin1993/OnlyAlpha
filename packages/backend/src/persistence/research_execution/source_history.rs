@@ -225,11 +225,13 @@ fn run(v: &Value) -> Result<()> {
     if matches!(schema, 1..=3) {
         return Err(UNAVAILABLE);
     }
-    if schema != 4
-        || text(v, "origin_kind")? != "GENERAL"
-        || !v["strategy_research_composition_fingerprint"].is_null()
-    {
-        return Err(INVALID);
+    match schema {
+        4 if text(v, "origin_kind")? == "GENERAL"
+            && v["strategy_research_composition_fingerprint"].is_null() => {},
+        5 if text(v, "origin_kind")? == "PRIVATE_STRATEGY" => {
+            sha(v,"strategy_research_composition_fingerprint")?;
+        },
+        _ => return Err(INVALID),
     }
     let payload = text(v, "specification_payload")?;
     let canonical =
@@ -238,6 +240,7 @@ fn run(v: &Value) -> Result<()> {
         return Err(INVALID);
     }
     let spec: Value = serde_json::from_str(payload).map_err(|_| INVALID)?;
+    if spec["schema_version"].as_u64()!=Some(schema) { return Err(INVALID); }
     crate::application::research_run::verify_native_spec_record(&spec).map_err(|_| INVALID)?;
     if crate::application::factor_content::hash(&spec).map_err(|_| INVALID)?
         != text(v, "specification_fingerprint")?
@@ -302,4 +305,41 @@ fn run(v: &Value) -> Result<()> {
         _ => return Err(INVALID),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod strategy_origin_tests {
+    use super::*;
+    use serde_json::json;
+    fn row() -> Value {
+        let spec = crate::application::strategy_research::test_run_record();
+        json!({"run_id":"00000000-0000-4000-8000-000000000881","revision":0,"state":"QUEUED","specification_schema_version":5,
+            "specification_fingerprint":crate::application::factor_content::hash(&spec).unwrap(),
+            "specification_payload":onlyalpha_metadata_json::canonical_json(&spec.to_string(),8*1024*1024).unwrap(),
+            "admission_resolution_fingerprint":"d".repeat(64),"queued_at":"2026-11-01T00:00:00Z","started_at":null,"cancel_requested_at":null,"finished_at":null,
+            "research_result_fingerprint":null,"artifact_content_fingerprint":null,"calculation_execution_evidence_fingerprints":[],
+            "failure_phase":null,"failure_code":null,"failure_detail":null,"authoring_provenance":null,
+            "strategy_research_composition_fingerprint":"e".repeat(64),"origin_kind":"PRIVATE_STRATEGY"})
+    }
+    #[test]
+    fn native_strategy_source_has_explicit_origin_and_composition() {
+        let value = row();
+        validate_source_history_event("RESEARCH_RUN", &value).unwrap();
+        for change in ["general", "composition", "schema", "payload-schema", "authoring", "unknown"] {
+            let mut changed = value.clone();
+            match change {
+                "general" => changed["origin_kind"] = json!("GENERAL"),
+                "composition" => changed["strategy_research_composition_fingerprint"] = Value::Null,
+                "schema" => changed["specification_schema_version"] = json!(4),
+                "payload-schema" => { changed["origin_kind"]=json!("GENERAL");changed["strategy_research_composition_fingerprint"]=Value::Null;changed["specification_schema_version"]=json!(4); },
+                "authoring" => changed["authoring_provenance"] = json!({}),
+                "unknown" => changed["browser_grant"] = json!(true),
+                _ => unreachable!(),
+            }
+            assert!(
+                validate_source_history_event("RESEARCH_RUN", &changed).is_err(),
+                "{change}"
+            );
+        }
+    }
 }

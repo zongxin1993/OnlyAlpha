@@ -88,7 +88,7 @@ impl Policy {
             || !version(text(&v["policy_version"])?)
             || !matches!(
                 text(&v["gate"])?,
-                "RESEARCH_TO_BACKTEST" | "BACKTEST_TO_SIM"
+                "RESEARCH_TO_BACKTEST" | "MANUAL_STRATEGY_TO_BACKTEST" | "BACKTEST_TO_SIM"
             )
         {
             return Err(Error::Conflict);
@@ -116,7 +116,7 @@ impl Policy {
             if previous.is_some_and(|p| p >= id)
                 || !matches!(
                     text(&row["evidence_kind"])?,
-                    "RESEARCH_RESULT" | "BACKTEST_EVIDENCE"
+                    "RESEARCH_RESULT" | "STRATEGY_VALIDATION" | "BACKTEST_EVIDENCE"
                 )
                 || !decimal(text(&row["threshold"])?)
             {
@@ -212,6 +212,17 @@ pub struct Store {
     research: OwnedFd,
 }
 impl Store {
+    pub(crate) fn namespace(&self)->std::result::Result<SemanticStoreId,&'static str> {
+        deployment::load_semantic_store_id_at(&self.research).map_err(|e|e.code())
+    }
+
+    pub fn load_exact(&self, id:&str, revision:&str, max_work:usize)->Result<Policy> {
+        if !identifier(id) || !version(revision) {return Err(Error::Conflict);}
+        self.read_all(&mut Work(max_work))?.remove(&(id.into(),revision.into())).ok_or(Error::Missing)
+    }
+    pub fn policies(&self,max_work:usize)->Result<Vec<Policy>> {
+        Ok(self.read_all(&mut Work(max_work))?.into_values().collect())
+    }
     pub fn open(research: BorrowedFd<'_>) -> Result<Self> {
         Ok(Self {
             research: protected_files::duplicate_directory(research)?,
@@ -444,5 +455,330 @@ fn published_error(e: ReadError) -> Error {
         Error::Conflict
     } else {
         e.into()
+    }
+}
+
+/// Pure Policy1 evaluation over an owning-read evidence handle. Producing this
+/// value alone grants no durable Decision, Promotion, Runtime or LIVE authority.
+#[derive(Debug)]
+pub struct EvaluatedDecision {
+    record: Value,
+}
+impl EvaluatedDecision {
+    pub fn to_record(&self) -> Value {
+        self.record.clone()
+    }
+    pub fn fingerprint(&self) -> &str {
+        self.record["decision_fingerprint"]
+            .as_str()
+            .expect("evaluator constructed Decision fingerprint")
+    }
+}
+impl Policy {
+    /// Evaluate only manifest-owned Research counts; unsupported declarations
+    /// remain readable and fail closed at this execution boundary.
+    pub fn evaluate_research_counts(
+        &self,
+        evidence: &crate::persistence::research_evidence::VerifiedResearchCounts,
+    ) -> std::result::Result<EvaluatedDecision, &'static str> {
+        self.evaluate_scalars(
+            "RESEARCH_TO_BACKTEST",
+            evidence.subject_strategy_fingerprint(),
+            json!({"kind":"RESEARCH_RESULT","evidence_fingerprint":evidence.research_result_fingerprint(),
+                "locator_fingerprint":evidence.research_result_plan_fingerprint(),
+                "subject_binding_fingerprint":evidence.freeze_relation_fingerprint()}),
+            &BTreeMap::from([
+                ("research.calculation_result_count",evidence.calculation_result_count()),
+                ("research.statistics_result_count",evidence.statistics_result_count()),
+            ]),
+        )
+    }
+    /// A completed owning validation plus its exact Freeze is technical evidence,
+    /// not a scientific Result or a profitability claim. No DTO supplies the 1.
+    pub(crate) fn evaluate_manual_validation(
+        &self,
+        evidence: &crate::application::frozen_strategy::VerifiedManualBacktestEvidence,
+    ) -> std::result::Result<EvaluatedDecision, &'static str> {
+        evidence.verify_cut()?;
+        self.evaluate_scalars(
+            "MANUAL_STRATEGY_TO_BACKTEST",
+            evidence.subject_strategy_fingerprint(),
+            json!({"kind":"STRATEGY_VALIDATION","evidence_fingerprint":evidence.validation_fingerprint(),
+                "preparation_command_id":evidence.preparation_command_id(),
+                "subject_binding_fingerprint":evidence.freeze_relation_fingerprint()}),
+            &BTreeMap::from([("strategy.execution_validation_passed",1)]),
+        )
+    }
+    // Both real typed owners use one exact scalar evaluator. This private value
+    // helper cannot publish a Decision or manufacture an owning evidence handle.
+    fn evaluate_scalars(
+        &self, gate:&str, subject:&str, reference:Value, metrics:&BTreeMap<&str,u64>,
+    ) -> std::result::Result<EvaluatedDecision, &'static str> {
+        const UNSUPPORTED:&str="QUALIFICATION_POLICY_UNSUPPORTED";
+        const GATE:&str="QUALIFICATION_EVIDENCE_GATE_MISMATCH";
+        if self.record["gate"]!=gate {return Err(GATE);}
+        if self.record["missing_evidence_behavior"]!="FAIL"||self.record["aggregation"]!="ALL" {return Err(UNSUPPORTED);}
+        let mut results=Vec::new();let mut approved=true;
+        for criterion in self.record["criteria"].as_array().expect("validated Policy criteria") {
+            if criterion["evidence_kind"]!=reference["kind"] {return Err(GATE);}
+            let observed=metrics.get(criterion["metric"].as_str().ok_or(UNSUPPORTED)?).ok_or(UNSUPPORTED)?.to_string();
+            let value=observed.parse::<OnlyDecimal>().map_err(|_|UNSUPPORTED)?;
+            let threshold=criterion["threshold"].as_str().expect("validated Policy threshold").parse::<OnlyDecimal>().map_err(|_|UNSUPPORTED)?;
+            let passed=match criterion["comparison"].as_str() {
+                Some("GT")=>value>threshold,Some("GE")=>value>=threshold,Some("EQ")=>value==threshold,
+                Some("LE")=>value<=threshold,Some("LT")=>value<threshold,_=>return Err(UNSUPPORTED),
+            };
+            approved&=passed;
+            results.push(json!({"criterion_id":criterion["criterion_id"],"source_evidence_fingerprint":reference["evidence_fingerprint"],
+                "metric":criterion["metric"],"observed_value":observed,"comparison":criterion["comparison"],"threshold":criterion["threshold"],
+                "outcome":if passed{"PASS"}else{"FAIL"}}));
+        }
+        let mut record=json!({"schema_version":1,"subject_strategy_fingerprint":subject,"gate":self.record["gate"],
+            "policy_id":self.record["policy_id"],"policy_version":self.record["policy_version"],"policy_fingerprint":self.record["policy_fingerprint"],
+            "evidence":[reference],"criterion_results":results,"outcome":if approved{"APPROVED"}else{"REJECTED"}});
+        let mut identity=record.clone();identity["domain"]=json!("onlyalpha.strategy.qualification-decision");
+        record["decision_fingerprint"]=json!(record_fingerprint(&identity));
+        Ok(EvaluatedDecision{record})
+    }
+}
+
+#[cfg(test)]
+mod research_counts_tests {
+    use super::*;
+    use crate::persistence::research_evidence::VerifiedResearchCounts;
+
+    fn policy_record() -> Value {
+        json!({"schema_version":1,"policy_id":"experimental-backtest","policy_version":"1",
+        "gate":"RESEARCH_TO_BACKTEST","missing_evidence_behavior":"FAIL","aggregation":"ALL",
+        "criteria":[
+            {"criterion_id":"calculation-count","evidence_kind":"RESEARCH_RESULT","metric":"research.calculation_result_count","comparison":"GE","threshold":"1"},
+            {"criterion_id":"statistics-count","evidence_kind":"RESEARCH_RESULT","metric":"research.statistics_result_count","comparison":"GE","threshold":"2"}
+        ]})
+    }
+    fn signed_policy(mut record: Value) -> Value {
+        record.as_object_mut().unwrap().remove("policy_fingerprint");
+        let mut identity = record.clone();
+        identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
+        record["policy_fingerprint"] = json!(record_fingerprint(&identity));
+        record
+    }
+    fn policy(record: Value) -> Policy {
+        Policy::from_json(&signed_policy(record).to_string(), DOCUMENT_WORK).unwrap()
+    }
+    fn counts(statistics: u64, calculations: u64) -> VerifiedResearchCounts {
+        // Value-only input. This cfg(test) constructor grants no persisted Evidence,
+        // evaluator publication, command receipt, Promotion or Runtime authority.
+        VerifiedResearchCounts::for_value_test(
+            "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
+            "d".repeat(64),
+            statistics,
+            calculations,
+        )
+    }
+    fn expected_error(record: Value, code: &str) {
+        match policy(record).evaluate_research_counts(&counts(7, 3)) {
+            Ok(_) => panic!("unsupported policy must fail closed: {code}"),
+            Err(error) => assert_eq!(error.to_string(), code),
+        }
+    }
+    #[test]
+    fn existing_decision1_wire_and_identity_bind_only_exact_scientific_inputs() {
+        let p = policy(policy_record());
+        let first = p.evaluate_research_counts(&counts(7, 3)).unwrap();
+        let record = first.to_record();
+        let expected = json!({"schema_version":1,"subject_strategy_fingerprint":"a".repeat(64),
+            "gate":"RESEARCH_TO_BACKTEST","policy_id":"experimental-backtest","policy_version":"1",
+            "policy_fingerprint":"847daa4ac92199b563b0aebd4f519c37570aa03489644944278918d14f611849",
+            "evidence":[{"kind":"RESEARCH_RESULT","evidence_fingerprint":"b".repeat(64),"locator_fingerprint":"c".repeat(64),"subject_binding_fingerprint":"d".repeat(64)}],
+            "criterion_results":[
+                {"criterion_id":"calculation-count","source_evidence_fingerprint":"b".repeat(64),"metric":"research.calculation_result_count","observed_value":"3","comparison":"GE","threshold":"1","outcome":"PASS"},
+                {"criterion_id":"statistics-count","source_evidence_fingerprint":"b".repeat(64),"metric":"research.statistics_result_count","observed_value":"7","comparison":"GE","threshold":"2","outcome":"PASS"}
+            ],"outcome":"APPROVED","decision_fingerprint":"2e9690d17ff6336cf95ee035be5042bedd91ca742217e71604c2f3db059f2a57"});
+        assert_eq!(record, expected);
+        assert_eq!(
+            first.fingerprint(),
+            "2e9690d17ff6336cf95ee035be5042bedd91ca742217e71604c2f3db059f2a57"
+        );
+        assert_eq!(
+            p.evaluate_research_counts(&counts(7, 3))
+                .unwrap()
+                .to_record(),
+            record
+        );
+        for forbidden in ["actor", "recorded_at", "created_at", "host", "comment"] {
+            assert!(record.get(forbidden).is_none());
+        }
+    }
+    #[test]
+    fn all_five_comparisons_are_exact_at_equality_and_decimal_neighbors() {
+        for (comparison, equal, below, above) in [
+            ("GT", false, true, false),
+            ("GE", true, true, false),
+            ("EQ", true, false, false),
+            ("LE", true, false, true),
+            ("LT", false, false, true),
+        ] {
+            for (threshold, approved) in [
+                ("3", equal),
+                ("2.9999999999999999999999999999999999999", below),
+                ("3.0000000000000000000000000000000000001", above),
+            ] {
+                let mut p = policy_record();
+                p["criteria"].as_array_mut().unwrap().truncate(1);
+                p["criteria"][0]["comparison"] = json!(comparison);
+                p["criteria"][0]["threshold"] = json!(threshold);
+                let result = policy(p)
+                    .evaluate_research_counts(&counts(7, 3))
+                    .unwrap()
+                    .to_record();
+                assert_eq!(
+                    result["outcome"],
+                    if approved { "APPROVED" } else { "REJECTED" },
+                    "{comparison} {threshold}"
+                );
+                assert_eq!(result["criterion_results"][0]["observed_value"], "3");
+                assert_eq!(result["criterion_results"][0]["threshold"], threshold);
+            }
+        }
+    }
+    #[test]
+    fn count_values_are_exact_above_f64_integer_precision_and_at_u64_boundary() {
+        for count in [9_007_199_254_740_993_u64, u64::MAX] {
+            let mut p = policy_record();
+            p["criteria"].as_array_mut().unwrap().truncate(1);
+            p["criteria"][0]["comparison"] = json!("EQ");
+            p["criteria"][0]["threshold"] = json!(count.to_string());
+            let p = policy(p);
+            let result = p
+                .evaluate_research_counts(&counts(0, count))
+                .unwrap()
+                .to_record();
+            assert_eq!(result["outcome"], "APPROVED");
+            assert_eq!(
+                result["criterion_results"][0]["observed_value"],
+                count.to_string()
+            );
+            assert_eq!(
+                p.evaluate_research_counts(&counts(0, count - 1))
+                    .unwrap()
+                    .to_record()["outcome"],
+                "REJECTED"
+            );
+        }
+    }
+    #[test]
+    fn all_aggregation_retains_failed_results_and_exact_zero_counts() {
+        let result = policy(policy_record())
+            .evaluate_research_counts(&counts(0, 3))
+            .unwrap()
+            .to_record();
+        assert_eq!(result["outcome"], "REJECTED");
+        assert_eq!(result["criterion_results"].as_array().unwrap().len(), 2);
+        assert_eq!(result["criterion_results"][0]["outcome"], "PASS");
+        assert_eq!(result["criterion_results"][1]["outcome"], "FAIL");
+        assert_eq!(result["criterion_results"][1]["observed_value"], "0");
+        let original = policy(policy_record())
+            .evaluate_research_counts(&counts(7, 3))
+            .unwrap();
+        assert_ne!(
+            original.fingerprint(),
+            policy(policy_record())
+                .evaluate_research_counts(&counts(8, 3))
+                .unwrap()
+                .fingerprint()
+        );
+    }
+    #[test]
+    fn history_reader_preserves_unsupported_declarations_but_evaluation_fails_closed() {
+        for (field, value, code) in [
+            ("aggregation", "ANY", "QUALIFICATION_POLICY_UNSUPPORTED"),
+            (
+                "missing_evidence_behavior",
+                "IGNORE",
+                "QUALIFICATION_POLICY_UNSUPPORTED",
+            ),
+            (
+                "gate",
+                "BACKTEST_TO_SIM",
+                "QUALIFICATION_EVIDENCE_GATE_MISMATCH",
+            ),
+        ] {
+            let mut p = policy_record();
+            p[field] = json!(value);
+            expected_error(p, code);
+        }
+        for (field, value, code) in [
+            (
+                "metric",
+                "research.unknown",
+                "QUALIFICATION_POLICY_UNSUPPORTED",
+            ),
+            (
+                "metric",
+                "research.net_return",
+                "QUALIFICATION_POLICY_UNSUPPORTED",
+            ),
+            ("comparison", "APPROX", "QUALIFICATION_POLICY_UNSUPPORTED"),
+            ("comparison", "NE", "QUALIFICATION_POLICY_UNSUPPORTED"),
+            (
+                "evidence_kind",
+                "BACKTEST_EVIDENCE",
+                "QUALIFICATION_EVIDENCE_GATE_MISMATCH",
+            ),
+        ] {
+            let mut p = policy_record();
+            p["criteria"][1][field] = json!(value);
+            // A failed earlier count must not hide unknown semantics later in ALL.
+            p["criteria"][0]["threshold"] = json!("999");
+            expected_error(p, code);
+        }
+    }
+    #[test]
+    fn strict_policy1_identity_canonical_counts_and_declared_criteria_are_preserved() {
+        let original = signed_policy(policy_record());
+        assert_eq!(
+            Policy::from_json(&original.to_string(), DOCUMENT_WORK)
+                .unwrap()
+                .to_record(),
+            original
+        );
+        for attack in 0..6 {
+            let mut p = original.clone();
+            match attack {
+                0 => p["extra"] = json!(true),
+                1 => p["criteria"].as_array_mut().unwrap().reverse(),
+                2 => p["criteria"][1]["criterion_id"] = p["criteria"][0]["criterion_id"].clone(),
+                3 => p["criteria"][0]["threshold"] = json!("1.0"),
+                4 => p["criteria"][0]["threshold"] = json!("1e0"),
+                _ => p["policy_fingerprint"] = json!("0".repeat(64)),
+            }
+            if attack != 5 {
+                p = signed_policy(p);
+            }
+            assert!(
+                Policy::from_json(&p.to_string(), DOCUMENT_WORK).is_err(),
+                "attack {attack}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod manual_policy_declaration_tests {
+    use super::*;
+    #[test]
+    fn exact_manual_policy_declares_execution_validation_without_research_statistics() {
+        let mut body=json!({"schema_version":1,"policy_id":"manual-backtest","policy_version":"1",
+            "gate":"MANUAL_STRATEGY_TO_BACKTEST","missing_evidence_behavior":"FAIL","aggregation":"ALL",
+            "criteria":[{"criterion_id":"execution-validation","evidence_kind":"STRATEGY_VALIDATION",
+                "metric":"strategy.execution_validation_passed","comparison":"EQ","threshold":"1"}]});
+        let mut identity=body.clone();identity["domain"]=json!("onlyalpha.strategy.qualification-policy");
+        body["policy_fingerprint"]=json!(record_fingerprint(&identity));
+        assert_eq!(Policy::from_json(&body.to_string(),DOCUMENT_WORK).unwrap().to_record(),body);
+        let mut wrong=body;wrong["gate"]=json!("MANUAL_STRATEGY_TO_LIVE");
+        let mut identity=wrong.clone();identity.as_object_mut().unwrap().remove("policy_fingerprint");identity["domain"]=json!("onlyalpha.strategy.qualification-policy");wrong["policy_fingerprint"]=json!(record_fingerprint(&identity));
+        assert!(Policy::from_json(&wrong.to_string(),DOCUMENT_WORK).is_err());
     }
 }

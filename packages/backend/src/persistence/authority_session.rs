@@ -111,6 +111,21 @@ impl AuthoritySession {
         self.client = owned.client.take();
         self.driver = owned.driver.take();
     }
+    /// Re-prove the exact original physical guard while the caller retains its
+    /// transaction borrow. This grants no permission or alternate connection.
+    pub(crate) async fn verify_transaction(
+        tx: &tokio_postgres::Transaction<'_>,
+    ) -> Result<(), AuthorityError> {
+        let row = tokio::time::timeout(GUARD_TIMEOUT, tx.query_one(GUARD_PROOF, &[&false]))
+            .await
+            .map_err(|_| AuthorityError::Unavailable)?
+            .map_err(|_| AuthorityError::Unavailable)?;
+        if row.try_get::<_, bool>(0).map_err(|_| AuthorityError::Unavailable)? {
+            Ok(())
+        } else {
+            Err(AuthorityError::Lost)
+        }
+    }
     pub async fn verify(&mut self) -> Result<(), AuthorityError> {
         // Temporarily move ownership into the future. If the query is cancelled
         // while Pending, its Drop aborts the driver and the original stays lost.

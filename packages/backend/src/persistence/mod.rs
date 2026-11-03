@@ -29,3 +29,11 @@ pub mod research_preparation;
 pub mod private_strategy_postgres;
 
 pub mod strategy_research;
+
+pub mod backtest_run;
+pub mod backtest_evidence;
+pub(crate) mod strategy_validation;
+pub mod strategy_promotion;
+pub mod qualification_decision;
+
+pub(crate) mod qualification_commands;

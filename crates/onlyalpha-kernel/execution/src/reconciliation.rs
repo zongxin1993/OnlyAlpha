@@ -23,40 +23,39 @@ impl LedgerReconciliation {
 }
 impl Components {
     // Shared complete-source guard for read-only Execution projections. The Store owns immutable records.
-    pub(crate) fn verified_source<S: Store, F: FnMut(&Record) -> Result<(), Error>>(
-        &self,
-        store: &S,
-        mut visit: F,
-    ) -> Result<Value, Error> {
-        self.ready_source(store)?;
+    pub(crate) fn verified_source<S:Store,F:FnMut(&Record)->Result<(),Error>>(&self,store:&S,visit:F)->Result<Value,Error>{
+        let _=self.payload_hashes()?;
+        let genesis=Self::genesis_payload_hashes(&self.config)?;
+        self.verified_source_with_genesis(store,&genesis,visit)
+    }
+    fn verified_source_with_genesis<S:Store,F:FnMut(&Record)->Result<(),Error>>(&self,store:&S,genesis:&[String],mut visit:F)->Result<Value,Error>{
+        let owner_hashes=self.payload_hashes()?;
+        self.ready_source_with_genesis(store,genesis)?;
         let mut head = Value::Null;
         let mut time = Value::Null;
-        let owners = self.payloads()?;
         if object(&self.meta["transactions"])?.len() as u64 != self.sequence {
             return Err(err("RECONCILIATION_TRANSACTION_COMPLETENESS"));
         }
         // Capture one exact immutable prefix for the consumer and source identity.
-        let mut predecessor: Vec<_> = Self::new(self.config.clone())?
-            .payloads()?
-            .iter()
-            .map(hash)
-            .collect();
+        let mut predecessor=genesis.to_vec();
+        let configuration_hash=hash(&self.config);
         for sequence in 1..=self.sequence {
             let record = store
                 .get(sequence)?
                 .ok_or_else(|| err("RECONCILIATION_SOURCE_MISSING"))?;
             let prepared = record.prepared();
+            self.require_account_checkpoint(&prepared.value()["projections"][2]["result"])?;
             if self.meta["transactions"][sequence.to_string()] != prepared.id() {
                 return Err(err("RECONCILIATION_TRANSACTION_CAUSE"));
             }
             if !record.ready()
                 || prepared.sequence() != sequence
-                || prepared.value["config_hash"] != hash(&self.config)
+                || prepared.value()["config_hash"] != configuration_hash
             {
                 return Err(err("RECONCILIATION_SOURCE_PREFIX"));
             }
             for (i, previous) in predecessor.iter_mut().enumerate() {
-                let projection = &prepared.value["projections"][i];
+                let projection = &prepared.value()["projections"][i];
                 if projection["before_hash"] != *previous {
                     return Err(err("RECONCILIATION_SOURCE_LINEAGE"));
                 }
@@ -83,16 +82,16 @@ impl Components {
             }
             visit(&record)?;
             head =
-                json!({"transaction":prepared.id(),"payload_hash":prepared.value["payload_hash"]});
+                json!({"transaction":prepared.id(),"payload_hash":prepared.value()["payload_hash"]});
             time = prepared.input()["time"].clone();
         }
-        if predecessor != owners.iter().map(hash).collect::<Vec<_>>() {
+        if predecessor.as_slice() != owner_hashes {
             return Err(err("RECONCILIATION_SOURCE_HEAD"));
         }
         Ok(
-            json!({"configuration":hash(&self.config),"sequence":self.sequence,
+            json!({"configuration":configuration_hash,"sequence":self.sequence,
             "time":time,"head":head,
-            "owners":COMPONENTS.iter().zip(&owners).map(|(name,cp)|json!({"component":name,"checkpoint":hash(cp)})).collect::<Vec<_>>()}),
+            "owners":COMPONENTS.iter().zip(owner_hashes).map(|(name,identity)|json!({"component":name,"checkpoint":identity})).collect::<Vec<_>>()}),
         )
     }
     /// Final-barrier/recovery diagnostic. An incomplete source is an error, not MATCHED.
@@ -104,10 +103,11 @@ impl Components {
                 .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?,
         ))?;
         let mut expected = BTreeMap::new();
-        let source = self.verified_source(store, |record| {
+        let owners=self.payloads()?;
+        let genesis=Self::genesis_payload_hashes(&self.config)?;
+        let source = self.verified_source_with_genesis(store,&genesis,|record| {
             record_fee(record, &mut fee_owner, &mut expected)
         })?;
-        let owners = self.payloads()?;
         if fee_owner.checkpoint() != *checkpoint {
             return Err(err("RECONCILIATION_FEE_HISTORY_UNAVAILABLE"));
         }

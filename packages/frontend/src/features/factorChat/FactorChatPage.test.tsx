@@ -1,6 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { StrictMode } from "react";
+import { Link, MemoryRouter } from "react-router-dom";
 import { FactorChatPage } from "./FactorChatPage";
 import { accessKey, request } from "./api";
 
@@ -195,7 +197,11 @@ it("keeps Factor confirmation across Study heads and withdraws only the Study wh
             throw new Error("unexpected request " + path);
         })
     );
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     await screen.findByRole("heading", { name: "已确认因子" });
     expect(screen.getByText("计算内容已确认并保存")).toBeVisible();
     await screen.findByText("固定样本和序列依赖修正");
@@ -384,7 +390,11 @@ it.each([false, true])(
                 throw new Error("unexpected request " + path);
             })
         );
-        const first = render(<FactorChatPage />);
+        const first = render(
+            <MemoryRouter>
+                <FactorChatPage />
+            </MemoryRouter>
+        );
         await screen.findByRole("heading", { name: "已确认因子" });
         fireEvent.click(screen.getByRole("button", { name: "讨论研究条件" }));
         if (existing) {
@@ -396,7 +406,11 @@ it.each([false, true])(
         await screen.findByRole("button", { name: "再次提交同一授权" });
         expect(messagePosts).toBe(0);
         first.unmount();
-        render(<FactorChatPage />);
+        render(
+            <MemoryRouter>
+                <FactorChatPage />
+            </MemoryRouter>
+        );
         await screen.findByRole("heading", { name: "已确认因子" });
         fireEvent.click(screen.getByRole("button", { name: "更多研究操作" }));
         fireEvent.click(screen.getByRole("button", { name: "核对并重新载入" }));
@@ -589,7 +603,11 @@ it.each([true, false])(
                 throw new Error(path);
             })
         );
-        render(<FactorChatPage />);
+        render(
+            <MemoryRouter>
+                <FactorChatPage />
+            </MemoryRouter>
+        );
         await waitFor(() => {
             expect(screen.getByRole("button", { name: "确认本次研究" })).toBeEnabled();
         });
@@ -615,3 +633,279 @@ it.each([true, false])(
         ).toEqual([]);
     }
 );
+
+it("shows saved Backtest interpretation as read-only with its original result link", async () => {
+    const run = "00000000-0000-4000-8000-000000009301";
+    const reference = {
+        run_id: run,
+        specification_fingerprint: factorFp,
+        strategy_fingerprint: factorFp,
+        evidence_fingerprint: studyFp,
+        result_fingerprint: newStudyFp,
+        determinism_fingerprint: newStudyFp
+    };
+    const current = {
+        id: sid,
+        workflow: factorFp,
+        current_workflow: factorFp,
+        model_revision: studyFp,
+        head: studyHead,
+        consumed: 1,
+        model_call_limit: 3,
+        messages: [
+            { role: "user", content: "解释本次回测" },
+            { role: "assistant", content: "样本较短，不能据此判断长期表现。" }
+        ],
+        status: "READY",
+        topic: "BACKTEST_ANALYSIS",
+        candidate: null,
+        study: null,
+        factor_reference: null,
+        study_reference: null,
+        backtest_reference: reference,
+        execution_admitted: false
+    };
+    vi.mocked(request).mockImplementation((path) =>
+        Promise.resolve().then(() => {
+            if (path === "/api/v1/agent/models") return { items: [] } as never;
+            if (path === "/api/v1/agent/sessions") return { items: [current] } as never;
+            if (path === `/api/v1/agent/sessions/${sid}/conversation`)
+                return {
+                    id: sid,
+                    head: studyHead,
+                    model_revision: studyFp,
+                    model: {
+                        name: "原解读模型",
+                        model_id: "configured",
+                        model_version: "recorded-v1"
+                    },
+                    turns: [
+                        {
+                            head: studyHead,
+                            topic: "BACKTEST_ANALYSIS",
+                            user: "解释本次回测",
+                            assistant: "样本较短，不能据此判断长期表现。",
+                            status: "READY",
+                            candidate: null,
+                            study: null,
+                            factor_reference: null,
+                            study_reference: null,
+                            backtest_reference: reference
+                        }
+                    ]
+                } as never;
+            if (path === "/api/v2/agent-connection")
+                return {
+                    schema_version: 1,
+                    connection: {
+                        schema_version: 1,
+                        agent_url: access.agent_url,
+                        grant_id: cid,
+                        service_subject: "discovery",
+                        credential_sha256: factorFp
+                    },
+                    grant_state: "ACTIVE"
+                } as never;
+            throw new Error("analysis history attempted another operation " + path);
+        })
+    );
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
+    expect(await screen.findByText("回测结果解读，仅供分析")).toBeVisible();
+    expect(screen.getByText("样本较短，不能据此判断长期表现。")).toBeVisible();
+    expect(screen.getByRole("link", { name: "查看原回测结果" })).toHaveAttribute(
+        "href",
+        `/backtest/runs/${run}`
+    );
+    expect(screen.getByRole("textbox", { name: "告诉助手你的想法" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    expect(
+        screen.queryByRole("button", { name: /保存当前因子建议|保存当前研究建议|确认当前因子/ })
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "告诉助手你的想法" }), {
+        target: { value: "修改并提交策略" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => {
+        expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
+    });
+});
+
+function studySelectionHistory(delayedOriginalStudy?: Promise<unknown>) {
+    const otherSession = "00000000-0000-4000-8000-000000000091";
+    const factorTwo = "1".repeat(64),
+        studyTwo = "2".repeat(64);
+    const chats = [sid, otherSession].map((id, index) => ({
+        id,
+        workflow: factorFp,
+        current_workflow: factorFp,
+        model_revision: studyFp,
+        head: studyHead,
+        consumed: 2,
+        model_call_limit: 10,
+        messages: [{ role: "user", content: index === 0 ? "原研究" : "另一项研究" }],
+        status: "READY",
+        topic: "STUDY",
+        candidate: null,
+        study: advice,
+        factor_reference: {
+            command: cid,
+            head: factorHead,
+            fingerprint: index === 0 ? factorFp : factorTwo
+        },
+        study_reference: {
+            command: studyCid,
+            head: studyHead,
+            fingerprint: index === 0 ? studyFp : studyTwo
+        },
+        execution_admitted: false
+    }));
+    const studyFor = (index: number) => ({
+        schema_version: 1,
+        fingerprint: index === 0 ? studyFp : studyTwo,
+        is_current: true,
+        withdrawn: false,
+        snapshot: {
+            schema_version: 1,
+            owner: "owner",
+            factor_proposal_fingerprint: index === 0 ? factorFp : factorTwo,
+            origin: { session_id: index === 0 ? sid : otherSession, event_fingerprint: studyHead },
+            advice
+        }
+    });
+    vi.mocked(request).mockImplementation((path) =>
+        Promise.resolve().then(() => {
+            if (path === "/api/v1/agent/models") return { items: [] } as never;
+            if (path === "/api/v1/agent/sessions") return { items: chats } as never;
+            if (path === "/api/v2/agent-connection")
+                return {
+                    schema_version: 1,
+                    connection: {
+                        schema_version: 1,
+                        agent_url: access.agent_url,
+                        grant_id: cid,
+                        service_subject: "discovery",
+                        credential_sha256: factorFp
+                    },
+                    grant_state: "ACTIVE"
+                } as never;
+            for (const [index, chat] of chats.entries()) {
+                const factor = index === 0 ? factorFp : factorTwo,
+                    study = index === 0 ? studyFp : studyTwo;
+                if (path === `/api/v1/agent/sessions/${chat.id}/conversation`)
+                    return {
+                        id: chat.id,
+                        head: studyHead,
+                        model_revision: studyFp,
+                        model: { name: "当前模型", model_id: "configured", model_version: "v1" },
+                        turns: []
+                    } as never;
+                if (path === `/api/v2/factor-proposals/${factor}`)
+                    return {
+                        schema_version: 1,
+                        fingerprint: factor,
+                        is_current: true,
+                        withdrawn: false,
+                        snapshot: {
+                            schema_version: 1,
+                            owner: "owner",
+                            factor_id: "private.factor",
+                            origin: { session_id: chat.id, event_fingerprint: factorHead },
+                            preview: {
+                                ...preview,
+                                name: index === 0 ? "已确认因子" : "另一个已确认因子"
+                            }
+                        },
+                        confirmation: {
+                            schema_version: 1,
+                            command_id: cid,
+                            operation_fingerprint: factor,
+                            effect: { proposal_fingerprint: factor }
+                        }
+                    } as never;
+                if (path === `/api/v2/factor-studies/${study}`)
+                    return index === 0 && delayedOriginalStudy !== undefined
+                        ? (delayedOriginalStudy as never)
+                        : (studyFor(index) as never);
+            }
+            throw new Error("unexpected study selection operation " + path);
+        })
+    );
+    return { otherSession, factorTwo, studyTwo, originalStudy: studyFor(0) };
+}
+it("explicitly selects existing Factor and Study for a saved strategy and allows leaving selection without changing research", async () => {
+    studySelectionHistory();
+    const strategyId = "private.strategy.saved";
+    render(
+        <StrictMode>
+            <MemoryRouter initialEntries={[`/factor-research?strategy=${strategyId}`]}>
+                <FactorChatPage />
+            </MemoryRouter>
+        </StrictMode>
+    );
+    expect(await screen.findByText("为已保存策略选择研究条件")).toBeVisible();
+    const choose = await screen.findByRole("link", { name: "用于当前策略" });
+    expect(choose).toHaveAttribute(
+        "href",
+        `/strategies/${strategyId}?factor=${factorFp}&study=${studyFp}`
+    );
+    expect(screen.queryByRole("link", { name: "创建策略" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "退出选择" }));
+    expect(await screen.findByRole("link", { name: "创建策略" })).toHaveAttribute(
+        "href",
+        "/strategies/new"
+    );
+    expect(screen.queryByText("为已保存策略选择研究条件")).not.toBeInTheDocument();
+    expect(localStorage.getItem("onlyalpha.agent.chat.selected")).toBe(sid);
+    expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
+});
+it("updates the saved strategy selection on route changes without retaining the previous target", async () => {
+    studySelectionHistory();
+    render(
+        <MemoryRouter initialEntries={["/factor-research?strategy=private.strategy.first"]}>
+            <Link to="/factor-research?strategy=private.strategy.second">改选待准备策略</Link>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
+    expect(await screen.findByRole("link", { name: "用于当前策略" })).toHaveAttribute(
+        "href",
+        `/strategies/private.strategy.first?factor=${factorFp}&study=${studyFp}`
+    );
+    fireEvent.click(screen.getByRole("link", { name: "改选待准备策略" }));
+    expect(screen.getByRole("link", { name: "用于当前策略" })).toHaveAttribute(
+        "href",
+        `/strategies/private.strategy.second?factor=${factorFp}&study=${studyFp}`
+    );
+    expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
+});
+it("does not select a stale Study when the user changes research while its read is pending", async () => {
+    let resolveStudy!: (value: unknown) => void;
+    const oldStudy = new Promise<unknown>((resolve) => {
+        resolveStudy = resolve;
+    });
+    const history = studySelectionHistory(oldStudy);
+    render(
+        <MemoryRouter initialEntries={["/factor-research?strategy=private.strategy.saved"]}>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
+    await screen.findByRole("heading", { name: "已确认因子" });
+    expect(screen.queryByRole("link", { name: "用于当前策略" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("另一项研究"));
+    const expected = `/strategies/private.strategy.saved?factor=${history.factorTwo}&study=${history.studyTwo}`;
+    expect(await screen.findByRole("link", { name: "用于当前策略" })).toHaveAttribute(
+        "href",
+        expected
+    );
+    await act(() =>
+        Promise.resolve().then(() => {
+            resolveStudy(history.originalStudy);
+        })
+    );
+    expect(screen.getByRole("link", { name: "用于当前策略" })).toHaveAttribute("href", expected);
+    expect(localStorage.getItem("onlyalpha.agent.chat.selected")).toBe(history.otherSession);
+    expect(vi.mocked(request).mock.calls.every(([, , body]) => body === undefined)).toBe(true);
+});

@@ -11,8 +11,20 @@ type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "PRIVATE_STRATEGY_RESEARCH_CONTEXT_INVALID";
 const UNAVAILABLE: &str = "PRIVATE_STRATEGY_RESEARCH_CONTEXT_UNAVAILABLE";
 const WORK: usize = 8 * 1024 * 1024;
+mod preparation;
+pub use preparation::StrategyPrepareInput;
+mod specification;
+pub use specification::Specification;
+mod run_specification;
+pub use run_specification::RunSpecification;
+#[cfg(test)]
+pub(crate) use run_specification::tests::record as test_run_record;
+mod execution;
+pub use execution::StrategyEvaluation;
+pub(crate) use execution::{observe_graph,source_revision,planned_graph_validation};
 mod decision;
 pub use decision::DecisionGraph;
+pub(crate) use decision::canonical_input_window;
 mod resolution;
 pub use resolution::ResolvedCalculations;
 fn mapped(e: &'static str) -> &'static str {
@@ -402,6 +414,123 @@ mod tests {
         ))
         .unwrap()
     }
+    #[test]
+    fn strategy_input_window_pins_warmup_without_reading_future_target_rows() {
+        let fixture = calculation_fixture();
+        let mut value = strategy();
+        value["calculations"] = fixture["instances"].clone();
+        value["factor_revision_dependencies"] = fixture["factor_revision_dependencies"].clone();
+        let graph =
+            DecisionGraph::derive(&Definition::from_record(&value).unwrap(), &fixture["nodes"])
+                .unwrap();
+        let context = Context::new(context()).unwrap();
+        let bar = 60_000_000_000_u64;
+        let window = graph.input_window(&context, bar).unwrap();
+        assert_eq!(window["observation_capacity"], 720);
+        assert_eq!(window["warmup_bars"], 20);
+        assert_eq!(window["dataset_observation_capacity"], 740);
+        assert_eq!(window["dataset_columns"], json!(["close", "volume"]));
+        assert_eq!(window["dataset_event_end_ns"], window["observation_end_ns"]);
+        assert_eq!(
+            window["target_future_policy"],
+            "WITHIN_OBSERVATION_INTERVAL"
+        );
+        let parse = |k: &str| window[k].as_str().unwrap().parse::<u64>().unwrap();
+        assert_eq!(
+            parse("observation_start_ns") - parse("dataset_event_start_ns"),
+            20 * bar
+        );
+        assert_eq!(
+            parse("observation_end_ns") - parse("observation_start_ns"),
+            720 * bar
+        );
+        assert_eq!(
+            window["decision_graph_fingerprint"],
+            graph.graph().fingerprint()
+        );
+        assert!(graph.input_window(&context, 0).is_err());
+        assert!(graph.input_window(&context, bar - 1).is_err());
+        assert!(window.get("strategy_fingerprint").is_none());
+    }
+    #[test]
+    fn full_graph_columns_propagate_each_backend_through_native_signals() {
+        let fixture = calculation_fixture();
+        let mut value = strategy();
+        value["signals"]["entry"]["operator"] = json!(">=");
+        value["signals"]["entry"]["right"]["value"]["value"] = json!("0.001");
+        value["calculations"] = fixture["instances"].clone();
+        value["factor_revision_dependencies"] = fixture["factor_revision_dependencies"].clone();
+        let definition = Definition::from_record(&value).unwrap();
+        let graph = DecisionGraph::derive(&definition, &fixture["nodes"]).unwrap();
+        let rows = json!([
+            {"at_ns":60,"values":{"close":"100"}},
+            {"at_ns":120,"values":{"close":"100"}},
+            {"at_ns":180,"values":{"close":"100"}},
+            {"at_ns":240,"values":{"close":"100"}},
+            {"at_ns":300,"values":{"close":"100"}},
+            {"at_ns":360,"values":{"close":"100"}}
+        ]);
+        let mut numeric = fixture["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| {
+                let values = if node["definition"]["kind"] == "FACTOR" {
+                    json!([null, "0.001", "0", "-0.001", "0.000999999999999999", null])
+                } else {
+                    json!([null, "100", "100", "100", "100", null])
+                };
+                json!({"node_fingerprint":node["definition_fingerprint"],"values":{"value":values}})
+            })
+            .collect::<Vec<_>>();
+        let observed = graph.evaluate_columns(&rows, &json!(numeric)).unwrap();
+        let record = graph.record();
+        let output = |values: &Value, role: &str| {
+            values["outputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| {
+                    row["node_fingerprint"] == record["signal_semantics"][role]["node_fingerprint"]
+                })
+                .unwrap()["values"]["value"]
+                .clone()
+        };
+        assert_eq!(
+            output(&observed, "entry"),
+            json!([null, true, false, false, false, null])
+        );
+        assert_eq!(
+            output(&observed, "exit"),
+            json!([null, false, true, true, false, null])
+        );
+        assert_eq!(
+            output(&observed, "eligibility"),
+            json!([true, true, true, true, true, true])
+        );
+        assert_eq!(observed["outputs"].as_array().unwrap().len(), 9);
+        assert!(observed.get("strategy_fingerprint").is_none());
+        assert!(observed.get("equivalence_evidence_fingerprint").is_none());
+        let factor = numeric
+            .iter_mut()
+            .find(|row| {
+                fixture["nodes"].as_array().unwrap().iter().any(|n| {
+                    n["definition_fingerprint"] == row["node_fingerprint"]
+                        && n["definition"]["kind"] == "FACTOR"
+                })
+            })
+            .unwrap();
+        factor["values"]["value"][1] = json!("0.0009");
+        let stream = graph.evaluate_columns(&rows, &json!(numeric)).unwrap();
+        assert_ne!(output(&observed, "entry"), output(&stream, "entry"));
+        assert!(graph.evaluate_columns(&rows, &json!([])).is_err());
+        let mut extra = numeric.clone();
+        extra.push(numeric[0].clone());
+        assert!(graph.evaluate_columns(&rows, &json!(extra)).is_err());
+        numeric[0]["values"]["value"][0] = json!(true);
+        assert!(graph.evaluate_columns(&rows, &json!(numeric)).is_err());
+    }
+
     #[test]
     fn decision_graph_lowers_the_exact_calculations_and_three_native_terminals() {
         let fixture = calculation_fixture();

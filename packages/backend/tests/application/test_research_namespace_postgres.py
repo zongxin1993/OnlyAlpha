@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,8 @@ def test_formal_operator_fresh_and_restart_use_the_same_bound_identity_and_actua
     before = (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes()
     assert _initialize_deployment(postgres_dsn, tmp_path, initializer_backend) == identity
     assert (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes() == before
+    extended = extension(initializer_backend, postgres_dsn, tmp_path)
+    assert extended.returncode == 0, extended.stdout + extended.stderr
     initial = project(native_probe, tmp_path)
     assert "error" not in initial, initial
     # This is a real original Command owner operation in the isolated technical namespace.
@@ -104,6 +107,8 @@ def test_nonempty_unsupported_source_is_unavailable_and_never_an_empty_cut(
 ):
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
+    extended = extension(initializer_backend, postgres_dsn, tmp_path)
+    assert extended.returncode == 0, extended.stdout + extended.stderr
     locator = "a" * 64
     path = tmp_path / f"research/agent-provenance/sha256/aa/{locator}"
     path.mkdir(parents=True)
@@ -139,3 +144,345 @@ def test_operator_without_selected_binary_cannot_create_python_fallback_namespac
     with pytest.raises(RuntimeError, match="NATIVE_BACKEND_REQUIRED"):
         _initialize_deployment(postgres_dsn, tmp_path)
     assert not (tmp_path / "research").exists()
+
+
+@pytest.fixture(scope="session")
+def strategy_extension_backend() -> Path:
+    # Exercise the admitted optimized Shipping CLI for this new extension.
+    return native_executable(release=True)
+
+
+@pytest.fixture(scope="session")
+def strategy_extension_probe() -> Path:
+    from packages.backend.tests.application.test_market_storage_postgres_clickhouse import _build_market_probe
+
+    return _build_market_probe(release=True)
+
+
+STRATEGY_EXTENSION = ".onlyalpha-strategy-research-owner-extension-v1.json"
+BASE_PROFILE_FP = "e65c1f68866533f9779f85f6f254ce1b43115ea22b6a33bb4cd7af31ba8fc01b"
+
+
+def original_namespace_v1(probe: Path, dsn: str, root: Path) -> str:
+    result = subprocess.run(
+        [str(probe)],
+        input=json.dumps({"op": "research-namespace", "phase": "initialize-original-base-v1", "user_data": str(root)}),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=20,
+    )
+    payload = json.loads(result.stdout)
+    assert "error" not in payload, payload
+    assert payload["profile"]["profile_fingerprint"] == BASE_PROFILE_FP
+    assert not (root / "research" / STRATEGY_EXTENSION).exists()
+    with psycopg.connect(dsn) as db:
+        db.execute(
+            "INSERT INTO research_deployment_semantic_store_binding(singleton,semantic_store_id) VALUES(TRUE,%s)",
+            (payload["semantic_store_id"],),
+        )
+    return str(payload["semantic_store_id"])
+
+
+def extension(backend: Path, dsn: str, root: Path) -> subprocess.CompletedProcess[str]:
+    from psycopg.conninfo import make_conninfo
+
+    return subprocess.run(
+        [str(backend), "--extend-strategy-research-namespace", str(root)],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(dsn, sslmode="disable")},
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+
+def existing_files(root: Path) -> dict[str, tuple[int, bytes]]:
+    return {
+        str(path.relative_to(root)): (path.stat().st_ino, path.read_bytes())
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_explicit_strategy_extension_preserves_the_original_bound_profile_and_every_existing_file(
+    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    identity = original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
+    # Opaque unrelated bytes prove that extension cannot reset the user-data root.
+    # They are not fabricated model settings, scientific reports or read grants;
+    # real retained model/two-round Product loading remains a separate Web gate.
+    (tmp_path / "use_test_unrelated_retained_data.bin").write_bytes(b"preserve unrelated user data")
+    before = existing_files(tmp_path)
+    with psycopg.connect(postgres_dsn) as db:
+        binding = db.execute(
+            "SELECT singleton,semantic_store_id::text,bound_at FROM research_deployment_semantic_store_binding"
+        ).fetchall()
+    completed = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    for name, retained in before.items():
+        path = tmp_path / name
+        assert (path.stat().st_ino, path.read_bytes()) == retained
+    body = {
+        "schema_version": 1,
+        "contract": "ONLYALPHA_STRATEGY_RESEARCH_OWNER_EXTENSION_V1",
+        "semantic_store_id": identity,
+        "base_profile_fingerprint": BASE_PROFILE_FP,
+        "file_source_extensions": [
+            {
+                "family": "QUALIFICATION_DECISION",
+                "owner": "strategy/qualification-decisions",
+                "source_schema_version": 1,
+                "enumeration_contract_version": 2,
+            }
+        ],
+    }
+    expected = {**body, "extension_fingerprint": only_canonical_fingerprint(body)}
+    path = tmp_path / "research" / STRATEGY_EXTENSION
+    assert path.read_text() == only_canonical_json(expected)
+    owner = tmp_path / "research/strategy/qualification-decisions"
+    assert (owner / ".source-cut.lock").is_file() and (owner / "sha256").is_dir()
+    complete = existing_files(tmp_path)
+    replay = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert replay.returncode == 0, replay.stdout + replay.stderr
+    assert existing_files(tmp_path) == complete
+    with psycopg.connect(postgres_dsn) as db:
+        assert (
+            db.execute(
+                "SELECT singleton,semantic_store_id::text,bound_at FROM research_deployment_semantic_store_binding"
+            ).fetchall()
+            == binding
+        )
+    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+
+
+@pytest.mark.parametrize("missing", ["results/.source-cut.lock", "qualification-decisions/.source-cut.lock"])
+def test_strategy_extension_refuses_to_repair_any_original_owner(
+    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path, missing: str
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    identity = original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
+    original = tmp_path / "research" / missing
+    original.unlink()
+    before = existing_files(tmp_path)
+    denied = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0
+    assert existing_files(tmp_path) == before and not original.exists()
+    assert not (tmp_path / "research" / STRATEGY_EXTENSION).exists()
+    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+
+
+def test_strategy_extension_does_not_hide_or_copy_an_unsupported_legacy_qualification_fact(
+    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
+    locator = "a" * 64
+    retained = tmp_path / "research/qualification-decisions/sha256/aa" / locator / "manifest.json"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"unavailable original legacy qualification source fact")
+    before = existing_files(tmp_path)
+    denied = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0
+    assert existing_files(tmp_path) == before
+    assert not (tmp_path / "research" / STRATEGY_EXTENSION).exists()
+    assert not (tmp_path / "research/strategy/qualification-decisions/sha256/aa" / locator).exists()
+
+
+def test_strategy_extension_cannot_bypass_an_existing_physical_node_writer(
+    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
+    before = existing_files(tmp_path)
+    # An adversarial real PostgreSQL lock only denies acquisition; it grants no
+    # capability to the extension command and is not a fabricated admission seal.
+    with psycopg.connect(postgres_dsn) as blocker:
+        blocker.execute("SELECT pg_advisory_lock(1329199301,5)")
+        denied = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+        assert denied.returncode != 0
+        assert existing_files(tmp_path) == before
+    assert not (tmp_path / "research" / STRATEGY_EXTENSION).exists()
+
+
+def test_a_committed_extension_never_recreates_a_lost_canonical_decision_owner(
+    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    import shutil
+
+    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
+    completed = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    owner = tmp_path / "research/strategy/qualification-decisions"
+    shutil.rmtree(owner)
+    before = existing_files(tmp_path)
+    denied = extension(strategy_extension_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0
+    assert not owner.exists() and existing_files(tmp_path) == before
+
+
+MANUAL_EXTENSION = ".onlyalpha-manual-backtest-owner-extension-v1.json"
+
+
+def manual_extension(backend: Path, dsn: str, root: Path) -> subprocess.CompletedProcess[str]:
+    from psycopg.conninfo import make_conninfo
+
+    return subprocess.run(
+        [str(backend), "--extend-manual-backtest-namespace", str(root)],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(dsn, sslmode="disable")},
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+
+def prepare_manual_extension_base(backend: Path, probe: Path, dsn: str, root: Path) -> str:
+    OnlyPostgresMigrationAuthority(dsn).migrate()
+    identity = original_namespace_v1(probe, dsn, root)
+    completed = extension(backend, dsn, root)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return identity
+
+
+def test_explicit_manual_backtest_extension_preserves_original_namespace_and_retained_files(
+    initializer_backend: Path, native_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+
+    identity = prepare_manual_extension_base(initializer_backend, native_probe, postgres_dsn, tmp_path)
+    (tmp_path / "unrelated_retained_user_data.bin").write_bytes(b"retained independent data")
+    before = existing_files(tmp_path)
+    completed = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(completed.stdout)["semantic_store_id"] == identity
+    for relative, retained in before.items():
+        path = tmp_path / relative
+        assert (path.stat().st_ino, path.read_bytes()) == retained
+    marker = json.loads((tmp_path / "research" / MANUAL_EXTENSION).read_text())
+    assert marker["semantic_store_id"] == identity
+    assert marker["contract"] == "ONLYALPHA_MANUAL_BACKTEST_OWNER_EXTENSION_V1"
+    original = json.loads((tmp_path / "research" / STRATEGY_EXTENSION).read_text())
+    assert marker["strategy_extension_fingerprint"] == original["extension_fingerprint"]
+    fingerprint = marker.pop("extension_fingerprint")
+    assert fingerprint == only_canonical_fingerprint(marker)
+    marker["extension_fingerprint"] = fingerprint
+    assert (tmp_path / "research" / MANUAL_EXTENSION).read_text() == only_canonical_json(marker)
+    owner = tmp_path / "research/backtest/strategy-validation"
+    assert owner.stat().st_mode & 0o777 == 0o700
+    assert (owner / "by-preparation").stat().st_mode & 0o777 == 0o700
+    assert (owner / ".source-cut.lock").stat().st_mode & 0o777 == 0o600
+    policy = json.loads(
+        (tmp_path / "research/strategy/qualification-policies/manual-backtest/1/manifest.json").read_text()
+    )
+    assert policy["gate"] == "MANUAL_STRATEGY_TO_BACKTEST"
+    assert policy["criteria"] == [
+        {
+            "criterion_id": "execution-validation",
+            "evidence_kind": "STRATEGY_VALIDATION",
+            "metric": "strategy.execution_validation_passed",
+            "comparison": "EQ",
+            "threshold": "1",
+        }
+    ]
+    complete = existing_files(tmp_path)
+    replay = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert replay.returncode == 0, replay.stdout + replay.stderr
+    assert existing_files(tmp_path) == complete
+    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+
+
+@pytest.mark.parametrize("partial", ["parent", "owner", "lock", "rows", "complete"])
+def test_explicit_manual_extension_can_continue_only_healthy_empty_uncommitted_topology(
+    initializer_backend: Path, native_probe: Path, postgres_dsn: str, tmp_path: Path, partial: str
+) -> None:
+    prepare_manual_extension_base(initializer_backend, native_probe, postgres_dsn, tmp_path)
+    backtest = tmp_path / "research/backtest"
+    backtest.mkdir(mode=0o700)
+    if partial != "parent":
+        owner = backtest / "strategy-validation"
+        owner.mkdir(mode=0o700)
+        if partial in {"lock", "complete"}:
+            (owner / ".source-cut.lock").touch(mode=0o600)
+        if partial in {"rows", "complete"}:
+            (owner / "by-preparation").mkdir(mode=0o700)
+    before = existing_files(tmp_path)
+    completed = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    for relative, retained in before.items():
+        path = tmp_path / relative
+        assert (path.stat().st_ino, path.read_bytes()) == retained
+    assert (tmp_path / "research" / MANUAL_EXTENSION).is_file()
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "backtest/strategy-validation",
+        "backtest/strategy-validation/.source-cut.lock",
+        "backtest/strategy-validation/by-preparation",
+        "strategy/qualification-policies/manual-backtest/1/manifest.json",
+    ],
+)
+def test_committed_manual_extension_never_repairs_missing_validation_or_policy_history(
+    initializer_backend: Path, native_probe: Path, postgres_dsn: str, tmp_path: Path, missing: str
+) -> None:
+    import shutil
+
+    prepare_manual_extension_base(initializer_backend, native_probe, postgres_dsn, tmp_path)
+    assert manual_extension(initializer_backend, postgres_dsn, tmp_path).returncode == 0
+    target = tmp_path / "research" / missing
+    if target.is_dir():
+        shutil.rmtree(target)
+    else:
+        target.unlink()
+    before = existing_files(tmp_path)
+    denied = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0
+    assert not target.exists() and existing_files(tmp_path) == before
+
+
+@pytest.mark.parametrize("damage", ["fact", "unsafe-lock", "foreign-entry", "symlink"])
+def test_uncommitted_manual_extension_refuses_positive_unprofiled_facts_and_unsafe_layout(
+    initializer_backend: Path, native_probe: Path, postgres_dsn: str, tmp_path: Path, damage: str
+) -> None:
+    prepare_manual_extension_base(initializer_backend, native_probe, postgres_dsn, tmp_path)
+    owner = tmp_path / "research/backtest/strategy-validation"
+    owner.mkdir(parents=True, mode=0o700)
+    (owner / ".source-cut.lock").touch(mode=0o600)
+    rows = owner / "by-preparation"
+    rows.mkdir(mode=0o700)
+    if damage == "fact":
+        (rows / "unprofiled.json").write_bytes(b"positive unprofiled bytes")
+    elif damage == "unsafe-lock":
+        (owner / ".source-cut.lock").chmod(0o666)
+    elif damage == "foreign-entry":
+        (owner / "unexpected.json").write_bytes(b"unknown owner fact")
+    else:
+        rows.rmdir()
+        rows.symlink_to(tmp_path, target_is_directory=True)
+    before = existing_files(tmp_path)
+    denied = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0
+    assert not (tmp_path / "research" / MANUAL_EXTENSION).exists()
+    assert existing_files(tmp_path) == before
+
+
+def test_manual_extension_requires_same_bound_namespace_and_original_physical_node_writer(
+    initializer_backend: Path, native_probe: Path, postgres_dsn: str, tmp_path: Path
+) -> None:
+    identity = prepare_manual_extension_base(initializer_backend, native_probe, postgres_dsn, tmp_path)
+    before = existing_files(tmp_path)
+    with psycopg.connect(postgres_dsn) as blocker:
+        blocker.execute("SELECT pg_advisory_lock(1329199301,5)")
+        denied = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+        assert denied.returncode != 0 and existing_files(tmp_path) == before
+    with psycopg.connect(postgres_dsn) as db:
+        db.execute(
+            "UPDATE research_deployment_semantic_store_binding SET semantic_store_id='22222222-2222-4222-8222-222222222222'"
+        )
+    denied = manual_extension(initializer_backend, postgres_dsn, tmp_path)
+    assert denied.returncode != 0 and existing_files(tmp_path) == before
+    assert json.loads((tmp_path / "research/.onlyalpha-semantic-store.json").read_text())["store_id"] == identity

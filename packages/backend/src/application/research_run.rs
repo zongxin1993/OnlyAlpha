@@ -152,18 +152,112 @@ impl Specification {
         )
     }
 }
-pub fn verify_native_spec_record(record: &Value) -> Result<()> {
-    if record.to_string().len() > 8 * 1024 * 1024 {
-        return Err(INVALID);
+/// One explicit finite-executor family; parsing a value is never Run permission.
+#[derive(Clone)]
+pub enum NativeSpecification {
+    Factor(Box<Specification>),
+    Strategy(Box<crate::application::strategy_research::RunSpecification>),
+}
+impl NativeSpecification {
+    pub fn from_record(record: &Value) -> Result<Self> {
+        if record.to_string().len() > 8 * 1024 * 1024 {
+            return Err(INVALID);
+        }
+        match record["schema_version"].as_u64() {
+            Some(4) => {
+                let spec: Specification =
+                    serde_json::from_value(record.clone()).map_err(|_| INVALID)?;
+                spec.validate()?;
+                Ok(Self::Factor(Box::new(spec)))
+            }
+            Some(5) => Ok(Self::Strategy(Box::new(
+                crate::application::strategy_research::RunSpecification::from_record(record)?,
+            ))),
+            _ => Err(INVALID),
+        }
     }
-    serde_json::from_value::<Specification>(record.clone())
-        .map_err(|_| INVALID)?
-        .validate()
+    pub fn record(&self) -> Result<Value> {
+        match self {
+            Self::Factor(s) => s.record(),
+            Self::Strategy(s) => Ok(s.record().clone()),
+        }
+    }
+    pub fn fingerprint(&self) -> Result<String> {
+        match self {
+            Self::Factor(s) => s.fingerprint(),
+            Self::Strategy(s) => s.fingerprint(),
+        }
+    }
+    pub fn scientific_specification_fingerprint(&self) -> Result<String> {
+        match self {
+            Self::Factor(s) => s.fingerprint(),
+            Self::Strategy(s) => s.scientific_specification_fingerprint(),
+        }
+    }
+    pub fn subject(&self) -> Result<Subject> {
+        match self {
+            Self::Factor(s) => s.subject(),
+            Self::Strategy(s) => s.subject(),
+        }
+    }
+    pub fn result_plan(&self) -> Result<Value> {
+        match self {
+            Self::Factor(s) => s.result_plan(),
+            Self::Strategy(s) => s.result_plan(),
+        }
+    }
+    pub fn as_factor(&self) -> Result<&Specification> {
+        match self {
+            Self::Factor(s) => Ok(s),
+            Self::Strategy(_) => Err("RESEARCH_FACTOR_SPECIFICATION_REQUIRED"),
+        }
+    }
+    pub fn as_strategy(&self) -> Result<&crate::application::strategy_research::RunSpecification> {
+        match self {
+            Self::Strategy(s) => Ok(s),
+            Self::Factor(_) => Err("RESEARCH_STRATEGY_SPECIFICATION_REQUIRED"),
+        }
+    }
+    fn pin(&self, key: &str) -> Result<&str> {
+        let value = match self {
+            Self::Factor(s) => match key {
+                "runtime_generation_fingerprint" => &s.runtime_generation_fingerprint,
+                "catalog_generation_fingerprint" => &s.catalog_generation_fingerprint,
+                "algorithm_artifact_fingerprint" => &s.algorithm_artifact_fingerprint,
+                "dataset_snapshot_fingerprint" => &s.dataset_snapshot_fingerprint,
+                _ => return Err(INVALID),
+            },
+            Self::Strategy(s) => {
+                let value=if key=="dataset_snapshot_fingerprint" { &s.record()["scientific_specification"][key] } else { &s.record()[key] };
+                value.as_str().ok_or(INVALID)?
+            },
+        };
+        if !crate::is_sha256_hex(value) {
+            return Err(INVALID);
+        }
+        Ok(value)
+    }
+    pub fn runtime_generation_fingerprint(&self) -> Result<&str> {
+        self.pin("runtime_generation_fingerprint")
+    }
+    pub fn catalog_generation_fingerprint(&self) -> Result<&str> {
+        self.pin("catalog_generation_fingerprint")
+    }
+    pub fn algorithm_artifact_fingerprint(&self) -> Result<&str> {
+        self.pin("algorithm_artifact_fingerprint")
+    }
+    pub fn dataset_snapshot_fingerprint(&self) -> Result<&str> {
+        self.pin("dataset_snapshot_fingerprint")
+    }
+}
+
+pub fn verify_native_spec_record(record: &Value) -> Result<()> {
+    NativeSpecification::from_record(record).map(drop)
 }
 pub fn source_subject(row: &Value) -> Result<Subject> {
     let payload = row["specification_payload"].as_str().ok_or(INVALID)?;
     let record: Value = serde_json::from_str(payload).map_err(|_| INVALID)?;
-    let spec: Specification = serde_json::from_value(record).map_err(|_| INVALID)?;
+    let spec = NativeSpecification::from_record(&record)?;
     if spec.fingerprint()? != row["specification_fingerprint"]
         || !row["authoring_provenance"].is_null()
     {
@@ -251,7 +345,7 @@ impl DecisionReference {
 pub struct VerifiedRun {
     pub(crate) run_id: String,
     pub(crate) payload: String,
-    pub(crate) specification: Specification,
+    pub(crate) specification: NativeSpecification,
     pub(crate) specification_fingerprint: String,
     pub(crate) admission_fingerprint: String,
     pub(crate) prepared_inputs: Value,
@@ -273,8 +367,8 @@ impl VerifiedRun {
     pub fn canonical_specification_payload(&self) -> &str {
         &self.payload
     }
-    pub fn runtime_generation_fingerprint(&self) -> &str {
-        &self.specification.runtime_generation_fingerprint
+    pub fn runtime_generation_fingerprint(&self) -> Result<&str> {
+        self.specification.runtime_generation_fingerprint()
     }
     pub(crate) fn verify_completion(&self, completion: &VerifiedCompletion) -> Result<()> {
         if self.completion.as_ref().is_some_and(|(r, a, e)| {
@@ -290,8 +384,14 @@ impl VerifiedRun {
     pub(crate) fn completed(&self) -> bool {
         self.completion.is_some()
     }
-    pub fn specification(&self) -> &Specification {
+    pub fn specification(&self) -> &NativeSpecification {
         &self.specification
+    }
+    pub fn factor_specification(&self) -> Result<&Specification> {
+        self.specification.as_factor()
+    }
+    pub fn strategy_specification(&self) -> Result<&crate::application::strategy_research::RunSpecification> {
+        self.specification.as_strategy()
     }
 }
 /// Issued only after verified immutable semantic and report publication.
@@ -300,8 +400,10 @@ pub struct VerifiedCompletion {
     pub(crate) result: String,
     pub(crate) artifact: String,
     pub(crate) execution_evidence: Vec<String>,
+    pub(crate) strategy_cut:Option<std::sync::Arc<crate::persistence::research_evidence::StrategyReadCut>>,
 }
 impl VerifiedCompletion {
+    pub(crate) fn verify_cut(&self)->Result<()> {if let Some(cut)=&self.strategy_cut{cut.verify()?;}Ok(())}
     pub fn run_id(&self) -> &str {
         self.run.run_id()
     }
@@ -330,7 +432,7 @@ pub struct VerifiedInspection {
     pub(crate) run: VerifiedRun,
     pub(crate) revision: i64,
     pub(crate) outcome: InspectionOutcome,
-    pub(crate) publication_cut: Vec<crate::security::immutable_json::SourceLock>,
+    pub(crate) publication_cut: Vec<std::sync::Arc<crate::security::immutable_json::SourceLock>>,
 }
 impl VerifiedInspection {
     pub fn run_id(&self) -> &str {
@@ -349,6 +451,7 @@ impl VerifiedInspection {
         if self.publication_cut.is_empty() {
             return Err("RESEARCH_INSPECTION_CUT_REQUIRED");
         }
+        if let InspectionOutcome::Complete(completion)=&self.outcome {completion.verify_cut()?;}
         for lock in &self.publication_cut {
             lock.verify()?;
         }
@@ -409,5 +512,72 @@ mod decision_reference_tests {
         let mut changed = group;
         changed["members"] = json!([]);
         assert!(reference.verify_group(&changed).is_err());
+    }
+}
+
+#[cfg(test)]
+mod native_specification_tests {
+    use super::*;
+    #[test]
+    fn executable_family_is_explicit_and_preserves_scientific_identity() {
+        let record = crate::application::strategy_research::test_run_record();
+        let science =
+            crate::application::strategy_research::RunSpecification::from_record(&record).unwrap();
+        let executable = NativeSpecification::from_record(&record).unwrap();
+        assert_eq!(executable.record().unwrap(), record);
+        assert_eq!(
+            executable.dataset_snapshot_fingerprint().unwrap(),
+            record["scientific_specification"]["dataset_snapshot_fingerprint"]
+                .as_str()
+                .unwrap()
+        );
+        assert_eq!(
+            executable.fingerprint().unwrap(),
+            science.fingerprint().unwrap()
+        );
+        assert_eq!(
+            executable.scientific_specification_fingerprint().unwrap(),
+            science.scientific_specification_fingerprint().unwrap()
+        );
+        assert!(executable.as_factor().is_err());
+        assert_eq!(
+            executable
+                .as_strategy()
+                .unwrap()
+                .candidate_fingerprint()
+                .unwrap(),
+            science.candidate_fingerprint().unwrap()
+        );
+        verify_native_spec_record(&record).unwrap();
+        let row = json!({"specification_payload":onlyalpha_metadata_json::canonical_json(&record.to_string(),8*1024*1024).unwrap(),"specification_fingerprint":science.fingerprint().unwrap(),"authoring_provenance":null});
+        assert_eq!(
+            source_subject(&row).unwrap().record(),
+            science.subject().unwrap().record()
+        );
+        let mut detached = row.clone();
+        detached["specification_fingerprint"] = json!("f".repeat(64));
+        assert!(source_subject(&detached).is_err());
+    }
+    #[test]
+    fn factor4_record_and_identity_remain_exact() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/application/fixtures/research_factor.json"
+        ))
+        .unwrap();
+        let spec=Specification{schema_version:4,kind:"TIME_SERIES_FACTOR_RESEARCH".into(),candidate:json!({"hypothesis":fixture["candidate"]["hypothesis"],"expression":fixture["candidate"]["expression"]}),draft:fixture["draft"].clone(),revision:fixture["revision"].clone(),study:serde_json::from_value(json!({"schema_version":1,"bar_ns":60000000000u64,"horizon_bars":5,"samples":[{"role":"DEVELOPMENT","start_ns":1200000000000u64,"end_ns":2400000000000u64},{"role":"OUT_OF_SAMPLE","start_ns":2400000000000u64,"end_ns":3600000000000u64}],"protected_start_ns":6000000000000u64,"protected_end_ns":7200000000000u64,"expected_block_length":20,"replicates":400,"confidence_bps":9500,"seed":"a".repeat(64)})).unwrap(),dataset_snapshot_fingerprint:"b".repeat(64),runtime_generation_fingerprint:"c".repeat(64),catalog_generation_fingerprint:"d".repeat(64),algorithm_artifact_fingerprint:"e".repeat(64),execution_binding:json!({"protocol":"onlyalpha.research.executor/1","executor_version":"0.11.1","executor_manifest_fingerprint":"e".repeat(64),"executor_artifact_sha256":"f".repeat(64),"core_execution_fingerprint":"a".repeat(64)})};
+        spec.validate().unwrap();
+        let record = spec.record().unwrap();
+        let executable = NativeSpecification::from_record(&record).unwrap();
+        assert_eq!(executable.record().unwrap(), record);
+        assert_eq!(
+            executable.fingerprint().unwrap(),
+            spec.fingerprint().unwrap()
+        );
+        assert_eq!(
+            executable.subject().unwrap().record(),
+            spec.subject().unwrap().record()
+        );
+        assert!(executable.as_strategy().is_err());
+        assert_eq!(executable.as_factor().unwrap().record().unwrap(), record);
     }
 }

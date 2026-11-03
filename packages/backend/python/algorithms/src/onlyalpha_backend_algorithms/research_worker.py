@@ -165,19 +165,110 @@ def serve(root: Path, generation: str, artifact: str) -> None:
                 payload = json.loads(request.research_resolve.request_json)
                 if type(payload) is not dict:
                     raise ValueError("RESEARCH_RESOLUTION_INPUT_INVALID")
-                result = (
-                    resolve_calculations(payload, artifact)
-                    if payload.get("contract") == INSTANCE_CONTRACT
-                    else resolve(cast(dict[str, Any], payload), artifact)
-                )
-                result["isolation"] = restrict()
+                if payload.get("contract") == "ONLYALPHA_TRADING_NODE_CAPABILITIES_V1":
+                    from onlyalpha_backend_algorithms.research_resolution import trading_capabilities
+
+                    # Authored sources are validated only after confinement. No
+                    # factory, market vector or signal is evaluated by this SPI.
+                    isolation = restrict()
+                    result = trading_capabilities(payload)
+                    result["isolation"] = isolation
+                else:
+                    result = (
+                        resolve_calculations(payload, artifact)
+                        if payload.get("contract") == INSTANCE_CONTRACT
+                        else resolve(cast(dict[str, Any], payload), artifact)
+                    )
+                    result["isolation"] = restrict()
             elif sequence == 2 and request.WhichOneof("operation") == "research_evaluate":
                 from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator, GraphEvaluator
 
                 payload = json.loads(request.research_evaluate.request_json)
                 if type(payload) is not dict or type(payload.get("resolution")) is not dict:
                     raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
-                if payload["resolution"].get("contract") == INSTANCE_CONTRACT:
+                if payload.get("contract") == "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1":
+                    if (
+                        set(payload) != {"contract", "resolution", "rows"}
+                        or payload["resolution"].get("contract") != INSTANCE_CONTRACT
+                    ):
+                        raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
+                    result = resolve_calculations(payload["resolution"], artifact)
+                    resolved = cast(list[dict[str, Any]], result["nodes"])
+                    feature_nodes = [
+                        {"alias": row["instance_key"], "definition": row["definition"]}
+                        for row in resolved
+                        if row["definition"]["kind"] != "TARGET"
+                    ]
+                    target_nodes = [
+                        {"alias": row["instance_key"], "definition": row["definition"]}
+                        for row in resolved
+                        if row["definition"]["kind"] == "TARGET"
+                    ]
+                    feature = (
+                        CalculationGraphEvaluator(
+                            payload["resolution"]["sources"], {"schema_version": 1, "nodes": feature_nodes}
+                        )
+                        if feature_nodes
+                        else None
+                    )
+                    target = (
+                        CalculationGraphEvaluator(
+                            payload["resolution"]["sources"], {"schema_version": 1, "nodes": target_nodes}
+                        )
+                        if target_nodes
+                        else None
+                    )
+                    capabilities = []
+                    if feature is not None:
+                        for node in feature.graph.ordered_nodes:
+                            definition = node.definition
+                            registration = feature.registry.resolve(
+                                definition.kind,
+                                definition.type_id,
+                                definition.semantic_version,
+                                OnlyCalculationBackendKind.TRADING,
+                            )
+                            if registration.implementation_manifest is None or registration.state_capability is None:
+                                raise ValueError("RESEARCH_IMPLEMENTATION_UNAVAILABLE")
+                            capabilities.append(
+                                {
+                                    "node_fingerprint": node.fingerprint,
+                                    "implementation_fingerprint": registration.implementation_manifest.implementation_fingerprint,
+                                    "state_capability": registration.state_capability.value,
+                                    "checkpoint_schema_version": registration.checkpoint_schema_version,
+                                }
+                            )
+                    isolation = restrict()
+                    # Independent Feature/Target planes retain the existing Graph1
+                    # rule. No Target is evaluated through a TRADING factory.
+                    feature_observation = feature.evaluate(payload["rows"]) if feature is not None else None
+                    target_observation = target.evaluate(payload["rows"]) if target is not None else None
+                    result["evaluation"] = {
+                        "schema_version": 1,
+                        "contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1",
+                        "input_fingerprint": only_canonical_fingerprint(payload["rows"]),
+                        "axis": [row["at_ns"] for row in payload["rows"]],
+                        "feature": feature_observation,
+                        "targets": target_observation,
+                        "trading_capabilities": capabilities,
+                    }
+                    result["isolation"] = isolation
+                elif payload.get("contract") == "ONLYALPHA_CALCULATION_NODE_PROFILE_OBSERVATION_V1":
+                    from onlyalpha_backend_algorithms.research_evaluation import NodeProfileEvaluator
+
+                    if (
+                        set(payload) != {"schema_version", "contract", "resolution", "nodes"}
+                        or type(payload["schema_version"]) is not int
+                        or payload["schema_version"] != 1
+                        or payload["resolution"].get("contract") != INSTANCE_CONTRACT
+                    ):
+                        raise ValueError("RESEARCH_NODE_PROFILE_INPUT_INVALID")
+                    result = resolve_calculations(payload["resolution"], artifact)
+                    profile = NodeProfileEvaluator(payload["resolution"]["sources"], payload["nodes"], result["nodes"])
+                    isolation = restrict()
+                    result["evaluation"] = profile.evaluate()
+                    result["isolation"] = isolation
+                elif payload["resolution"].get("contract") == INSTANCE_CONTRACT:
                     if set(payload) != {"resolution", "rows"}:
                         raise ValueError("RESEARCH_EVALUATION_INPUT_INVALID")
                     result = resolve_calculations(payload["resolution"], artifact)

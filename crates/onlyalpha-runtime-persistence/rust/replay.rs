@@ -21,16 +21,49 @@ fn fields(v: &Value, keys: &[&str]) -> Result<(), Error> {
     }
     Ok(())
 }
+#[cfg(test)]
+std::thread_local! {
+    static REPLAY_STEP_SOURCE_DECODES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 fn decoded(raw: &str, h: &str) -> Result<Value, Error> {
     let v: Value = serde_json::from_str(raw)?;
+    #[cfg(test)]
+    if v.get("index").is_some() {
+        REPLAY_STEP_SOURCE_DECODES.with(|count| count.set(count.get() + 1));
+    }
     let canonical = serde_json::to_string(&v)?;
     if canonical != raw || digest(canonical.as_bytes()) != h {
         return Err(err("DIGEST"));
     }
     Ok(v)
 }
+pub(crate) struct DecodedReplayRow {
+    payload: String,
+    digest: String,
+    value: Value,
+}
 impl SqliteStore {
-    fn replay_binding(&self) -> Result<Option<Value>, Error> {
+    fn decode_replay_step(&self, sequence: i64, raw: String, expected: &str) -> Result<Value, Error> {
+        // The actual complete SQL bytes are hashed on every read, including hits.
+        // This memo reuses only canonical JSON decoding, never source/Ready proof.
+        if digest(raw.as_bytes()) != expected {
+            return Err(err("DIGEST"));
+        }
+        if let Some(cached) = self.decoded_replay_rows.borrow().get(&sequence)
+            && cached.payload == raw
+            && cached.digest == expected
+        {
+            return Ok(cached.value.clone());
+        }
+        let value = decoded(&raw, expected)?;
+        self.decoded_replay_rows.borrow_mut().insert(sequence, DecodedReplayRow {
+            payload: raw,
+            digest: expected.into(),
+            value: value.clone(),
+        });
+        Ok(value)
+    }
+    pub(crate) fn replay_binding(&self) -> Result<Option<Value>, Error> {
         let row: Option<(String, String)> = sql(self
             .connection
             .query_row(
@@ -39,11 +72,25 @@ impl SqliteStore {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional())?;
-        row.map(|(s, h)| decoded(&s, &h)).transpose()
+        row.map(|(s, h)| {
+            let binding = decoded(&s, &h)?;
+            self.validate_replay_binding(&binding)?;
+            Ok(binding)
+        }).transpose()
     }
-    pub(crate) fn bind_replay(&mut self, b: &Value) -> Result<(), Error> {
+    fn validate_replay_binding(&self, b: &Value) -> Result<(), Error> {
+        let mut shape = b.clone();
+        let version = b["schema_version"].as_u64().ok_or_else(|| err("BINDING_VERSION"))?;
+        if version == 2 {
+            if !b["participants"].is_object() || b["work_id"].as_str().is_none_or(|id|id.is_empty() || id.len()>256) {
+                return Err(err("BINDING_WORK"));
+            }
+            shape.as_object_mut().ok_or_else(|| err("BINDING"))?.remove("work_id");
+            shape.as_object_mut().expect("object").remove("participants");
+            shape["schema_version"] = json!(1);
+        } else if version != 1 { return Err(err("BINDING_VERSION")); }
         fields(
-            b,
+            &shape,
             &[
                 "schema_version",
                 "configuration",
@@ -71,6 +118,23 @@ impl SqliteStore {
                 return Err(err("IDENTITY"));
             }
         }
+        if version == 2 {
+            let program = &b["participants"];
+            let strategies = self.identity["configuration"]["profiles"].as_object().ok_or_else(||err("BINDING"))?.iter().map(|(cluster,profile)|(cluster.clone(),profile["revision"].clone())).collect::<serde_json::Map<String,Value>>();
+            let expected = hash(&json!({"work_id":b["work_id"],"configuration":self.identity["configuration"],"artifact":b["kernel_artifact"],"driver_artifact":b["driver_artifact"],"input_pin":b["input_pin"],"participants":program,"initial_ns":b["initial_state"]["clock_ns"]}));
+            if program["schema_version"] != 1 || program["configuration"] != b["configuration"]
+                || program["generation"] != self.identity["configuration"]["generation"]
+                || program["initial_ns"] != b["initial_state"]["clock_ns"]
+                || program["strategies"] != Value::Object(strategies)
+                || program["opening_profile"] != json!({"schema_version":1,"kind":"OPEN_CLOSE_V1"})
+                || b["program"] != hash(program) || b["work"] != expected {
+                return Err(err("BINDING_WORK"));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn bind_replay(&mut self, b: &Value) -> Result<(), Error> {
+        self.validate_replay_binding(b)?;
         if let Some(old) = self.replay_binding()? {
             if old != *b {
                 return Err(err("WORK_CONFLICT"));
@@ -91,6 +155,18 @@ impl SqliteStore {
         Ok(())
     }
     pub(crate) fn replay_steps(&self) -> Result<Vec<Value>, Error> {
+        let records=self.read_records()?;
+        self.replay_steps_from_source(&records)
+    }
+    // Source rows come only from this operation's complete owning SQL read.
+    pub(crate) fn replay_steps_from_source(&self,records:&[onlyalpha_execution::Record])->Result<Vec<Value>,Error> {
+        if matches!(self.storage_version,3|4) {
+            let refs=self.replay_refs_from_source(records)?;let mut total=0_u64;let mut result=Vec::with_capacity(refs.len());
+            for reference in refs {
+                total=total.checked_add(reference.decoded_size()).filter(|n|*n<=128*1024*1024).ok_or_else(||err("EXPANSION_BOUND"))?;
+                result.push(json!({"step":self.logical_step(&reference)?,"ready":reference.ready()}));
+            }return Ok(result);
+        }
         let b = self.replay_binding()?.ok_or_else(|| err("UNBOUND"))?;
         let mut query = sql(self
             .connection
@@ -112,9 +188,9 @@ impl SqliteStore {
         let mut result = Vec::new();
         let mut previous = hash(&b);
         let mut execution = 0u64;
-        let head = self.head()?;
+        let head = u64::try_from(records.len()).map_err(|_|err("BOUND"))?;
         for (index, raw, h, ready) in rows {
-            let v = decoded(&raw, &h)?;
+            let v = self.decode_replay_step(index, raw, &h)?;
             fields(
                 &v,
                 &[
@@ -143,12 +219,8 @@ impl SqliteStore {
             for input in inputs {
                 execution = execution.checked_add(1).ok_or_else(|| err("BOUND"))?;
                 if execution <= head
-                    && self
-                        .get(execution)?
-                        .ok_or_else(|| err("MISSING_EXECUTION"))?
-                        .prepared()
-                        .input()
-                        != input
+                    && records.get(usize::try_from(execution-1).map_err(|_|err("BOUND"))?)
+                        .ok_or_else(||err("MISSING_EXECUTION"))?.prepared().input()!=input
                 {
                     return Err(err("EXECUTION_RELATION"));
                 }
@@ -157,10 +229,16 @@ impl SqliteStore {
                 return Err(err("READY_AHEAD"));
             }
             previous = h;
-            result.push(json!({"step":v,"ready":ready==1}));
+            // Value is already fully decoded/canonical/hash checked above. Move
+            // the entire state into the public projection instead of serializing
+            // it again through json!'s borrowed Serialize interpolation.
+            result.push(Value::Object(serde_json::Map::from_iter([
+                ("step".into(),v),
+                ("ready".into(),Value::Bool(ready==1)),
+            ])));
         }
         if journal_head != i64::try_from(result.len()).map_err(|_| err("BOUND"))?
-            || last_hash != result.last().map(|s| hash(&s["step"]))
+            || last_hash != if result.is_empty() { None } else { Some(previous) }
         {
             return Err(err("JOURNAL_HEAD"));
         }
@@ -170,6 +248,10 @@ impl SqliteStore {
         Ok(result)
     }
     pub(crate) fn prepare_replay(&mut self, v: &Value) -> Result<(), Error> {
+        if matches!(self.storage_version,3|4) {
+            let refs=self.fresh_refs()?;let index=v["index"].as_u64().and_then(|n|n.checked_sub(1)).and_then(|n|usize::try_from(n).ok()).ok_or_else(||err("INDEX"))?;
+            let prefix=refs.get(..index).ok_or_else(||err("INDEX"))?.to_vec();return self.prepare_ref(&prefix,v,None).map(drop);
+        }
         let steps = self.replay_steps()?;
         fields(
             v,
@@ -231,11 +313,16 @@ impl SqliteStore {
         }
         Ok(())
     }
-    pub(crate) fn complete_replay(&mut self, index: u64) -> Result<(), Error> {
+    pub(crate) fn complete_replay(&mut self, index: u64, expected_step: &Value) -> Result<Vec<Value>, Error> {
+        if matches!(self.storage_version,3|4) {
+            let refs=self.fresh_refs()?;let original=refs.last().ok_or_else(||err("MISSING_STEP"))?.clone();
+            if original.index()!=index||self.logical_step(&original)?!=*expected_step{return Err(err("INCOMPLETE"));}
+            self.complete_ref(&refs[..refs.len()-1],&original,None)?;return self.replay_steps();
+        }
         let steps = self.replay_steps()?;
         let last = steps.last().ok_or_else(|| err("MISSING_STEP"))?;
         let v = &last["step"];
-        if v["index"] != index
+        if v != expected_step || v["index"] != index
             || v["execution_start"]
                 .as_u64()
                 .and_then(|s| s.checked_add(v["inputs"].as_array()?.len() as u64))
@@ -247,13 +334,16 @@ impl SqliteStore {
             "UPDATE replay_steps SET ready=1 WHERE sequence=?1",
             [i64::try_from(index).map_err(|_| err("BOUND"))?],
         ))?;
-        if self
-            .replay_steps()?
-            .last()
-            .is_none_or(|s| s["ready"] != true)
-        {
+        // Return this actual full post-write SQL cut rather than making the
+        // caller refresh it again. A hash-valid different proposal is refused.
+        let completed = self.replay_steps()?;
+        if completed.last().is_none_or(|row| row["ready"] != true || row["step"] != *expected_step) {
             return Err(err("READY_READBACK"));
         }
-        Ok(())
+        Ok(completed)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/replay_codec_work.rs"]
+mod replay_codec_work_tests;

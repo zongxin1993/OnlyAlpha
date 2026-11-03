@@ -100,24 +100,81 @@ async fn main() {
         std::process::exit(1);
     }
 }
+/// Explicit contained operator connection. Unlike normal Shipping startup,
+/// this command needs no Web, algorithms or market-data services. NoTls is used
+/// only when the operator's DSN explicitly selects Disable; Prefer/Require are
+/// rejected rather than downgraded. All errors are credential-safe codes.
+async fn extend_research_namespace(root: &std::path::Path, manual_backtest: bool) -> Result<onlyalpha_backend::bootstrap::deployment::SemanticStoreId, String> {
+    use onlyalpha_backend::persistence::authority_session::AuthoritySession;
+    let dsn=zeroize::Zeroizing::new(required("ONLYALPHA_POSTGRES_DSN").map_err(str::to_owned)?);
+    let mut pg:tokio_postgres::Config=dsn.as_str().parse().map_err(|_|"POSTGRES_CONFIGURATION_INVALID".to_owned())?;
+    if pg.get_ssl_mode()!=tokio_postgres::config::SslMode::Disable {
+        return Err("OPERATOR_POSTGRES_TRANSPORT_DENIED".into());
+    }
+    pg.connect_timeout(Duration::from_secs(5)).options("-c search_path=pg_catalog,public,pg_temp");
+    let (client,connection)=tokio::time::timeout(Duration::from_secs(5),pg.connect(tokio_postgres::NoTls)).await
+        .map_err(|_|"POSTGRES_UNAVAILABLE".to_owned())?.map_err(|_|"POSTGRES_UNAVAILABLE".to_owned())?;
+    let mut session=AuthoritySession::acquire(client,tokio::spawn(connection)).await.map_err(|e|e.code().to_owned())?;
+    let result=if manual_backtest {
+        onlyalpha_backend::bootstrap::research_namespace::extend_manual_backtest(root,&mut session).await
+    }else{
+        onlyalpha_backend::bootstrap::research_namespace::extend_strategy(root,&mut session).await
+    }.map_err(str::to_owned);
+    let closed=session.close().await.map_err(|e|e.code().to_owned());
+    match (result,closed) {
+        (Err(code),_)=>Err(code),
+        (Ok(identity),Ok(()))=>Ok(identity),
+        (_,Err(code))=>Err(code),
+    }
+}
+
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() == 2 && matches!(args[0].as_str(), "--initialize-fresh-research-namespace" | "--verify-research-namespace") {
+    if let [command,root]=args.as_slice() {
+        if matches!(command.as_str(),"--extend-strategy-research-namespace"|"--extend-manual-backtest-namespace") {
+            let identity=extend_research_namespace(std::path::Path::new(root),command=="--extend-manual-backtest-namespace").await?;
+            println!("{}",serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()}));
+            return Ok(());
+        }
+    }
+    if args.len() == 2
+        && matches!(
+            args[0].as_str(),
+            "--initialize-fresh-research-namespace" | "--verify-research-namespace"
+        )
+    {
         let root = std::path::Path::new(&args[1]);
         let identity = if args[0] == "--initialize-fresh-research-namespace" {
             onlyalpha_backend::bootstrap::research_namespace::initialize_fresh(root)
         } else {
             onlyalpha_backend::bootstrap::research_namespace::open_existing(root)
-        }.map_err(str::to_owned)?;
-        println!("{}", serde_json::json!({"schema_version":1,"semantic_store_id":identity.value(),
+        }
+        .map_err(str::to_owned)?;
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":1,"semantic_store_id":identity.value(),
             "profile":onlyalpha_backend::bootstrap::research_namespace::profile(),
-            "policy":onlyalpha_backend::bootstrap::research_namespace::policy()}));
+            "policy":onlyalpha_backend::bootstrap::research_namespace::policy()})
+        );
         return Ok(());
+    }
+    if args == ["--read-native-backtest-terminal"] {
+        return onlyalpha_backend::workers::backtest_terminal::run_stdio().map_err(str::to_owned);
     }
     if args == ["--describe-research-runtime"] {
         println!(
             "{}",
             onlyalpha_backend::workers::algorithm::describe_research_runtime(env!(
+                "CARGO_PKG_VERSION"
+            ))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+    if args == ["--describe-native-runtime"] {
+        println!(
+            "{}",
+            onlyalpha_backend::workers::algorithm::describe_native_runtime(env!(
                 "CARGO_PKG_VERSION"
             ))
             .map_err(|e| e.to_string())?

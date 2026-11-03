@@ -1,0 +1,301 @@
+{
+  "specification": {
+    "calculations": [
+      {
+        "calculation_id": "decision",
+        "graph_template": {
+          "nodes": [
+            {
+              "alias": null,
+              "input_bindings": [
+                {
+                  "input_name": "close",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.close",
+                    "template_node_id": null
+                  }
+                },
+                {
+                  "input_name": "close_lag_20",
+                  "reference": {
+                    "output_name": "value",
+                    "source": null,
+                    "template_node_id": "node_0"
+                  }
+                },
+                {
+                  "input_name": "volume",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.volume",
+                    "template_node_id": null
+                  }
+                },
+                {
+                  "input_name": "volume_mean_20",
+                  "reference": {
+                    "output_name": "value",
+                    "source": null,
+                    "template_node_id": "node_1"
+                  }
+                }
+              ],
+              "parameters": {
+                "literal_1": {
+                  "type": "DECIMAL",
+                  "value": "1"
+                }
+              },
+              "template_node_id": "momentum",
+              "type_reference": {
+                "kind": "FACTOR",
+                "semantic_version": "1",
+                "type_id": "private.factor.volume_momentum"
+              }
+            },
+            {
+              "alias": null,
+              "input_bindings": [
+                {
+                  "input_name": "value",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.close",
+                    "template_node_id": null
+                  }
+                }
+              ],
+              "parameters": {
+                "period": {
+                  "type": "INTEGER",
+                  "value": 20
+                }
+              },
+              "template_node_id": "node_0",
+              "type_reference": {
+                "kind": "INDICATOR",
+                "semantic_version": "1",
+                "type_id": "onlyalpha.operator.delay"
+              }
+            },
+            {
+              "alias": null,
+              "input_bindings": [
+                {
+                  "input_name": "value",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.volume",
+                    "template_node_id": null
+                  }
+                }
+              ],
+              "parameters": {
+                "period": {
+                  "type": "INTEGER",
+                  "value": 20
+                }
+              },
+              "template_node_id": "node_1",
+              "type_reference": {
+                "kind": "INDICATOR",
+                "semantic_version": "1",
+                "type_id": "onlyalpha.operator.rolling_mean"
+              }
+            }
+          ],
+          "schema_version": 1
+        },
+        "sweep_dimensions": []
+      },
+      {
+        "calculation_id": "target.forward_return",
+        "graph_template": {
+          "nodes": [
+            {
+              "alias": null,
+              "input_bindings": [
+                {
+                  "input_name": "entry_price",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.close",
+                    "template_node_id": null
+                  }
+                },
+                {
+                  "input_name": "exit_price",
+                  "reference": {
+                    "output_name": "value",
+                    "source": "bar.close",
+                    "template_node_id": null
+                  }
+                }
+              ],
+              "parameters": {
+                "entry_offset": {
+                  "type": "INTEGER",
+                  "value": 0
+                },
+                "exit_offset": {
+                  "type": "INTEGER",
+                  "value": 5
+                }
+              },
+              "template_node_id": "forward_return",
+              "type_reference": {
+                "kind": "TARGET",
+                "semantic_version": "1",
+                "type_id": "onlyalpha.target.forward_return"
+              }
+            }
+          ],
+          "schema_version": 1
+        },
+        "sweep_dimensions": []
+      }
+    ],
+    "dataset_snapshot_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "evidence": {
+      "candidate_calculation_id": "decision",
+      "published_series": [
+        {
+          "calculation_id": "decision",
+          "output_name": "value",
+          "template_node_id": "momentum"
+        },
+        {
+          "calculation_id": "decision",
+          "output_name": "value",
+          "template_node_id": "node_0"
+        },
+        {
+          "calculation_id": "decision",
+          "output_name": "value",
+          "template_node_id": "node_1"
+        },
+        {
+          "calculation_id": "target.forward_return",
+          "output_name": "target_value",
+          "template_node_id": "forward_return"
+        }
+      ],
+      "signals": {
+        "eligibility": null,
+        "entry": null,
+        "exit": null
+      }
+    },
+    "schema_version": 2,
+    "statistics": [
+      {
+        "definition": {
+          "method": "IC",
+          "minimum_observations": 2,
+          "numeric": {
+            "output_quantum": "0.000000000001",
+            "precision": 38,
+            "representation": "DECIMAL",
+            "rounding": "ROUND_HALF_EVEN"
+          },
+          "pairing_policy": "PAIRWISE_COMPLETE",
+          "rank_tie_method": "AVERAGE",
+          "schema_version": 1,
+          "universe_policy": "OBSERVED_PAIRWISE",
+          "weighting": "EQUAL"
+        },
+        "expansion": "BROADCAST_SINGLETON",
+        "feature": {
+          "calculation_id": "decision",
+          "output_name": "value",
+          "template_node_id": "momentum"
+        },
+        "target": {
+          "calculation_id": "target.forward_return",
+          "output_name": "target_value",
+          "template_node_id": "forward_return"
+        }
+      }
+    ]
+  },
+  "specification_fingerprint": "487d65d1e863076885f1a97aa63433eb85f8d4262827af316b8b4de9121d7236",
+  "target_definition": {
+    "extensions": {},
+    "factor_kind": null,
+    "input_bindings": {
+      "entry_price": {
+        "node_fingerprint": null,
+        "output_name": "value",
+        "source": "bar.close"
+      },
+      "exit_price": {
+        "node_fingerprint": null,
+        "output_name": "value",
+        "source": "bar.close"
+      }
+    },
+    "inputs": [
+      {
+        "data_type": "DECIMAL",
+        "dimensions": [
+          "TIME"
+        ],
+        "name": "entry_price",
+        "nullable": false,
+        "semantic_type": "PRICE",
+        "unit": null
+      },
+      {
+        "data_type": "DECIMAL",
+        "dimensions": [
+          "TIME"
+        ],
+        "name": "exit_price",
+        "nullable": false,
+        "semantic_type": "PRICE",
+        "unit": null
+      }
+    ],
+    "kind": "TARGET",
+    "missing_values": "FAIL",
+    "numeric": {
+      "output_quantum": "0.000000000001",
+      "precision": 38,
+      "representation": "DECIMAL",
+      "rounding": "ROUND_HALF_EVEN"
+    },
+    "outputs": [
+      {
+        "data_type": "DECIMAL",
+        "dimensions": [
+          "TIME"
+        ],
+        "name": "target_value",
+        "nullable": true,
+        "semantic_type": "TARGET_VALUE",
+        "unit": "RATIO"
+      }
+    ],
+    "parameters": {
+      "entry_offset": {
+        "type": "INTEGER",
+        "value": 0
+      },
+      "exit_offset": {
+        "type": "INTEGER",
+        "value": 5
+      }
+    },
+    "schema_version": 2,
+    "semantic_version": "1",
+    "timestamp": "EVENT_TIME",
+    "type_id": "onlyalpha.target.forward_return",
+    "warmup": {
+      "initialization": "INSUFFICIENT_FUTURE_IS_NULL",
+      "minimum_observations": 1,
+      "pre_ready_output": "NULL",
+      "ready_condition": "entry and exit bar offsets exist on the canonical instrument axis"
+    }
+  }
+}

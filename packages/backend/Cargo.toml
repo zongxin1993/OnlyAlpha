@@ -13,12 +13,15 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
+onlyalpha-backtest = { path = "../../crates/onlyalpha-backtest" }
+onlyalpha-account = { path = "../../crates/onlyalpha-kernel/account" }
 arrow-array = { version = "=59.3.2", default-features = false }
 arrow-schema = { version = "=59.3.2", default-features = false }
 parquet = { version = "=59.3.2", default-features = false, features = ["arrow", "zstd", "crc"] }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
+onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
 onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
 onlyalpha-calculation-bridge = { path = "../../crates/onlyalpha-calculation-bridge" }
 onlyalpha-plugin-binance = { path = "../../plugs/onlyalpha-plugin-binance" }
@@ -62,8 +65,6 @@ onlyalpha-strategy = { path = "../../crates/onlyalpha-kernel/strategy" }
 [dev-dependencies]
 onlyalpha-runtime-persistence = { path = "../../crates/onlyalpha-runtime-persistence" }
 onlyalpha-clock = { path = "../../crates/onlyalpha-kernel/clock" }
-onlyalpha-backtest = { path = "../../crates/onlyalpha-backtest" }
-onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
 hyper = { version = "=1.12.0", default-features = false, features = ["http1", "client"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["test-util"] }
 
@@ -180,3 +181,9 @@ path = "examples/native_backtest_reference.rs"
 [[test]]
 name = "workers_trading"
 path = "tests/workers/trading.rs"
+
+[[test]]
+name = "strategy_freeze_postgres"
+path = "tests/application/support/strategy_freeze_postgres.rs"
+# Explicit canonical PostgreSQL lane; ordinary library tests stay DB-independent.
+test = false

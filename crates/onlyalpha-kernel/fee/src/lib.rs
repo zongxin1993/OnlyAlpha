@@ -5,4 +5,4 @@ mod policy;
 mod reconciliation;
 pub use manager::{Application, Manager};
 pub use model::{Error, digest};
-pub use policy::{Assessment, Binding, Catalog};
+pub use policy::{Assessment, Binding, Catalog, FeeQuote};

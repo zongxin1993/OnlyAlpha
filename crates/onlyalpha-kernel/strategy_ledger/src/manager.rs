@@ -2,6 +2,11 @@ use crate::model::*;
 use bigdecimal::Zero;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static STATE_CONSTRUCTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    pub(crate) static RECOVERY_COMMAND_APPLICATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 #[derive(Clone)]
 pub struct Manager {
     pub(crate) config: Value,
@@ -14,12 +19,13 @@ pub struct Manager {
     // Only booked Trades establish the relation used by fee adjustments.
     pub(crate) trades: BTreeMap<String, (String, String)>,
     pub(crate) allocation_owners: BTreeMap<String, Value>,
-    pub(crate) journal: Vec<Value>,
-    pub(crate) timeline: Vec<Value>,
+    pub(crate) journal: Vec<std::sync::Arc<Value>>,
+    pub(crate) timeline: Vec<std::sync::Arc<Value>>,
     pub(crate) sequence: u64,
     pub(crate) now: Option<num_bigint::BigInt>,
     pub(crate) trading_day: Option<String>,
     pub(crate) day_index: Option<u64>,
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<(Vec<u8>,String)>>,
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {
@@ -83,6 +89,7 @@ impl Manager {
             now: None,
             trading_day: None,
             day_index: None,
+            checkpoint_cache: std::sync::OnceLock::new(),
         })
     }
     pub fn snapshot(&self, cluster: &str) -> Result<Value, Error> {
@@ -100,10 +107,23 @@ impl Manager {
         v["day_index"] = json!(self.day_index);
         Ok(v)
     }
+    /// Detached current lines and economic versions for every configured Cluster.
+    /// This data-only query omits history; it supplies no Ready/source proof.
+    pub fn valuation_view(&self) -> Value {
+        Value::Object(self.ledgers.iter().map(|(cluster, ledger)| {
+            let lines = ledger.lines.iter().map(|(instrument, line)| {
+                (instrument.clone(), line.record(self.precision))
+            }).collect::<serde_json::Map<_, _>>();
+            (cluster.clone(), json!({"lines":lines,"economic_version":ledger.economic_version}))
+        }).collect())
+    }
     pub fn state(&self) -> Value {
-        json!({"schema_version":1,"config":self.config,"ledgers":self.ledgers.iter().map(|(k,v)|(k.clone(),v.record(self.precision))).collect::<BTreeMap<_,_>>(),"receipts":self.receipts,"aliases":self.aliases,"orders":self.orders,"trades":self.trades,"timeline":self.timeline,"allocation_owners":self.allocation_owners,"sequence":self.sequence,"time":self.now.as_ref().map(|n|serde_json::from_str::<Value>(&n.to_string()).expect("integer")),"trading_day":self.trading_day,"day_index":self.day_index})
+        #[cfg(test)] STATE_CONSTRUCTIONS.with(|count|count.set(count.get()+1));
+        json!({"schema_version":1,"config":self.config,"ledgers":self.ledgers.iter().map(|(k,v)|(k.clone(),v.record(self.precision))).collect::<BTreeMap<_,_>>(),"receipts":self.receipts,"aliases":self.aliases,"orders":self.orders,"trades":self.trades,"timeline":self.timeline.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>(),"allocation_owners":self.allocation_owners,"sequence":self.sequence,"time":self.now.as_ref().map(|n|serde_json::from_str::<Value>(&n.to_string()).expect("integer")),"trading_day":self.trading_day,"day_index":self.day_index})
     }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
+        #[cfg(test)]
+        RECOVERY_COMMAND_APPLICATIONS.with(|count| count.set(count.get() + 1));
         if input.to_string().len() > 65536 {
             return Err(err("LEDGER_COMMAND_BOUND"));
         }
@@ -264,15 +284,18 @@ impl Manager {
                 l.refresh();
                 l.validate()?;
                 let snap = candidate.snapshot(&cluster)?;
-                candidate.timeline.push(json!({"sequence":seq,"cluster":cluster,"time":input["time"],"cause":input["cause"],"snapshot":snap,"status":format!("{status:?}")}));
+                candidate.timeline.push(std::sync::Arc::new(json!({"sequence":seq,"cluster":cluster,"time":input["time"],"cause":input["cause"],"snapshot":snap,"status":format!("{status:?}")})));
             }
             status
         };
+        // A terminal redelivery may have reset candidate from self above.
+        // Every retained receipt/journal append changes its canonical bytes.
+        let _=candidate.checkpoint_cache.take();
         candidate.receipts.insert(cid, h);
         for a in aliases {
             candidate.aliases.insert(a, sh.clone());
         }
-        candidate.journal.push(cmd);
+        candidate.journal.push(std::sync::Arc::new(cmd));
         if admission && candidate.aliases.len() > 16384 {
             return Err(err("LEDGER_ALIAS_BOUND"));
         }
@@ -497,4 +520,26 @@ impl Manager {
         }
         Ok(Status::Applied)
     }
+}
+
+
+#[cfg(test)]
+mod valuation_view_work_tests {
+ use super::*;
+ #[test]
+ fn current_valuation_view_is_detached_complete_and_does_not_construct_historical_state(){
+  let mut manager=Manager::new(json!({"schema_version":1,"engine":"e","runtime":"r","account":"a","generation":"g","runtime_kind":"BACKTEST","currency":{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"},"account_initial_cash":"2000.00","capitals":{"c1":"1000.00","c2":"1000.00"}})).unwrap();
+  for n in 1..=16_u64 {
+   let cluster=if n%2==0{"c2"}else{"c1"};
+   let command=json!({"schema_version":1,"engine":"e","runtime":"r","account":"a","generation":"g","cluster":cluster,"command_id":format!("cash-{n}"),"cause":"a".repeat(64),"time":n,"runtime_sequence":n,"trading_day":"2026-10-19","day_index":1,"op":"CASH_FLOW","payload":{"schema_version":1,"cashflow":format!("flow-{n}"),"source_fact":format!("source-{n}"),"amount":"1.00"}});
+   manager.apply(&command).unwrap();
+  }
+  let state=manager.state();let original=manager.checkpoint().unwrap();
+  let expected=Value::Object(state["ledgers"].as_object().unwrap().iter().map(|(cluster,ledger)|(cluster.clone(),json!({"lines":ledger["lines"],"economic_version":ledger["snapshot"]["economic_version"]}))).collect());
+  STATE_CONSTRUCTIONS.with(|count|count.set(0));let mut view=manager.valuation_view();
+  assert_eq!(STATE_CONSTRUCTIONS.with(std::cell::Cell::get),0,"valuation-only data must not create full timeline/receipt/history DTOs");
+  assert_eq!(view,expected);assert_eq!(view.as_object().unwrap().len(),2);assert_eq!(view["c1"]["economic_version"],8);assert_eq!(view["c2"]["economic_version"],8);
+  view["c1"]["lines"]=json!({"detached":"mutated"});
+  assert_eq!(manager.checkpoint().unwrap(),original,"a returned current view cannot mutate canonical owner state or bytes");
+ }
 }

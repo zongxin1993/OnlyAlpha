@@ -49,10 +49,10 @@ component replay cannot repeat an order or official publication.
 
 ## Checkpoint and recovery
 
-Capture only quiescent healthy shared state. One canonical SHA-256-bound envelope (maximum 64 MiB) binds exact program record,
+Capture only quiescent healthy shared state. Current checkpoint schema3 uses one canonical SHA-256-bound envelope (maximum 64 MiB) to bind the fingerprint of the exact immutable Program already held by the owner,
 source managers, State, Delivery planning cursors, input frontiers, expected calculation positions, calculation port bundles and
 cluster quarantine state. Each nested component keeps its own current record meaning. A caller-supplied expected digest is
-mandatory; the record cannot authorize itself. No old record fallback or business format migration is added.
+mandatory; the record cannot authorize itself. The exact schema2 reader retains its inline Program record, canonical bytes and digest interpretation; schema1 and unknown versions are rejected. New capture uses schema3 only, without translating old bytes, selecting another Program or adding a business format migration.
 
 Restore validates exact fields/owners/program/referenced sets/frontiers/BarTypes and worker cursor/output relations, constructs
 fresh managers, State, Delivery and worker instances, verifies current snapshots against exact stored expectations, then performs

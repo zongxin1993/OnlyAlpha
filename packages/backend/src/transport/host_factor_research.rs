@@ -24,6 +24,28 @@ use http::{Method, Request};
 use serde_json::Value;
 use std::{path::Path, sync::Arc, time::Instant};
 
+/// The normal Product report and technical integration path use the same
+/// owning physical read. Parsed report JSON cannot make this verified display.
+pub fn read_strategy_report(root:&Path,runtime:&Path,run:&VerifiedRun)->Result<StrategyResearchReport,&'static str> {
+    const INVALID:&str="STRATEGY_RESEARCH_REPORT_UNAVAILABLE";
+    let report=research_evidence::Store::open(root)?.with_runtime_root(runtime)?.read_report(run)?;
+    let window=&run.strategy_specification()?.record()["input_window"];
+    let time=|key:&str|->Result<String,&'static str>{
+        let value=window[key].as_str().ok_or(INVALID)?.parse::<bigdecimal::num_bigint::BigInt>().map_err(|_|INVALID)?;
+        onlyalpha_domain::time::OnlyTimestamp::from_unix_nanos(value).to_datetime_exact().map(|v|v.to_string()).map_err(|_|INVALID)
+    };
+    Ok(StrategyResearchReport {
+        candidate_fingerprint:report["candidate_fingerprint"].as_str().ok_or(INVALID)?.into(),
+        research_result_fingerprint:report["research_result_fingerprint"].as_str().ok_or(INVALID)?.into(),
+        start_at:time("observation_start_ns")?,end_at:time("observation_end_ns")?,
+        observation_count:report["observation"]["observation_count"].as_u64().ok_or(INVALID)?,
+        warmup_bars:window["warmup_bars"].as_u64().ok_or(INVALID)?,
+        node_count:run.strategy_specification()?.record()["decision"]["decision_graph"]["nodes"].as_array().ok_or(INVALID)?.len() as u64,
+        execution_graph_verified:true,
+        limitations:vec!["本次研究验证了完整计算和交易信号的一致性，尚未评估策略收益。".into(),"后续回测仅作探索；样本较短，不代表未来表现。".into()],
+    })
+}
+
 /// One read composition, without changing Run state or creating execution permission.
 #[derive(serde::Serialize)]
 pub struct ReportRead {
@@ -135,7 +157,7 @@ fn report_projection(
     artifact: Value,
 ) -> Result<FactorResearchReport, &'static str> {
     let invalid = "RESEARCH_REPORT_PROJECTION_INVALID";
-    let spec = run.specification();
+    let spec = run.factor_specification()?;
     let bindings = run.prepared_inputs["dataset_materialization"]["market_data_revision_bindings"]
         .as_array()
         .filter(|v| v.len() == 1)
@@ -246,15 +268,13 @@ impl Host {
         let cancellation_response = cancel.is_some();
         if let Some(command) = cancel {
             let mut writer = self.writer.lock().await;
-            let client = writer
-                .as_mut()
-                .ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
-                .client_mut()
-                .await
-                .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
-            research_submission::cancel(client, (&self.human_access, &human), command, &id, now()?)
-                .await
-                .map_err(failed)?;
+            let session=writer.as_mut().ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            let original=research_submission::load(session.client_mut().await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?,&id,Some(&owner)).await.map_err(failed)?;
+            if matches!(original.specification(),crate::application::research_run::NativeSpecification::Strategy(_)) {
+                research_submission::strategy::cancel(session,(&self.human_access,&human),command,&id,now()?).await.map_err(failed)?;
+            }else{
+                research_submission::cancel(session.client_mut().await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?,(&self.human_access,&human),command,&id,now()?).await.map_err(failed)?;
+            }
             drop(writer);
             self.wake_research_after_commit();
         }
@@ -262,13 +282,8 @@ impl Host {
             return Err(Failure::unavailable("REQUEST_DEADLINE_EXPIRED"));
         }
         let (run, status, current_name, failure) = {
-            let mut writer = self.writer.lock().await;
-            let client = writer
-                .as_mut()
-                .ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
-                .client_mut()
-                .await
-                .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            let mut reader=self.reader.lock().await;
+            let client=reader.as_mut().ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
             let current = research_submission::load(client, &id, Some(&owner))
                 .await
                 .map_err(failed)?;
@@ -276,23 +291,30 @@ impl Host {
                 .observe(&current)
                 .await
                 .map_err(failed)?;
-            let names = crate::persistence::private_factor_postgres::Factors::new(client)
-                .read(
-                    current.specification().revision["factor_id"]
-                        .as_str()
-                        .ok_or_else(invalid)?,
-                )
-                .await
-                .map_err(|e| failed(e.code()))?;
+            let current_name=if let crate::application::research_run::NativeSpecification::Factor(spec)=current.specification() {
+                let names=crate::persistence::private_factor_postgres::Factors::new(client).read(spec.revision["factor_id"].as_str().ok_or_else(invalid)?).await.map_err(|e|failed(e.code()))?;
+                names["display"]["display_name"].as_str().map(str::to_owned)
+            }else{None};
             let raw=client.query_one("SELECT failure_phase,failure_code,failure_detail FROM research_run WHERE run_id=$1::text::uuid AND revision=$2",&[&id,&status.revision]).await.map_err(|_|Failure::unavailable("RESEARCH_EXECUTION_STORE_UNAVAILABLE"))?;
             let failure=raw.get::<_,Option<String>>(1).map(|code|serde_json::json!({"phase":raw.get::<_,Option<String>>(0),"code":code,"detail":raw.get::<_,Option<String>>(2)}));
             (
                 current,
                 status,
-                names["display"]["display_name"].as_str().map(str::to_owned),
+                current_name,
                 failure,
             )
         };
+        if matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)) {
+            let (report,report_status)=if !cancellation_response&&status.state==crate::persistence::research_execution::RunState::Completed {
+                let root=self.research_preparation_config.research_root.clone();let runtime=self.research_preparation_config.runtime_root.clone();let original=run.clone();
+                match tokio::task::spawn_blocking(move||read_strategy_report(&root,&runtime,&original)).await {
+                    Ok(Ok(report))=>(Some(report),FactorResearchReportAvailability{state:FactorResearchReportState::Verified,code:None}),
+                    _=>(None,FactorResearchReportAvailability{state:FactorResearchReportState::Unavailable,code:Some("STRATEGY_RESEARCH_REPORT_UNAVAILABLE".into())}),
+                }
+            }else{(None,FactorResearchReportAvailability{state:FactorResearchReportState::NotApplicable,code:None})};
+            self.human_access.check_session(&human)?;
+            return Ok(ingress::attach(Json(StrategyResearchRunView{schema_version:1,kind:"PRIVATE_STRATEGY".into(),run_id:id,state:status.state.as_str().into(),revision:status.revision.to_string(),report,report_status}).into_response(),Release::Generation(human.metadata_session())));
+        }
         let report = if !cancellation_response
             && status.state == crate::persistence::research_execution::RunState::Completed
         {
@@ -343,7 +365,10 @@ impl Host {
                 current_name,
                 accepted_at: run.accepted_at.clone(),
                 specification_fingerprint: run.specification_fingerprint().into(),
-                runtime_generation_fingerprint: run.runtime_generation_fingerprint().into(),
+                runtime_generation_fingerprint: run
+                    .runtime_generation_fingerprint()
+                    .map_err(failed)?
+                    .into(),
                 report: report.report,
                 report_status: report.report_status,
                 decision_provenance: report.decision_provenance,

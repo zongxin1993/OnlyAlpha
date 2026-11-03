@@ -19,3 +19,12 @@ pub use performance::RuntimePerformance;
 
 mod backtest_result;
 pub use backtest_result::BacktestResult;
+
+#[cfg(test)]
+extern crate self as onlyalpha_execution;
+#[cfg(test)]
+mod projection_digest_tests;
+
+
+#[cfg(test)]
+mod valuation_ledger_view_tests;

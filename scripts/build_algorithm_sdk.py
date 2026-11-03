@@ -61,6 +61,8 @@ WORKER = (
     "research_worker.py",
     "research_resolution.py",
     "research_evaluation.py",
+    "trading_session.py",
+    "trading_worker.py",
     "research_preparation.py",
     "sdk/__init__.py",
     "sdk/private_factor_execution.py",

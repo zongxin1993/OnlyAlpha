@@ -571,6 +571,7 @@ pub async fn run(
                 inputs: inputs.take().unwrap(),
                 datasets,
                 installation,
+                runtime_root: Path::new(f["runtime_root"].as_str().ok_or("runtime root")?).into(),
                 evidence_root: root.clone(),
                 native_version: if mode == "wrong-native-version" {
                     "0.0.0"
@@ -647,13 +648,13 @@ pub async fn execute_node_fence(
     )?;
     let installation = onlyalpha_calculation_bridge::ChartInstallation::open(
         Path::new(f["installation"].as_str().ok_or("installation")?),
-        &run.specification().algorithm_artifact_fingerprint,
+        run.specification().algorithm_artifact_fingerprint()?,
     )?;
     let runtime = RuntimeInputHold::open(
         Path::new(f["runtime_root"].as_str().ok_or("runtime")?),
         &id,
         "research",
-        run.runtime_generation_fingerprint(),
+        run.runtime_generation_fingerprint()?,
     )?;
     let inputs = research_admission::restore(&run, runtime, &installation, &datasets)?;
     let work = onlyalpha_backend::workers::research::Work {
@@ -661,6 +662,7 @@ pub async fn execute_node_fence(
         inputs,
         datasets,
         installation,
+        runtime_root: Path::new(f["runtime_root"].as_str().ok_or("runtime root")?).into(),
         evidence_root: Path::new(v["research_root"].as_str().ok_or("research root")?).into(),
         native_version: env!("CARGO_PKG_VERSION").into(),
         worker_id: "00000000-0000-4000-8000-000000000902".into(),

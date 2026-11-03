@@ -149,7 +149,7 @@ fn corrupt_or_spliced_checkpoint_never_replaces_a_healthy_receiver() {
             "states" => v["states"] = old["states"].clone(),
             "port" => v["port"] = old["port"].clone(),
             "accepted" => v["accepted"] = old["accepted"].clone(),
-            "program" => v["program"]["source"] = json!("d".repeat(64)),
+            "program" => v["program_fingerprint"] = json!("d".repeat(64)),
             _ => v["extra"] = Value::Null,
         };
         assert!(restore(&mut e, &v).is_err(), "{mode}");
@@ -431,4 +431,70 @@ fn product_revision_preserves_authoritative_identity_and_proves_every_compiled_n
     let mut changed = admitted.descriptors().values().cloned().collect::<Vec<_>>();
     changed[0].implementation = "f".repeat(64);
     assert!(Revision::from_product(source, changed, mapping).is_err());
+}
+
+
+#[test]
+fn checkpoint_program_reference_preserves_state_and_exact_legacy_one_reader() {
+    let mut source = executor();
+    for i in 1..=3 { process(&mut source, i).unwrap(); }
+    let current = source.capture_checkpoint().unwrap();
+    assert_eq!(current["schema_version"], 2);
+    assert!(current.get("program").is_none());
+    assert_eq!(current["program_fingerprint"], source.program().fingerprint());
+    let mut legacy = current.clone();
+    legacy.as_object_mut().unwrap().remove("program_fingerprint");
+    legacy["schema_version"] = json!(1);
+    legacy["program"] = source.program().to_record();
+    let bindings = legacy["component_bindings"].as_object_mut().unwrap();
+    bindings.remove("program_fingerprint");
+    bindings.insert("program".into(), json!(record_fingerprint(&source.program().to_record())));
+    bindings.insert("schema_version".into(), json!(record_fingerprint(&json!(1))));
+    let legacy_bytes = legacy.to_string();
+    let legacy_digest = record_fingerprint(&legacy);
+    let mut recovered = executor();
+    recovered.restore_checkpoint(legacy_bytes.as_bytes(), &legacy_digest).unwrap();
+    assert_eq!(legacy.to_string(), legacy_bytes);
+    assert_eq!(record_fingerprint(&legacy), legacy_digest);
+    assert_eq!(recovered.capture_checkpoint().unwrap(), current);
+    assert_eq!(process(&mut source, 4).unwrap().to_record(), process(&mut recovered, 4).unwrap().to_record());
+    assert!(current.to_string().len() < legacy_bytes.len());
+    let mut foreign_legacy = legacy.clone();
+    foreign_legacy["program"]["source"] = json!("d".repeat(64));
+    foreign_legacy["component_bindings"]["program"] = json!(record_fingerprint(&foreign_legacy["program"]));
+    assert!(restore(&mut recovered, &foreign_legacy).is_err());
+}
+
+#[test]
+fn rehashed_program_reference_cannot_select_another_generation_source_or_artifact() {
+    let mut source = executor();
+    process(&mut source, 1).unwrap();
+    let current = source.capture_checkpoint().unwrap();
+    let held = source.program();
+    let mut invalid = Vec::new();
+    let foreign = "f".repeat(64);
+    for field in ["generation", "source", "artifact"] {
+        let other = Program::new(held.revision().clone(), held.scope().clone(),
+            if field == "generation" { foreign.as_str() } else { held.generation() },
+            if field == "source" { foreign.as_str() } else { held.source() },
+            if field == "artifact" { foreign.as_str() } else { held.artifact() }).unwrap();
+        let mut checkpoint = current.clone();
+        checkpoint["program_fingerprint"] = json!(other.fingerprint());
+        invalid.push((field, checkpoint));
+    }
+    for (field, version) in [("legacy_version", 1), ("unknown_version", 3)] {
+        let mut checkpoint = current.clone(); checkpoint["schema_version"] = json!(version);
+        invalid.push((field, checkpoint));
+    }
+    let mut inline = current.clone(); inline["program"] = held.to_record();
+    invalid.push(("inline_program", inline));
+    for (field, mut checkpoint) in invalid {
+        for key in ["program_fingerprint", "schema_version", "program"] {
+            if let Some(value) = checkpoint.get(key).cloned() {
+                checkpoint["component_bindings"][key] = json!(record_fingerprint(&value));
+            }
+        }
+        assert!(restore(&mut source, &checkpoint).is_err(), "{field}");
+        assert_eq!(source.capture_checkpoint().unwrap(), current, "{field}");
+    }
 }

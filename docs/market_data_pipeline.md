@@ -114,7 +114,7 @@ position, including explicit unobserved optional inputs. A route plan alone neve
 consumer invocation/outcome. A failed or uncertain consumer quarantines only its Cluster; shared construction/state or unknown/malformed
 calculation receipts fail-stop this component until explicit complete restore. There is no automatic retry or process recreation.
 
-Component checkpoint schema2 captures all Source managers, State, planning watermarks, scoped calculation bundles, expected input
+Component checkpoint schema3 captures all Source managers, State, planning watermarks, scoped calculation bundles, expected input
 positions, last attempted Bars, ordered frontiers, latest actual preparation receipts and quarantines under caller-expected SHA-256. Restore constructs fresh candidates,
 validates exact component relationships and worker acknowledgments, then installs the complete candidate. The consumer is deterministic
 and non-effectful: it owns no recoverable trading truth. This component is not an official Runtime participant, Source-grant or gap
@@ -132,7 +132,7 @@ redefine a custom Construction executor's opaque state.
 Prepared output schema2 additionally exposes immutable scoped Delivery plans alongside actual preparation receipts. Current Rust consumers
 use this explicit schema; no schema1 output reader or fallback is retained. The plans remain data projections, not proof of Strategy execution.
 The Infrastructure Strategy coordinator uses `NoCalculations` here to avoid consuming the same algorithm input twice, checks the accepted
-preparation receipt, then invokes its separately owning Strategy executor. Checkpoint schema2 also retains each latest actual preparation receipt with its input prefix; no schema1 checkpoint reader is retained.
+preparation receipt, then invokes its separately owning Strategy executor. Checkpoint schema3 retains each latest actual preparation receipt with its input prefix. Its `program_fingerprint` binds the exact immutable Program already held by this owner; capture no longer repeats the complete Program record in every checkpoint. Restore compares that fingerprint with the held Program before constructing candidates. The exact schema2 reader retains its original inline Program fields, canonical bytes and digest interpretation; schema1 remains unsupported. No checkpoint is translated or rewritten, no current/latest Program lookup is added, and all variable state, retained Bar history and input identities remain present.
 A downstream Strategy cut must match this Pipeline-owned acknowledgment, not an independently asserted coordinator prefix.
 
 ### Rust Delivery planning boundary

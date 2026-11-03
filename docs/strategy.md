@@ -19,8 +19,8 @@ producer；不存在的 CROSS_SECTION TRADING capability 必须明确拒绝，�
 之前拒绝。按稳定图顺序传递当前输入位置的上游输出，严格检查端口类型、nullable 和 readiness；未就绪返回 BLOCKED，不能复用旧 READY。
 终端 null 按已声明的 FALSE policy 处理。节点可能已消费输入后的异常、panic、UNKNOWN 或坏 receipt 使整个 owner 待恢复；禁止盲重试前序节点。
 
-checkpoint 绑定 exact Program、完整 input prefix、accepted observation/outcome、每个节点 cursor/receipt/native state 与成功确认时保存的 state fingerprint；恢复先创建完整 fresh
-candidate，再原子替换。失败候选不得改变 receiver。外部保留的 expected digest 是信任根，派生 manifest 不是认证签名。
+checkpoint schema2 通过 `program_fingerprint` 绑定 owner 已持有的 exact immutable Program，保留完整 input prefix、accepted observation/outcome、每个节点 cursor/receipt/native state 与成功确认时保存的 state fingerprint；恢复先核对原 Program，再创建完整 fresh
+candidate，再原子替换。失败候选不得改变 receiver。外部保留的 expected digest 是信任根，派生 manifest 不是认证签名。schema1 checkpoint 保留原 inline Program 的 exact reader、canonical bytes 和 hash 解释，不转换为 schema2；新 capture 只使用 schema2。恢复不查询 current/latest Program，不改变 Strategy Revision identity，不删除任何节点状态、输入身份或历史。
 
 实际 Python Plugin 调用位于 `packages/onlyalpha-calculation-worker/`。同一私有 Protobuf 传输上的封闭 node operation 仅支持 resolve/create/
 update/checkpoint/fresh restore/close；没有任意方法或动态模块入口。TIME_SERIES indicator 采用自身 snapshot.ready；当前官方 operator/predicate

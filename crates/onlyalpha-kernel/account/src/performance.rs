@@ -51,10 +51,17 @@ fn ratio(n: &Decimal, d: &Decimal) -> Option<String> {
     }
     Some(Decimal::new(q, 8).to_plain_string())
 }
+/// Pure Account drawdown projection with the same bounds and single final
+/// half-even rounding as Account Performance. Non-positive peaks are undefined.
+pub fn equity_drawdown(equity: &onlyalpha_domain::numeric::OnlyDecimal, high_water_mark: &onlyalpha_domain::numeric::OnlyDecimal) -> Result<Option<onlyalpha_domain::numeric::OnlyDecimal>, Error> {
+    let equity = analytical(&json!(equity.to_string()))?;
+    let peak = analytical(&json!(high_water_mark.to_string()))?;
+    ratio(&(&equity - &peak), &peak).map(|value| value.parse().map_err(Error::from)).transpose()
+}
 impl Manager {
     /// Rebuild the whole Account path from its owning journal. Genesis time is explicit.
     pub fn performance(&self, initial_time: &OnlyTimestamp) -> Result<Performance, Error> {
-        let mut candidate = Self::new(self.config.clone())?;
+        let mut candidate = self.fresh()?;
         let initial = analytical(&candidate.snapshot()["equity"])?;
         let mut points = Vec::new();
         let mut external = Decimal::zero();

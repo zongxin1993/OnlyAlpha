@@ -1,15 +1,23 @@
 use crate::model::*;
 use bigdecimal::Zero;
-use onlyalpha_domain::{base::OnlyDomainModel, value::OnlyMoney};
+use onlyalpha_domain::{
+    base::OnlyDomainModel,
+    value::{OnlyMoney, OnlyPrice},
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Manager {
     pub(crate) config: Value,
     pub(crate) instruments: BTreeMap<String, Instrument>,
     pub(crate) currency: onlyalpha_domain::value::OnlyCurrency,
     pub(crate) clusters: BTreeSet<String>,
     pub(crate) state: State,
+}
+#[cfg(test)]
+std::thread_local! {
+    // Counts actual complete state JSON construction, not a view call or a grant.
+    static FULL_STATE_CONSTRUCTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 impl Manager {
     pub fn new(config: Value) -> Result<Self, Error> {
@@ -171,7 +179,7 @@ impl Manager {
             .map(Reservation::record)
             .ok_or_else(|| err("POSITION_RESERVATION_NOT_FOUND"))
     }
-    pub fn state(&self) -> Value {
+    fn current_exposure_rows(&self) -> (Vec<Value>, Vec<Value>) {
         let accounts: Vec<_> = self
             .state
             .accounts
@@ -179,6 +187,17 @@ impl Manager {
             .map(|i| json!({"instrument":i,"snapshot":self.account(i).expect("validated state")}))
             .collect();
         let allocations:Vec<_>=self.state.allocations.iter().map(|((c,i),b)|json!({"cluster":if c.is_empty(){Value::Null}else{json!(c)},"instrument":i,"snapshot":b.record(&self.instruments[i],if c.is_empty(){Decimal::zero()}else{self.cluster_available(c,i).expect("validated state")},self.blocked(i)).expect("validated state")})).collect();
+        (accounts, allocations)
+    }
+    /// Current owned books only, with the same availability and blocking rules
+    /// as state(). This value is no source, admission or recovery authority.
+    pub fn current_exposure(&self) -> Value {
+        let (accounts, allocations) = self.current_exposure_rows();
+        json!({"accounts":accounts,"allocations":allocations})
+    }
+    pub fn state(&self) -> Value {
+        #[cfg(test)] FULL_STATE_CONSTRUCTIONS.with(|count|count.set(count.get()+1));
+        let (accounts, allocations) = self.current_exposure_rows();
         json!({"sequence":self.state.sequence,"now":if self.state.journal.is_empty() {Value::Null} else {json!(self.state.now.to_string())},"accounts":accounts,"allocations":allocations,"history":self.state.history,"reservations":self.state.reservations.values().map(Reservation::record).collect::<Vec<_>>(),"restrictions":self.state.restrictions,"brokers":self.state.brokers,"stale":self.state.stale,"watermarks":self.state.watermarks.iter().map(|(i,(s,t,id))|json!([i,s,t.to_string(),id])).collect::<Vec<_>>(),"receipts":self.state.receipts,"commands":self.state.commands})
     }
     /// New-risk admission only. Existing accepted observations and close processing must continue.
@@ -289,26 +308,30 @@ impl Manager {
         })
     }
     fn trade(&mut self, v: &Value, at: &num_bigint::BigInt) -> Result<(Status, Value), Error> {
-        let r = row(
-            v,
-            &[
-                "instrument",
-                "cluster",
-                "order",
-                "trade",
-                "venue_trade",
-                "execution",
-                "sequence",
-                "side",
-                "position_side",
-                "position_mode",
-                "price",
-                "quantity",
-                "fee",
-                "bucket",
-                "terminal_fill",
-            ],
-        )?;
+        let version = uint(&v["schema_version"])?;
+        let mut fields = vec![
+            "instrument",
+            "cluster",
+            "order",
+            "trade",
+            "venue_trade",
+            "execution",
+            "sequence",
+            "side",
+            "position_side",
+            "position_mode",
+            "price",
+            "quantity",
+            "fee",
+            "bucket",
+            "terminal_fill",
+        ];
+        match version {
+            1 => (),
+            2 => fields.push("price_precision"),
+            _ => return Err(err("POSITION_TRADE_SCHEMA")),
+        }
+        let r = row_version(v, &fields, version)?;
         let i = id(&r["instrument"])?;
         let spec = self.spec(&i)?.clone();
         let c = if r["cluster"].is_null() {
@@ -325,7 +348,15 @@ impl Manager {
         if !matches!(side, "BUY" | "SELL") {
             return Err(err("POSITION_SIDE"));
         }
-        let price = spec.price(&r["price"])?;
+        let price = if version == 2 {
+            let price = positive(&r["price"])?;
+            let precision = u8::try_from(uint(&r["price_precision"])?)
+                .map_err(|_| err("POSITION_PRECISION"))?;
+            OnlyPrice::new(price.to_string().parse()?, precision)?;
+            price
+        } else {
+            spec.price(&r["price"])?
+        };
         let quantity = spec.quantity(&r["quantity"])?;
         let fee = nonnegative(&r["fee"])?;
         OnlyMoney::new(fee.to_string().parse()?, self.currency.clone())?;
@@ -693,3 +724,7 @@ impl Manager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path="current_exposure_tests.rs"]
+mod current_exposure_tests;

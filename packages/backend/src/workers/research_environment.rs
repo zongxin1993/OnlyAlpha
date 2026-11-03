@@ -11,7 +11,7 @@ use crate::{
         immutable_json::Directory,
         protected_files::{self, FilePolicy},
     },
-    workers::algorithm::{AlgorithmProcess, describe_research_runtime},
+    workers::algorithm::{AlgorithmProcess, describe_native_runtime},
 };
 use onlyalpha_calculation_bridge::ChartInstallation;
 use onlyalpha_domain::time::OnlyUtcDateTime;
@@ -161,6 +161,27 @@ pub fn prepare(
     revision: &Value,
     version: &str,
 ) -> std::result::Result<PreparedGeneration, PreparationError> {
+    prepare_installed(installation, release_root, factor, revision, version, false)
+}
+/// Explicit complete-Strategy preparation adds the actual installed RESEARCH
+/// Target library. It does not manufacture a Quant Asset Provider or TRADING Target.
+pub fn prepare_strategy(
+    installation: &ChartInstallation,
+    release_root: &Path,
+    factor: &CompiledFactor,
+    revision: &Value,
+    version: &str,
+) -> std::result::Result<PreparedGeneration, PreparationError> {
+    prepare_installed(installation, release_root, factor, revision, version, true)
+}
+fn prepare_installed(
+    installation: &ChartInstallation,
+    release_root: &Path,
+    factor: &CompiledFactor,
+    revision: &Value,
+    version: &str,
+    with_targets: bool,
+) -> std::result::Result<PreparedGeneration, PreparationError> {
     crate::application::private_assets::authoring::validate_revision(revision)
         .map_err(|_| INVALID)?;
     if revision["revision_fingerprint"] != factor.revision_fingerprint() {
@@ -185,8 +206,18 @@ pub fn prepare(
     let (core_name, core_bytes) = release.wheel("onlyalpha", &core_version)?;
     let (provider_name, provider_bytes) =
         release.wheel("onlyalpha-plugin-operators", &provider_version)?;
+    let target_wheel = if with_targets {
+        let version = installation
+            .installed_distribution_version("onlyalpha-plugin-targets")
+            .map_err(|_| INVALID)?;
+        let (name, bytes) = release.wheel("onlyalpha-plugin-targets", &version)?;
+        Some((version, name, bytes))
+    } else {
+        None
+    };
     let native = release.read("bin/onlyalpha-backend", true)?;
-    let descriptor = describe_research_runtime(version).map_err(|_| INVALID)?;
+    let native_descriptor = describe_native_runtime(version).map_err(|_| INVALID)?;
+    let descriptor = native_descriptor["image"].clone();
     if descriptor["artifact"] != sha(&native)
         || descriptor["version"] != version
         || descriptor["protocol"] != "onlyalpha.research.executor/1"
@@ -217,7 +248,11 @@ pub fn prepare(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect::<serde_json::Map<_, _>>();
     let artifact = |name: &str, bytes: &[u8], version: &str| json!({"path":release_root.join("wheels").join(name),"sha256":sha(bytes),"size":bytes.len(),"distribution_version":version});
-    let request = json!({"schema_version":1,"source":source,"graph":factor.graph().to_record(),"core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":artifact(&provider_name,&provider_bytes,&provider_version)});
+    let mut request = json!({"schema_version":1,"source":source,"graph":factor.graph().to_record(),"core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":artifact(&provider_name,&provider_bytes,&provider_version)});
+    if let Some((version, name, bytes)) = &target_wheel {
+        request["contract"] = json!("ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1");
+        request["target_artifact"] = artifact(name, bytes, version);
+    }
     let mut worker =
         AlgorithmProcess::research_resolution(installation, factor.fingerprint(), Box::new(()))
             .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
@@ -237,7 +272,12 @@ pub fn prepare(
     installation.verify().map_err(|_| INVALID)?;
     release.verify()?;
     if observation["schema_version"] != 1
-        || observation["contract"] != "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
+        || observation["contract"]
+            != if with_targets {
+                "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
+            } else {
+                "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
+            }
         || observation["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
         || observation["algorithm_artifact"] != installation.artifact_fingerprint()
         || observation["source_projection_fingerprint"]
@@ -258,6 +298,68 @@ pub fn prepare(
             return Err(INVALID.into());
         }
     }
+    let target_implementations = if let Some((_, _, bytes)) = &target_wheel {
+        let fields = [
+            "schema_version",
+            "contract",
+            "algorithm_artifact",
+            "factor_revision_fingerprint",
+            "source_artifact",
+            "validation_evidence",
+            "graph",
+            "implementations",
+            "private_calculations",
+            "source_projection_fingerprint",
+            "core_artifact_sha256",
+            "core_resources_fingerprint",
+            "isolation",
+            "equivalence_evidence",
+            "provider_snapshot",
+            "certification_policy",
+            "certification_vectors",
+            "operator_provider_manifest",
+            "operator_calculations",
+            "operator_artifact_sha256",
+            "operator_resources_fingerprint",
+            "target_artifact_sha256",
+            "target_resources_fingerprint",
+            "target_calculations",
+        ];
+        let record = observation.as_object().ok_or(INVALID)?;
+        if record.len() != fields.len()
+            || fields.iter().any(|k| !record.contains_key(*k))
+            || observation["target_artifact_sha256"] != sha(bytes)
+            || !observation["target_resources_fingerprint"]
+                .as_str()
+                .is_some_and(crate::is_sha256_hex)
+        {
+            return Err(INVALID.into());
+        }
+        let targets = observation["target_calculations"]
+            .as_array()
+            .filter(|r| !r.is_empty())
+            .ok_or(INVALID)?;
+        let mut identities = BTreeSet::new();
+        for target in targets {
+            let reference = &target["type"];
+            if reference["kind"] != "TARGET"
+                || target["backend"] != "RESEARCH"
+                || !target["state_capability"].is_null()
+                || !target["checkpoint_schema_version"].is_null()
+                || !identities.insert(
+                    ["kind", "type_id", "semantic_version"]
+                        .map(|k| reference[k].as_str().unwrap_or("").to_owned()),
+                )
+            {
+                return Err(INVALID.into());
+            }
+        }
+        let mut projected = implementations(&observation["target_calculations"])?;
+        sort_implementations(&mut projected);
+        projected
+    } else {
+        Vec::new()
+    };
     let vectors = observation["certification_vectors"].clone();
     if hash(&vectors).map_err(|_| INVALID)?
         != observation["equivalence_evidence"]["test_vector_set_fingerprint"]
@@ -309,22 +411,58 @@ pub fn prepare(
         Some(&base),
     )?;
     let target = descriptor["target"].as_str().ok_or(INVALID)?;
-    let native_artifact = distribution(
-        "RESEARCH_RUNTIME",
+    let mut native_implementations = native_descriptor["implementations"]
+        .as_array()
+        .ok_or(INVALID)?
+        .iter()
+        .map(crate::application::research_admission::implementation_projection)
+        .collect::<Result<Vec<_>>>()?;
+    sort_implementations(&mut native_implementations);
+    let mut native_artifact = distribution(
+        "BACKEND_RUNTIME",
         ("onlyalpha-backend", version),
         &format!("onlyalpha_backend-{version}-{target}.elf"),
         &native,
         &provenance,
-        core_pin.into(),
+        core_pin.clone().into(),
         None,
     )?;
-    let artifacts = vec![
+    native_artifact
+        .as_object_mut()
+        .ok_or(INVALID)?
+        .remove("manifest_fingerprint");
+    native_artifact["schema_version"] = json!(2);
+    native_artifact["execution_capabilities"] = native_descriptor["execution_capabilities"].clone();
+    native_artifact["implementations"] = json!(native_implementations);
+    native_artifact["manifest_fingerprint"] = hash(&native_artifact).map_err(|_| INVALID)?.into();
+    let mut artifacts = vec![
         (core_artifact, core_bytes),
         (provider_artifact, provider_bytes),
         (native_artifact, native),
     ];
+    if let Some((version, name, bytes)) = target_wheel {
+        let mut target_artifact = distribution(
+            "CALCULATION",
+            ("onlyalpha-plugin-targets", &version),
+            &name,
+            &bytes,
+            &provenance,
+            core_pin.into(),
+            None,
+        )?;
+        target_artifact
+            .as_object_mut()
+            .ok_or(INVALID)?
+            .remove("manifest_fingerprint");
+        target_artifact["implementations"] = json!(target_implementations);
+        target_artifact["manifest_fingerprint"] =
+            hash(&target_artifact).map_err(|_| INVALID)?.into();
+        artifacts.push((target_artifact, bytes));
+    }
     let mut all_implementations = implementations(&observation["operator_calculations"])?;
     all_implementations.extend(implementations(&observation["private_calculations"])?);
+    all_implementations.extend(native_implementations);
+    all_implementations.extend(target_implementations);
     sort_implementations(&mut all_implementations);
     let mut providers = vec![base.clone(), private];
     providers.sort_by_key(|p| {
@@ -344,7 +482,7 @@ pub fn prepare(
     let mut manifest = json!({"schema_version":1,"core_execution":core,"artifact_manifest_fingerprints":artifacts.iter().map(|(m,_)|m["manifest_fingerprint"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"artifact_sha256s":artifacts.iter().map(|(m,_)|m["artifact_sha256"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"providers":[{"provider_id":base["manifest"]["provider_id"],"provider_version":base["manifest"]["provider_version"],"provider_content_fingerprint":base["content_fingerprint"],"artifact_sha256":artifacts[1].0["artifact_sha256"]}],"catalog_generation_fingerprint":hash(&catalog).map_err(|_|INVALID)?,"implementations":all_implementations,"private_factor_bindings":[binding]});
     manifest["runtime_generation_fingerprint"] = hash(&manifest).map_err(|_| INVALID)?.into();
     check_binding(&observation, &runtime, &binding, &manifest)?;
-    let mut proof = json!({"schema_version":1,"contract":"ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V1","runtime_generation_fingerprint":manifest["runtime_generation_fingerprint"],"algorithm_artifact":installation.artifact_fingerprint(),"release_manifest_sha256":sha(&release.raw),"source_inputs":release.manifest["source_inputs"],"source_provenance":provenance,"native_descriptor":descriptor,"algorithm_observation":observation,"catalog":catalog});
+    let mut proof = json!({"schema_version":2,"contract":"ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2","runtime_generation_fingerprint":manifest["runtime_generation_fingerprint"],"algorithm_artifact":installation.artifact_fingerprint(),"release_manifest_sha256":sha(&release.raw),"source_inputs":release.manifest["source_inputs"],"source_provenance":provenance,"native_descriptor":native_descriptor,"algorithm_observation":observation,"catalog":catalog});
     proof["installed_proof_fingerprint"] = hash(&proof).map_err(|_| INVALID)?.into();
     Ok(PreparedGeneration {
         manifest,

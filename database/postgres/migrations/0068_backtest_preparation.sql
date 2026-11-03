@@ -1,0 +1,42 @@
+-- The existing queue admits one typed Backtest preparation; legacy bytes stay exact.
+ALTER TABLE product_command_admission DROP CONSTRAINT product_command_admission_command_kind_check;
+ALTER TABLE product_command_admission ADD CONSTRAINT product_command_admission_command_kind_check CHECK (command_kind IN ('CREATE_FACTOR_STUDY_GRANT', 'CONTINUE_FACTOR_STUDY', 'PREPARE_FACTOR_RESEARCH', 'CANCEL_FACTOR_RESEARCH_PREPARATION', 'STAGE_FACTOR_STUDY', 'WITHDRAW_FACTOR_STUDY', 'CREATE_PROPOSAL_GRANT', 'REVOKE_PROPOSAL_GRANT', 'WITHDRAW_FACTOR_PROPOSAL', 'STAGE_FACTOR_PROPOSAL', 'CONFIRM_FACTOR_PROPOSAL', 'FACTOR_CHAT', 'CREATE_RESEARCH_RUN', 'CANCEL_RESEARCH_RUN', 'FREEZE_STRATEGY', 'PROMOTE_STRATEGY', 'CREATE_BACKTEST_RUN', 'CANCEL_BACKTEST_RUN', 'EVALUATE_QUALIFICATION', 'CREATE_SYMBOLIC_SEARCH_EXPERIMENT', 'CREATE_PARAMETER_SEARCH_EXPERIMENT', 'ADVANCE_SEARCH_EXPERIMENT', 'CREATE_INTEGRATION', 'UPDATE_INTEGRATION_DRAFT', 'SET_INTEGRATION_SECRET', 'CLEAR_INTEGRATION_SECRET', 'RESET_INTEGRATION_DRAFT_CONTRACT', 'PUBLISH_INTEGRATION_REVISION', 'SET_INTEGRATION_LIFECYCLE', 'CREATE_CHART_CALCULATION', 'SAVE_WATCHLISTS', 'SAVE_WORKSPACE', 'SAVE_PRIVATE_STRATEGY_DRAFT', 'PUBLISH_PRIVATE_STRATEGY_REVISION', 'SAVE_PRIVATE_FACTOR_DRAFT', 'PUBLISH_PRIVATE_FACTOR_REVISION', 'UPDATE_PRIVATE_FACTOR_DISPLAY', 'PREPARE_STRATEGY_RESEARCH', 'CANCEL_STRATEGY_RESEARCH_PREPARATION', 'PREPARE_BACKTEST', 'CANCEL_BACKTEST_PREPARATION'));
+ALTER TABLE product_command_receipt DROP CONSTRAINT product_command_receipt_command_kind_check;
+ALTER TABLE product_command_receipt ADD CONSTRAINT product_command_receipt_command_kind_check CHECK (command_kind IN ('CREATE_FACTOR_STUDY_GRANT', 'CONTINUE_FACTOR_STUDY', 'PREPARE_FACTOR_RESEARCH', 'CANCEL_FACTOR_RESEARCH_PREPARATION', 'STAGE_FACTOR_STUDY', 'WITHDRAW_FACTOR_STUDY', 'CREATE_PROPOSAL_GRANT', 'REVOKE_PROPOSAL_GRANT', 'WITHDRAW_FACTOR_PROPOSAL', 'STAGE_FACTOR_PROPOSAL', 'CONFIRM_FACTOR_PROPOSAL', 'FACTOR_CHAT', 'CREATE_RESEARCH_RUN', 'CANCEL_RESEARCH_RUN', 'FREEZE_STRATEGY', 'PROMOTE_STRATEGY', 'CREATE_BACKTEST_RUN', 'CANCEL_BACKTEST_RUN', 'EVALUATE_QUALIFICATION', 'CREATE_SYMBOLIC_SEARCH_EXPERIMENT', 'CREATE_PARAMETER_SEARCH_EXPERIMENT', 'ADVANCE_SEARCH_EXPERIMENT', 'CREATE_INTEGRATION', 'UPDATE_INTEGRATION_DRAFT', 'SET_INTEGRATION_SECRET', 'CLEAR_INTEGRATION_SECRET', 'RESET_INTEGRATION_DRAFT_CONTRACT', 'PUBLISH_INTEGRATION_REVISION', 'SET_INTEGRATION_LIFECYCLE', 'CREATE_CHART_CALCULATION', 'SAVE_WATCHLISTS', 'SAVE_WORKSPACE', 'SAVE_PRIVATE_STRATEGY_DRAFT', 'PUBLISH_PRIVATE_STRATEGY_REVISION', 'SAVE_PRIVATE_FACTOR_DRAFT', 'PUBLISH_PRIVATE_FACTOR_REVISION', 'UPDATE_PRIVATE_FACTOR_DISPLAY', 'PREPARE_STRATEGY_RESEARCH', 'CANCEL_STRATEGY_RESEARCH_PREPARATION', 'PREPARE_BACKTEST', 'CANCEL_BACKTEST_PREPARATION'));
+ALTER TABLE research_preparation DROP CONSTRAINT research_preparation_kind_check;
+ALTER TABLE research_preparation ADD CONSTRAINT research_preparation_kind_check
+    CHECK(preparation_kind IN ('FACTOR_RESEARCH','STRATEGY_RESEARCH','BACKTEST_PREPARATION'));
+ALTER TABLE research_preparation DROP CONSTRAINT research_preparation_kind_contract_check;
+ALTER TABLE research_preparation ADD CONSTRAINT research_preparation_kind_contract_check CHECK ((
+    (preparation_kind='FACTOR_RESEARCH' AND accepted_payload::jsonb->>'contract'='ONLYALPHA_ACCEPTED_RESEARCH_PREPARATION_V1')
+    OR (preparation_kind='STRATEGY_RESEARCH' AND accepted_payload::jsonb->>'contract'='ONLYALPHA_ACCEPTED_STRATEGY_RESEARCH_PREPARATION_V1')
+    OR (preparation_kind='BACKTEST_PREPARATION' AND accepted_payload::jsonb->>'contract'='ONLYALPHA_ACCEPTED_BACKTEST_PREPARATION_V1')
+) IS TRUE);
+ALTER TABLE research_preparation ADD CONSTRAINT research_preparation_future_command_kind_check CHECK ((
+    CASE WHEN preparation_kind='BACKTEST_PREPARATION'
+        THEN accepted_payload::jsonb->'input' ? 'backtest_command_id'
+            AND NOT(accepted_payload::jsonb->'input' ? 'research_command_id')
+        ELSE accepted_payload::jsonb->'input' ? 'research_command_id'
+            AND NOT(accepted_payload::jsonb->'input' ? 'backtest_command_id') END
+) IS TRUE);
+DROP INDEX research_preparation_future_research_command;
+CREATE UNIQUE INDEX research_preparation_future_research_command ON research_preparation
+    ((COALESCE(accepted_payload::jsonb->'input'->>'research_command_id',accepted_payload::jsonb->'input'->>'backtest_command_id')::uuid));
+CREATE OR REPLACE FUNCTION research_preparation_kind_relation_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE expected_kind TEXT;
+BEGIN
+    expected_kind := CASE NEW.preparation_kind
+        WHEN 'FACTOR_RESEARCH' THEN 'PREPARE_FACTOR_RESEARCH'
+        WHEN 'STRATEGY_RESEARCH' THEN 'PREPARE_STRATEGY_RESEARCH'
+        WHEN 'BACKTEST_PREPARATION' THEN 'PREPARE_BACKTEST' END;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.product_command_admission a
+        JOIN public.product_command_receipt r ON r.command_id=a.command_id
+        WHERE a.command_id=NEW.command_id AND a.command_kind=expected_kind
+            AND r.command_kind=a.command_kind AND r.command_fingerprint=a.command_fingerprint
+            AND r.outcome_kind='RESEARCH_PREPARATION_OPERATION'
+            AND r.outcome_id=NEW.accepted_fingerprint
+    ) THEN RAISE EXCEPTION 'RESEARCH_PREPARATION_KIND_RELATION_CORRUPT'; END IF;
+    RETURN NEW;
+END $$;

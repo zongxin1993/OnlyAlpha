@@ -7,8 +7,8 @@ const destinations = [
     { path: "/", label: "工作台" },
     { path: "/research/new", label: "研究 · 未实现" },
     { path: "/data/inputs", label: "数据 · 未实现" },
-    { path: "/strategies", label: "策略 · 未实现" },
-    { path: "/backtest/runs", label: "回测 · 未实现" },
+    { path: "/strategies", label: "策略" },
+    { path: "/backtest", label: "回测" },
     { path: "/system/health", label: "系统 · 未实现" }
 ] as const;
 

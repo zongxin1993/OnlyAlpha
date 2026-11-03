@@ -53,6 +53,33 @@ impl Authority {
         quantity: &str,
         precision: u8,
     ) -> Result<(), Error> {
+        self.admit_with_contract(scope_value, order, side, quantity, precision, None)
+    }
+    /// Explicit BACKTEST whole-fill model. This value does not authenticate a
+    /// producer; the owning Runtime must pin/rederive its immutable manifest.
+    pub fn admit_whole_fill_order(
+        &mut self,
+        scope_value: Value,
+        order: &str,
+        side: &str,
+        quantity: &str,
+        precision: u8,
+        contract: &Value,
+    ) -> Result<(), Error> {
+        if self.config["runtime_kind"] != "BACKTEST" { return Err(err("SETTLEMENT_WHOLE_FILL_RUNTIME")); }
+        validate_whole_fill_contract(contract)?;
+        self.admit_with_contract(scope_value, order, side, quantity, precision, Some(contract))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn admit_with_contract(
+        &mut self,
+        scope_value: Value,
+        order: &str,
+        side: &str,
+        quantity: &str,
+        precision: u8,
+        contract: Option<&Value>,
+    ) -> Result<(), Error> {
         scope(&scope_value)?;
         id(&json!(order))?;
         if OWNER.iter().any(|k| self.config[k] != scope_value[k]) || !matches!(side, "BUY" | "SELL")
@@ -69,7 +96,8 @@ impl Authority {
             .get(order)
             .map(|v| v["ordinal"].clone())
             .unwrap_or_else(|| json!(self.orders.len() + 1));
-        let value = json!({"ordinal":ordinal,"order":order,"scope":scope_value,"side":side,"quantity":amount,"precision":precision});
+        let mut value = json!({"ordinal":ordinal,"order":order,"scope":scope_value,"side":side,"quantity":amount,"precision":precision});
+        if let Some(contract) = contract { value["fill_contract"] = contract.clone(); }
         bounded(&value, 2048)?;
         if let Some(old) = self.orders.get(order) {
             return if *old == value {
@@ -94,17 +122,23 @@ impl Authority {
             let precision = u8::try_from(uint(&order["precision"])?)
                 .map_err(|_| err("SETTLEMENT_QUANTITY_PRECISION"))?;
             let mut remaining = units(&order["quantity"], precision)?;
+            let mut count = 0_u64;
             for item in self
                 .instructions
                 .values()
                 .filter(|v| v["instruction"]["input"]["order"] == *id)
             {
+                count += 1;
                 remaining = remaining
                     .checked_sub(units(&item["instruction"]["input"]["quantity"], precision)?)
                     .ok_or_else(|| err("SETTLEMENT_ORDER_OVERFILL"))?;
             }
+            let future_slots = if order.get("fill_contract").is_some() {
+                if count == 0 { 1 } else if count == 1 && remaining == 0 { 0 }
+                else { return Err(err("SETTLEMENT_WHOLE_FILL_COUNT")); }
+            } else { remaining };
             slots = slots
-                .checked_add(remaining)
+                .checked_add(future_slots)
                 .ok_or_else(|| err("SETTLEMENT_ADMISSION_CAPACITY"))?;
             if slots > self.capacity as u64 {
                 return Err(err("SETTLEMENT_ADMISSION_CAPACITY"));
@@ -161,6 +195,12 @@ impl Authority {
         )? == 0
         {
             return Err(err("SETTLEMENT_QUANTITY"));
+        }
+        if order.get("fill_contract").is_some()
+            && (number(&input["quantity"])? != number(&order["quantity"])?
+                || self.instructions.values().any(|v| v["instruction"]["input"]["order"] == input["order"]))
+        {
+            return Err(err("SETTLEMENT_WHOLE_FILL_QUANTITY_OR_COUNT"));
         }
         if self.instructions.len() >= self.capacity {
             return Err(err("SETTLEMENT_ADMISSION_CAPACITY"));
@@ -303,7 +343,8 @@ impl Authority {
         Ok(())
     }
     pub fn checkpoint(&self) -> Value {
-        json!({"schema_version":1,"config":self.config,"capacity":self.capacity,"orders":self.orders,"instructions":self.instructions})
+        let version = if self.orders.values().any(|v| v.get("fill_contract").is_some()) { 2 } else { 1 };
+        json!({"schema_version":version,"config":self.config,"capacity":self.capacity,"orders":self.orders,"instructions":self.instructions})
     }
 
     pub fn restore(&mut self, v: &Value, expected: &str) -> Result<(), Error> {
@@ -318,7 +359,7 @@ impl Authority {
                 "instructions",
             ],
         )?;
-        if v["schema_version"] != 1
+        if !matches!(v["schema_version"].as_u64(), Some(1 | 2))
             || digest(v) != expected
             || v["config"] != self.config
             || v["capacity"] != self.capacity
@@ -342,10 +383,12 @@ impl Authority {
             .ok_or_else(|| err("SETTLEMENT_CHECKPOINT_ORDERS"))?;
         let mut ordered = Vec::new();
         for (key, value) in orders {
-            fields(
-                value,
-                &["ordinal", "order", "scope", "side", "quantity", "precision"],
-            )?;
+            let mut order_fields = vec!["ordinal", "order", "scope", "side", "quantity", "precision"];
+            if value.get("fill_contract").is_some() {
+                if v["schema_version"] != 2 { return Err(err("SETTLEMENT_CHECKPOINT_WHOLE_FILL_SCHEMA")); }
+                order_fields.push("fill_contract");
+            }
+            fields(value, &order_fields)?;
             if value["order"] != *key {
                 return Err(err("SETTLEMENT_CHECKPOINT_ORDER_ID"));
             }
@@ -358,14 +401,13 @@ impl Authority {
             if ordinal != fresh.orders.len() as u64 + 1 {
                 return Err(err("SETTLEMENT_CHECKPOINT_ORDER_SEQUENCE"));
             }
-            fresh.admit_order(
-                value["scope"].clone(),
-                key,
-                text(&value["side"])?,
-                text(&value["quantity"])?,
-                u8::try_from(uint(&value["precision"])?)
-                    .map_err(|_| err("SETTLEMENT_QUANTITY_PRECISION"))?,
-            )?;
+            let precision = u8::try_from(uint(&value["precision"])?)
+                .map_err(|_| err("SETTLEMENT_QUANTITY_PRECISION"))?;
+            if let Some(contract) = value.get("fill_contract") {
+                fresh.admit_whole_fill_order(value["scope"].clone(), key, text(&value["side"])?, text(&value["quantity"])?, precision, contract)?;
+            } else {
+                fresh.admit_order(value["scope"].clone(), key, text(&value["side"])?, text(&value["quantity"])?, precision)?;
+            }
             if fresh.orders[key] != *value {
                 return Err(err("SETTLEMENT_CHECKPOINT_ORDER_CANONICAL"));
             }
@@ -435,4 +477,21 @@ fn maturity_body(
     let expected_version = uint(&request["expected_version"])?;
     let body = json!({"schema_version":1,"instruction":id,"scope":input["scope"],"order":input["order"],"trade":input["trade"],"position":input["position"],"position_cycle":input["position_cycle"],"allocation":input["allocation"],"allocation_cycle":input["allocation_cycle"],"currency":input["currency"],"before_version":expected_version,"after_version":expected_version+1,"before_hash":digest(old),"through":through,"time":at,"transitions":transitions,"asset_quantity":if asset{input["quantity"].clone()}else{json!("0")},"cash_amount":if cash{json!(credit.with_scale(i64::from(p)).to_plain_string())}else{money(&json!("0"),p)?}});
     Ok(body)
+}
+
+fn validate_whole_fill_contract(contract: &Value) -> Result<(), Error> {
+    bounded(contract, 1024)?;
+    fields(contract, &["schema_version","kind","maximum_fill_count","model_fingerprint","model","fee_estimate_assumptions_fingerprint"])?;
+    let model = &contract["model"];
+    fields(model, &["schema_version","kind","runtime_kind","maximum_fill_count","configuration_fingerprint","policy_fingerprint"])?;
+    if contract["schema_version"] != 1 || contract["kind"] != "BACKTEST_WHOLE_FILL"
+        || contract["maximum_fill_count"] != 1 || model["schema_version"] != 1
+        || model["kind"] != "GUARANTEED_WHOLE_FILL" || model["runtime_kind"] != "BACKTEST"
+        || model["maximum_fill_count"] != 1 || contract["model_fingerprint"] != digest(model)
+    { return Err(err("SETTLEMENT_WHOLE_FILL_CONTRACT")); }
+    fingerprint(&model["configuration_fingerprint"])?;
+    fingerprint(&model["policy_fingerprint"])?;
+    fingerprint(&contract["model_fingerprint"])?;
+    fingerprint(&contract["fee_estimate_assumptions_fingerprint"])?;
+    Ok(())
 }

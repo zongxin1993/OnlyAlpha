@@ -180,30 +180,33 @@ pub(super) fn generation(v: &Value) -> Result<()> {
     Ok(())
 }
 pub(super) fn artifact(v: &Value) -> Result<()> {
-    exact(
-        v,
-        &[
-            "schema_version",
-            "role",
-            "source_provenance_authority",
-            "source_repository",
-            "source_revision",
-            "distribution_name",
-            "distribution_version",
-            "artifact_logical_name",
-            "artifact_sha256",
-            "artifact_size",
-            "tested_core_execution_fingerprint",
-            "provider_id",
-            "provider_version",
-            "provider_content_fingerprint",
-            "assets",
-            "implementations",
-            "manifest_fingerprint",
-        ],
-    )?;
-    if v["schema_version"].as_u64() != Some(1) || v["artifact_size"].as_u64().is_none_or(|n| n == 0)
-    {
+    let schema = v["schema_version"].as_u64();
+    let mut fields = vec![
+        "schema_version",
+        "role",
+        "source_provenance_authority",
+        "source_repository",
+        "source_revision",
+        "distribution_name",
+        "distribution_version",
+        "artifact_logical_name",
+        "artifact_sha256",
+        "artifact_size",
+        "tested_core_execution_fingerprint",
+        "provider_id",
+        "provider_version",
+        "provider_content_fingerprint",
+        "assets",
+        "implementations",
+        "manifest_fingerprint",
+    ];
+    if schema == Some(2) {
+        fields.push("execution_capabilities");
+    } else if schema != Some(1) {
+        return Err(INVALID);
+    }
+    exact(v, &fields)?;
+    if v["artifact_size"].as_u64().is_none_or(|n| n == 0) {
         return Err(INVALID);
     }
     for k in [
@@ -252,18 +255,36 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
         return Err(INVALID);
     }
     let role = text(v, "role")?;
-    if !matches!(
-        role,
-        "CORE"
-            | "SUPPORT"
-            | "QUANT_ASSET"
-            | "CALCULATION"
-            | "BACKTEST_RUNTIME"
-            | "RESEARCH_RUNTIME"
-    ) {
+    if (schema == Some(1)
+        && !matches!(
+            role,
+            "CORE"
+                | "SUPPORT"
+                | "QUANT_ASSET"
+                | "CALCULATION"
+                | "BACKTEST_RUNTIME"
+                | "RESEARCH_RUNTIME"
+        ))
+        || (schema == Some(2) && role != "BACKEND_RUNTIME")
+    {
         return Err(INVALID);
     }
-    if matches!(role, "BACKTEST_RUNTIME" | "RESEARCH_RUNTIME") {
+    // Old Research-only V2 manifests remain exact immutable history. Current
+    // images may also declare the concrete, separately admitted Backtest owner.
+    if schema == Some(2)
+        && v["execution_capabilities"]
+            != json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"}])
+        && v["execution_capabilities"] != json!([
+            {"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},
+            {"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}
+        ])
+    {
+        return Err(INVALID);
+    }
+    if matches!(
+        role,
+        "BACKTEST_RUNTIME" | "RESEARCH_RUNTIME" | "BACKEND_RUNTIME"
+    ) {
         let (distribution, prefix) = if role == "BACKTEST_RUNTIME" {
             ("onlyalpha-backtest-driver", "onlyalpha_backtest_driver")
         } else {
@@ -340,10 +361,135 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
         }
     } else if provider.iter().any(|k| !v[*k].is_null())
         || !assets.is_empty()
-        || (role == "CALCULATION" && (empty || v["tested_core_execution_fingerprint"].is_null()))
-        || (role != "CALCULATION" && !empty)
+        || (matches!(role, "CALCULATION" | "BACKEND_RUNTIME")
+            && (empty || v["tested_core_execution_fingerprint"].is_null()))
+        || (!matches!(role, "CALCULATION" | "BACKEND_RUNTIME") && !empty)
     {
         return Err(INVALID);
     }
+    if role == "BACKEND_RUNTIME" {
+        for row in v["implementations"].as_array().ok_or(INVALID)? {
+            if row["kind"] != "PREDICATE"
+                || !matches!(row["backend"].as_str(), Some("RESEARCH" | "TRADING"))
+            {
+                return Err(INVALID);
+            }
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod native_artifact_v2_tests {
+    use super::*;
+
+    fn manifest1() -> Value {
+        json!({"schema_version":1,"role":"RESEARCH_RUNTIME","source_provenance_authority":"ONLYALPHA_GIT",
+            "source_repository":"OnlyAlpha","source_revision":"a".repeat(40),"distribution_name":"onlyalpha-backend",
+            "distribution_version":"0.11.1","artifact_logical_name":"onlyalpha_backend-0.11.1-x86_64-unknown-linux-gnu.elf",
+            "artifact_sha256":"b".repeat(64),"artifact_size":1024,"tested_core_execution_fingerprint":"c".repeat(64),
+            "provider_id":null,"provider_version":null,"provider_content_fingerprint":null,
+            "assets":[],"implementations":[],"manifest_fingerprint":"d".repeat(64)})
+    }
+    fn manifest2() -> Value {
+        let mut m = manifest1();
+        m["schema_version"] = json!(2);
+        m["role"] = json!("BACKEND_RUNTIME");
+        m["execution_capabilities"] =
+            json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"}]);
+        let mut rows = onlyalpha_calculation_bridge::native_predicates::implementation_manifests(&"b".repeat(64))
+            .unwrap().into_iter().map(|row| {
+                let reference = &row["calculation_type_reference"];
+                json!({"kind":reference["kind"],"type_id":reference["type_id"],"semantic_version":reference["semantic_version"],
+                    "backend":row["backend_kind"],"implementation_fingerprint":row["implementation_fingerprint"]})
+            }).collect::<Vec<_>>();
+        rows.sort_by_key(|row| {
+            [
+                "kind",
+                "type_id",
+                "semantic_version",
+                "backend",
+                "implementation_fingerprint",
+            ]
+            .map(|key| row[key].as_str().unwrap().to_owned())
+        });
+        m["implementations"] = json!(rows);
+        m
+    }
+    #[test]
+    fn manifest1_history_is_unchanged_and_cannot_gain_native_capabilities() {
+        let m = manifest1();
+        assert!(artifact(&m).is_ok());
+        let mut changed = m.clone();
+        changed["implementations"] = manifest2()["implementations"].clone();
+        assert!(artifact(&changed).is_err());
+        let mut changed = m.clone();
+        changed["execution_capabilities"] = json!([]);
+        assert!(artifact(&changed).is_err());
+        let mut changed = m;
+        changed["role"] = json!("BACKEND_RUNTIME");
+        assert!(artifact(&changed).is_err());
+    }
+    #[test]
+    fn one_backend_artifact_has_typed_research_capability_and_finite_calculations() {
+        assert!(artifact(&manifest2()).is_ok());
+        assert_eq!(
+            manifest2()["artifact_sha256"],
+            manifest1()["artifact_sha256"]
+        );
+        // A value parser is no Store replacement or permission to rewrite an
+        // existing SHA-bound Manifest1. Put-once identity remains separate.
+    }
+    #[test]
+    fn manifest2_accepts_exact_backtest_capability_and_preserves_research_only_history() {
+        let old = manifest2();
+        assert!(artifact(&old).is_ok());
+        let mut current = old.clone();
+        current["execution_capabilities"] = json!([
+            {"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},
+            {"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}
+        ]);
+        assert!(artifact(&current).is_ok());
+        for additional in [
+            json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}),
+            json!({"kind":"LIVE","contract":"onlyalpha.live.executor/1"}),
+        ] {
+            let mut corrupt = current.clone();
+            corrupt["execution_capabilities"].as_array_mut().unwrap().push(additional);
+            assert!(artifact(&corrupt).is_err());
+        }
+        assert_eq!(old, manifest2(), "old immutable manifests are never upgraded");
+    }
+    #[test]
+    fn manifest2_rejects_empty_duplicate_corrupt_or_unimplemented_execution_capability() {
+        for capabilities in [
+            json!([]),
+            json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"}]),
+            json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/2"}]),
+            json!([{"kind":"BACKTEST","contract":"onlyalpha.backtest.driver/1"}]),
+            json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1","extra":true}]),
+        ] {
+            let mut m = manifest2();
+            m["execution_capabilities"] = capabilities;
+            assert!(artifact(&m).is_err());
+        }
+        for attack in 0..7 {
+            let mut m = manifest2();
+            match attack {
+                0 => m["implementations"] = json!([]),
+                1 => m["role"] = json!("RESEARCH_RUNTIME"),
+                2 => {
+                    m["artifact_logical_name"] = json!("onlyalpha_backend-0.11.1-py3-none-any.whl")
+                }
+                3 => m["provider_id"] = json!("fake.provider"),
+                4 => m["tested_core_execution_fingerprint"] = Value::Null,
+                5 => m["implementations"].as_array_mut().unwrap().reverse(),
+                _ => {
+                    let row = m["implementations"][0].clone();
+                    m["implementations"].as_array_mut().unwrap().insert(0, row);
+                }
+            }
+            assert!(artifact(&m).is_err(), "attack {attack}");
+        }
+    }
 }

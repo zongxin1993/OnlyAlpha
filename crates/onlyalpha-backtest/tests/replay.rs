@@ -370,3 +370,176 @@ fn numerically_equal_but_distinct_duplicate_records_are_conflicts_in_both_orders
         );
     }
 }
+
+#[test]
+fn retained_closed_profile_binding1_keeps_exact_original_shape_and_hash() {
+    let root=std::env::temp_dir().join(format!("oa-closed-binding-golden-{}",std::process::id()));std::fs::create_dir(&root).unwrap();
+    let input=MarketInput::new(&"a".repeat(64),1,"recorded",bar()).unwrap();
+    let inputs=Inputs::new(vec![Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,1).unwrap()],vec![input]).unwrap();
+    let spec=RunSpec{work_id:"retained-closed".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let participants=Counter(0).binding();let hash=|v:&Value|onlyalpha_calculation_bridge::fingerprint(v.to_string().as_bytes());
+    let original=json!({"schema_version":1,"configuration":hash(&spec.configuration),"kernel_artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"work":hash(&json!({"work_id":spec.work_id,"configuration":spec.configuration,"artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"input_pin":inputs.fingerprint(),"participants":participants,"initial_ns":"0"})),"input_pin":inputs.fingerprint(),"program":hash(&participants),"initial_state":{"schema_version":1,"cursor":0,"clock_ns":"0","status":"RUNNING","participants":{"count":0},"outcome":null}});
+    let run=RunLoop::create(&root,spec,inputs,Counter(0)).unwrap();let actual=run.trace().unwrap()["binding"].clone();
+    assert_eq!(actual.to_string().as_bytes(),original.to_string().as_bytes());assert_eq!(hash(&actual),hash(&original));
+    assert!(actual.get("work_id").is_none()&&actual.get("participants").is_none());drop(run);std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn economic_head_preflight_and_zero_input_controls_recover_from_original_genesis() {
+    let root = std::env::temp_dir().join(format!("oa-head-preflight-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let source = Source::new(&"a".repeat(64), &"b".repeat(64), &"c".repeat(64), "recorded", 0, 1).unwrap();
+    let input = MarketInput::new(source.id(), 1, "recorded", bar()).unwrap();
+    let inputs = Inputs::new(vec![source], vec![input]).unwrap();
+    let spec = RunSpec {work_id:"head-preflight".into(), configuration:pending_configuration(), kernel_artifact:"e".repeat(64), driver_artifact:"f".repeat(64), initial_ns:0.into()};
+    let mut run = RunLoop::create(&root, spec.clone(), inputs.clone(), MissingDrain).unwrap();
+    assert!(run.step().unwrap());
+    let state = run.state().unwrap();
+    assert_eq!(state["execution_sequence"], 1);
+    run.pause().unwrap();
+    let paused = run.trace().unwrap();
+    let tail = paused["steps"].as_array().unwrap().last().unwrap();
+    assert_eq!(tail["step"]["execution_start"], 1);
+    assert_eq!(tail["step"]["inputs"], json!([]));
+    drop(run);
+    let mut reopened = RunLoop::open(&root, spec.clone(), inputs.clone(), MissingDrain).unwrap();
+    assert_eq!(reopened.trace().unwrap(), paused);
+    assert_eq!(reopened.state().unwrap(), state);
+    reopened.resume().unwrap();
+    let resumed = reopened.trace().unwrap();
+    drop(reopened);
+    let reopened = RunLoop::open(&root, spec, inputs, MissingDrain).unwrap();
+    assert_eq!(reopened.trace().unwrap(), resumed);
+    assert_eq!(reopened.state().unwrap(), state);
+    drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+
+#[test]
+fn streamed_trace_preserves_complete_canonical_bytes_and_terminal_source_hash() {
+    let root=std::env::temp_dir().join(format!("oa-stream-trace-{}",std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,1).unwrap();
+    let input=MarketInput::new(source.id(),1,"recorded",bar()).unwrap();
+    let inputs=Inputs::new(vec![source],vec![input]).unwrap();
+    let spec=RunSpec{work_id:"stream-trace".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let mut run=RunLoop::create(&root,spec.clone(),inputs.clone(),Counter(0)).unwrap();
+    run.pause().unwrap();run.resume().unwrap();run.run().unwrap();run.terminate("COMPLETED",None).unwrap();
+    let actual=run.trace().unwrap();
+    let expected=actual.to_string().into_bytes();
+    let mut streamed=Vec::new();run.write_trace(&mut streamed).unwrap();
+    assert_eq!(streamed,expected,"the stream includes every original control, input, causal output and complete state in canonical key order");
+    let fingerprint=onlyalpha_execution::digest(&expected);
+    assert_eq!(run.trace_fingerprint().unwrap(),fingerprint);
+    assert_eq!(run.result().unwrap()["source"],fingerprint);
+    let rows=actual["steps"].as_array().unwrap();
+    assert_eq!(rows.len(),4);assert_eq!(rows[0]["step"]["cause"]["kind"],"PAUSE");
+    assert_eq!(rows[1]["step"]["cause"]["kind"],"RESUME");assert_eq!(rows[2]["step"]["state"]["participants"]["count"],1);
+    assert_eq!(rows[3]["step"]["cause"]["kind"],"TERMINATE");
+    drop(run);
+    let reopened=RunLoop::open(&root,spec,inputs,Counter(0)).unwrap();
+    let mut restored=Vec::new();reopened.write_trace(&mut restored).unwrap();assert_eq!(restored,expected);
+    assert_eq!(reopened.trace_fingerprint().unwrap(),fingerprint);drop(reopened);std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn streamed_trace_rejects_original_source_changed_by_the_output_consumer() {
+    struct ChangeSource{root:std::path::PathBuf,changed:bool}
+    impl std::io::Write for ChangeSource {
+        fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{
+            if !self.changed {
+                self.changed=true;
+                let db=rusqlite::Connection::open(self.root.join("runtime.sqlite3")).unwrap();
+                db.execute("UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",["f".repeat(64)]).unwrap();
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self)->std::io::Result<()>{Ok(())}
+    }
+    let root=std::env::temp_dir().join(format!("oa-stream-source-change-{}",std::process::id()));std::fs::create_dir(&root).unwrap();
+    let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,0).unwrap();
+    let inputs=Inputs::new(vec![source],vec![]).unwrap();
+    let spec=RunSpec{work_id:"stream-source-change".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let mut run=RunLoop::create(&root,spec,inputs,Counter(0)).unwrap();run.pause().unwrap();
+    assert!(run.write_trace(&mut ChangeSource{root:root.clone(),changed:false}).is_err(),"a successful output write cannot turn an earlier source observation into a retained proof");
+    assert!(run.progress().is_err());drop(run);std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn partial_trace_output_is_an_error_without_a_new_replay_effect() {
+    struct StopAfter(usize);
+    impl std::io::Write for StopAfter {
+        fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{
+            if self.0==0{return Err(std::io::Error::other("controlled output failure"));}
+            let n=self.0.min(bytes.len());self.0-=n;Ok(n)
+        }
+        fn flush(&mut self)->std::io::Result<()>{Ok(())}
+    }
+    let root=std::env::temp_dir().join(format!("oa-stream-failed-output-{}",std::process::id()));std::fs::create_dir(&root).unwrap();
+    let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,0).unwrap();
+    let inputs=Inputs::new(vec![source],vec![]).unwrap();
+    let spec=RunSpec{work_id:"stream-failed-output".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let mut run=RunLoop::create(&root,spec,inputs,Counter(0)).unwrap();run.pause().unwrap();
+    let before=run.trace().unwrap();assert!(run.write_trace(&mut StopAfter(7)).is_err());
+    assert_eq!(run.trace().unwrap(),before,"an output fault is not permission to append, repair or complete a step");
+    let mut complete=Vec::new();run.write_trace(&mut complete).unwrap();assert_eq!(complete,before.to_string().into_bytes());
+    drop(run);std::fs::remove_dir_all(root).unwrap();
+}
+
+
+#[test]
+fn encoded_trace_archives_every_actual_frame_without_a_descriptor_or_logical_expansion() {
+    let root=std::env::temp_dir().join(format!("oa-encoded-trace-{}",std::process::id()));std::fs::create_dir(&root).unwrap();
+    let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,0).unwrap();
+    let spec=RunSpec{work_id:"encoded-trace".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let mut run=RunLoop::create(&root,spec,Inputs::new(vec![source],vec![]).unwrap(),Counter(0)).unwrap();run.pause().unwrap();run.resume().unwrap();
+    let archive=run.encoded_trace().unwrap();
+    assert_eq!(archive["schema_version"],2);assert_eq!(archive["kind"],"RUNTIME_ENCODED_REPLAY_TRACE");
+    let rows=archive["steps"].as_array().unwrap();assert_eq!(rows.len(),2);
+    let db=rusqlite::Connection::open_with_flags(root.join("runtime.sqlite3"),rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let mut query=db.prepare("SELECT payload,ready FROM replay_steps ORDER BY sequence").unwrap();
+    let actual=query.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?))).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+    for (archived,(raw,ready)) in rows.iter().zip(actual){
+        assert_eq!(archived["entry"].to_string(),raw,"the complete physical frame must be archived, never a mutable path or only its hash");
+        assert_eq!(archived["ready"],ready==1);assert!(archived.get("step").is_none());
+    }
+    let mut streamed=Vec::new();run.write_encoded_trace(&mut streamed).unwrap();assert_eq!(streamed,archive.to_string().into_bytes());
+    let metadata=run.trace_metadata().unwrap();assert_eq!(metadata["binding"],archive["binding"]);assert_eq!(metadata["state"],archive["state"]);assert!(metadata.get("steps").is_none());
+    drop(query);drop(db);drop(run);std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn streamed_step_visitor_preserves_original_data_and_rechecks_its_callback_cut() {
+    let root=std::env::temp_dir().join(format!("oa-trace-visitor-{}",std::process::id()));std::fs::create_dir(&root).unwrap();
+    let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),"recorded",0,0).unwrap();
+    let spec=RunSpec{work_id:"trace-visitor".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+    let mut run=RunLoop::create(&root,spec,Inputs::new(vec![source],vec![]).unwrap(),Counter(0)).unwrap();run.pause().unwrap();run.resume().unwrap();
+    let trace=run.trace().unwrap();let mut visits=0;
+    run.for_each_step(&mut |step,ready|{
+        assert!(ready);assert_eq!(step,&trace["steps"][visits]["step"]);visits+=1;Ok(())
+    }).unwrap();assert_eq!(visits,2);
+    let error=run.for_each_step(&mut |_,_|Err(Error("CONTROLLED_VISITOR_UNKNOWN".into()))).unwrap_err();
+    assert_eq!(error.0,"CONTROLLED_VISITOR_UNKNOWN");assert_eq!(run.trace().unwrap(),trace);
+    let mut changed=false;
+    assert!(run.for_each_step(&mut |_,_|{
+        if !changed {changed=true;let db=rusqlite::Connection::open(root.join("runtime.sqlite3")).unwrap();db.execute("UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",["f".repeat(64)]).unwrap();}Ok(())
+    }).is_err(),"a callback may not authenticate a changed original source by returning success");
+    assert!(run.progress().is_err());drop(run);std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn ordinary_and_observed_steps_keep_identical_canonical_history_and_recovery(){
+ let base=std::env::temp_dir().join(format!("oa-observer-equivalence-{}",std::process::id()));std::fs::create_dir(&base).unwrap();
+ let source=Source::new(&"a".repeat(64),&"b".repeat(64),&"c".repeat(64),&"d".repeat(64),0,1).unwrap();
+ let input=MarketInput::new(source.id(),1,&"d".repeat(64),bar()).unwrap();let inputs=Inputs::new(vec![source],vec![input]).unwrap();
+ let spec=RunSpec{work_id:"observer-equivalence".into(),configuration:configuration(),kernel_artifact:"e".repeat(64),driver_artifact:"f".repeat(64),initial_ns:0.into()};
+ std::fs::create_dir(base.join("ordinary")).unwrap();std::fs::create_dir(base.join("observed")).unwrap();
+ let mut ordinary=RunLoop::create(&base.join("ordinary"),spec.clone(),inputs.clone(),Counter(0)).unwrap();
+ let mut observed=RunLoop::create(&base.join("observed"),spec.clone(),inputs.clone(),Counter(0)).unwrap();
+ let mut phases=Vec::new();assert!(ordinary.step().unwrap());assert!(observed.step_observed(&mut |phase,_,_|{phases.push(phase.to_owned());Ok(())}).unwrap());
+ assert_eq!(phases,vec!["BEFORE_PREPARE","PREPARED","STEP_READY"]);
+ assert_eq!(ordinary.trace().unwrap(),observed.trace().unwrap());assert_eq!(ordinary.state().unwrap(),observed.state().unwrap());
+ let before=ordinary.trace().unwrap();drop(ordinary);let reopened=RunLoop::open(&base.join("ordinary"),spec,inputs,Counter(0)).unwrap();assert_eq!(reopened.trace().unwrap(),before);
+ drop(reopened);drop(observed);std::fs::remove_dir_all(base).unwrap();
+}

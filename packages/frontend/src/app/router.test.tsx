@@ -8,6 +8,25 @@ vi.mock("../features/workspace/WorkspacePage", () => ({
     WorkspacePage: () => <h1>工作台</h1>
 }));
 
+vi.mock("../features/strategies/StrategyWorkflow", () => ({
+    StrategyWorkflow: () => <h1>策略验证</h1>
+}));
+vi.mock("../features/backtest/BacktestPage", () => ({ BacktestPage: () => <h1>策略回测</h1> }));
+
+it.each([
+    ["/strategies/private.strategy.btc_momentum", "策略验证"],
+    ["/backtest", "策略回测"]
+])("%s opens its Shipping workflow", (path, label) => {
+    const router = createMemoryRouter(shippingRouter.routes, { initialEntries: [path] });
+    render(
+        <AppProviders>
+            <RouterProvider router={router} />
+        </AppProviders>
+    );
+    expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
+    expect(screen.queryByText(/未实现/)).not.toBeInTheDocument();
+});
+
 afterEach(() => {
     vi.unstubAllGlobals();
 });
@@ -17,8 +36,6 @@ const deferredDestinations = [
     ["/research/results/exact-result/statistics/exact-statistics", "研究"],
     ["/data/inputs", "数据"],
     ["/data/sources/existing-source", "数据"],
-    ["/strategies/exact-strategy", "策略"],
-    ["/backtest/runs/existing-run", "回测"],
     ["/system/health", "系统"]
 ] as const;
 

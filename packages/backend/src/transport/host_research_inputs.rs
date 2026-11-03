@@ -5,7 +5,6 @@ use crate::{
         command::CommandId,
         factor_studies::Source,
         research_dataset::{MaterializedDataset, NativeMaterializationPlan},
-        research_factor::InputWindow,
         source_access::{Permission, Reference, Session},
     },
     persistence::{
@@ -36,11 +35,22 @@ pub(crate) enum ResearchInputOutcome {
     Pending(Value),
     Unavailable(Value),
 }
+#[derive(Clone,Copy)]
+pub(crate) struct DatasetEventWindow { start:u64,end:u64,bar:u64 }
+impl DatasetEventWindow {
+    pub(crate) fn factor(window:&crate::application::research_factor::InputWindow)->Result<Self,&'static str> {
+        let bar=window.to_record()["bar_ns"].as_str().ok_or(INVALID)?.parse().map_err(|_|INVALID)?;
+        Self::new(window.dataset_start_ns(),window.dataset_end_ns(),bar)
+    }
+    pub(crate) fn new(start:u64,end:u64,bar:u64)->Result<Self,&'static str> {
+        acquisition_bounds(start,end,bar)?;Ok(Self{start,end,bar})
+    }
+}
 pub(crate) struct ResearchInputRequest<'a> {
     pub human: human_access::Session,
     pub session: &'a Session,
     pub source: &'a Source,
-    pub window: &'a InputWindow,
+    pub window: DatasetEventWindow,
     pub definition: &'a Value,
     pub command: &'a CommandId,
     pub datasets: &'a Store,
@@ -110,19 +120,15 @@ impl Host {
         if resolved.selection().source_id() != source.source_id
             || resolved.selection().environment() != source.environment
             || definition["instruments"] != json!([source.instrument_id])
-            || time_ns(&definition["time_range"]["start"])? != window.dataset_start_ns()
-            || time_ns(&definition["time_range"]["end"])? != window.dataset_end_ns()
+            || time_ns(&definition["time_range"]["start"])? != window.start
+            || time_ns(&definition["time_range"]["end"])? != window.end
         {
             return Err(fail(INVALID));
         }
         session.require_selection(resolved.selection(), Permission::ClosedHistory)?;
         let semantic =
             OnlyBarSemantic::from_record(&definition["bar_semantic"]).map_err(|_| fail(INVALID))?;
-        let bar = window.to_record()["bar_ns"]
-            .as_str()
-            .ok_or_else(|| fail(INVALID))?
-            .parse::<u64>()
-            .map_err(|_| fail(INVALID))?;
+        let bar = window.bar;
         let semantic_record = semantic.to_record();
         if semantic_record["formation"]["kind"] != "FIXED_DURATION"
             || semantic_record["formation"]["window_minutes"]
@@ -135,7 +141,7 @@ impl Host {
             return Err(fail(INVALID));
         }
         let (start, end) =
-            acquisition_bounds(window.dataset_start_ns(), window.dataset_end_ns(), bar)
+            acquisition_bounds(window.start, window.end, bar)
                 .map_err(fail)?;
         let raw = json!({"source_reference":{"integration_id":source.integration_id,
             "integration_revision_fingerprint":source.integration_revision_fingerprint,"expected_type_id":source.expected_type_id},

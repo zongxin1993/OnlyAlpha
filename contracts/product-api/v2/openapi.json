@@ -37,6 +37,1000 @@
         ],
         "type": "object"
       },
+      "BacktestAnalysisContextView": {
+        "additionalProperties": false,
+        "description": "Signed read-only analysis data. The assertion is neither API identity nor a\nBackend, Research, Backtest or LIVE permission.",
+        "properties": {
+          "assertion": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id",
+          "assertion",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "BacktestBaseline": {
+        "additionalProperties": false,
+        "properties": {
+          "final_equity": {
+            "type": "string"
+          },
+          "net_pnl": {
+            "type": "string"
+          },
+          "return_since_start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "final_equity",
+          "net_pnl",
+          "return_since_start"
+        ],
+        "type": "object"
+      },
+      "BacktestCancellationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "BacktestCommandNotAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/BacktestCommandObservationState"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestCommandObservationState": {
+        "description": "Read-only verified absence of an original Backtest preparation Command.\nThis is an observation, not a refusal, revocation or accepted operation.",
+        "enum": [
+          "NOT_ACCEPTED"
+        ],
+        "type": "string"
+      },
+      "BacktestConfirmationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "preparation_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "preparation_command_id",
+          "preparation_fingerprint"
+        ],
+        "type": "object"
+      },
+      "BacktestConfirmationOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_command_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "backtest_command_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestCreationContextV2": {
+        "additionalProperties": false,
+        "properties": {
+          "existing_preparations": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestPreparationViewV2"
+            },
+            "type": "array"
+          },
+          "fee_bps": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "initial_cash": {
+            "type": "string"
+          },
+          "input_defaults": {
+            "$ref": "#/components/schemas/BacktestInputDefaultsV2"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "sample_end_at": {
+            "type": "string"
+          },
+          "sample_start_at": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slippage_bps": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "strategy_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_name",
+          "input_defaults",
+          "sample_start_at",
+          "sample_end_at",
+          "initial_cash",
+          "quantity",
+          "fee_bps",
+          "slippage_bps",
+          "limitations",
+          "existing_preparations"
+        ],
+        "type": "object"
+      },
+      "BacktestCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "at_ns": {
+            "type": "string"
+          },
+          "drawdown": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nav": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at_ns",
+          "nav"
+        ],
+        "type": "object"
+      },
+      "BacktestEvidenceView": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {},
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id",
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "BacktestInputDefaultsV2": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/BacktestOrigin"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "profile",
+          "origin",
+          "release_manifest_fingerprint",
+          "expected_active_generation",
+          "initialize_fresh_runtime"
+        ],
+        "type": "object"
+      },
+      "BacktestMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "fees": {
+            "type": "string"
+          },
+          "fill_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "final_equity": {
+            "type": "string"
+          },
+          "initial_equity": {
+            "type": "string"
+          },
+          "maximum_drawdown": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "net_pnl": {
+            "type": "string"
+          },
+          "realized_pnl": {
+            "type": "string"
+          },
+          "return_since_start": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roundtrip_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unrealized_pnl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "initial_equity",
+          "final_equity",
+          "net_pnl",
+          "realized_pnl",
+          "unrealized_pnl",
+          "fees",
+          "fill_count",
+          "roundtrip_count"
+        ],
+        "type": "object"
+      },
+      "BacktestOrigin": {
+        "description": "Explicit authoring or already-qualified origin. Neither portable branch grants a Run.",
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "MANUAL_STRATEGY"
+                ],
+                "type": "string"
+              },
+              "strategy_id": {
+                "type": "string"
+              },
+              "strategy_revision_fingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "strategy_id",
+              "strategy_revision_fingerprint",
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "freeze_relation_fingerprint": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "FROZEN_STRATEGY"
+                ],
+                "type": "string"
+              },
+              "promotion_fingerprint": {
+                "type": "string"
+              },
+              "qualification_decision_fingerprint": {
+                "type": "string"
+              },
+              "strategy_fingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "strategy_fingerprint",
+              "freeze_relation_fingerprint",
+              "qualification_decision_fingerprint",
+              "promotion_fingerprint",
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "BacktestPositionView": {
+        "additionalProperties": false,
+        "properties": {
+          "average_price": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instrument": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument",
+          "quantity",
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestPreparationCleanup": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "work_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestPreparationCommandReply": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BacktestPreparationViewV2"
+          },
+          {
+            "$ref": "#/components/schemas/BacktestCommandNotAccepted"
+          }
+        ]
+      },
+      "BacktestPreparationRevisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "type": "string"
+          },
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "preparation_command_id",
+          "expected_revision"
+        ],
+        "type": "object"
+      },
+      "BacktestPreparationViewV2": {
+        "additionalProperties": false,
+        "description": "Original queue projection only. None of these portable values grants a Run.",
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "backtest_command_id": {
+            "type": "string"
+          },
+          "backtest_outcome": {
+            "type": "string"
+          },
+          "cleanup": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BacktestPreparationCleanup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "detail": {},
+          "freeze_relation_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/BacktestOrigin"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "preparation_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": "string"
+          },
+          "promotion_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "qualification_decision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/FactorResearchReadiness"
+          },
+          "reserved_run_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorStudySource"
+          },
+          "state": {
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validation_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "profile",
+          "origin",
+          "source",
+          "revision",
+          "state",
+          "phase",
+          "backtest_command_id",
+          "reserved_run_id",
+          "detail",
+          "backtest_outcome",
+          "readiness",
+          "accepted_at"
+        ],
+        "type": "object"
+      },
+      "BacktestPrepareInput": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_command_id": {
+            "type": "string"
+          },
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/BacktestOrigin"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorStudySource"
+          }
+        },
+        "required": [
+          "schema_version",
+          "profile",
+          "origin",
+          "source",
+          "release_manifest_fingerprint",
+          "initialize_fresh_runtime",
+          "backtest_command_id"
+        ],
+        "type": "object"
+      },
+      "BacktestPrepareRefusal": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "input": {
+            "$ref": "#/components/schemas/BacktestPrepareInput"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/BacktestPrepareRefusalReason"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/BacktestPrepareRefusalState"
+          }
+        },
+        "required": [
+          "schema_version",
+          "state",
+          "command_id",
+          "input",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BacktestPrepareRefusalReason": {
+        "description": "This invocation was refused before acceptance. It is not a durable Command\ncancellation, and a missing/lost response never establishes this outcome.",
+        "enum": [
+          "CONDITIONS_CHANGED",
+          "SOURCE_UNAVAILABLE"
+        ],
+        "type": "string"
+      },
+      "BacktestPrepareRefusalState": {
+        "enum": [
+          "NOT_ACCEPTED"
+        ],
+        "type": "string"
+      },
+      "BacktestPrepareReply": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BacktestPreparationViewV2"
+          },
+          {
+            "$ref": "#/components/schemas/BacktestPrepareRefusal"
+          }
+        ]
+      },
+      "BacktestReportAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/BacktestReportState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestReportState": {
+        "enum": [
+          "PENDING",
+          "NOT_CHECKED",
+          "VERIFIED",
+          "NOT_APPLICABLE",
+          "UNAVAILABLE"
+        ],
+        "type": "string"
+      },
+      "BacktestResultView": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BacktestBaseline"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "curve": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestCurvePoint"
+            },
+            "type": "array"
+          },
+          "determinism_fingerprint": {
+            "type": "string"
+          },
+          "evidence_fingerprint": {
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/BacktestMetrics"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestPositionView"
+            },
+            "type": "array"
+          },
+          "result_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/BacktestSample"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestTradeView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id",
+          "strategy_fingerprint",
+          "evidence_fingerprint",
+          "result_fingerprint",
+          "determinism_fingerprint",
+          "state",
+          "sample",
+          "metrics",
+          "curve",
+          "trades",
+          "positions",
+          "limitations"
+        ],
+        "type": "object"
+      },
+      "BacktestRunInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestRunView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "items"
+        ],
+        "type": "object"
+      },
+      "BacktestRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "preparation_command_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "report_status": {
+            "$ref": "#/components/schemas/BacktestReportAvailability"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          },
+          "worker_observation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BacktestWorkerObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "run_id",
+          "strategy_fingerprint",
+          "state",
+          "revision",
+          "accepted_at",
+          "report_status"
+        ],
+        "type": "object"
+      },
+      "BacktestSample": {
+        "additionalProperties": false,
+        "properties": {
+          "end_at": {
+            "type": "string"
+          },
+          "instrument": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "rule_observed_at": {
+            "type": "string"
+          },
+          "start_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument",
+          "start_at",
+          "end_at",
+          "quantity",
+          "rule_observed_at"
+        ],
+        "type": "object"
+      },
+      "BacktestTradeView": {
+        "additionalProperties": false,
+        "properties": {
+          "fee": {
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "price": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "signal": {
+            "type": "string"
+          },
+          "signal_time_ns": {
+            "type": "string"
+          },
+          "time_ns": {
+            "type": "string"
+          },
+          "trade_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ordinal",
+          "time_ns",
+          "side",
+          "quantity",
+          "price",
+          "fee",
+          "signal_time_ns",
+          "signal",
+          "order_id",
+          "trade_id"
+        ],
+        "type": "object"
+      },
+      "BacktestWorkerObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/BacktestWorkerState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "BacktestWorkerState": {
+        "description": "Host lifecycle observation only; never an authoritative Run transition.",
+        "enum": [
+          "STARTING",
+          "IDLE",
+          "RUNNING",
+          "UNKNOWN",
+          "UNAVAILABLE",
+          "STOPPED"
+        ],
+        "type": "string"
+      },
       "ChartStudyBooleanDto": {
         "additionalProperties": false,
         "properties": {
@@ -4511,6 +5505,61 @@
         "type": "number"
       },
       "JsonValue": {},
+      "ManualStrategyContextView": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateStrategyDraftDto"
+          },
+          "existing_preparations": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestPreparationViewV2"
+            },
+            "type": "array"
+          },
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "factor_locator": {
+            "$ref": "#/components/schemas/PrivateAssetLocatorDto"
+          },
+          "factor_name": {
+            "type": "string"
+          },
+          "formula": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_locator",
+          "factor_name",
+          "formula",
+          "draft",
+          "release_manifest_fingerprint",
+          "expected_active_generation",
+          "initialize_fresh_runtime",
+          "existing_preparations"
+        ],
+        "type": "object"
+      },
       "MarketDataAcquisitionDto": {
         "additionalProperties": false,
         "properties": {
@@ -6724,6 +7773,403 @@
         ],
         "type": "object"
       },
+      "QualificationCommandListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationCommandView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_fingerprint",
+          "items"
+        ],
+        "type": "object"
+      },
+      "QualificationCommandRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationEvidenceReference"
+            },
+            "type": "array"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "subject_strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_strategy_fingerprint",
+          "policy_id",
+          "policy_version",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "QualificationCommandState": {
+        "enum": [
+          "NOT_SUBMITTED",
+          "PREPARED",
+          "COMPLETED"
+        ],
+        "type": "string"
+      },
+      "QualificationCommandView": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prepared_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QualificationCommandRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/QualificationCommandState"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "strategy_fingerprint",
+          "state"
+        ],
+        "type": "object"
+      },
+      "QualificationDecisionReadState": {
+        "enum": [
+          "VERIFIED",
+          "LOCATOR_REQUIRED"
+        ],
+        "type": "string"
+      },
+      "QualificationDecisionReadView": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {},
+          "decision_fingerprint": {
+            "type": "string"
+          },
+          "research_run_candidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "research_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/QualificationDecisionReadState"
+          }
+        },
+        "required": [
+          "schema_version",
+          "decision_fingerprint",
+          "state",
+          "research_run_candidates"
+        ],
+        "type": "object"
+      },
+      "QualificationEvidenceReference": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_fingerprint": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "locator_fingerprint": {
+            "type": "string"
+          },
+          "subject_binding_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "evidence_fingerprint",
+          "locator_fingerprint",
+          "subject_binding_fingerprint"
+        ],
+        "type": "object"
+      },
+      "QualificationInput": {
+        "additionalProperties": false,
+        "description": "Human selects exact existing scientific facts. Counts and conclusions are\nintentionally absent; the owning evaluator reads them from durable evidence.",
+        "properties": {
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "research_run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_run_id",
+          "freeze_relation_fingerprint",
+          "policy_id",
+          "policy_version"
+        ],
+        "type": "object"
+      },
+      "QualificationPolicyCriterionView": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison": {
+            "type": "string"
+          },
+          "criterion_id": {
+            "type": "string"
+          },
+          "evidence_kind": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion_id",
+          "evidence_kind",
+          "metric",
+          "comparison",
+          "threshold"
+        ],
+        "type": "object"
+      },
+      "QualificationPolicyListView": {
+        "additionalProperties": false,
+        "properties": {
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationPolicyView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "policies"
+        ],
+        "type": "object"
+      },
+      "QualificationPolicyView": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregation": {
+            "type": "string"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationPolicyCriterionView"
+            },
+            "type": "array"
+          },
+          "gate": {
+            "type": "string"
+          },
+          "missing_evidence_behavior": {
+            "type": "string"
+          },
+          "policy_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "policy_id",
+          "policy_version",
+          "gate",
+          "missing_evidence_behavior",
+          "aggregation",
+          "criteria",
+          "policy_fingerprint"
+        ],
+        "type": "object"
+      },
+      "QualificationResumeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "research_run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_run_id"
+        ],
+        "type": "object"
+      },
+      "QualifiedPromotionCommandState": {
+        "enum": [
+          "NOT_SUBMITTED",
+          "OUTCOME_UNKNOWN",
+          "COMPLETED"
+        ],
+        "type": "string"
+      },
+      "QualifiedPromotionCommandView": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "record": {},
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/QualifiedPromotionCommandState"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "strategy_fingerprint",
+          "state"
+        ],
+        "type": "object"
+      },
+      "QualifiedPromotionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "qualification_decision_fingerprint": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "research_run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_run_id",
+          "freeze_relation_fingerprint",
+          "policy_id",
+          "policy_version",
+          "qualification_decision_fingerprint",
+          "reason"
+        ],
+        "type": "object"
+      },
       "ResearchCalculationCatalogDto": {
         "additionalProperties": false,
         "properties": {
@@ -6950,6 +8396,16 @@
           "uppercase"
         ],
         "type": "object"
+      },
+      "ResearchRunView": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FactorResearchRunView"
+          },
+          {
+            "$ref": "#/components/schemas/StrategyResearchRunView"
+          }
+        ]
       },
       "ResearchScalarDto": {
         "additionalProperties": false,
@@ -7181,6 +8637,458 @@
           "schema_version",
           "origin",
           "candidate"
+        ],
+        "type": "object"
+      },
+      "StrategyCreationContextView": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/PrivateStrategyDraftDto"
+          },
+          "existing_preparations": {
+            "items": {},
+            "type": "array"
+          },
+          "expected_active_generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "factor_name": {
+            "type": "string"
+          },
+          "factor_proposal_fingerprint": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "initialize_fresh_runtime": {
+            "type": "boolean"
+          },
+          "release_manifest_fingerprint": {
+            "type": "string"
+          },
+          "research_context": {},
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorStudySource"
+          },
+          "study_proposal_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "factor_name",
+          "formula",
+          "factor_proposal_fingerprint",
+          "study_proposal_fingerprint",
+          "draft",
+          "source",
+          "research_context",
+          "release_manifest_fingerprint",
+          "initialize_fresh_runtime",
+          "existing_preparations"
+        ],
+        "type": "object"
+      },
+      "StrategyFreezeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_fingerprint": {
+            "type": "string"
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "research_run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "research_run_id",
+          "candidate_fingerprint"
+        ],
+        "type": "object"
+      },
+      "StrategyFreezeOutcomeView": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StrategyFreezeInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StrategyFreezeView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "StrategyFreezeView": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "strategy_fingerprint",
+          "freeze_relation_fingerprint",
+          "accepted_at",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "StrategyQualifiedView": {
+        "additionalProperties": false,
+        "properties": {
+          "freeze_relations": {
+            "items": {},
+            "type": "array"
+          },
+          "promotion_records": {
+            "items": {},
+            "type": "array"
+          },
+          "qualification_commands": {
+            "items": {
+              "$ref": "#/components/schemas/QualificationCommandView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_revision": {},
+          "stage": {
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_fingerprint",
+          "stage",
+          "source_revision",
+          "freeze_relations",
+          "promotion_records",
+          "qualification_commands"
+        ],
+        "type": "object"
+      },
+      "StrategyResearchPreparationRevisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "type": "string"
+          },
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "preparation_command_id",
+          "expected_revision"
+        ],
+        "type": "object"
+      },
+      "StrategyResearchPreparationView": {
+        "additionalProperties": false,
+        "description": "Strategy preparation projects the original owning operation, not a Run grant.",
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "context": {},
+          "definition_fingerprint": {
+            "type": "string"
+          },
+          "detail": {},
+          "phase": {
+            "type": "string"
+          },
+          "prepared_study_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/FactorResearchReadiness"
+          },
+          "research_command_id": {
+            "type": "string"
+          },
+          "research_outcome": {
+            "type": "string"
+          },
+          "reserved_run_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorStudySource"
+          },
+          "state": {
+            "type": "string"
+          },
+          "strategy_id": {
+            "type": "string"
+          },
+          "strategy_revision_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "profile",
+          "command_id",
+          "revision",
+          "state",
+          "phase",
+          "strategy_id",
+          "strategy_revision_fingerprint",
+          "definition_fingerprint",
+          "context",
+          "source",
+          "research_command_id",
+          "reserved_run_id",
+          "research_outcome",
+          "accepted_at",
+          "detail",
+          "readiness"
+        ],
+        "type": "object"
+      },
+      "StrategyResearchReport": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_fingerprint": {
+            "type": "string"
+          },
+          "end_at": {
+            "type": "string"
+          },
+          "execution_graph_verified": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "node_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "observation_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "research_result_fingerprint": {
+            "type": "string"
+          },
+          "start_at": {
+            "type": "string"
+          },
+          "warmup_bars": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_fingerprint",
+          "research_result_fingerprint",
+          "start_at",
+          "end_at",
+          "observation_count",
+          "warmup_bars",
+          "node_count",
+          "execution_graph_verified",
+          "limitations"
+        ],
+        "type": "object"
+      },
+      "StrategyResearchRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StrategyResearchReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report_status": {
+            "$ref": "#/components/schemas/FactorResearchReportAvailability"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "run_id",
+          "state",
+          "revision",
+          "report_status"
+        ],
+        "type": "object"
+      },
+      "StrategyWorkflowInventoryView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyWorkflowView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "items"
+        ],
+        "type": "object"
+      },
+      "StrategyWorkflowView": {
+        "additionalProperties": false,
+        "description": "Read-only history. Current Source selection grants no access to these facts.",
+        "properties": {
+          "authoring": {
+            "$ref": "#/components/schemas/PrivateStrategyAuthoringStateDto"
+          },
+          "backtest_preparations": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestPreparationViewV2"
+            },
+            "type": "array"
+          },
+          "preparations": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyResearchPreparationView"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "strategy_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "strategy_id",
+          "authoring",
+          "preparations",
+          "backtest_preparations"
         ],
         "type": "object"
       },
@@ -8191,7 +10099,79 @@
       "get": {
         "operationId": "creation_context_api_v2_backtest_creation_context_get",
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestCreationContextV2"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8211,11 +10191,783 @@
         ]
       }
     },
+    "/api/v2/backtest/preparations": {
+      "post": {
+        "operationId": "backtest_preparation_create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestPrepareInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestPrepareReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
+    "/api/v2/backtest/preparations/commands/{command_id}": {
+      "get": {
+        "operationId": "backtest_preparation_observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestPreparationCommandReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
+    "/api/v2/backtest/preparations/{command_id}/cancellation": {
+      "post": {
+        "operationId": "backtest_preparation_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestPreparationViewV2"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
+    "/api/v2/backtest/preparations/{command_id}/ready": {
+      "get": {
+        "operationId": "backtest_preparation_ready",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestPreparationCommandReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
+    "/api/v2/backtest/preparations/{command_id}/resume": {
+      "post": {
+        "operationId": "backtest_preparation_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestPreparationViewV2"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
+    "/api/v2/backtest/preparations/{command_id}/submit": {
+      "post": {
+        "operationId": "backtest_preparation_submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestConfirmationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestConfirmationOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "backtest-preparation"
+        ]
+      }
+    },
     "/api/v2/backtest/runs": {
       "get": {
         "operationId": "recent_runs_api_v2_backtest_runs_get",
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunInventory"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8281,7 +11033,167 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/backtest/runs/{run_id}/analysis-context": {
+      "post": {
+        "operationId": "backtest_analysis_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestAnalysisContextView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8322,8 +11234,90 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestCancellationInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8357,7 +11351,79 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestEvidenceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8399,7 +11465,66 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8433,7 +11558,191 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResultView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/backtest/strategy-context": {
+      "get": {
+        "operationId": "manual_backtest_strategy_context",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "factor_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "factor_revision_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "factor_content_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strategy_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualStrategyContextView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -16231,10 +19540,63 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "research_run_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationDecisionReadView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -16258,7 +19620,52 @@
       "get": {
         "operationId": "list_qualification_policies_api_v2_qualification_policies_get",
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationPolicyListView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -16300,7 +19707,52 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationPolicyView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -17386,7 +20838,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FactorResearchRunView"
+                  "$ref": "#/components/schemas/ResearchRunView"
                 }
               }
             }
@@ -17507,7 +20959,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FactorResearchRunView"
+                  "$ref": "#/components/schemas/ResearchRunView"
                 }
               }
             }
@@ -17998,6 +21450,454 @@
         ]
       }
     },
+    "/api/v2/research/strategy-preparations/commands/{command_id}": {
+      "get": {
+        "operationId": "strategy_preparation_observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/research/strategy-preparations/{command_id}/cancellation": {
+      "post": {
+        "operationId": "strategy_preparation_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyResearchPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/research/strategy-preparations/{command_id}/ready": {
+      "get": {
+        "operationId": "strategy_preparation_ready",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/research/strategy-preparations/{command_id}/resume": {
+      "post": {
+        "operationId": "strategy_preparation_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyResearchPreparationRevisionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResearchPreparationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
     "/api/v2/strategies/{strategy_fingerprint}": {
       "get": {
         "operationId": "get_strategy_api_v2_strategies__strategy_fingerprint__get",
@@ -18012,7 +21912,52 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyQualifiedView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18088,7 +22033,52 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationCommandListView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18129,8 +22119,255 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualifiedPromotionInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualifiedPromotionCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}": {
+      "get": {
+        "operationId": "qualified_promotion_command_outcome",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualifiedPromotionCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}/resume": {
+      "post": {
+        "operationId": "qualified_promotion_command_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualifiedPromotionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualifiedPromotionCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18171,8 +22408,63 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18192,13 +22484,21 @@
         ]
       }
     },
-    "/api/v2/strategy-freezes": {
-      "post": {
-        "operationId": "freeze_strategy_api_v2_strategy_freezes_post",
+    "/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}": {
+      "get": {
+        "operationId": "qualification_command_outcome",
         "parameters": [
           {
-            "in": "header",
-            "name": "Idempotency-Key",
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
             "required": true,
             "schema": {
               "type": "string"
@@ -18206,7 +22506,52 @@
           }
         ],
         "responses": {
-          "501": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18223,6 +22568,613 @@
         ],
         "tags": [
           "workstation"
+        ]
+      }
+    },
+    "/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}/resume": {
+      "post": {
+        "operationId": "qualification_command_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualificationResumeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualificationCommandView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/strategy-creation-context": {
+      "get": {
+        "operationId": "strategy_creation_context",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "factor_proposal_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "study_proposal_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strategy_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyCreationContextView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-freezes": {
+      "post": {
+        "operationId": "freeze_strategy_api_v2_strategy_freezes_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyFreezeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyFreezeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/strategy-freezes/commands/{command_id}": {
+      "get": {
+        "operationId": "strategy_freeze_outcome",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyFreezeOutcomeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-freezes/commands/{command_id}/resume": {
+      "post": {
+        "operationId": "strategy_freeze_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyFreezeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyFreezeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-workflows": {
+      "get": {
+        "operationId": "strategy_workflow_inventory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyWorkflowInventoryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-workflows/{strategy_id}": {
+      "get": {
+        "operationId": "strategy_workflow_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyWorkflowView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
         ]
       }
     },

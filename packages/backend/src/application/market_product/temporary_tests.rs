@@ -237,6 +237,7 @@ pub(in crate::application::market_product) fn source_from(
     })
     .unwrap();
     let resolved = Resolved {
+        public_configuration: serde_json::value::RawValue::from_string("{}".into()).unwrap(),
         selection,
         binding,
         resource: Arc::new(feed),

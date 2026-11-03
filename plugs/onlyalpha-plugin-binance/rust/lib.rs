@@ -136,6 +136,9 @@ pub mod spot_rest;
 
 pub mod spot_normalize;
 
+/// Explicit experimental Backtest rule/fee policy, separate from venue admission.
+pub mod spot_simulation;
+
 pub mod spot_source;
 /// Pure market-identity witness for reading immutable original Source history.
 /// This validates the ORIGINAL declaration/value kinds; it neither constructs

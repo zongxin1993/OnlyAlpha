@@ -78,7 +78,7 @@ def validate_source(value: Any, *, instrument: bool = True) -> None:
 def validate_response(content: Any, topic: str = "FACTOR") -> dict[str, Any]:
     field = "study" if topic == "STUDY" else "candidate"
     if (
-        topic not in {"FACTOR", "STUDY"}
+        topic not in {"FACTOR", "STUDY", "BACKTEST_ANALYSIS"}
         or not isinstance(content, dict)
         or set(content) != {"message", field}
         or not isinstance(content["message"], str)
@@ -87,6 +87,8 @@ def validate_response(content: Any, topic: str = "FACTOR") -> dict[str, Any]:
         and not isinstance(content[field], dict)
     ):
         raise ValueError("invalid model response")
+    if topic == "BACKTEST_ANALYSIS" and content["candidate"] is not None:
+        raise ValueError("analysis is read only")
     if topic == "STUDY" and content[field] is not None:
         study = content[field]
         dates = {"start_at", "development_end_at", "end_at", "protected_start_at", "protected_end_at"}

@@ -816,7 +816,7 @@ def test_source_authoring_isolated_closures_exclude_python_and_product(tmp_path:
             "onlyalpha-plugin-" + name,
         }
         if name == "binance":
-            expected.add("onlyalpha-domain")
+            expected.add("onlyalpha-fee")
         assert {p["name"] for p in packages if "source" not in p} == expected
         area = manifest.parent / "plugs" / ("onlyalpha-plugin-" + name)
         assert not (area / "src").exists()
@@ -862,6 +862,25 @@ def test_source_authoring_admits_only_exact_reviewed_dependencies(tmp_path: Path
             with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
                 validate_workspace(tmp_path)
         manifest.write_text(original)
+    backend = tmp_path / "packages/backend/Cargo.toml"
+    original = backend.read_text()
+    for dependency, directory in (
+        ("onlyalpha-account", "account"),
+        ("onlyalpha-market-data-pipeline", "market_data/pipeline"),
+    ):
+        declaration = f'{dependency} = {{ path = "../../crates/onlyalpha-kernel/{directory}" }}\n'
+        assert declaration in original
+        removed = original.replace(declaration, "", 1)
+        for candidate in (
+            removed,
+            removed.replace("[dev-dependencies]", "[dev-dependencies]\n" + declaration),
+            original.replace(declaration, declaration.replace(dependency + " =", "foreign_alias =")),
+            original.replace(declaration, declaration.replace(directory + '"', 'foreign"')),
+        ):
+            backend.write_text(candidate)
+            with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+                validate_workspace(tmp_path)
+        backend.write_text(original)
 
 
 def test_crypto_build_uses_pinned_bundled_code_instead_of_ambient_libraries(tmp_path: Path) -> None:
@@ -984,6 +1003,41 @@ def test_declared_product_resources_are_in_fingerprinted_isolated_closure(tmp_pa
     ]
     if materializer == "isolated_backend":
         resources += [
+            "crates/onlyalpha-backtest/rust/candidate_configuration_tests.rs",
+            "crates/onlyalpha-backtest/rust/position_order_view_tests.rs",
+            "crates/onlyalpha-backtest/rust/test_support/execution.rs",
+            "crates/onlyalpha-runtime-persistence/tests/support/checkpoint_work.rs",
+            "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs",
+            "crates/onlyalpha-runtime-persistence/tests/support/replay_references.rs",
+            "packages/backend/src/persistence/research_evidence/columnar.rs",
+            "packages/backend/src/persistence/research_evidence/equivalence.rs",
+            "packages/backend/src/persistence/research_evidence/physical.rs",
+            "packages/backend/src/persistence/research_preparation/backtest.rs",
+            "packages/backend/src/transport/host_backtest_commands.rs",
+            "packages/backend/src/transport/host_backtest_environment.rs",
+            "packages/backend/src/transport/host_backtest_preparation.rs",
+            "packages/backend/src/transport/host_strategy_preparation.rs",
+            "packages/backend/tests/application/backtest_preparation.rs",
+            "packages/backend/tests/application/support/backtest_evidence_assertions.rs",
+            "packages/backend/tests/application/support/backtest_service_assertions.rs",
+            "packages/backend/tests/application/support/backtest_worker_assertions.rs",
+            "packages/backend/tests/transport/backtest_analysis.rs",
+            "packages/backend/tests/transport/backtest_preparation_observation.rs",
+            "packages/backend/tests/transport/backtest_preparation_routes.rs",
+            "packages/frontend/src/features/backtest/fixtures/preparation-wire-v2.json",
+            "packages/backend/tests/transport/backtest_preparation_window.rs",
+            "packages/backend/tests/transport/backtest_product.rs",
+            "packages/backend/tests/transport/backtest_worker_observation.rs",
+            "packages/backend/tests/transport/qualification_product.rs",
+            "examples/private-assets/strategy/simple_momentum/strategy.json",
+            "packages/backend/tests/application/fixtures/frozen_strategy.json",
+            "packages/backend/tests/application/fixtures/research_dataset.json",
+            "packages/backend/tests/application/fixtures/research_factor.json",
+            "packages/backend/tests/application/fixtures/strategy_calculations.json",
+            "test-data/domain/fact-records-v1.jsonl",
+            "test-data/execution/domain-inputs.json",
+            "test-data/execution/economics-v1.json",
+            "test-data/settlement/common-v1.json",
             "plugs/onlyalpha-plugin-binance/rust/spot_temporary.rs",
             "packages/backend/Cargo.toml",
         ]
@@ -1027,6 +1081,122 @@ def test_infrastructure_source_modules_are_exact_and_physical(tmp_path: Path) ->
             with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
                 check.validate_infrastructure_sources(tmp_path)
         path.write_text("")
+
+
+@mark.parametrize(
+    ("source", "argument", "target"),
+    (
+        (
+            "packages/backend/src/transport/routes.rs",
+            "../../tests/transport/backtest_preparation_routes.rs",
+            "packages/backend/tests/transport/backtest_preparation_routes.rs",
+        ),
+        (
+            "crates/onlyalpha-runtime-persistence/rust/replay.rs",
+            "../tests/support/replay_codec_work.rs",
+            "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs",
+        ),
+    ),
+)
+def test_declared_external_module_bodies_cannot_hide_compile_inputs(
+    tmp_path: Path, source: str, argument: str, target: str
+) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    _infrastructure_source_tree(tmp_path)
+    owner = tmp_path / source
+    owner.parent.mkdir(parents=True, exist_ok=True)
+    owner.write_text(f'#[path="{argument}"] mod tests;')
+    module = tmp_path / target
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text("")
+    check.validate_infrastructure_sources(tmp_path)
+    for hidden in (
+        'include!("/untracked.rs");',
+        'include_str!("/untracked.json");',
+        'include_bytes!("/untracked.bin");',
+        'env!("UNDECLARED_INPUT");',
+        'env!("CARGO_PKG_VERSION");',
+        'option_env!("CARGO_PKG_VERSION");',
+        '#[path="unregistered.rs"] mod hidden;',
+        '#[cfg_attr(test,path="unregistered.rs")] mod hidden;',
+    ):
+        module.write_text(hidden)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_infrastructure_sources(tmp_path)
+    module.unlink()
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    module.symlink_to(owner)
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    module.unlink()
+    module.write_text("")
+    owner.write_text('#[path="unregistered.rs"] mod tests;')
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    owner.write_text(f'#[path="{argument}"] mod tests;')
+    check.validate_infrastructure_sources(tmp_path)
+
+
+def test_declared_external_module_dependencies_remain_exact_physical_and_transitive(tmp_path: Path) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    _infrastructure_source_tree(tmp_path)
+    owner = tmp_path / "crates/onlyalpha-runtime-persistence/rust/replay.rs"
+    owner.write_text('#[path="../tests/support/replay_codec_work.rs"] mod tests;')
+    module = tmp_path / "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        'include_str!("../../../../test-data/execution/domain-inputs.json");\n'
+        'include_str!("../../../../test-data/settlement/common-v1.json");\n'
+        '#[path="../../../../crates/onlyalpha-kernel/execution/tests/support/mod.rs"] mod support;'
+    )
+    nested = tmp_path / "crates/onlyalpha-kernel/execution/tests/support/mod.rs"
+    paths = (
+        tmp_path / "test-data/execution/domain-inputs.json",
+        tmp_path / "test-data/settlement/common-v1.json",
+        nested,
+    )
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+    check.validate_infrastructure_sources(tmp_path)
+    for path in paths:
+        path.unlink()
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_infrastructure_sources(tmp_path)
+        path.symlink_to(owner)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_infrastructure_sources(tmp_path)
+        path.unlink()
+        path.write_text("")
+    for hidden in (
+        'include!("/untracked.rs");',
+        'env!("CARGO_PKG_VERSION");',
+        '#[path="other.rs"] mod hidden;',
+    ):
+        nested.write_text(hidden)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_infrastructure_sources(tmp_path)
+    nested.write_text("")
+    retained = module.read_text()
+    module.write_text(retained.replace("domain-inputs.json", "foreign.json"))
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    module.write_text(retained)
+    moved = module.parent.with_name("relocated-support")
+    module.parent.rename(moved)
+    module.parent.symlink_to(moved, target_is_directory=True)
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    module.parent.unlink()
+    moved.rename(module.parent)
+    check.validate_infrastructure_sources(tmp_path)
 
 
 def test_rust_macro_guard_distinguishes_inequality_from_macro_invocation() -> None:
@@ -1100,10 +1270,12 @@ def test_local_fee_changes_select_only_owner_and_direct_consumers() -> None:
     assert check.affected_packages(check.ROOT, ("crates/onlyalpha-kernel/fee/src/lib.rs",)) == (
         "onlyalpha-execution",
         "onlyalpha-fee",
+        "onlyalpha-plugin-binance",
     )
     assert check.affected_packages(check.ROOT, ("test-data/fee/common-v1.json",)) == (
         "onlyalpha-execution",
         "onlyalpha-fee",
+        "onlyalpha-plugin-binance",
     )
     commands = check.targeted_build_commands("aarch64-unknown-linux-gnu", ("onlyalpha-execution", "onlyalpha-fee"))
     assert [command[1] for command in commands] == ["fmt", "clippy", "test"]
@@ -1194,3 +1366,157 @@ def test_local_package_mode_runs_only_default_profile_without_full_receipt(
     assert len(prepared) == int(needs_replay)
     assert all(("REPLAY_PYTHON" in environment) == needs_replay for environment in environments)
     assert not receipt.exists()
+
+
+@mark.parametrize(
+    ("area", "validator", "owner", "child"),
+    (
+        ("execution", "validate_execution_sources", "components.rs", "prefix_read_tests.rs"),
+        ("position", "validate_position_sources", "manager.rs", "current_exposure_tests.rs"),
+        ("strategy_ledger", "validate_strategy_ledger_sources", "recovery.rs", "recovery_extension_tests.rs"),
+    ),
+)
+def test_current_pure_test_modules_keep_exact_physical_transitive_inputs(
+    tmp_path: Path, area: str, validator: str, owner: str, child: str
+) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    source = tmp_path / "crates/onlyalpha-kernel" / area / "src"
+    source.mkdir(parents=True)
+    parent = source / owner
+    parent.write_text(f'#[cfg(test)]\n#[path="{child}"] mod tests;')
+    module = source / child
+    original = ""
+    inputs: list[Path] = []
+    if area == "execution":
+        original = (
+            'include_str!("../../../../test-data/execution/domain-inputs.json");\n'
+            'include_str!("../../../../test-data/settlement/common-v1.json");\n'
+            '#[path="../tests/support/mod.rs"] mod support;'
+        )
+        inputs = [
+            tmp_path / "test-data/execution/domain-inputs.json",
+            tmp_path / "test-data/settlement/common-v1.json",
+            source.parent / "tests/support/mod.rs",
+        ]
+        for path in inputs:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("")
+    module.write_text(original)
+    validate = getattr(check, validator)
+    validate(tmp_path)
+    for hidden in (
+        'include!("/untracked.rs");',
+        'include_str!("unregistered.json");',
+        'include_bytes!("unregistered.bin");',
+        'env!("UNDECLARED_INPUT");',
+        'option_env!("UNDECLARED_INPUT");',
+        '#[path="unregistered.rs"] mod hidden;',
+        '#[cfg_attr(test,path="unregistered.rs")] mod hidden;',
+        'fn hidden() { let _ = std::env::var("UNDECLARED_INPUT"); }',
+    ):
+        module.write_text(hidden)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate(tmp_path)
+    module.write_text(original)
+    if area == "execution":
+        support = inputs[-1]
+        support.write_text('fn hidden() { let _ = std::fs::read("/untracked"); }')
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate(tmp_path)
+        support.write_text("")
+        # Removing cfg(test) cannot make a registered support IO path pure.
+        parent.write_text(f'#[path="{child}"] mod tests;')
+        support.write_text('fn hidden() { let _ = std::env::var("UNDECLARED_INPUT"); }')
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate(tmp_path)
+        support.write_text("")
+        parent.write_text(f'#[cfg(test)]\n#[path="{child}"] mod tests;')
+    for path in [module, *inputs]:
+        contents = path.read_text()
+        path.unlink()
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate(tmp_path)
+        path.symlink_to(parent)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            validate(tmp_path)
+        path.unlink()
+        path.write_text(contents)
+    parent.write_text('#[path="unregistered.rs"] mod tests;')
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        validate(tmp_path)
+    parent.write_text(f'#[cfg(test)]\n#[path="{child}"] mod tests;')
+    validate(tmp_path)
+
+
+def test_runtime_prefix_support_is_an_exact_transitive_registered_source(tmp_path: Path) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    _infrastructure_source_tree(tmp_path)
+    source = tmp_path / "crates/onlyalpha-runtime-persistence"
+    (source / "rust/store.rs").write_text('#[path="../tests/support/checkpoint_work.rs"] mod tests;')
+    parent = source / "tests/support/checkpoint_work.rs"
+    parent.parent.mkdir(parents=True)
+    parent.write_text('#[path="prefix_work.rs"] mod prefix_work;')
+    module = parent.with_name("prefix_work.rs")
+    module.write_text("")
+    check.validate_infrastructure_sources(tmp_path)
+    for hidden in ('include!("/untracked.rs");', 'env!("UNDECLARED_INPUT");', '#[path="unregistered.rs"] mod hidden;'):
+        module.write_text(hidden)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_infrastructure_sources(tmp_path)
+    module.unlink()
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+    module.symlink_to(parent)
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_infrastructure_sources(tmp_path)
+
+
+def test_pure_declared_modules_cannot_escape_their_owner_even_with_an_exact_registry_entry(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    relative = "crates/onlyalpha-kernel/execution/src/components.rs"
+    parent = tmp_path / relative
+    parent.parent.mkdir(parents=True)
+    parent.write_text('#[path="../../../foreign.rs"] mod hidden;')
+    foreign = tmp_path / "crates/foreign.rs"
+    foreign.write_text("")
+    monkeypatch.setitem(check._INFRASTRUCTURE_SOURCE_MODULES, relative, {"../../../foreign.rs": "crates/foreign.rs"})
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_execution_sources(tmp_path)
+
+
+def test_execution_shared_fixture_self_alias_is_exact_and_test_only(tmp_path: Path) -> None:
+    import pytest
+
+    from scripts import rust_kernel_check as check
+
+    source = tmp_path / "crates/onlyalpha-kernel/execution/src"
+    source.mkdir(parents=True)
+    owner = source / "lib.rs"
+    original = "#[cfg(test)]\nextern crate self as onlyalpha_execution;\n"
+    owner.write_text(original)
+    check.validate_execution_sources(tmp_path)
+    for changed in (
+        "extern crate self as onlyalpha_execution;",
+        '#[cfg(feature="unregistered")]\nextern crate self as onlyalpha_execution;',
+        "#[cfg(test)]\nextern crate self as onlyalpha_backend;",
+        original + "use onlyalpha_runtime::State;",
+    ):
+        owner.write_text(changed)
+        with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+            check.validate_execution_sources(tmp_path)
+    owner.write_text(original)
+    foreign = source / "other.rs"
+    foreign.write_text(original)
+    with pytest.raises(ValueError, match="BOUNDARY_INVALID"):
+        check.validate_execution_sources(tmp_path)

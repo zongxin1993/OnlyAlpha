@@ -41,6 +41,14 @@ export const previewSchema = z.strictObject({
     draft_fingerprint: sha,
     execution_admitted: z.literal(false)
 });
+export const backtestReferenceSchema = z.strictObject({
+    run_id: z.uuid(),
+    specification_fingerprint: sha,
+    strategy_fingerprint: sha,
+    evidence_fingerprint: sha,
+    result_fingerprint: sha,
+    determinism_fingerprint: sha
+});
 export const sessionSchema = z.strictObject({
     id: z.uuid(),
     workflow: sha,
@@ -55,7 +63,8 @@ export const sessionSchema = z.strictObject({
     candidate: z.record(z.string(), z.unknown()).nullable(),
     factor_reference: referenceSchema.nullable(),
     study_reference: referenceSchema.nullable(),
-    topic: z.enum(["FACTOR", "STUDY"]),
+    topic: z.enum(["FACTOR", "STUDY", "BACKTEST_ANALYSIS"]),
+    backtest_reference: backtestReferenceSchema.optional(),
     study: studyAdviceSchema.nullable(),
     execution_admitted: z.literal(false),
     continuation: z
@@ -72,7 +81,8 @@ export const conversationSchema = z.strictObject({
     turns: z.array(
         z.strictObject({
             head: sha,
-            topic: z.enum(["FACTOR", "STUDY"]),
+            topic: z.enum(["FACTOR", "STUDY", "BACKTEST_ANALYSIS"]),
+            backtest_reference: backtestReferenceSchema.optional(),
             user: z.string(),
             assistant: z.string().nullable(),
             status: z.enum(["READY", "FAILED", "OUTCOME_UNKNOWN"]),

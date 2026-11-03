@@ -588,9 +588,17 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     executable = resources / "bin/onlyalpha-backend"
     # Infrastructure provisioning uses the same selected native owner as deployment.
     # This establishes no Factor, Study, Runtime Generation, Dataset or Research Run.
-    from scripts.database import _initialize_deployment
+    from psycopg.conninfo import make_conninfo
 
-    _initialize_deployment(dsn, data, executable)
+    from scripts.database import _extend_manual_backtest, _extend_strategy_research, _initialize_deployment
+
+    deployment_id = _initialize_deployment(dsn, data, executable)
+    if conninfo_to_dict(dsn).get("sslmode") not in (None, "disable"):
+        raise ValueError("NATIVE_E2E_CONTAINED_POSTGRES_TRANSPORT_REQUIRED")
+    if _extend_strategy_research(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
+        raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
+    if _extend_manual_backtest(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
+        raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     # Retained metadata is a separate precondition; authoring tests create their
     # own Assets and Revisions exclusively through the normal Shipping UI.
     revision, current = seed_private_metadata("private.factor.native_metadata")

@@ -19,26 +19,36 @@ const INVALID: &str = "PRIVATE_STRATEGY_CALCULATION_RESOLUTION_INVALID";
 type Result<T> = std::result::Result<T, PreparationError>;
 pub struct ResolvedCalculations {
     // Retain the original work/lifecycle hold through the caller's handoff.
-    _runtime: Arc<RuntimeInputHold>,
+    runtime: Arc<RuntimeInputHold>,
     record: Value,
+    // Exact request sent to the actual installed producer, retained for the
+    // owning execution/restore path. It is never reconstructed from a DTO.
+    request: Value,
 }
 impl ResolvedCalculations {
     pub fn record(&self) -> &Value {
         &self.record
     }
+    pub(crate) fn into_preparation(self) -> (Arc<RuntimeInputHold>, Value, Value) {
+        (self.runtime, self.record, self.request)
+    }
     pub(crate) fn resolve(
-        mut runtime: RuntimeInputHold,
+        runtime: RuntimeInputHold,
         installation: &ChartInstallation,
         revision: &Value,
         context: &Context,
         factors: &BTreeMap<String, Value>,
         composition: &Composition,
     ) -> Result<Self> {
+        let expected=Composition::derive(revision,context,runtime.manifest(),factors)?;
+        if expected.record()!=composition.record(){return Err(INVALID.into());}
+        Self::resolve_exact(runtime,installation,revision,factors,context.record()["targets"].as_array().ok_or(INVALID)?,Some((context,composition)),None)
+    }
+    pub(crate) fn resolve_manual(runtime:RuntimeInputHold,installation:&ChartInstallation,revision:&Value,factors:&BTreeMap<String,Value>,control:&crate::application::research_run_execution::Control)->Result<Self> {
+        Self::resolve_exact(runtime,installation,revision,factors,&[],None,Some(control))
+    }
+    fn resolve_exact(mut runtime:RuntimeInputHold,installation:&ChartInstallation,revision:&Value,factors:&BTreeMap<String,Value>,target_instances:&[Value],research:Option<(&Context,&Composition)>,control:Option<&crate::application::research_run_execution::Control>)->Result<Self> {
         runtime.verify_artifacts()?;
-        let expected = Composition::derive(revision, context, runtime.manifest(), factors)?;
-        if expected.record() != composition.record() {
-            return Err(INVALID.into());
-        }
         let definition = Definition::from_record(&revision["definition"])?;
         let strategy = definition.to_record();
         let mut saved_factors = BTreeMap::new();
@@ -84,13 +94,7 @@ impl ResolvedCalculations {
             saved_factors.insert(id.clone(), (saved, binding.clone()));
         }
         let mut instances = strategy["calculations"].as_array().ok_or(INVALID)?.clone();
-        instances.extend(
-            context.record()["targets"]
-                .as_array()
-                .ok_or(INVALID)?
-                .iter()
-                .cloned(),
-        );
+        instances.extend_from_slice(target_instances);
         let core = runtime.core_artifact()?.clone();
         let operators = runtime.distribution_artifact("onlyalpha-plugin-operators")?;
         let targets = runtime.distribution_artifact("onlyalpha-plugin-targets")?;
@@ -109,6 +113,7 @@ impl ResolvedCalculations {
         let owner = worker
             .cancellation()
             .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
+        if let Some(control)=control{control.attach(owner.clone())?;}
         let deadline = Duration::from_secs(10);
         worker
             .handshake_research(deadline)
@@ -118,7 +123,10 @@ impl ResolvedCalculations {
             .map_err(|e| PreparationError::worker(e, owner.clone()))?;
         worker
             .terminate()
-            .map_err(|e| PreparationError::worker(e, owner))?;
+            .map_err(|e| PreparationError::worker(e, owner.clone()))?;
+        if owner.state()!=onlyalpha_calculation_bridge::ProcessState::Joined{return Err(PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",Some(owner)));}
+        if let Some(control)=control{control.verify_joined()?;}
+        drop(worker);
         runtime.verify()?;
         installation
             .verify()
@@ -174,9 +182,7 @@ impl ResolvedCalculations {
             .iter()
             .map(|c| c["instance_key"].as_str().ok_or(INVALID))
             .collect::<std::result::Result<BTreeSet<_>, _>>()?;
-        let target_keys = context.record()["targets"]
-            .as_array()
-            .ok_or(INVALID)?
+        let target_keys = target_instances
             .iter()
             .map(|c| c["instance_key"].as_str().ok_or(INVALID))
             .collect::<std::result::Result<BTreeSet<_>, _>>()?;
@@ -270,12 +276,13 @@ impl ResolvedCalculations {
             )?;
         }
         let decision = DecisionGraph::derive(&definition, &Value::Array(decision))?;
-        let target = DecisionGraph::target_graph(context, &Value::Array(targets))?;
+        let target = match research {Some((context,_))=>DecisionGraph::target_graph(context,&Value::Array(targets))?.to_record(),None=>{if !targets.is_empty(){return Err(INVALID.into());}Value::Null}};
         runtime.verify()?;
-        let record = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_CALCULATION_RESOLUTION_V1","composition":composition.record(),"runtime_generation_fingerprint":generation,"runtime_work_binding":runtime.binding(),"algorithm_resolution":observed,"decision":decision.record(),"target_graph":target.to_record()});
+        let record = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_CALCULATION_RESOLUTION_V1","composition":research.map(|(_,c)|c.record()),"runtime_generation_fingerprint":generation,"runtime_work_binding":runtime.binding(),"algorithm_resolution":observed,"decision":decision.record(),"target_graph":target});
         Ok(Self {
-            _runtime: runtime,
+            runtime,
             record,
+            request,
         })
     }
 }

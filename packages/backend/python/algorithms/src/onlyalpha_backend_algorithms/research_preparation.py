@@ -83,7 +83,57 @@ def certify(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+STRATEGY_CONTRACT = "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
+
+
 def prepare(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
+    if type(payload) is not dict:
+        raise ValueError("RESEARCH_PREPARATION_INPUT_INVALID")
+    if payload.get("contract") == STRATEGY_CONTRACT:
+        return prepare_strategy(payload, artifact)
+    return _prepare_factor(payload, artifact)
+
+
+def prepare_strategy(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
+    """Observe the actual installed Target library before entering confinement."""
+    from onlyalpha_plugin_targets.registration import registrations as target_registrations
+
+    from onlyalpha_backend_algorithms.research_resolution import private_calculation_records
+
+    if (
+        set(payload)
+        != {"schema_version", "contract", "source", "graph", "core_artifact", "operator_artifact", "target_artifact"}
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or payload["contract"] != STRATEGY_CONTRACT
+        or payload["target_artifact"]["distribution_version"] != version("onlyalpha-plugin-targets")
+    ):
+        raise ValueError("RESEARCH_STRATEGY_PREPARATION_INPUT_INVALID")
+    target = verify_distribution(payload["target_artifact"], "onlyalpha_plugin_targets", "onlyalpha-plugin-targets")
+    registrations = target_registrations()
+    if not registrations or any(
+        row.type_definition.kind.value != "TARGET"
+        or row.backend.value != "RESEARCH"
+        or row.implementation_manifest is None
+        for row in registrations
+    ):
+        raise ValueError("RESEARCH_TARGET_IMPLEMENTATION_UNAVAILABLE")
+    targets = private_calculation_records(registrations)
+    # The Factor certification below installs seccomp. All actual Target package
+    # resource reads and implementation observations must already be complete.
+    factor = _prepare_factor(
+        {key: value for key, value in payload.items() if key not in {"contract", "target_artifact"}}, artifact
+    )
+    return {
+        **factor,
+        "contract": STRATEGY_CONTRACT,
+        "target_artifact_sha256": target["artifact_sha256"],
+        "target_resources_fingerprint": target["resources_fingerprint"],
+        "target_calculations": targets,
+    }
+
+
+def _prepare_factor(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
     if set(payload) != {"schema_version", "source", "graph", "core_artifact", "operator_artifact"}:
         raise ValueError("RESEARCH_PREPARATION_INPUT_INVALID")
     declared = provider_manifest()["source"]

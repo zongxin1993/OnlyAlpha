@@ -1,6 +1,6 @@
 use crate::{Components, Prepared, model::*};
 use bigdecimal::{BigDecimal, Zero};
-use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest};
+use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, value::OnlyPrice};
 use serde_json::{Value, json};
 impl Components {
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
@@ -67,10 +67,9 @@ impl Components {
         {
             return Err(err("EXECUTION_INPUT_ALIAS"));
         }
-        let before = self.payloads()?;
-        let mut candidate = Self::new(self.config.clone())?;
-        let checkpoint = self.checkpoint()?;
-        candidate.restore(&checkpoint, &hash(&checkpoint))?;
+        let before = self.payload_hashes()?;
+        let mut candidate = self.clone_data();
+        candidate.invalidate_payloads();
         match text(&input["op"])? {
             "ADMIT" => candidate.admit(input)?,
             "SUBMISSION" => candidate.submission(input)?,
@@ -91,7 +90,8 @@ impl Components {
             .ok_or_else(|| err("EXECUTION_SEQUENCE_OVERFLOW"))?
             .to_string()] = json!(format!("ETX-{}", hash(input)));
         let after = candidate.payloads()?;
-        let projections:Vec<_>=before.iter().zip(after).enumerate().map(|(i,(b,a))|json!({"schema_version":1,"component":COMPONENTS[i],"before_hash":hash(b),"result_hash":hash(&a),"result":a})).collect();
+        let after_hashes = candidate.payload_hashes()?;
+        let projections:Vec<_>=before.iter().zip(after.iter()).enumerate().map(|(i,(b,a))|json!({"schema_version":1,"component":COMPONENTS[i],"before_hash":b,"result_hash":after_hashes[i],"result":a})).collect();
         let tx = format!("ETX-{}", hash(input));
         let sequence = self
             .sequence
@@ -99,7 +99,7 @@ impl Components {
             .ok_or_else(|| err("EXECUTION_SEQUENCE_OVERFLOW"))?;
         Prepared::new(
             json!({"schema_version":1,"transaction_id":tx,"config_hash":hash(&self.config),"sequence":sequence,"predecessor":self.sequence,"input":input,"projections":projections,"events":[{"schema_version":1,"event_id":format!("{tx}-EVENT-1"),"transaction_id":tx,"sequence":sequence,"input":input}]}),
-        )
+        ).map(|prepared|prepared.with_typed_after(candidate))
     }
     pub(crate) fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
         json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":hash(input),"time":input["time"],"op":op,"payload":payload})
@@ -190,6 +190,21 @@ impl Components {
         }
         Ok(r.clone())
     }
+    fn validate_whole_fill_contract(&self, request: &Value, fee: &Value, contract: &Value) -> Result<(), Error> {
+        row(contract, &["kind","maximum_fill_count","model_fingerprint","model","fee_estimate_assumptions_fingerprint"])?;
+        let model = &contract["model"];
+        row(model, &["kind","runtime_kind","maximum_fill_count","configuration_fingerprint","policy_fingerprint"])?;
+        for value in [&contract["model_fingerprint"],&contract["fee_estimate_assumptions_fingerprint"],&model["configuration_fingerprint"],&model["policy_fingerprint"]] { fp(value)?; }
+        if self.config["runtime_kind"] != "BACKTEST" || request["order_type"] != "MARKET"
+            || contract["kind"] != "BACKTEST_WHOLE_FILL" || contract["maximum_fill_count"] != 1
+            || model["kind"] != "GUARANTEED_WHOLE_FILL" || model["runtime_kind"] != "BACKTEST"
+            || model["maximum_fill_count"] != 1 || model["configuration_fingerprint"] != hash(&self.config)
+            || model["policy_fingerprint"] != request["metadata"]["replay_policy"]
+            || contract["model_fingerprint"] != hash(model)
+            || contract["fee_estimate_assumptions_fingerprint"] != fee["estimate"]["assumptions_fingerprint"]
+        { return Err(err("EXECUTION_WHOLE_FILL_CONTRACT")); }
+        Ok(())
+    }
     fn economic_source(&mut self, family: &str, proof: &Value) -> Result<(), Error> {
         let source = id(&proof["source_ref"])?;
         if self.meta[family].get(source).is_some() {
@@ -198,19 +213,48 @@ impl Components {
         self.meta[family][source] = json!(hash(proof));
         Ok(())
     }
+    /// Reuse the exact canonical admission against an original retained
+    /// checkpoint, without a Store, transaction, Event or grant escaping. This
+    /// verifies the no-ADMIT branch; success means a missing retained fact.
+    pub fn admission_risk_denied(
+        configuration: &Value,
+        checkpoint: &Value,
+        input: &Value,
+    ) -> Result<bool, Error> {
+        if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        for field in ["engine", "runtime", "account", "gateway", "generation", "runtime_kind"] {
+            if input[field] != configuration[field] {
+                return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+            }
+        }
+        let cluster = text(&input["cluster"])?;
+        if input["revision"] != configuration["profiles"][cluster]["revision"]
+            || input["revision"].is_null() {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        let mut candidate = Self::new(configuration.clone())?;
+        candidate.restore(checkpoint, &hash(checkpoint))?;
+        candidate.invalidate_payloads();
+        match candidate.admit(input) {
+            Ok(()) => Ok(false),
+            Err(error) if error.0 == "EXECUTION_RISK_DENIED" => Ok(true),
+            Err(error) => Err(error),
+        }
+    }
     fn admit(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
-        row(
-            p,
-            &[
-                "request",
-                "fee_contract",
-                "fee_budget",
-                "market",
-                "order",
-                "collateral",
-            ],
-        )?;
+        let whole_fill = match p["schema_version"].as_u64() {
+            Some(1) => false,
+            Some(2) => true,
+            _ => return Err(err("EXECUTION_ADMISSION_SCHEMA")),
+        };
+        let mut fields = vec!["request", "fee_contract", "fee_budget", "market", "order", "collateral"];
+        if whole_fill { fields.push("settlement_fill_contract"); }
+        let mut shape = p.clone();
+        shape["schema_version"] = json!(1);
+        row(&shape, &fields)?;
         bound_decimal_leaves(&p["request"])?;
         bound_decimal_leaves(&p["fee_contract"])?;
         let request = OnlyOrderRequest::from_record(&p["request"])?;
@@ -224,7 +268,8 @@ impl Components {
             boundary(self.position.admit_new_risk())?;
         }
         let intent = &r["execution_intent"];
-        if r["order_type"] != "LIMIT"
+        let is_market = r["order_type"] == "MARKET";
+        if (!is_market && r["order_type"] != "LIMIT")
             || intent["position_side"] != "LONG"
             || intent["position_mode"] != "NETTING"
             || intent["side"] != r["side"]
@@ -235,7 +280,28 @@ impl Components {
         }
         let cluster = text(&input["cluster"])?;
         let inst = request.instrument_id().to_string();
-        let price = nonnegative(&r["price"]["value"])?;
+        let mut market_fields = vec![
+            "verdict",
+            "source_ref",
+            "request_digest",
+            "notional",
+            "rounding",
+        ];
+        if is_market {
+            market_fields.push("reference_price");
+        }
+        row(&p["market"], &market_fields)?;
+        let reference = if is_market {
+            let reference = &p["market"]["reference_price"];
+            bound_decimal_leaves(reference)?;
+            if OnlyPrice::from_record(reference)?.to_record() != *reference {
+                return Err(err("EXECUTION_REFERENCE_CANONICAL"));
+            }
+            reference
+        } else {
+            &r["price"]
+        };
+        let price = nonnegative(&reference["value"])?;
         let quantity = nonnegative(&r["quantity"]["value"])?;
         if price.is_zero() || quantity.is_zero() {
             return Err(err("EXECUTION_POSITIVE"));
@@ -286,27 +352,24 @@ impl Components {
             .iter()
             .find(|i| i["id"] == inst)
             .ok_or_else(|| err("EXECUTION_INSTRUMENT"))?;
-        if r["price"]["precision"] != spec["price_precision"]
+        if (!is_market && r["price"]["precision"] != spec["price_precision"])
             || r["quantity"]["precision"] != spec["quantity_precision"]
         {
             return Err(err("EXECUTION_INSTRUMENT_PRECISION"));
         }
-        row(
-            &p["market"],
-            &[
-                "verdict",
-                "source_ref",
-                "request_digest",
-                "notional",
-                "rounding",
-            ],
-        )?;
         id(&p["market"]["source_ref"])?;
         if p["market"]["verdict"] != "ACCEPT" || p["market"]["request_digest"] != hash(r) {
             return Err(err("EXECUTION_MARKET_ADMISSION"));
         }
         let mut settlement_owner = self.settlement_owner()?;
-        boundary(settlement_owner.admit_order(json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":inst,"request":r["request_id"]["value"]}),order,side,text(&r["quantity"]["value"])?,u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_|err("EXECUTION_QUANTITY_PRECISION"))?))?;
+        let settlement_scope = json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":inst,"request":r["request_id"]["value"]});
+        let quantity_precision = u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_|err("EXECUTION_QUANTITY_PRECISION"))?;
+        if whole_fill {
+            self.validate_whole_fill_contract(r, &p["fee_contract"], &p["settlement_fill_contract"])?;
+            boundary(settlement_owner.admit_whole_fill_order(settlement_scope,order,side,text(&r["quantity"]["value"])?,quantity_precision,&p["settlement_fill_contract"]))?;
+        } else {
+            boundary(settlement_owner.admit_order(settlement_scope,order,side,text(&r["quantity"]["value"])?,quantity_precision))?;
+        }
         self.meta["settlement_authority"] = settlement_owner.checkpoint();
         self.economic_source("markets", &p["market"])?;
         if boundary(self.ledger.snapshot(cluster))?["status"] == "CREATED" {
@@ -317,9 +380,11 @@ impl Components {
                 0,
             ))?;
         }
-        let mut req = json!({"schema_version":1,"request_id":r["request_id"]["value"],"instrument":inst,"side":side,"effect":if buy{"OPEN"}else{"CLOSE"},"position_side":"LONG","position_mode":"NETTING","order_type":"LIMIT","quantity":quantity.to_plain_string(),"price":price.to_plain_string(),"notional":amount,"fee":money(&fee,self.precision)?,"cash_requirement":if buy{money(&cash_requirement,self.precision)?}else{money(&BigDecimal::zero(),self.precision)?}});
+        let mut req = json!({"schema_version":1,"request_id":r["request_id"]["value"],"instrument":inst,"side":side,"effect":if buy{"OPEN"}else{"CLOSE"},"position_side":"LONG","position_mode":"NETTING","order_type":r["order_type"],"quantity":quantity.to_plain_string(),"price":if is_market{Value::Null}else{json!(price.to_plain_string())},"notional":amount,"fee":money(&fee,self.precision)?,"cash_requirement":if buy{money(&cash_requirement,self.precision)?}else{money(&BigDecimal::zero(),self.precision)?}});
         for f in ["quantity", "price", "notional", "fee", "cash_requirement"] {
-            req[f] = json!(dec(&req[f])?.normalized().to_plain_string());
+            if !req[f].is_null() {
+                req[f] = json!(dec(&req[f])?.normalized().to_plain_string());
+            }
         }
         let n = input["runtime_sequence"].as_u64().expect("validated") * 64;
         let envelope = |family: &str, data: Value| json!({"schema_version":1,"family":family,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"generation":input["generation"],"cluster":cluster,"instrument":inst,"revision":input["revision"],"source_ref":format!("{}-{family}",input["input_id"].as_str().expect("validated")),"version":n,"as_of_sequence":n,"source_digest":hash(&data),"data":data});
@@ -395,7 +460,9 @@ impl Components {
             json!({"schema_version":1,"order":order,"stage":"SENT"}),
             3,
         ))?;
-        self.meta["orders"][order] = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
+        let mut relation = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
+        if whole_fill { relation["settlement_fill_contract"] = p["settlement_fill_contract"].clone(); }
+        self.meta["orders"][order] = relation;
         self.admit_collateral(input)?;
         Ok(())
     }
@@ -487,23 +554,32 @@ impl Components {
     }
     fn fill(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
-        row(
-            p,
-            &[
-                "order",
-                "trade",
-                "venue_trade",
-                "venue_order",
-                "quantity",
-                "price",
-                "fees",
-                "settlement",
-                "valuation",
-                "collateral",
-            ],
-        )?;
         let relation = self.relation(input)?;
+        let is_market = relation["request"]["order_type"] == "MARKET";
+        let mut fields = vec![
+            "order",
+            "trade",
+            "venue_trade",
+            "venue_order",
+            "quantity",
+            "price",
+            "fees",
+            "settlement",
+            "valuation",
+            "collateral",
+        ];
+        if is_market {
+            fields.push("price_precision");
+        }
+        row(p, &fields)?;
         let order = id(&p["order"])?;
+        if let Some(contract) = relation.get("settlement_fill_contract") {
+            self.validate_whole_fill_contract(&relation["request"], &relation["fee_contract"], contract)?;
+            if self.meta["settlement_authority"]["orders"][order]["fill_contract"] != *contract
+                || nonnegative(&p["quantity"])? != nonnegative(&relation["request"]["quantity"]["value"])?
+                || self.meta["settlement_authority"]["instructions"].as_object().ok_or_else(||err("EXECUTION_SETTLEMENT_STATE"))?.values().any(|v|v["instruction"]["input"]["order"]==order)
+            { return Err(err("EXECUTION_WHOLE_FILL_QUANTITY_OR_COUNT")); }
+        }
         let cluster = text(&input["cluster"])?;
         let inst = text(&relation["instrument"])?;
         for f in ["trade", "venue_trade", "venue_order"] {
@@ -645,13 +721,22 @@ impl Components {
         self.meta["fee_authority"] = fee_owner.checkpoint();
         let before_order = boundary(self.order.get(cluster, order))?.to_record();
         let qp = before_order["quantity"]["precision"].clone();
-        let pp = before_order["price"]["precision"].clone();
+        let pp = if is_market {
+            p["price_precision"].clone()
+        } else {
+            before_order["price"]["precision"].clone()
+        };
         let price = nonnegative(&p["price"])?;
         let qty = nonnegative(&p["quantity"])?;
-        let limit = dec(&before_order["price"]["value"])?;
         let buy = relation["side"] == "BUY";
-        if price.is_zero() || qty.is_zero() || (buy && price > limit) || (!buy && price < limit) {
+        if price.is_zero() || qty.is_zero() {
             return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
+        }
+        if !is_market {
+            let limit = dec(&before_order["price"]["value"])?;
+            if (buy && price > limit) || (!buy && price < limit) {
+                return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
+            }
         }
         let notional = &price * &qty;
         let notional_s = settled_money(
@@ -671,7 +756,11 @@ impl Components {
             Err(e) => return Err(Error(e.to_string())),
         };
         let before_account = self.account.snapshot();
-        let fact=self.position_apply(&self.command(input,"TRADE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",hash(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal}),0))?;
+        let mut position_trade = json!({"schema_version":if is_market {2} else {1},"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",hash(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal});
+        if is_market {
+            position_trade["price_precision"] = p["price_precision"].clone();
+        }
+        let fact = self.position_apply(&self.command(input, "TRADE", position_trade, 0))?;
         let allocation = boundary(self.position.cluster(cluster, inst))?;
         let pos = boundary(self.position.account(inst))?;
         let rd = exact(&fact["realized_pnl"])?;

@@ -113,6 +113,7 @@ impl VerifiedDataset {
     }
 }
 impl Store {
+    pub(crate) fn root(&self)->&Path {&self.root}
     /// Host provisions the owned root; a missing/rebound root is never absence.
     pub fn open(root: &Path, max_rows: usize, max_bytes: usize) -> Result<Self> {
         if max_rows == 0 || max_bytes == 0 || max_bytes > LIMIT {

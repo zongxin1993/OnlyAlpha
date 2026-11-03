@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Any, cast
 
+import pyarrow as pa  # type: ignore[import-untyped]
 from onlyalpha_plugin_operators.registration import registrations as operators
 from onlyalpha_plugin_targets.registration import registrations as targets
 
@@ -32,6 +34,12 @@ from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
 from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
 
 MAX_WORK = 8 * 1024 * 1024
+
+# Installed resources/metadata and Arrow shared-library initialization precede
+# confinement. Per-source resolution below is in memory; authored math stays
+# inside the owning process's OS sandbox.
+_PUBLIC_REGISTRATIONS = (*operators(), *targets())
+pa.array([Decimal("1")], type=pa.decimal128(38, 18))
 
 
 def _exact(value: object, fields: set[str]) -> dict[str, Any]:
@@ -79,7 +87,7 @@ def registry_for_sources(
     if type(sources) is not list or len(sources) > 128 or len(json.dumps(sources).encode()) > MAX_WORK:
         raise ValueError("RESEARCH_CALCULATION_RESOLUTION_BUDGET")
     registry = OnlyCalculationRegistry()
-    for registration in (*operators(), *targets()):
+    for registration in _PUBLIC_REGISTRATIONS:
         registry.register(registration)
     artifacts: dict[str, dict[str, object]] = {}
     for raw in sources:
@@ -110,6 +118,62 @@ def registry_for_sources(
             },
         }
     return registry, [artifacts[key] for key in sorted(artifacts)]
+
+
+def trading_capabilities(payload: dict[str, Any]) -> dict[str, object]:
+    """Observe actual installed TRADING metadata without creating math instances."""
+    request = _exact(payload, {"schema_version", "contract", "sources", "definitions"})
+    if (
+        type(request["schema_version"]) is not int
+        or request["schema_version"] != 1
+        or request["contract"] != "ONLYALPHA_TRADING_NODE_CAPABILITIES_V1"
+        or type(request["definitions"]) is not list
+        or not 1 <= len(request["definitions"]) <= 128
+        or len(json.dumps(request).encode()) > MAX_WORK
+    ):
+        raise ValueError("TRADING_CAPABILITIES_INPUT_INVALID")
+    registry, _ = registry_for_sources(request["sources"])
+    rows: dict[str, dict[str, object]] = {}
+    for raw in request["definitions"]:
+        definition = OnlyCalculationDefinition.from_dict(raw)
+        if definition.kind is not OnlyCalculationKind.FACTOR and not (
+            definition.kind is OnlyCalculationKind.INDICATOR and definition.type_id.startswith("onlyalpha.operator.")
+        ):
+            raise ValueError("TRADING_CAPABILITIES_TYPE_UNAVAILABLE")
+        registration = registry.resolve(
+            definition.kind, definition.type_id, definition.semantic_version, OnlyCalculationBackendKind.TRADING
+        )
+        if (
+            registration.definition_resolver is None
+            or registration.implementation_manifest is None
+            or registration.state_capability is None
+            or registration.definition_resolver.resolve(definition.parameters, definition.input_bindings) != definition
+        ):
+            raise ValueError("TRADING_CAPABILITIES_IMPLEMENTATION_UNAVAILABLE")
+        capability = registration.state_capability.value
+        schema = registration.checkpoint_schema_version
+        if (
+            not (
+                capability == "STATELESS"
+                and schema is None
+                or capability == "CHECKPOINTABLE"
+                and type(schema) is int
+                and schema > 0
+            )
+            or definition.fingerprint in rows
+        ):
+            raise ValueError("TRADING_CAPABILITIES_STATE_INVALID")
+        rows[definition.fingerprint] = {
+            "node_fingerprint": definition.fingerprint,
+            "implementation_fingerprint": registration.implementation_manifest.implementation_fingerprint,
+            "state_capability": capability,
+            "checkpoint_schema_version": schema,
+        }
+    return {
+        "schema_version": 1,
+        "contract": request["contract"],
+        "nodes": [rows[key] for key in sorted(rows)],
+    }
 
 
 def resolve_instances(sources: list[dict[str, Any]], instances: list[dict[str, Any]]) -> dict[str, Any]:

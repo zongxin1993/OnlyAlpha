@@ -19,6 +19,7 @@ use axum::{
     body::{Body, to_bytes},
     response::{IntoResponse, Response},
 };
+use futures_util::FutureExt;
 use http::{Method, Request, StatusCode};
 use hyper::service::Service;
 use hyper_util::service::TowerToHyperService;
@@ -41,6 +42,7 @@ pub(crate) const ROWS: usize = 10000;
 /// Single compiled local development Owner role. Source grants are separately
 /// issued exact selections and withdrawn on management changes.
 pub struct Host {
+    pub(crate) backtest_root: std::path::PathBuf,
     pub(crate) human_access: Arc<human_access::Access>,
     pub(crate) research_preparation_config:
         crate::transport::host_research_preparation::PreparationConfig,
@@ -51,6 +53,9 @@ pub struct Host {
     pub(crate) writer: Arc<Mutex<Option<AuthoritySession>>>,
     pub(crate) writer_live: tokio::sync::watch::Receiver<bool>,
     pub(crate) research: Mutex<Option<crate::workers::research_service::Service>>,
+    pub(crate) backtest: Mutex<Option<crate::workers::backtest_worker::Service>>,
+    pub(crate) backtest_wake: OnceLock<crate::workers::backtest_worker::Wake>,
+    pub(crate) backtest_drained: AtomicBool,
     pub(crate) research_wake: OnceLock<crate::workers::research_service::Wake>,
     pub(crate) research_drained: AtomicBool,
     pub(crate) research_failed_hold: std::sync::Mutex<Option<Arc<Host>>>,
@@ -204,6 +209,16 @@ pub(crate) async fn chart_permit(
     Ok(permit)
 }
 impl Host {
+    pub(crate) fn wake_backtest_after_commit(&self) -> bool {
+        self.backtest_wake.get().is_some_and(|wake| wake.notify())
+    }
+    pub(crate) async fn backtest_worker_status(&self) -> Option<crate::workers::backtest_worker::Status> {
+        self.backtest.lock().await.as_ref().map(|service|service.status())
+    }
+    /// Check only a new submission, after inspecting its original Command.
+    pub(crate) async fn require_backtest_worker(&self) -> Result<(),Failure> {
+        crate::transport::host_backtest::require_worker(self.backtest_worker_status().await)
+    }
     /// Call after durable submission commit; this carries no execution permission.
     pub(crate) fn wake_research_after_commit(&self) -> bool {
         self.research_wake.get().is_some_and(|wake| wake.notify())
@@ -218,6 +233,7 @@ impl Host {
             .map(|service| service.status())
     }
     pub(crate) fn stop_research_admission(&self) {
+        if let Some(wake) = self.backtest_wake.get() { wake.stop(); }
         if let Some(wake) = self.research_wake.get() {
             wake.stop();
         }
@@ -281,7 +297,7 @@ impl Host {
         } else {
             "COMMAND"
         };
-        let response = match self.handle(request).await {
+        let response = match self.handle(request).boxed().await {
             Ok(r) => r,
             Err(e) => e.into_response(),
         };
@@ -393,16 +409,41 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
+        if path.starts_with("/api/v2/backtest/runs/")&&path.ends_with("/analysis-context") {
+            return self.backtest_analysis_context(request,human,deadline).await;
+        }
         if path == "/api/v2/agent-browser-access" || path == "/api/v2/agent-connection" {
             return self.agent_browser(request, human).await;
+        }
+        if path == "/api/v2/strategy-workflows" || path.starts_with("/api/v2/strategy-workflows/") {
+            return self.strategy_workflows(request,&human,deadline).await;
+        }
+        if path == "/api/v2/strategy-freezes" || path.starts_with("/api/v2/strategy-freezes/") {
+            return self.strategy_freeze_command(request,human,deadline).await;
+        }
+        if path=="/api/v2/qualification-policies"||path.starts_with("/api/v2/qualification-policies/")
+            ||path.starts_with("/api/v2/qualification-decisions/")||path.starts_with("/api/v2/strategies/") {
+            return self.qualification_product(request,human,deadline).await;
+        }
+        if path == "/api/v2/strategy-creation-context" {
+            return self.strategy_creation_context(request,&human,deadline).await;
         }
         if path.starts_with("/api/v2/factor-proposal") {
             return self.factor_proposals(request, Some(human), deadline).await;
         }
-        if path.starts_with("/api/v2/factor-study-preparation") {
+        if path.starts_with("/api/v2/factor-study-preparation") || path.starts_with("/api/v2/research/strategy-preparations") || path.starts_with("/api/v2/backtest/preparations") {
             return self
                 .research_preparation_command(request, human, deadline)
                 .await;
+        }
+        if path == "/api/v2/backtest/strategy-context" {
+            return self.manual_backtest_strategy_context(request, &human, deadline).await;
+        }
+        if path == "/api/v2/backtest/creation-context" {
+            return self.backtest_creation_context_v2(request, human, deadline).await;
+        }
+        if path == "/api/v2/backtest/runs" || path.starts_with("/api/v2/backtest/runs/") {
+            return self.backtest_product(request, human, deadline).await;
         }
         if path.starts_with("/api/v2/factor-stud") {
             return self.factor_studies(request, Some(human), deadline).await;

@@ -225,6 +225,73 @@ not grant installation authority. Ordinary startup and Product preparation only 
 this profile; missing roots, locks, policy or history cannot be repaired into an empty experiment
 history. Reentry verifies the same complete semantic-store ID before binding the existing database.
 
+### Explicit Strategy research owner extension
+
+The base `ONLYALPHA_FACTOR_RESEARCH_OWNER_PROFILE_V1`, its original fingerprint and
+`.onlyalpha-semantic-store.json` remain unchanged. Its original `source_roots` mapping is retained
+for exact historical enum1 cuts, including the legacy `research/qualification-decisions` owner.
+Adding Strategy evidence does not initialize a second semantic namespace, rebind PostgreSQL,
+move existing Factor results or reset model/conversation data.
+
+Current Strategy/Qualification source capture requires the separate immutable
+`.onlyalpha-strategy-research-owner-extension-v1.json` record. Its canonical identity contains:
+
+```json
+{
+  "schema_version": 1,
+  "contract": "ONLYALPHA_STRATEGY_RESEARCH_OWNER_EXTENSION_V1",
+  "semantic_store_id": "<original namespace UUID>",
+  "base_profile_fingerprint": "<original V1 profile fingerprint>",
+  "file_source_extensions": [
+    {
+      "family": "QUALIFICATION_DECISION",
+      "owner": "strategy/qualification-decisions",
+      "source_schema_version": 1,
+      "enumeration_contract_version": 2
+    }
+  ],
+  "extension_fingerprint": "<canonical fingerprint of the preceding fields>"
+}
+```
+
+Only Qualification enumeration changes. Decision schema1, the mandatory family set, other Source
+schemas and enumeration versions, Novelty Policy and all retained historical identities remain
+unchanged. New current Q cuts enumerate the canonical Decision owner; their enum2 identity cannot
+be confused with an empty historical enum1 cut. A historical enum1 reference selects its original
+legacy owner and exact retained cut. A missing original cut is unavailable; readers never fall
+back to the canonical owner, a new cut, a current projection or a latest Policy. Unknown versions
+fail closed. Older readers that do not understand enum2 remain historical-only readers; they do
+not acquire current capture/admission authority by ignoring the extension.
+
+`initialize-deployment` retains its original V1 initialization/binding behavior. With the existing
+Node quiesced, the explicit operator command `extend-strategy-research` (or native
+`--extend-strategy-research-namespace ROOT`) extends that already bound deployment. The native
+operator uses the configured PostgreSQL DSN only when it explicitly selects `sslmode=disable`;
+Prefer and Require are rejected, never downgraded. The DSN remains protected process
+configuration and is not a command-line argument or diagnostic payload.
+
+The extension holds the original physical Node `AuthoritySession` and verifies its original
+PostgreSQL namespace binding before any provisioning. It verifies all original V1 owners, locks
+and Policy and refuses unsupported nonempty legacy Qualification history rather than hiding,
+copying or adopting it. The explicit operation may provision only the new healthy topology,
+install the unchanged shipped `experimental-backtest@1` Policy through its existing owner, then
+publish the extension record last through fsynced staging and no-replace rename. Error or
+cancellation revokes the original session. An uncertain publication is reconciled by reading the
+same extension; no second namespace or extension identity is generated.
+
+A committed extension is verify-only on reentry. Missing/corrupt metadata, Policy or named owners
+remain unavailable and cannot be recreated as empty. Healthy empty directories from interrupted
+explicit provisioning may be inspected and reused before the extension commits; positive
+unprofiled Qualification history is refused. Unknown auxiliary stages remain auxiliary and are
+not deleted or promoted by guesswork. Ordinary Node startup only opens and verifies the committed
+extension and exact shipped Policy; it does not provision owners or install Policy revisions.
+
+The native current Q enum2 reader in this slice supports `RESEARCH_TO_BACKTEST` Decisions bound to
+typed Research Result evidence. Other gates or Evidence kinds are unavailable and must never be
+filtered into an empty source inventory. Historical enum1 inspection selects the original legacy
+owner and retained cut without requiring the new canonical owner. Owning source-reader and
+captured-proof semantics remain separate from this Infrastructure compatibility record.
+
 Run status, original receipt recovery and Human cancellation consume the original committed Run
 grant and operational facts; they must remain available independently of current Agent/Source
 availability. A complete historical Decision explanation additionally reads the original retained

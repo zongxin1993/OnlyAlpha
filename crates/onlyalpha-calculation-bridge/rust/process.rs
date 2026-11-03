@@ -77,6 +77,10 @@ pub struct Cancellation {
     cancelled: Arc<AtomicBool>,
 }
 impl Cancellation {
+    /// Process-local owning handle equality, never a wire or canonical fact identity.
+    pub fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.control, &other.control)
+    }
     pub fn state(&self) -> ProcessState {
         self.control.state()
     }
@@ -145,6 +149,19 @@ impl Worker {
             ),
             deadline,
         )
+    }
+    /// Closed installed numerical protocol; no cursor, receipt or Run authority.
+    pub fn handshake_trading_numerics(&mut self, deadline: Duration) -> Result<Value> {
+        let value = self.exchange(calculation_request::Operation::Handshake(CalculationEmpty {}), deadline)?;
+        if value != serde_json::json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NUMERICS_V1","max_nodes":128,"max_frame":8388608,"isolation":"LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"}) {
+            return self.poison("TRADING_NUMERICS_HANDSHAKE");
+        }
+        Ok(value)
+    }
+    pub fn exchange_trading_numerics(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.exchange(calculation_request::Operation::Node(onlyalpha_gateway_protocol::CalculationNode {
+            request_json: request.to_string().into_bytes(),
+        }), deadline)
     }
     pub fn evaluate_research(&mut self, request: Value, deadline: Duration) -> Result<Value> {
         self.exchange(
@@ -361,6 +378,22 @@ impl Drop for Worker {
 #[cfg(test)]
 mod binding_tests {
     use super::*;
+    #[test]
+    fn cancellation_identity_tracks_the_original_owner_not_wire_metadata() {
+        let make = || {
+            let (socket, _peer) = UnixStream::pair().unwrap();
+            Worker::from_stream(socket, "a".repeat(64), "b".repeat(64), Arc::new(Control(Arc::new(AtomicBool::new(false)))), MAX_FRAME).unwrap()
+        };
+        let first = make(); let other = make();
+        let owner = first.cancellation().unwrap();
+        assert!(owner.same_owner(&owner.clone()));
+        assert!(owner.same_owner(&first.cancellation().unwrap()));
+        assert!(!owner.same_owner(&other.cancellation().unwrap()));
+        owner.cancel().unwrap();
+        other.terminate().unwrap();
+        assert_eq!(owner.state(), ProcessState::Joined);
+        assert!(!owner.same_owner(&other.cancellation().unwrap()), "two positively joined processes still have distinct owners");
+    }
     struct Control(Arc<AtomicBool>);
     impl ProcessControl for Control {
         fn state(&self) -> ProcessState {

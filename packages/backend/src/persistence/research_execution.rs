@@ -115,6 +115,8 @@ pub struct Claim {
     admission: String,
     payload: String,
     generation: String,
+    schema: i32,
+    composition: Option<String>,
     certain: bool,
 }
 impl Claim {
@@ -157,10 +159,51 @@ impl LockedRun {
 }
 pub struct ResearchExecution<'a> {
     client: &'a mut Client,
+    guarded:bool,
 }
 impl<'a> ResearchExecution<'a> {
     pub fn new(client: &'a mut Client) -> Self {
-        Self { client }
+        Self { client,guarded:false }
+    }
+    /// Owning Strategy5 completion on the original physical mutation session.
+    /// Direct technical Client users retain their existing separate behavior.
+    pub async fn complete_guarded(
+        session:&mut super::authority_session::AuthoritySession,claim:&mut Claim,
+        completion:&VerifiedCompletion,at:OnlyUtcDateTime,
+    )->Result<RunStatus>{
+        if claim.schema!=5||claim.composition.is_none()||!matches!(completion.run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){return Err(INVALID);}
+        completion_matches(completion,&claim.run_id,&claim.specification,&claim.admission)?;
+        if !claim.certain{return Err(LOST);}
+        claim.certain=false;
+        let mut owned=session.take_ownership();
+        let result=tokio::time::timeout(Duration::from_secs(5),async{
+            let client=owned.client_mut().await.map_err(|_|UNCERTAIN)?;
+            claim.certain=true;
+            let mut execution=ResearchExecution::new(client);execution.guarded=true;
+            execution.complete(claim,completion,at).await
+        }).await.map_err(|_|UNCERTAIN).and_then(|r|r);
+        claim.certain=false;
+        match result {
+            Ok(status)=>{owned.verify().await.map_err(|_|UNCERTAIN)?;session.restore_ownership(owned);Ok(status)}
+            Err(LOST)=>{if owned.verify().await.is_ok(){session.restore_ownership(owned);}Err(LOST)}
+            Err(error)=>Err(error),
+        }
+    }
+    pub async fn reconcile_guarded(
+        session:&mut super::authority_session::AuthoritySession,inspection:&VerifiedInspection,at:OnlyUtcDateTime,
+    )->Result<RunStatus>{
+        if !matches!(inspection.run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){return Err(INVALID);}
+        let mut owned=session.take_ownership();
+        let result=tokio::time::timeout(Duration::from_secs(5),async{
+            let client=owned.client_mut().await.map_err(|_|UNCERTAIN)?;
+            let mut execution=ResearchExecution::new(client);execution.guarded=true;
+            execution.reconcile(inspection,at).await
+        }).await.map_err(|_|UNCERTAIN).and_then(|r|r);
+        match result {
+            Ok(status)=>{owned.verify().await.map_err(|_|UNCERTAIN)?;session.restore_ownership(owned);Ok(status)}
+            Err(LOST)=>{if owned.verify().await.is_ok(){session.restore_ownership(owned);}Err(LOST)}
+            Err(error)=>Err(error),
+        }
     }
     pub async fn observe(&mut self, run: &VerifiedRun) -> Result<RunStatus> {
         let tx = self.client.transaction().await.map_err(|_| UNAVAILABLE)?;
@@ -170,6 +213,7 @@ impl<'a> ResearchExecution<'a> {
             run.run_id(),
             run.specification_fingerprint(),
             run.admission_resolution_fingerprint(),
+            run_lineage(run)?,
             Some(run.canonical_specification_payload()),
             false,
         )
@@ -202,6 +246,7 @@ impl<'a> ResearchExecution<'a> {
             run.run_id(),
             run.specification_fingerprint(),
             run.admission_resolution_fingerprint(),
+            run_lineage(run)?,
             Some(run.canonical_specification_payload()),
             true,
         )
@@ -249,7 +294,9 @@ impl<'a> ResearchExecution<'a> {
             specification: run.specification_fingerprint().into(),
             admission: run.admission_resolution_fingerprint().into(),
             payload: run.canonical_specification_payload().into(),
-            generation: run.runtime_generation_fingerprint().into(),
+            generation: run.runtime_generation_fingerprint()?.into(),
+            schema: run_lineage(run)?.0,
+            composition: run_lineage(run)?.1.map(str::to_owned),
             certain: true,
         }))
     }
@@ -287,6 +334,7 @@ impl<'a> ResearchExecution<'a> {
             run.run_id(),
             run.specification_fingerprint(),
             run.admission_resolution_fingerprint(),
+            run_lineage(run)?,
             Some(run.canonical_specification_payload()),
             false,
         )
@@ -336,6 +384,7 @@ impl<'a> ResearchExecution<'a> {
         completion: &VerifiedCompletion,
         at: OnlyUtcDateTime,
     ) -> Result<RunStatus> {
+        completion.verify_cut()?;
         completion_matches(
             completion,
             &claim.run_id,
@@ -370,6 +419,7 @@ impl<'a> ResearchExecution<'a> {
         let at = time(at)?;
         claim.certain = false;
         let tx = self.client.transaction().await.map_err(|_| UNCERTAIN)?;
+        if self.guarded{tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp").await.map_err(|_|UNCERTAIN)?;}
         bounds(&tx).await?;
         let current = lock_claim_run(&tx, claim).await?;
         if !matches!(
@@ -422,7 +472,17 @@ impl<'a> ResearchExecution<'a> {
         } else {
             current.status
         };
+        if let Some(completion)=completion {completion.verify_cut()?;}
+        if self.guarded {
+            let expected_run=guarded_document(&tx,&claim.run_id,None).await?;
+            let expected_attempt=guarded_document(&tx,&claim.run_id,Some(&claim.attempt_id)).await?;
+            tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(|_|UNCERTAIN)?;
+            guarded_run_readback(&tx,&claim.run_id,&claim.specification,&claim.admission,(claim.schema,claim.composition.as_deref()),&claim.payload,&status,completion,&expected_run).await?;
+            guarded_attempt_readback(&tx,claim,attempt,&expected_attempt).await?;
+            super::authority_session::AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNCERTAIN)?;
+        }
         tx.commit().await.map_err(|_| UNCERTAIN)?;
+        if let Some(completion)=completion {completion.verify_cut()?;}
         Ok(status)
     }
     pub async fn request_cancel(
@@ -447,6 +507,7 @@ impl<'a> ResearchExecution<'a> {
             run.run_id(),
             run.specification_fingerprint(),
             run.admission_resolution_fingerprint(),
+            run_lineage(run)?,
             Some(run.canonical_specification_payload()),
             false,
         )
@@ -469,12 +530,14 @@ impl<'a> ResearchExecution<'a> {
     ) -> Result<RunStatus> {
         inspection.verify_cut()?;
         let tx = self.client.transaction().await.map_err(|_| UNAVAILABLE)?;
+        if self.guarded{tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp").await.map_err(|_|UNCERTAIN)?;}
         bounds(&tx).await?;
         let current = lock_run(
             &tx,
             inspection.run_id(),
             inspection.specification_fingerprint(),
             inspection.admission_resolution_fingerprint(),
+            run_lineage(&inspection.run)?,
             None,
             false,
         )
@@ -525,7 +588,17 @@ impl<'a> ResearchExecution<'a> {
         )
         .await?;
         inspection.verify_cut()?;
+        if self.guarded {
+            let expected_run=guarded_document(&tx,inspection.run_id(),None).await?;
+            tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(|_|UNCERTAIN)?;
+            guarded_run_readback(&tx,inspection.run_id(),inspection.specification_fingerprint(),inspection.admission_resolution_fingerprint(),run_lineage(&inspection.run)?,inspection.run.canonical_specification_payload(),&status,completion,&expected_run).await?;
+            let active=tx.query_opt("SELECT 1 FROM public.research_run_attempt WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid AND state='ACTIVE'",&[&inspection.run_id()]).await.map_err(|_|UNCERTAIN)?;
+            if active.is_some(){return Err(MISMATCH);}
+            inspection.verify_cut()?;
+            super::authority_session::AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNCERTAIN)?;
+        }
         tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        if self.guarded{inspection.verify_cut()?;}
         Ok(status)
     }
 }
@@ -547,12 +620,23 @@ fn lease_seconds(lease: Duration) -> Result<f64> {
 async fn bounds(tx: &Transaction<'_>) -> Result<()> {
     super::postgres::bounds(tx).await.map_err(|_| UNAVAILABLE)
 }
+fn run_lineage(run:&VerifiedRun)->Result<(i32,Option<&str>)> {
+    match run.specification() {
+        crate::application::research_run::NativeSpecification::Factor(_)=>Ok((4,None)),
+        crate::application::research_run::NativeSpecification::Strategy(_)=> {
+            let composition=run.prepared_inputs["composition"]["composition_fingerprint"].as_str()
+                .filter(|p|crate::is_sha256_hex(p)).ok_or(MISMATCH)?;
+            Ok((5,Some(composition)))
+        }
+    }
+}
 async fn lock_claim_run(tx: &Transaction<'_>, claim: &Claim) -> Result<LockedRun> {
     lock_run(
         tx,
         &claim.run_id,
         &claim.specification,
         &claim.admission,
+        (claim.schema,claim.composition.as_deref()),
         Some(&claim.payload),
         false,
     )
@@ -564,13 +648,14 @@ async fn lock_run(
     id: &str,
     spec: &str,
     admission: &str,
+    lineage: (i32,Option<&str>),
     payload: Option<&str>,
     skip: bool,
 ) -> Result<Option<LockedRun>> {
     let sql = if skip {
-        "SELECT revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,origin_kind,authoring_provenance IS NULL AS native_authoring,queued_at,started_at,cancel_requested_at FROM research_run WHERE run_id=$1::text::uuid FOR UPDATE SKIP LOCKED"
+        "SELECT revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,origin_kind,strategy_research_composition_fingerprint,authoring_provenance IS NULL AS native_authoring,queued_at,started_at,cancel_requested_at FROM research_run WHERE run_id=$1::text::uuid FOR UPDATE SKIP LOCKED"
     } else {
-        "SELECT revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,origin_kind,authoring_provenance IS NULL AS native_authoring,queued_at,started_at,cancel_requested_at FROM research_run WHERE run_id=$1::text::uuid FOR UPDATE"
+        "SELECT revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,origin_kind,strategy_research_composition_fingerprint,authoring_provenance IS NULL AS native_authoring,queued_at,started_at,cancel_requested_at FROM research_run WHERE run_id=$1::text::uuid FOR UPDATE"
     };
     let Some(row) = tx.query_opt(sql, &[&id]).await.map_err(|_| UNAVAILABLE)? else {
         return Ok(None);
@@ -579,6 +664,7 @@ async fn lock_run(
         .try_get("specification_schema_version")
         .map_err(|_| MISMATCH)?;
     let origin: String = row.try_get("origin_kind").map_err(|_| MISMATCH)?;
+    let composition:Option<String>=row.try_get("strategy_research_composition_fingerprint").map_err(|_|MISMATCH)?;
     let actual_spec: String = row
         .try_get("specification_fingerprint")
         .map_err(|_| MISMATCH)?;
@@ -587,8 +673,10 @@ async fn lock_run(
         .map_err(|_| MISMATCH)?;
     let actual_payload: String = row.try_get("specification_payload").map_err(|_| MISMATCH)?;
     let native_authoring: bool = row.try_get("native_authoring").map_err(|_| MISMATCH)?;
-    if schema != 4
-        || origin != "GENERAL"
+    if schema != lineage.0
+        || !matches!((schema,origin.as_str()),(4,"GENERAL")|(5,"PRIVATE_STRATEGY"))
+        || composition.as_deref()!=lineage.1
+        || (schema==5)!=composition.is_some()
         || !native_authoring
         || actual_spec != spec
         || actual_admission != admission
@@ -680,4 +768,55 @@ async fn update_run(
         state: target,
         revision,
     })
+}
+
+async fn guarded_run_readback(
+    tx:&Transaction<'_>,id:&str,spec:&str,admission:&str,lineage:(i32,Option<&str>),payload:&str,
+    expected:&RunStatus,completion:Option<&VerifiedCompletion>,expected_document:&serde_json::Value,
+)->Result<()>{
+    let current=lock_run(tx,id,spec,admission,lineage,Some(payload),false).await?.ok_or(MISMATCH)?;
+    if current.status.state!=expected.state||current.status.revision!=expected.revision{return Err(MISMATCH);}
+    let row=tx.query_one("SELECT pg_catalog.row_to_json(r)::pg_catalog.text FROM public.research_run r WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid",&[&id]).await.map_err(|_|UNCERTAIN)?;
+    let raw:String=row.try_get(0).map_err(|_|MISMATCH)?;
+    if raw.len()>8*1024*1024{return Err(MISMATCH);}
+    let value:serde_json::Value=serde_json::from_str(&raw).map_err(|_|MISMATCH)?;
+    validate_source_history_event("RESEARCH_RUN",&value)?;
+    if &value!=expected_document{return Err(MISMATCH);}
+    let history:String=tx.query_one("SELECT source_row::pg_catalog.text FROM public.research_source_history WHERE source_family='RESEARCH_RUN' AND source_row->>'run_id'=$1 ORDER BY event_index DESC LIMIT 1",&[&id]).await.map_err(|_|UNCERTAIN)?.try_get(0).map_err(|_|MISMATCH)?;
+    if history.len()>8*1024*1024{return Err(MISMATCH);}
+    let history:serde_json::Value=serde_json::from_str(&history).map_err(|_|MISMATCH)?;
+    if history!=value{return Err(MISMATCH);}
+    if let Some(proof)=completion {
+        if value["state"]!="COMPLETED"||value["research_result_fingerprint"]!=proof.research_result_fingerprint()
+            ||value["artifact_content_fingerprint"]!=proof.artifact_content_fingerprint()
+            ||value["calculation_execution_evidence_fingerprints"]!=serde_json::json!(proof.calculation_execution_evidence_fingerprints())
+            ||value["finished_at"].is_null()||!value["failure_phase"].is_null()||!value["failure_code"].is_null()||!value["failure_detail"].is_null(){return Err(MISMATCH);}
+        proof.verify_cut()?;
+    }
+    Ok(())
+}
+async fn guarded_attempt_readback(tx:&Transaction<'_>,claim:&Claim,expected:&str,expected_document:&serde_json::Value)->Result<()> {
+    let row=tx.query_one("SELECT pg_catalog.row_to_json(a)::pg_catalog.text FROM public.research_run_attempt a WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid AND attempt_id=$2::pg_catalog.text::pg_catalog.uuid FOR UPDATE",&[&claim.run_id,&claim.attempt_id]).await.map_err(|_|UNCERTAIN)?;
+    let raw:String=row.try_get(0).map_err(|_|MISMATCH)?;
+    if raw.len()>8*1024*1024{return Err(MISMATCH);}
+    let value:serde_json::Value=serde_json::from_str(&raw).map_err(|_|MISMATCH)?;
+    validate_source_history_event("RESEARCH_ATTEMPT",&value)?;
+    if &value!=expected_document{return Err(MISMATCH);}
+    if value["worker_instance_id"]!=claim.worker_id||value["attempt_number"]!=claim.number||value["state"]!=expected||value["finished_at"].is_null(){return Err(MISMATCH);}
+    let history:String=tx.query_one("SELECT source_row::pg_catalog.text FROM public.research_source_history WHERE source_family='RESEARCH_ATTEMPT' AND source_row->>'attempt_id'=$1 ORDER BY event_index DESC LIMIT 1",&[&claim.attempt_id]).await.map_err(|_|UNCERTAIN)?.try_get(0).map_err(|_|MISMATCH)?;
+    if history.len()>8*1024*1024{return Err(MISMATCH);}
+    let history:serde_json::Value=serde_json::from_str(&history).map_err(|_|MISMATCH)?;
+    if history!=value{return Err(MISMATCH);}
+    Ok(())
+}
+
+async fn guarded_document(tx:&Transaction<'_>,id:&str,attempt:Option<&str>)->Result<serde_json::Value>{
+    let row=if let Some(attempt)=attempt {
+        tx.query_one("SELECT pg_catalog.row_to_json(a)::pg_catalog.text FROM public.research_run_attempt a WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid AND attempt_id=$2::pg_catalog.text::pg_catalog.uuid",&[&id,&attempt]).await
+    }else{
+        tx.query_one("SELECT pg_catalog.row_to_json(r)::pg_catalog.text FROM public.research_run r WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid",&[&id]).await
+    }.map_err(|_|UNCERTAIN)?;
+    let raw:String=row.try_get(0).map_err(|_|MISMATCH)?;
+    if raw.len()>8*1024*1024{return Err(MISMATCH);}
+    serde_json::from_str(&raw).map_err(|_|MISMATCH)
 }

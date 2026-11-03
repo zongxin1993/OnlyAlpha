@@ -3,7 +3,7 @@
 use crate::{
     application::{
         research_admission::{PreparationError, PreparedInputs},
-        research_run::VerifiedRun,
+        research_run::{NativeSpecification, VerifiedCompletion, VerifiedInspection, VerifiedRun},
         research_run_execution::{self, Control, verify_inputs},
     },
     persistence::{
@@ -31,6 +31,7 @@ pub struct Work {
     pub inputs: PreparedInputs,
     pub datasets: Datasets,
     pub installation: ChartInstallation,
+    pub runtime_root: PathBuf,
     pub evidence_root: PathBuf,
     pub native_version: String,
     pub worker_id: String,
@@ -66,6 +67,18 @@ impl Guard<'_> {
                 .map_err(|_| PreparationError::from("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")),
         }
     }
+    async fn complete(&mut self, run: &VerifiedRun, claim: &mut Claim, completion: &VerifiedCompletion, at: OnlyUtcDateTime) -> Result<RunStatus, PreparationError> {
+        if matches!(run.specification(), NativeSpecification::Strategy(_)) && let Self::Owned(writer) = self {
+            return ResearchExecution::complete_guarded(writer.as_mut().ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?, claim, completion, at).await.map_err(Into::into);
+        }
+        ResearchExecution::new(self.client().await?).complete(claim, completion, at).await.map_err(Into::into)
+    }
+    async fn reconcile(&mut self, run: &VerifiedRun, inspection: &VerifiedInspection, at: OnlyUtcDateTime) -> Result<RunStatus, PreparationError> {
+        if matches!(run.specification(), NativeSpecification::Strategy(_)) && let Self::Owned(writer) = self {
+            return ResearchExecution::reconcile_guarded(writer.as_mut().ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?, inspection, at).await.map_err(Into::into);
+        }
+        ResearchExecution::new(self.client().await?).reconcile(inspection, at).await.map_err(Into::into)
+    }
 }
 /// Existing direct technical consumer, with no alternate business or execution semantics.
 pub async fn run_once(
@@ -89,14 +102,16 @@ pub(crate) async fn recover_owned(
     writer: &SharedAuthority,
     run: &VerifiedRun,
     root: &Path,
+    runtime_root: &Path,
     now: impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
 ) -> Result<Option<RunStatus>, PreparationError> {
-    recover_existing(&mut Access::Owned(writer), run, root, &now).await
+    recover_existing(&mut Access::Owned(writer), run, root, runtime_root, &now).await
 }
 async fn recover_existing(
     access: &mut Access<'_>,
     run: &VerifiedRun,
     root: &Path,
+    runtime_root: &Path,
     now: &impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
 ) -> Result<Option<RunStatus>, PreparationError> {
     let mut status = {
@@ -116,9 +131,12 @@ async fn recover_existing(
                 )
                 .await?
             };
-            Evidence::open(root)?
-                .load_verified(&current)?
-                .ok_or("RESEARCH_COMPLETION_PROOF_UNAVAILABLE")?;
+            let root = root.to_path_buf();
+            let runtime_root = runtime_root.to_path_buf();
+            tokio::task::spawn_blocking(move || {
+                Evidence::open(&root)?.with_runtime_root(&runtime_root)?.load_verified(&current)?
+                    .ok_or("RESEARCH_COMPLETION_PROOF_UNAVAILABLE").map(drop)
+            }).await.map_err(|_| "RESEARCH_COMPLETION_PROOF_UNAVAILABLE")??;
         }
         return Ok(Some(status));
     }
@@ -138,18 +156,15 @@ async fn recover_existing(
     }
     if status.state == RunState::CancelRequested {
         let root = root.to_path_buf();
-        let run = run.clone();
+        let runtime_root = runtime_root.to_path_buf();
+        let selected = run.clone();
         let revision = status.revision;
         let inspection =
-            tokio::task::spawn_blocking(move || Evidence::open(&root)?.inspect(run, revision))
+            tokio::task::spawn_blocking(move || Evidence::open(&root)?.with_runtime_root(&runtime_root)?.inspect(selected, revision))
                 .await
                 .map_err(|_| "RESEARCH_CANCELLATION_INSPECTION_UNAVAILABLE")??;
         let mut held = access.enter().await;
-        return ResearchExecution::new(held.client().await?)
-            .reconcile(&inspection, now()?)
-            .await
-            .map(Some)
-            .map_err(Into::into);
+        return held.reconcile(run, &inspection, now()?).await.map(Some);
     }
     Ok(None)
 }
@@ -171,7 +186,7 @@ async fn execute_once(
 ) -> Result<RunStatus, PreparationError> {
     let run = work.run.clone();
     let root = work.evidence_root.clone();
-    if let Some(status) = recover_existing(access, &run, &root, now).await? {
+    if let Some(status) = recover_existing(access, &run, &root, &work.runtime_root, now).await? {
         return Ok(status);
     }
     verify_inputs(&work.run, &work.inputs)?;
@@ -188,29 +203,28 @@ async fn execute_once(
             .await
             .map_err(Into::into);
     };
-    let store = Evidence::open(&root)?;
+    let store = Evidence::open(&root)?.with_runtime_root(&work.runtime_root)?;
     if let Some(completed) = store.load_verified(&run)? {
         let mut held = access.enter().await;
-        return ResearchExecution::new(held.client().await?)
-            .complete(&mut claim, &completed, now()?)
-            .await
-            .map_err(Into::into);
+        return held.complete(&run, &mut claim, &completed, now()?).await;
     }
     let control = Control::default();
     let child_control = control.clone();
+    let created_at = if matches!(work.run.specification(), NativeSpecification::Strategy(_)) { Some(now()?) } else { None };
     let mut job = tokio::task::spawn_blocking(move || {
-        let store = Evidence::open(&work.evidence_root)?;
-        let result = research_run_execution::execute(
-            work.run,
-            work.inputs,
-            work.datasets,
-            work.installation,
-            &work.native_version,
-            &child_control,
-        )?;
-        store
-            .commit(result)
-            .map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
+        let store = Evidence::open(&work.evidence_root)?.with_runtime_root(&work.runtime_root)?;
+        match work.run.specification() {
+            NativeSpecification::Factor(_) => {
+                let result = research_run_execution::execute(work.run, work.inputs, work.datasets, work.installation, &work.native_version, &child_control)?;
+                store.commit(result).map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
+            }
+            NativeSpecification::Strategy(specification) => {
+                let specification = specification.as_ref().clone();
+                let observation = crate::application::strategy_research::StrategyEvaluation::observe(work.inputs, specification, &work.datasets, Arc::new(work.installation), &work.native_version, &child_control)?;
+                let result = research_run_execution::execute_strategy(work.run, observation, created_at.ok_or("RESEARCH_STRATEGY_TIME_REQUIRED")?)?;
+                store.commit_strategy(result).map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
+            }
+        }
     });
     let mut timer = tokio::time::interval(Duration::from_secs(30));
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -235,10 +249,7 @@ async fn execute_once(
     match result {
         Ok(completed) => {
             let mut held = access.enter().await;
-            ResearchExecution::new(held.client().await?)
-                .complete(&mut claim, &completed, now()?)
-                .await
-                .map_err(Into::into)
+            held.complete(&run, &mut claim, &completed, now()?).await
         }
         Err(error) => {
             if error.code().contains("UNKNOWN") {
@@ -253,14 +264,10 @@ async fn execute_once(
             if state.state == RunState::CancelRequested {
                 let completed = store.load_verified(&run)?;
                 let mut held = access.enter().await;
-                let client = held.client().await?;
                 if let Some(completed) = completed {
-                    return ResearchExecution::new(client)
-                        .complete(&mut claim, &completed, now()?)
-                        .await
-                        .map_err(Into::into);
+                    return held.complete(&run, &mut claim, &completed, now()?).await;
                 }
-                return ResearchExecution::new(client)
+                return ResearchExecution::new(held.client().await?)
                     .cancel(&mut claim, now()?)
                     .await
                     .map_err(Into::into);

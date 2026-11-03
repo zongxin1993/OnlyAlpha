@@ -1,3 +1,4 @@
+import { Link, useLocation } from "react-router-dom";
 import { migrateModelSave } from "./modelSave";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
@@ -213,6 +214,8 @@ function dependency(value: unknown): string {
     );
 }
 export function FactorChatPage() {
+    const location = useLocation();
+    const selectingStrategy = new URLSearchParams(location.search).get("strategy");
     const [access, setAccess] = useState<Access | null>(savedAccess);
     const [items, setItems] = useState<Chat[]>([]);
     const [chat, setChat] = useState<Chat | null>(null);
@@ -243,6 +246,7 @@ export function FactorChatPage() {
     const researchAction = useRef<ResearchStudyActions>(null);
     const [researchFeedback, setResearchFeedback] = useState("");
     const topic = editingFactor ? "FACTOR" : (chat?.topic ?? "FACTOR");
+    const analysisReadOnly = chat?.topic === "BACKTEST_ANALYSIS";
     const approvalText = topic === "FACTOR" && ["确认因子", "确认当前因子"].includes(text.trim());
     const researchApprovalText = !editingFactor && text.trim() === "确认本次研究";
     const dirty = text.trim() !== "" && !approvalText && !researchApprovalText;
@@ -444,6 +448,7 @@ export function FactorChatPage() {
         return access;
     }
     async function stage(s: Chat) {
+        if (s.topic === "BACKTEST_ANALYSIS") return;
         const content = s.topic === "STUDY" ? s.study : s.candidate;
         const reference = s.topic === "STUDY" ? s.study_reference : s.factor_reference;
         if (s.head === null || content === null || s.status !== "READY") return;
@@ -766,6 +771,7 @@ export function FactorChatPage() {
         await refresh();
     }
     async function send() {
+        if (analysisReadOnly) return;
         if (researchApprovalText) {
             setText("");
             if (researchAction.current === null) {
@@ -975,6 +981,7 @@ export function FactorChatPage() {
             pending?.kind === "stage" ||
             pending?.kind === "continue");
     const blocked =
+        analysisReadOnly ||
         chat?.successor != null ||
         chat?.status === "OUTCOME_UNKNOWN" ||
         chat?.status === "WORKFLOW_UNAVAILABLE" ||
@@ -1087,6 +1094,30 @@ export function FactorChatPage() {
                                     >
                                         讨论研究条件
                                     </Button>
+                                    {study !== null &&
+                                        study.is_current &&
+                                        !study.withdrawn &&
+                                        study.snapshot.factor_proposal_fingerprint ===
+                                            proposal.fingerprint && (
+                                            <Button
+                                                href={
+                                                    selectingStrategy === null
+                                                        ? "/strategies/new"
+                                                        : `/strategies/${encodeURIComponent(selectingStrategy)}?factor=${proposal.fingerprint}&study=${study.fingerprint}`
+                                                }
+                                                disabled={
+                                                    disabled ||
+                                                    blocked ||
+                                                    dirty ||
+                                                    backendError !== "" ||
+                                                    selectingStrategy === ""
+                                                }
+                                            >
+                                                {selectingStrategy === null
+                                                    ? "创建策略"
+                                                    : "用于当前策略"}
+                                            </Button>
+                                        )}
                                     <Button
                                         disabled={disabled || blocked || !agentReady}
                                         onClick={() => {
@@ -1206,6 +1237,7 @@ export function FactorChatPage() {
         </nav>
     );
     const canSend =
+        !analysisReadOnly &&
         !disabled &&
         (!blocked || researchApprovalText) &&
         (agentReady || researchApprovalText) &&
@@ -1231,7 +1263,10 @@ export function FactorChatPage() {
                 turn.study_reference?.fingerprint === study.fingerprint
         ) ?? false;
     return (
-        <section className="factor-chat-page" aria-label="聊天因子研究">
+        <section
+            className="factor-chat-page"
+            aria-label={analysisReadOnly ? "回测结果解读" : "聊天因子研究"}
+        >
             <aside className="factor-history-desktop">{history}</aside>
             <Drawer
                 title="研究历史"
@@ -1258,7 +1293,7 @@ export function FactorChatPage() {
                         >
                             ☰
                         </Button>
-                        <h1>因子研究</h1>
+                        <h1>{analysisReadOnly ? "回测结果解读" : "因子研究"}</h1>
                         <span>{chat === null ? "新研究" : title(chat)}</span>
                     </div>
                     <div className="factor-chat-header-actions">
@@ -1292,6 +1327,15 @@ export function FactorChatPage() {
                     </div>
                 </header>
                 <div className="factor-chat-notices">
+                    {selectingStrategy !== null && (
+                        <Alert
+                            type="info"
+                            showIcon
+                            title="为已保存策略选择研究条件"
+                            description="从研究历史选择已有因子和研究条件，再点击“用于当前策略”。系统会核对原策略规则，不会修改已保存的定义。"
+                            action={<Link to="/factor-research">退出选择</Link>}
+                        />
+                    )}
                     {agentError !== "" && (
                         <Alert
                             type="warning"
@@ -1617,6 +1661,7 @@ export function FactorChatPage() {
                             </div>
                         )}
                         {chat?.status === "READY" &&
+                            chat.topic !== "BACKTEST_ANALYSIS" &&
                             (chat.topic === "STUDY"
                                 ? chat.study !== null
                                 : chat.candidate !== null) &&
@@ -1754,11 +1799,28 @@ export function FactorChatPage() {
                             }
                         />
                         <p className="factor-composer-hint">
-                            {chat === null
-                                ? `本次研究最多调用模型 ${String(budget)} 次`
-                                : topic === "STUDY"
-                                  ? "讨论研究条件 · 准备完成后，单独确认本次研究"
-                                  : "讨论因子 · 确认计算内容后再讨论研究条件"}
+                            {analysisReadOnly ? (
+                                <>
+                                    <span>回测结果解读，仅供分析</span>
+                                    {chat.backtest_reference !== undefined && (
+                                        <>
+                                            {" "}
+                                            ·{" "}
+                                            <a
+                                                href={`/backtest/runs/${chat.backtest_reference.run_id}`}
+                                            >
+                                                查看原回测结果
+                                            </a>
+                                        </>
+                                    )}
+                                </>
+                            ) : chat === null ? (
+                                `本次研究最多调用模型 ${String(budget)} 次`
+                            ) : topic === "STUDY" ? (
+                                "讨论研究条件 · 准备完成后，单独确认本次研究"
+                            ) : (
+                                "讨论因子 · 确认计算内容后再讨论研究条件"
+                            )}
                         </p>
                     </div>
                 </div>

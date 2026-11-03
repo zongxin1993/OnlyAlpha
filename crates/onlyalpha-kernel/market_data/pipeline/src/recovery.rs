@@ -292,7 +292,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
             })
             .collect::<Vec<_>>();
         let mut value = json!({
-            "schema_version": 2, "program": self.program.to_record(), "processed": self.processed,
+            "schema_version": 3, "program_fingerprint": self.program.fingerprint(), "processed": self.processed,
             "chain": self.chain, "last_init_ns": self.last_init.as_ref().map(|t| t.unix_nanos().to_string()),
             "frontiers": frontiers, "managers": managers, "state": self.state.capture_checkpoint(),
             "delivery": self.delivery.capture_checkpoint(),
@@ -339,11 +339,16 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
         Ok(())
     }
     fn restore_candidate(&self, value: &Value) -> PipelineResult<Restored<C>> {
+        let (program_key, expected_program) = match value["schema_version"].as_u64() {
+            Some(2) => ("program", self.program.to_record()),
+            Some(3) => ("program_fingerprint", json!(self.program.fingerprint())),
+            _ => return Err(bad()),
+        };
         object(
             value,
             &[
                 "schema_version",
-                "program",
+                program_key,
                 "processed",
                 "chain",
                 "last_init_ns",
@@ -359,9 +364,7 @@ impl<C: CalculationPort, D: PreparationConsumer> MarketDataPipeline<C, D> {
                 "delivery_receipts",
             ],
         )?;
-        if value["schema_version"].as_u64() != Some(2)
-            || value["program"] != self.program.to_record()
-        {
+        if value[program_key] != expected_program {
             return Err(bad());
         }
         if value["component_bindings"] != component_bindings(value)? {

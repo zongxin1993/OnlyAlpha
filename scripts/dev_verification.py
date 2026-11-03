@@ -376,8 +376,17 @@ def validate_container(record: dict[str, Any], root: Path) -> None:
         raise ValueError("DEV_VERIFICATION_DATABASE_REFUSED")
 
 
+CONTROLLED_BACKTEST_FIXTURE_COMMAND = [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "packages/backend/tests/application/test_strategy_research_evidence.py::test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-native]",
+]
+
+
 def controlled_https_command(command: list[str]) -> bool:
-    return (
+    return command == CONTROLLED_BACKTEST_FIXTURE_COMMAND or (
         command[:3] == ["python", "-m", "scripts.native_web_e2e"]
         and command.count("--controlled-source-https") == 1
         and command.count("--retained-market-input") == 1
@@ -644,7 +653,8 @@ def run_inside(
     if not command:
         raise ValueError("DEV_VERIFICATION_COMMAND_REQUIRED")
     if (
-        controlled_source_https != ("--controlled-source-https" in command)
+        controlled_source_https
+        != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
         or controlled_source_https
         and (web or os.geteuid() != 10001 or not controlled_https_command(command))
     ):
@@ -748,7 +758,8 @@ def run_host(
     # only an observed completion/owning worker receipt can settle this fence.
     reservation["completed"] = True
     if (
-        controlled_source_https != ("--controlled-source-https" in command)
+        controlled_source_https
+        != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
         or controlled_source_https
         and (mode != "run" or web or rebuild or not controlled_https_command(command))
     ):

@@ -10,7 +10,7 @@ import {
     operationalStatus
 } from "../../test/integrationClient";
 import { marketDataClient } from "../../test/marketDataClient";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { MemoryRouter, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { WorkstationShell } from "../../app/shell/WorkstationShell";
 import { WorkspacePage } from "./WorkspacePage";
 
@@ -50,7 +50,9 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
             integrationClient={client}
             marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
         >
-            <WorkspacePage />
+            <MemoryRouter>
+                <WorkspacePage />
+            </MemoryRouter>
         </AppProviders>
     );
 }
@@ -130,8 +132,11 @@ it("exposes honest unconnected watchlist, inspector, runs, results and backtest 
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });
     await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
     expect(within(bottomPanel).getByText("研究结果尚未实现")).toBeInTheDocument();
-    await user.click(within(bottomPanel).getByRole("button", { name: "回测" }));
-    expect(within(bottomPanel).getByText("回测尚未实现")).toBeInTheDocument();
+    expect(within(bottomPanel).getByRole("link", { name: "回测" })).toHaveAttribute(
+        "href",
+        "/backtest"
+    );
+    expect(within(bottomPanel).queryByText("回测尚未实现")).not.toBeInTheDocument();
     expect(
         screen.queryByText(/600519|rev-2c7d18|snap-1f0a|res-4d81|bt-2f5e18|fill-88c1/)
     ).not.toBeInTheDocument();
@@ -205,7 +210,9 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     document.body.append(container);
     render(
         <AppProviders integrationClient={configuredClient()}>
-            <WorkspacePage />
+            <MemoryRouter>
+                <WorkspacePage />
+            </MemoryRouter>
         </AppProviders>,
         { container }
     );

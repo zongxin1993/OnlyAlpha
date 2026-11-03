@@ -1,5 +1,6 @@
 use crate::{Components, Prepared, model::*};
 use serde_json::{Value, json};
+use std::sync::Arc;
 /// Opaque persistence capability, created only after canonical coordinator admission.
 /// Decoded derived payloads cannot manufacture a new writer authority.
 /// ```compile_fail
@@ -18,14 +19,15 @@ impl CommitIntent {
 /// The sole durable transaction record. Drivers must atomically commit Prepared plus pending Events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
-    prepared: Prepared,
+    // Share only the immutable payload; flags remain independent value snapshots.
+    prepared: Arc<Prepared>,
     ready: bool,
     delivered: bool,
 }
 impl Record {
     pub fn new(intent: &CommitIntent) -> Self {
         Self {
-            prepared: intent.prepared.clone(),
+            prepared: Arc::new(intent.prepared.clone()),
             ready: false,
             delivered: false,
         }
@@ -35,6 +37,24 @@ impl Record {
     }
     pub fn ready(&self) -> bool {
         self.ready
+    }
+    pub fn delivered(&self) -> bool {
+        self.delivered
+    }
+    /// Independent observed data only, not Store readiness or a commit grant.
+    /// The caller must obtain both flags from its current owning observation.
+    pub fn with_observed_flags(&self, ready: bool, delivered: bool) -> Result<Self, Error> {
+        if delivered && !ready {
+            return Err(err("EXECUTION_DELIVERY_BEFORE_READY"));
+        }
+        Ok(Self { prepared: Arc::clone(&self.prepared), ready, delivered })
+    }
+    /// Passive canonical data only: always discard planner origin and typed after-state.
+    /// Supplied flags still require the caller's actual owning Store observation.
+    pub fn observation_snapshot(&self, ready: bool, delivered: bool) -> Result<Self, Error> {
+        let mut observed = self.with_observed_flags(ready, delivered)?;
+        observed.prepared = Arc::new(self.prepared.observation());
+        Ok(observed)
     }
     pub fn record(&self) -> Value {
         json!({"schema_version":1,"prepared":self.prepared.record(),"ready":self.ready,"delivered":self.delivered})
@@ -51,7 +71,7 @@ impl Record {
             return Err(err("EXECUTION_DELIVERY_BEFORE_READY"));
         }
         Ok(Self {
-            prepared: Prepared::decode(&serde_json::to_vec(&v["prepared"])?)?,
+            prepared: Arc::new(Prepared::decode(&serde_json::to_vec(&v["prepared"])?)?),
             ready,
             delivered,
         })
@@ -65,11 +85,22 @@ pub trait Store {
     fn head(&self) -> Result<u64, Error>;
     fn commit(&mut self, intent: &CommitIntent) -> Result<Record, Error>;
     fn get(&self, sequence: u64) -> Result<Option<Record>, Error>;
+    /// Optional complete prefix data from this same Store's fresh observation.
+    /// None means this implementation supplies only the original get protocol;
+    /// an error is never permission to use that path instead. Returned records
+    /// are data, not Ready, source-proof or commit authority.
+    fn read_prefix(&self, _sequence: u64) -> Result<Option<Vec<Record>>, Error> {
+        Ok(None)
+    }
     fn mark_ready(&mut self, sequence: u64) -> Result<(), Error>;
     fn acknowledge(&mut self, sequence: u64) -> Result<(), Error>;
 }
-fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record) -> Result<(), Error> {
-    let p = record.prepared();
+fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record, original:Option<&Prepared>) -> Result<(), Error> {
+    let p = match original {
+        Some(original) if original==record.prepared()=>original,
+        Some(_)=>return Err(err("EXECUTION_STORE_PAYLOAD_CONFLICT")),
+        None=>record.prepared(),
+    };
     let observed = store
         .get(p.sequence())?
         .ok_or_else(|| err("EXECUTION_COMMIT_NOT_OBSERVABLE"))?;
@@ -93,8 +124,15 @@ fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record) -> Result
         if !record.ready() {
             return Err(err("EXECUTION_LOCAL_AHEAD_OF_STORE"));
         }
+        for index in 0..p.projection_count(){Components::validated_typed_after(p,index)?;}
         return Ok(());
     }
+    // A recovered/lost installation index may already contain result owners.
+    // Such a caller checkpoint cannot certify the original transition prefix.
+    let validates_data = c.pending.is_none()
+        && p.value()["predecessor"] == c.sequence
+        && c.payload_hashes()?.iter().enumerate().all(|(index, actual)|
+            p.value()["projections"][index]["before_hash"] == *actual);
     if c.pending.is_none() {
         c.pending = Some((p.id().into(), 0));
     }
@@ -110,12 +148,17 @@ fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record) -> Result
     if !ready.ready() || ready.prepared() != p {
         return Err(err("EXECUTION_READY_NOT_OBSERVABLE"));
     }
-    c.complete(store, p)
+    c.complete(store, p)?;
+    if validates_data {
+        p.mark_transition_data_valid();
+        record.prepared().mark_transition_data_valid();
+        ready.prepared().mark_transition_data_valid();
+    }
+    Ok(())
 }
 /// Commit never mutates components until the exact durable record can be queried.
 pub fn coordinate<S: Store>(store: &mut S, c: &mut Components, p: &Prepared) -> Result<(), Error> {
-    p.validate()?;
-    if p.value["config_hash"] != hash(&c.config) {
+    if p.value()["config_hash"] != hash(&c.config) {
         return Err(err("EXECUTION_CONTEXT"));
     }
     let existing = store.get(p.sequence())?;
@@ -123,17 +166,17 @@ pub fn coordinate<S: Store>(store: &mut S, c: &mut Components, p: &Prepared) -> 
         if record.prepared() != p {
             return Err(err("EXECUTION_COMMIT_PAYLOAD_CONFLICT"));
         }
-        return resume(store, c, record);
+        return resume(store, c, record, Some(p));
     }
-    if !p.planned {
+    if !p.is_planned() {
         return Err(err("EXECUTION_PLANNER_AUTHORITY_REQUIRED"));
     }
     c.ready_source(store)?;
-    if p.value["predecessor"] != c.sequence {
+    if p.value()["predecessor"] != c.sequence {
         return Err(err("EXECUTION_PREDECESSOR_UNAPPLIED"));
     }
-    for (i, value) in c.payloads()?.iter().enumerate() {
-        if p.value["projections"][i]["before_hash"] != hash(value) {
+    for (i, fingerprint) in c.payload_hashes()?.iter().enumerate() {
+        if p.value()["projections"][i]["before_hash"] != *fingerprint {
             return Err(err("EXECUTION_BEFORE_SOURCE_CONFLICT"));
         }
     }
@@ -144,7 +187,7 @@ pub fn coordinate<S: Store>(store: &mut S, c: &mut Components, p: &Prepared) -> 
     if record.prepared() != p {
         return Err(err("EXECUTION_COMMIT_PAYLOAD_CONFLICT"));
     }
-    resume(store, c, record)
+    resume(store, c, record, Some(p))
 }
 /// Rehydrate Ready history and forward-recover the unfinished tail from immutable committed payloads.
 pub fn recover<S: Store>(store: &mut S, c: &mut Components) -> Result<(), Error> {
@@ -163,7 +206,7 @@ pub fn recover<S: Store>(store: &mut S, c: &mut Components) -> Result<(), Error>
         if record.prepared().sequence() != next {
             return Err(err("EXECUTION_STORE_SEQUENCE"));
         }
-        resume(store, c, record)?;
+        resume(store, c, record, None)?;
     }
     if c.pending.is_some() {
         return Err(err("EXECUTION_PENDING_WITHOUT_COMMIT"));

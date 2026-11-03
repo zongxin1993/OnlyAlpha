@@ -89,6 +89,13 @@ impl ProcessControl for Control {
         terminate(&self.0, recover)
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WorkerRole {
+    Legacy,
+    Chart,
+    Research,
+    Trading,
+}
 /// Exact interpreter selected by the owning composition, never ambient PATH.
 pub struct AlgorithmProcess {
     interpreter: PathBuf,
@@ -121,7 +128,7 @@ impl AlgorithmProcess {
             false,
             Some(installation.root()),
             Some(completion),
-            false,
+            WorkerRole::Chart,
         )
     }
     /// Static source resolver. The completion hold is retained until positive join.
@@ -137,7 +144,23 @@ impl AlgorithmProcess {
             false,
             Some(installation.root()),
             Some(completion),
-            true,
+            WorkerRole::Research,
+        )
+    }
+    /// Installed numerical factory process, retaining its owning hold to join.
+    pub fn trading(
+        installation: &ChartInstallation,
+        generation: &str,
+        completion: Box<dyn Send>,
+    ) -> Result<Worker> {
+        installation.verify()?;
+        Self::new(installation.root().join("bin/python")).spawn_bound(
+            generation.into(),
+            installation.artifact_fingerprint().into(),
+            false,
+            Some(installation.root()),
+            Some(completion),
+            WorkerRole::Trading,
         )
     }
     fn spawn_bound(
@@ -147,14 +170,19 @@ impl AlgorithmProcess {
         hosted: bool,
         installation: Option<&Path>,
         completion: Option<Box<dyn Send>>,
-        research_resolution: bool,
+        role: WorkerRole,
     ) -> Result<Worker> {
         let sha = |s: &str| {
             s.len() == 64
                 && s.bytes()
                     .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
         };
-        if !self.interpreter.is_absolute() || !sha(&generation) || !sha(&artifact) {
+        if !self.interpreter.is_absolute()
+            || !sha(&generation)
+            || !sha(&artifact)
+            || (role == WorkerRole::Legacy) != installation.is_none()
+            || (hosted && role != WorkerRole::Legacy)
+        {
             return Err(WorkerError::Invalid);
         }
         let (parent, child) = UnixStream::pair().map_err(|_| WorkerError::Invalid)?;
@@ -165,19 +193,18 @@ impl AlgorithmProcess {
             "-B",
             "-I",
             "-m",
-            if research_resolution {
-                "onlyalpha_backend_algorithms.research_worker"
-            } else if installation.is_some() {
-                "onlyalpha_backend_algorithms.chart_worker"
-            } else {
-                "onlyalpha_calculation_worker.worker"
+            match role {
+                WorkerRole::Legacy => "onlyalpha_calculation_worker.worker",
+                WorkerRole::Chart => "onlyalpha_backend_algorithms.chart_worker",
+                WorkerRole::Research => "onlyalpha_backend_algorithms.research_worker",
+                WorkerRole::Trading => "onlyalpha_backend_algorithms.trading_worker",
             },
             "--generation",
             &generation,
         ]);
         if let Some(root) = installation {
             command.arg("--installation").arg(root);
-            if research_resolution {
+            if matches!(role, WorkerRole::Research | WorkerRole::Trading) {
                 command.arg("--artifact").arg(&artifact);
             }
         }
@@ -220,7 +247,7 @@ impl WorkerConnector for AlgorithmProcess {
         hosted: bool,
         deadline: Duration,
     ) -> Result<Worker> {
-        let mut worker = self.spawn_bound(generation, artifact, hosted, None, None, false)?;
+        let mut worker = self.spawn_bound(generation, artifact, hosted, None, None, WorkerRole::Legacy)?;
         worker.handshake(deadline)?;
         Ok(worker)
     }
@@ -359,18 +386,7 @@ mod lifecycle_faults {
 
 /// Exact native image descriptor for the existing Runtime builder, no activation.
 pub fn describe_research_runtime(version: &str) -> Result<serde_json::Value> {
-    use crate::security::protected_files::{FilePolicy, open_directory, read_file_at};
-    use sha2::{Digest, Sha256};
-    let path = std::env::current_exe().map_err(|_| WorkerError::Invalid)?;
-    let parent = path.parent().ok_or(WorkerError::Invalid)?;
-    let name = path.file_name().ok_or(WorkerError::Invalid)?;
-    let directory = open_directory(parent).map_err(|_| WorkerError::Invalid)?;
-    let raw = read_file_at(&directory, name, FilePolicy::Executable, 128 * 1024 * 1024)
-        .map_err(|_| WorkerError::Invalid)?;
-    let artifact = Sha256::digest(raw.as_slice())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>();
+    let artifact = loaded_native_image_sha256()?;
     let target = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         "aarch64-unknown-linux-gnu"
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
@@ -381,4 +397,192 @@ pub fn describe_research_runtime(version: &str) -> Result<serde_json::Value> {
     Ok(
         serde_json::json!({"protocol":"onlyalpha.research.executor/1","artifact":artifact,"target":target,"version":version}),
     )
+}
+
+/// Hash the actual Linux executable inode, including after its pathname has
+/// been atomically replaced. /proc/self/exe is the kernel's selected image,
+/// not an untrusted filesystem locator or a custom executable loader.
+fn loaded_native_image_sha256() -> Result<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        use std::os::unix::fs::MetadataExt;
+        const LIMIT: u64 = 128 * 1024 * 1024;
+        let mut image = std::fs::File::open("/proc/self/exe").map_err(|_| WorkerError::Invalid)?;
+        let metadata = image.metadata().map_err(|_| WorkerError::Invalid)?;
+        if !metadata.is_file()
+            || metadata.len() == 0
+            || metadata.len() > LIMIT
+            || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o111 == 0
+            || (metadata.uid() != 0 && metadata.uid() != rustix::process::geteuid().as_raw())
+        {
+            return Err(WorkerError::Invalid);
+        }
+        let mut hash = Sha256::new();
+        let mut read = 0_u64;
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let count = image.read(&mut buffer).map_err(|_| WorkerError::Invalid)?;
+            if count == 0 {
+                break;
+            }
+            read = read.checked_add(count as u64).ok_or(WorkerError::Invalid)?;
+            if read > LIMIT {
+                return Err(WorkerError::Invalid);
+            }
+            hash.update(&buffer[..count]);
+        }
+        let after = image.metadata().map_err(|_| WorkerError::Invalid)?;
+        if read != metadata.len()
+            || after.len() != metadata.len()
+            || after.dev() != metadata.dev()
+            || after.ino() != metadata.ino()
+        {
+            return Err(WorkerError::Invalid);
+        }
+        Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err(WorkerError::Invalid)
+}
+
+/// Actual linked capabilities of this backend image. This is an Infrastructure
+/// observation, not work admission, evidence publication or Backtest permission.
+pub fn describe_native_runtime(version: &str) -> Result<serde_json::Value> {
+    if version != env!("CARGO_PKG_VERSION") {
+        return Err(WorkerError::Invalid);
+    }
+    let image = describe_research_runtime(version)?;
+    let implementations =
+        onlyalpha_calculation_bridge::native_predicates::implementation_manifests(
+            image["artifact"].as_str().ok_or(WorkerError::Invalid)?,
+        )
+        .map_err(|_| WorkerError::Invalid)?;
+    Ok(
+        serde_json::json!({"schema_version":1,"protocol":"onlyalpha.native.runtime/1","image":image,
+        "execution_capabilities":[{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}],
+        "implementations":implementations}),
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod native_runtime_tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::{BufRead, Read, Write};
+    use std::os::unix::fs::PermissionsExt;
+
+    // Shipping images are stripped and capped at 128 MiB. The debug libtest ELF
+    // is larger; execute a stripped copy to test that same physical image policy.
+    fn test_image(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let mut entropy = [0_u8; 8];
+        getrandom::fill(&mut entropy).unwrap();
+        let suffix = entropy
+            .iter()
+            .map(|v| format!("{v:02x}"))
+            .collect::<String>();
+        let root =
+            std::env::temp_dir().join(format!("onlyalpha-{label}-{}-{suffix}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("original");
+        std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+        let stripped = Command::new("strip")
+            .arg("--strip-debug")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            stripped.status.success(),
+            "{}",
+            String::from_utf8_lossy(&stripped.stderr)
+        );
+        assert!(std::fs::metadata(&path).unwrap().len() <= 128 * 1024 * 1024);
+        (root, path)
+    }
+    #[test]
+    fn native_descriptor_preserves_legacy_four_fields_and_complete_actual_capabilities() {
+        const CHILD: &str = "ONLYALPHA_NATIVE_DESCRIPTOR_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let (root, path) = test_image("native-descriptor");
+            let output=Command::new(path).args(["--exact","workers::algorithm::native_runtime_tests::native_descriptor_preserves_legacy_four_fields_and_complete_actual_capabilities","--nocapture","--test-threads=1"]).env(CHILD,"1").output().unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let legacy = describe_research_runtime(env!("CARGO_PKG_VERSION")).unwrap();
+        assert_eq!(legacy.as_object().unwrap().len(), 4);
+        let native = describe_native_runtime(env!("CARGO_PKG_VERSION")).unwrap();
+        assert_eq!(native["schema_version"], 1);
+        assert_eq!(native["protocol"], "onlyalpha.native.runtime/1");
+        assert_eq!(native["image"], legacy);
+        assert_eq!(
+            native["execution_capabilities"],
+            json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}])
+        );
+        assert_eq!(
+            native["implementations"],
+            json!(
+                onlyalpha_calculation_bridge::native_predicates::implementation_manifests(
+                    legacy["artifact"].as_str().unwrap()
+                )
+                .unwrap()
+            )
+        );
+        assert_eq!(native["implementations"].as_array().unwrap().len(), 36);
+    }
+    #[test]
+    fn loaded_image_survives_executable_path_replacement() {
+        const CHILD: &str = "ONLYALPHA_NATIVE_IMAGE_REPLACEMENT_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let before = describe_research_runtime(env!("CARGO_PKG_VERSION")).unwrap();
+            println!("NATIVE_IMAGE_READY");
+            std::io::stdout().flush().unwrap();
+            std::io::stdin().read_exact(&mut [0_u8]).unwrap();
+            assert_eq!(
+                describe_research_runtime(env!("CARGO_PKG_VERSION")).unwrap(),
+                before
+            );
+            assert_eq!(
+                describe_native_runtime(env!("CARGO_PKG_VERSION")).unwrap()["image"],
+                before
+            );
+            return;
+        }
+        let (root, path) = test_image("loaded-image");
+        let mut child = Command::new(&path)
+            .args(["--exact", "workers::algorithm::native_runtime_tests::loaded_image_survives_executable_path_replacement", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        loop {
+            let mut line = String::new();
+            assert!(
+                stdout.read_line(&mut line).unwrap() > 0,
+                "child exited before actual-image barrier"
+            );
+            if line.contains("NATIVE_IMAGE_READY") {
+                break;
+            }
+        }
+        let replacement = root.join("replacement");
+        std::fs::write(
+            &replacement,
+            b"replaced locator bytes must never become running image proof",
+        )
+        .unwrap();
+        std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        child.stdin.take().unwrap().write_all(b"1").unwrap();
+        let result = child.wait().unwrap();
+        let mut remaining = String::new();
+        stdout.read_to_string(&mut remaining).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(result.success(), "{remaining}");
+    }
 }

@@ -85,6 +85,11 @@ _ADAPTER_FINGERPRINTS = {
     "TRADING": only_canonical_fingerprint({"adapter": "ONLYALPHA_PRIVATE_FACTOR_TRADING_V1"}),
 }
 
+# Exact installed immutable resources are loaded before OS confinement. Dynamic
+# Factor sources remain explicit bytes; registration performs no later file I/O.
+_PRIVATE_FACTOR_ADAPTER_SOURCE = Path(__file__).read_bytes()
+_PRIVATE_FACTOR_SDK_SOURCE = Path(private_factor_sdk.__file__).read_bytes()
+
 
 class OnlyPrivateFactorValidationDisposition(StrEnum):
     PASS = "PASS"
@@ -460,7 +465,6 @@ def only_private_factor_backend_registrations(
     definition = only_private_factor_type_definition(revision)
     resolver = OnlyPrivateFactorDefinitionResolverV1(definition)
     reference = OnlyCalculationTypeReference(definition.kind, definition.type_id, definition.semantic_version)
-    adapter_source = Path(__file__).read_bytes()
     dependencies = (
         OnlyCalculationSemanticDependency(
             "onlyalpha.private-factor.api", "1", artifact.factor_api_contract_fingerprint
@@ -483,8 +487,8 @@ def only_private_factor_backend_registrations(
             ),
             resources={
                 "private_factor/source.py": source,
-                "private_factor/algorithm-sdk.py": Path(private_factor_sdk.__file__).read_bytes(),
-                f"private_factor/{backend.value.lower()}-adapter.py": adapter_source,
+                "private_factor/algorithm-sdk.py": _PRIVATE_FACTOR_SDK_SOURCE,
+                f"private_factor/{backend.value.lower()}-adapter.py": _PRIVATE_FACTOR_ADAPTER_SOURCE,
                 f"private_factor/{backend.value.lower()}-identity.txt": adapter.adapter_fingerprint.encode(),
             },
             semantic_dependencies=dependencies,

@@ -108,3 +108,40 @@ substituted native bytes, different tested Core or unavailable original resource
 This composition does not grant Human Research permission, create a Run, activate a Generation,
 certify scientific quality, or authorize publication/SIM/LIVE. Actual Run execution still binds this
 same selected artifact and must preserve the existing Command, lease, cancellation and recovery gates.
+
+## Native backend Calculation capability binding
+
+Distribution Artifact Manifest2 adds the `BACKEND_RUNTIME` role for the single statically linked
+`onlyalpha-backend` ELF. It retains Manifest1's source, byte, distribution and tested-Core bindings,
+and adds the strict `execution_capabilities` array of exact `kind` and versioned `contract` pairs.
+Calculation implementations use the existing complete ImplementationManifest1 and Artifact summary
+format. A Calculation capability is not an execution, work-admission or publication grant.
+
+Each native Predicate implementation binds its actual logical Rust entrypoint and the SHA-256 of
+the complete linked backend ELF as an implementation resource. Parameters and input edges remain
+in the Calculation Definition. Rebuilding the backend may conservatively change implementation
+identity even when a Calculation's semantic identity is unchanged. A metadata or source digest
+cannot substitute for this actual executable resource.
+
+One artifact SHA continues to have one immutable manifest. When the same backend image supports
+more than one execution capability, those capabilities belong to that one `BACKEND_RUNTIME`
+manifest; the bytes must not be republished under a second runtime role or as a synthetic wheel.
+Each requested execution capability must resolve to exactly one artifact in the exact work-bound
+Generation. An advertised capability must be actually implemented by that image. TRADING
+Calculation registrations do not themselves imply a Backtest execution capability.
+
+The backend's versioned native descriptor derives from the actual loaded Linux executable inode
+and the finite adapters compiled into that image. The existing Research descriptor retains its
+four-field wire. Native admission verifies the selected sealed release, stored Artifact2,
+complete native implementation summaries and actual loaded-image SHA/target/version before
+consuming native capabilities. New Generation preparation retains that actual observation in
+Installed Research Environment V2 proof and checks its complete artifact/private-Factor
+implementation closure. The unchanged RuntimeGeneration1 wire binds these new exact values.
+
+Manifest1 and its existing `RESEARCH_RUNTIME` and `BACKTEST_RUNTIME` facts retain their original
+semantics and bytes; they are not translated or amended into native Calculation grants.
+Historical reads remain distinct from current executable admission. Missing exact Artifact2
+capability or a different running image refuses native admission, without current/latest
+substitution. Existing installed SDK resource checks remain necessary for the Python mathematical
+nodes and grant no native Kernel equivalence. Complete graph execution and equivalence evidence,
+Research permission, Run ownership, Freeze, Qualification and Promotion retain their own gates.

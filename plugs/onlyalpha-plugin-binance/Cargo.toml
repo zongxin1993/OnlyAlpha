@@ -10,6 +10,7 @@ path = "rust/lib.rs"
 [lints]
 workspace = true
 [dependencies]
+onlyalpha-fee = { path = "../../crates/onlyalpha-kernel/fee" }
 onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }

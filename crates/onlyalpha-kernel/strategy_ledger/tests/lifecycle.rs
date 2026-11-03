@@ -934,3 +934,18 @@ fn settlement_cannot_change_economics_owner_or_skip_versions() {
         assert_eq!(m.checkpoint().unwrap(), cp);
     }
 }
+
+
+#[test]
+fn valuation_view_retains_every_cluster_and_exact_current_lines_after_trade_and_valuation(){
+ let mut manager=opened();
+ manager.apply(&reserve("c2","view-reserve",5,"500")).unwrap();
+ let mut trade=buy("c2","view-trade",6,"view-reserve",allocation("0","0","0",0),allocation("10","200","0",1),"200");trade["payload"]["mark"]=json!("20");manager.apply(&trade).unwrap();
+ manager.apply(&valuation("c1","view-valuation",7,1,1,"20")).unwrap();
+ let original=manager.checkpoint().unwrap();let state=manager.state();
+ let expected=Value::Object(state["ledgers"].as_object().unwrap().iter().map(|(cluster,ledger)|(cluster.clone(),json!({"lines":ledger["lines"],"economic_version":ledger["snapshot"]["economic_version"]}))).collect());
+ assert_eq!(manager.valuation_view(),expected);
+ assert_eq!(manager.valuation_view()["c1"]["lines"]["BTCUSDT.BINANCE"]["allocation"]["cost"],"100.00");
+ assert_eq!(manager.valuation_view()["c2"]["lines"]["BTCUSDT.BINANCE"]["allocation"]["cost"],"200.00");
+ assert_eq!(manager.checkpoint().unwrap(),original);
+}

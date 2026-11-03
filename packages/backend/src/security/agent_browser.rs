@@ -87,21 +87,56 @@ impl Issuer {
         }
         Ok(Some(Self { connection, key }))
     }
+
+    fn sign(&self,payload:&serde_json::Value)->Result<String,&'static str> {
+        let header=URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let message=format!("{header}.{}",URL_SAFE_NO_PAD.encode(serde_json::to_vec(payload).map_err(|_|INVALID)?));
+        let mut mac=<Hmac<Sha256> as KeyInit>::new_from_slice(&self.key).map_err(|_|INVALID)?;
+        mac.update(message.as_bytes());Ok(format!("{message}.{}",URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())))
+    }
+    /// Only the actual owning read can supply these values. No Value/DTO signer
+    /// exists, and the proposal service grant remains unchanged and irrelevant.
+    pub(crate) fn backtest_analysis(&self,context:&crate::persistence::backtest_evidence::BacktestReadContext,
+        evidence:&crate::persistence::backtest_evidence::VerifiedEvidence,subject:&str,at:u64)
+        ->Result<crate::transport::research_wire::BacktestAnalysisContextView,&'static str> {
+        const BAD:&str="BACKTEST_ANALYSIS_CONTEXT_UNAVAILABLE";
+        context.verify_cut()?;evidence.verify_cut()?;
+        let run=context.run();let manifest=evidence.manifest().record();
+        if subject.is_empty()||subject.len()>200||subject.chars().any(char::is_control)||run.owner()!=subject
+            ||run.state()!=crate::persistence::backtest_run::RunState::Completed
+            ||manifest["schema_version"]!=2||manifest["backtest_run_id"]!=run.run_id()
+            ||manifest["specification_fingerprint"]!=run.specification_fingerprint()
+            ||manifest["admission_resolution_fingerprint"]!=run.admission_resolution_fingerprint(){return Err(BAD);}
+        let displayed=crate::transport::host_backtest::display_result(context,evidence).map_err(|_|BAD)?;
+        let Some((accepted_evidence,accepted_result,accepted_determinism))=run.completion_fingerprints() else{return Err(BAD);};
+        if displayed.state!="COMPLETED"||displayed.run_id!=run.run_id()||displayed.strategy_fingerprint!=manifest["strategy_fingerprint"]
+            ||displayed.evidence_fingerprint!=evidence.manifest().fingerprint()||displayed.result_fingerprint!=manifest["result_fingerprint"]
+            ||displayed.determinism_fingerprint!=manifest["determinism_fingerprint"]
+            ||displayed.evidence_fingerprint!=accepted_evidence||displayed.result_fingerprint!=accepted_result||displayed.determinism_fingerprint!=accepted_determinism
+            ||displayed.trades.len()>8192||displayed.metrics.fill_count!=displayed.trades.len() as u64{return Err(BAD);}
+        let total=displayed.trades.len();
+        let mut limitations=displayed.limitations;
+        limitations.push("名义金额按模拟成交价核对，不能还原历史交易所审核；解读仅为分析，不产生任何执行授权。".into());
+        let data=json!({"schema_version":1,"profile":"ONLYALPHA_BACKTEST_ANALYSIS_DATA_V1","run_id":displayed.run_id,
+            "specification_fingerprint":run.specification_fingerprint(),"strategy_fingerprint":displayed.strategy_fingerprint,
+            "evidence_fingerprint":displayed.evidence_fingerprint,"result_fingerprint":displayed.result_fingerprint,
+            "determinism_fingerprint":displayed.determinism_fingerprint,"state":"COMPLETED","sample":displayed.sample,
+            "metrics":displayed.metrics,"baseline":displayed.baseline,"trades":displayed.trades.into_iter().take(8).collect::<Vec<_>>(),
+            "trade_count":total,"trades_truncated":total>8,"limitations":limitations});
+        if serde_json::to_vec(&data).map_err(|_|BAD)?.len()>8192{return Err(BAD);}
+        let expires_at=at.checked_add(300).ok_or(BAD)?;
+        let id=CredentialId::generate().map_err(|_|BAD)?;
+        let assertion=self.sign(&json!({"v":1,"iss":"onlyalpha-backend-backtest-analysis-v1","aud":"onlyalpha-agent-backtest-analysis",
+            "sub":subject,"kind":"BACKTEST_ANALYSIS_DATA","jti":id.value(),"iat":at,"exp":expires_at,"data":data}))?;
+        if assertion.len()>12288{return Err(BAD);}
+        context.verify_cut()?;evidence.verify_cut()?;
+        Ok(crate::transport::research_wire::BacktestAnalysisContextView{schema_version:1,run_id:run.run_id().into(),assertion,expires_at})
+    }
     pub fn access(&self, subject: &str, at: u64) -> Result<AccessView, &'static str> {
         let expires_at = at.checked_add(3600).ok_or(INVALID)?;
         let id = CredentialId::generate().map_err(|_| INVALID)?;
-        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
         let payload = json!({"v":1,"iss":"onlyalpha-backend-browser-v1","aud":"onlyalpha-agent","sub":subject,"kind":"human","scopes":["chat:read","chat:write","model:write"],"jti":id.value(),"exp":expires_at});
-        let message = format!(
-            "{header}.{}",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).map_err(|_| INVALID)?)
-        );
-        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.key).map_err(|_| INVALID)?;
-        mac.update(message.as_bytes());
-        let token = format!(
-            "{message}.{}",
-            URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
-        );
+        let token=self.sign(&payload)?;
         let binding=proposal::pin(&self.connection.credential_sha256).and_then(|_|crate::application::factor_content::hash(&json!({"agent_url":self.connection.agent_url,"subject":subject,"issuer_sha256":Sha256::digest(self.key.as_slice()).iter().map(|b|format!("{b:02x}")).collect::<String>()})))?;
         Ok(AccessView {
             schema_version: 1,
@@ -150,5 +185,14 @@ mod tests {
         assert_eq!(first.binding, second.binding);
         assert_ne!(first.binding, issuer.access("other", 100).unwrap().binding);
         assert!(!first.token.contains(&issuer.connection.credential_sha256));
+    }
+
+    #[test]
+    fn analysis_signer_requires_the_actual_context_and_evidence_owners() {
+        // No Value/record overload or cfg producer stands in for these handles.
+        // Actual signature/content checks remain on the real joined-evidence lane.
+        let _:fn(&Issuer,&crate::persistence::backtest_evidence::BacktestReadContext,
+            &crate::persistence::backtest_evidence::VerifiedEvidence,&str,u64)
+            ->Result<crate::transport::research_wire::BacktestAnalysisContextView,&'static str>=Issuer::backtest_analysis;
     }
 }

@@ -15,6 +15,12 @@ use utoipa::openapi::{
     security::{ApiKey, ApiKeyValue, Http, HttpAuthScheme, SecurityScheme},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
+#[cfg(test)]
+#[path="../../tests/transport/backtest_analysis.rs"]
+mod backtest_analysis_contract;
+#[cfg(test)]
+#[path="../../tests/transport/qualification_product.rs"]
+mod qualification_product_contract;
 async fn verify<T: DeserializeOwned>(response: Response) -> Response {
     if !response.status().is_success() {
         return response;
@@ -41,6 +47,26 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
         .routes(routes!(agent_browser_access))
  .routes(routes!(agent_connection))
  .routes(routes!(study_preparation_context))
+ .routes(routes!(backtest_analysis_context))
+ .routes(routes!(backtest_preparation_create))
+ .routes(routes!(backtest_preparation_observe))
+ .routes(routes!(backtest_preparation_resume))
+ .routes(routes!(backtest_preparation_cancel))
+ .routes(routes!(backtest_preparation_ready))
+ .routes(routes!(backtest_preparation_submit))
+ .routes(routes!(strategy_creation_context))
+ .routes(routes!(strategy_workflow_inventory))
+ .routes(routes!(strategy_workflow_detail))
+ .routes(routes!(qualification_command_outcome))
+ .routes(routes!(qualification_command_resume))
+ .routes(routes!(qualified_promotion_command_outcome))
+ .routes(routes!(qualified_promotion_command_resume))
+ .routes(routes!(strategy_freeze_outcome))
+ .routes(routes!(strategy_freeze_resume))
+ .routes(routes!(strategy_preparation_observe))
+ .routes(routes!(strategy_preparation_resume))
+ .routes(routes!(strategy_preparation_cancel))
+ .routes(routes!(strategy_preparation_ready))
  .routes(routes!(study_preparation_create))
  .routes(routes!(study_preparation_observe))
  .routes(routes!(study_preparation_resume))
@@ -66,6 +92,7 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(admit_agent_session_v2))
  .routes(routes!(advance_agent_session_once_v2))
  .routes(routes!(creation_context_api_v2_backtest_creation_context_get))
+ .routes(routes!(manual_backtest_strategy_context))
  .routes(routes!(recent_runs_api_v2_backtest_runs_get))
  .routes(routes!(create_run_api_v2_backtest_runs_post))
  .routes(routes!(get_run_api_v2_backtest_runs_run_id_get))
@@ -287,20 +314,25 @@ async fn advance_agent_session_once_v2(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/creation-context", operation_id = "creation_context_api_v2_backtest_creation_context_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get,path="/api/v2/backtest/strategy-context",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("factor_id"=String,Query),("factor_revision_fingerprint"=String,Query),("factor_content_fingerprint"=String,Query),("strategy_id"=Option<String>,Query)),responses((status=200,body=crate::transport::research_wire::ManualStrategyContextView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn manual_backtest_strategy_context(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::ManualStrategyContextView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get, path = "/api/v2/backtest/creation-context", operation_id = "creation_context_api_v2_backtest_creation_context_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = crate::transport::research_wire::BacktestCreationContextV2),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn creation_context_api_v2_backtest_creation_context_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestCreationContextV2>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/runs", operation_id = "recent_runs_api_v2_backtest_runs_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/backtest/runs", operation_id = "recent_runs_api_v2_backtest_runs_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = crate::transport::research_wire::BacktestRunInventory),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn recent_runs_api_v2_backtest_runs_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestRunInventory>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(post, path = "/api/v2/backtest/runs", operation_id = "create_run_api_v2_backtest_runs_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
@@ -311,31 +343,31 @@ async fn create_run_api_v2_backtest_runs_post(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}", operation_id = "get_run_api_v2_backtest_runs__run_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}", operation_id = "get_run_api_v2_backtest_runs__run_id__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 200, body = crate::transport::research_wire::BacktestRunView),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn get_run_api_v2_backtest_runs_run_id_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestRunView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(post, path = "/api/v2/backtest/runs/{run_id}/cancellation", operation_id = "cancel_run_api_v2_backtest_runs__run_id__cancellation_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path),("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/backtest/runs/{run_id}/cancellation", operation_id = "cancel_run_api_v2_backtest_runs__run_id__cancellation_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path),("Idempotency-Key" = String, Header)), request_body=crate::transport::research_wire::BacktestCancellationInput, responses((status = 200, body = crate::transport::research_wire::BacktestRunView),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn cancel_run_api_v2_backtest_runs_run_id_cancellation_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestRunView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/evidence", operation_id = "get_evidence_api_v2_backtest_runs__run_id__evidence_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/evidence", operation_id = "get_evidence_api_v2_backtest_runs__run_id__evidence_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 200, body = crate::transport::research_wire::BacktestEvidenceView),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn get_evidence_api_v2_backtest_runs_run_id_evidence_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestEvidenceView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}", operation_id = "get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path),("artifact_name" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}", operation_id = "get_artifact_api_v2_backtest_runs__run_id__evidence_artifacts__artifact_name__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path),("artifact_name" = String, Path)), responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn get_artifact_api_v2_backtest_runs_run_id_evidence_artifacts_artifact_name_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
@@ -343,12 +375,12 @@ async fn get_artifact_api_v2_backtest_runs_run_id_evidence_artifacts_artifact_na
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/result", operation_id = "result_api_v2_backtest_runs__run_id__result_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/backtest/runs/{run_id}/result", operation_id = "result_api_v2_backtest_runs__run_id__result_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("run_id" = String, Path)), responses((status = 200, body = crate::transport::research_wire::BacktestResultView),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
 async fn result_api_v2_backtest_runs_run_id_result_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::BacktestResultView>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(get, path = "/api/v2/chart/studies/capabilities", operation_id = "capabilities_api_v2_chart_studies_capabilities_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = ChartStudyCapabilitiesDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
@@ -645,28 +677,28 @@ async fn get_exact_private_strategy_revision_v2(
     verify::<PrivateStrategyRevisionDto>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/qualification-decisions/{decision_fingerprint}", operation_id = "get_qualification_decision_api_v2_qualification_decisions__decision_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("decision_fingerprint" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/qualification-decisions/{decision_fingerprint}", operation_id = "get_qualification_decision_api_v2_qualification_decisions__decision_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("decision_fingerprint" = String, Path),("research_run_id"=Option<String>,Query)), responses((status=200,body=crate::transport::research_wire::QualificationDecisionReadView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn get_qualification_decision_api_v2_qualification_decisions_decision_fingerprint_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualificationDecisionReadView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/qualification-policies", operation_id = "list_qualification_policies_api_v2_qualification_policies_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/qualification-policies", operation_id = "list_qualification_policies_api_v2_qualification_policies_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status=200,body=crate::transport::research_wire::QualificationPolicyListView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn list_qualification_policies_api_v2_qualification_policies_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualificationPolicyListView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(get, path = "/api/v2/qualification-policies/{policy_id}/revisions/{policy_version}", operation_id = "get_qualification_policy_api_v2_qualification_policies__policy_id__revisions__policy_version__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("policy_id" = String, Path),("policy_version" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/qualification-policies/{policy_id}/revisions/{policy_version}", operation_id = "get_qualification_policy_api_v2_qualification_policies__policy_id__revisions__policy_version__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("policy_id" = String, Path),("policy_version" = String, Path)), responses((status=200,body=crate::transport::research_wire::QualificationPolicyView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn get_qualification_policy_api_v2_qualification_policies_policy_id_revisions_policy_version_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualificationPolicyView>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(get, path = "/api/v2/research/artifacts/{research_result_fingerprint}", operation_id = "artifact_summary_api_v2_research_artifacts__research_result_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("research_result_fingerprint" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
@@ -854,21 +886,21 @@ async fn submit_private_strategy_research_v2(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get,path="/api/v2/research/runs/{run_id}",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::FactorResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+#[utoipa::path(get,path="/api/v2/research/runs/{run_id}",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::ResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn get_run_api_v2_research_runs_run_id_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    verify::<crate::transport::research_wire::FactorResearchRunView>(host.dispatch(request).await)
+    verify::<crate::transport::research_wire::ResearchRunView>(host.dispatch(request).await)
         .await
 }
 
-#[utoipa::path(post,path="/api/v2/research/runs/{run_id}/cancellation",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchCancellationInput,responses((status=200,body=crate::transport::research_wire::FactorResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+#[utoipa::path(post,path="/api/v2/research/runs/{run_id}/cancellation",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::FactorResearchCancellationInput,responses((status=200,body=crate::transport::research_wire::ResearchRunView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn cancel_run_api_v2_research_runs_run_id_cancellation_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    verify::<crate::transport::research_wire::FactorResearchRunView>(host.dispatch(request).await)
+    verify::<crate::transport::research_wire::ResearchRunView>(host.dispatch(request).await)
         .await
 }
 
@@ -965,12 +997,12 @@ async fn get_exact_research_statistics_v2(
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/strategies/{strategy_fingerprint}", operation_id = "get_strategy_api_v2_strategies__strategy_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/strategies/{strategy_fingerprint}", operation_id = "get_strategy_api_v2_strategies__strategy_fingerprint__get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path)), responses((status=200,body=crate::transport::research_wire::StrategyQualifiedView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn get_strategy_api_v2_strategies_strategy_fingerprint_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::StrategyQualifiedView>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(post, path = "/api/v2/strategies/{strategy_fingerprint}/promotions", operation_id = "promote_strategy_api_v2_strategies__strategy_fingerprint__promotions_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path),("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
@@ -981,36 +1013,36 @@ async fn promote_strategy_api_v2_strategies_strategy_fingerprint_promotions_post
     host.dispatch(request).await
 }
 
-#[utoipa::path(get, path = "/api/v2/strategies/{strategy_fingerprint}/qualification-decisions", operation_id = "list_qualification_decisions_api_v2_strategies__strategy_fingerprint__qualification_decisions_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(get, path = "/api/v2/strategies/{strategy_fingerprint}/qualification-decisions", operation_id = "list_qualification_decisions_api_v2_strategies__strategy_fingerprint__qualification_decisions_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path)), responses((status=200,body=crate::transport::research_wire::QualificationCommandListView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn list_qualification_decisions_api_v2_strategies_strategy_fingerprint_qualification_decisions_get(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualificationCommandListView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(post, path = "/api/v2/strategies/{strategy_fingerprint}/qualification-promotions", operation_id = "promote_qualified_strategy_api_v2_strategies__strategy_fingerprint__qualification_promotions_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path),("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/strategies/{strategy_fingerprint}/qualification-promotions", operation_id = "promote_qualified_strategy_api_v2_strategies__strategy_fingerprint__qualification_promotions_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path),("Idempotency-Key" = String, Header)), request_body=crate::transport::research_wire::QualifiedPromotionInput,responses((status=200,body=crate::transport::research_wire::QualifiedPromotionCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn promote_qualified_strategy_api_v2_strategies_strategy_fingerprint_qualification_promotions_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualifiedPromotionCommandView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(post, path = "/api/v2/strategies/{strategy_fingerprint}/qualifications", operation_id = "evaluate_qualification_api_v2_strategies__strategy_fingerprint__qualifications_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path),("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/strategies/{strategy_fingerprint}/qualifications", operation_id = "evaluate_qualification_api_v2_strategies__strategy_fingerprint__qualifications_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("strategy_fingerprint" = String, Path),("Idempotency-Key" = String, Header)), request_body=crate::transport::research_wire::QualificationInput,responses((status=200,body=crate::transport::research_wire::QualificationCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn evaluate_qualification_api_v2_strategies_strategy_fingerprint_qualifications_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::QualificationCommandView>(host.dispatch(request).await).await
 }
 
-#[utoipa::path(post, path = "/api/v2/strategy-freezes", operation_id = "freeze_strategy_api_v2_strategy_freezes_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("Idempotency-Key" = String, Header)), responses((status = 501, body = NativeErrorEnvelope)))]
+#[utoipa::path(post, path = "/api/v2/strategy-freezes", operation_id = "freeze_strategy_api_v2_strategy_freezes_post", tag = "workstation", security(("LocalDeveloperCookie" = [])), params(("Idempotency-Key" = String, Header)), request_body=crate::transport::research_wire::StrategyFreezeInput,responses((status=200,body=crate::transport::research_wire::StrategyFreezeView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn freeze_strategy_api_v2_strategy_freezes_post(
     State(host): State<Arc<Host>>,
     request: Request<Body>,
 ) -> Response {
-    host.dispatch(request).await
+    verify::<crate::transport::research_wire::StrategyFreezeView>(host.dispatch(request).await).await
 }
 
 #[utoipa::path(get, path = "/api/v2/watchlists", operation_id = "read_api_v2_watchlists_get", tag = "workstation", security(("LocalDeveloperCookie" = [])), responses((status = 200, body = WatchlistBookDto),(status = 400, body = NativeErrorEnvelope),(status = 401, body = NativeErrorEnvelope),(status = 403, body = NativeErrorEnvelope),(status = 404, body = NativeErrorEnvelope),(status = 409, body = NativeErrorEnvelope),(status = 429, body = NativeErrorEnvelope),(status = 500, body = NativeErrorEnvelope),(status = 503, body = NativeErrorEnvelope)))]
@@ -1120,6 +1152,73 @@ async fn temporary_chart_studies_evaluate_batch(
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+    #[test]
+    fn manual_backtest_delivery_does_not_publish_new_strategy_research_commands() {
+        let (_, document) = declaration();
+        let declared = serde_json::to_value(document).unwrap();
+        for path in [
+            "/api/v2/research/strategy-preparations",
+            "/api/v2/research/strategy-preparations/{command_id}/submit",
+        ] {
+            assert_eq!(operation(&Method::POST, path), None);
+            assert!(declared["paths"][path].get("post").is_none());
+        }
+        for (method, path) in [
+            (Method::POST, "/api/v2/factor-study-preparations"),
+            (Method::POST, "/api/v2/factor-study-preparations/{command_id}/confirmation"),
+            (Method::POST, "/api/v2/backtest/preparations"),
+            (Method::GET, "/api/v2/research/runs/{run_id}"),
+            (Method::POST, "/api/v2/research/runs/{run_id}/cancellation"),
+            (Method::GET, "/api/v2/research/strategy-preparations/commands/{command_id}"),
+            (Method::POST, "/api/v2/research/strategy-preparations/{command_id}/cancellation"),
+            (Method::POST, "/api/v2/research/strategy-preparations/{command_id}/resume"),
+        ] {
+            assert_eq!(operation(&method, path), Some(Operation::Implemented));
+        }
+        // The unchanged generic endpoints are not newly connected to a native
+        // Strategy5 creator. Existing Factor submissions retain their own type.
+        for path in ["/api/v2/research/runs", "/api/v2/research/runs/commands", "/api/v2/research/runs/private-strategy"] {
+            assert_eq!(operation(&Method::POST, path), Some(Operation::Deferred));
+        }
+        let supplied = serde_json::json!({"schema_version":1,"factor_proposal_fingerprint":"a".repeat(64),
+            "parent_run_id":null,"policy_id":"existing","policy_version":"1",
+            "specification":crate::application::strategy_research::test_run_record()});
+        assert!(serde_json::from_value::<crate::persistence::research_submission::Request>(supplied).is_err(),
+            "the original typed Factor submit request cannot carry a Strategy5 scientific specification");
+    }
+    #[test]
+    fn strategy_freeze_commands_have_typed_original_outcome_and_explicit_resume() {
+        let (_,document)=declaration();let value=serde_json::to_value(document).unwrap();
+        for (method,path,verb,body) in [
+            (Method::POST,"/api/v2/strategy-freezes","post","StrategyFreezeView"),
+            (Method::GET,"/api/v2/strategy-freezes/commands/{command_id}","get","StrategyFreezeOutcomeView"),
+            (Method::POST,"/api/v2/strategy-freezes/commands/{command_id}/resume","post","StrategyFreezeView"),
+        ] {
+            assert_eq!(operation(&method,path),Some(Operation::Implemented));
+            assert_eq!(value["paths"][path][verb]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],format!("#/components/schemas/{body}"));
+        }
+        let schema=&value["paths"]["/api/v2/research/runs/{run_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"];
+        assert_eq!(schema["$ref"],"#/components/schemas/ResearchRunView");
+        let variants=&value["components"]["schemas"]["ResearchRunView"]["oneOf"];
+        assert!(variants.as_array().unwrap().iter().any(|v|v["$ref"]=="#/components/schemas/StrategyResearchRunView"));
+        assert!(variants.as_array().unwrap().iter().any(|v|v["$ref"]=="#/components/schemas/FactorResearchRunView"));
+    }
+    #[test]
+    fn strategy_workflow_history_is_a_typed_read_without_new_work_context() {
+        let (_, document) = declaration();
+        let value = serde_json::to_value(document).unwrap();
+        for (path, response) in [
+            ("/api/v2/strategy-workflows", "StrategyWorkflowInventoryView"),
+            ("/api/v2/strategy-workflows/{strategy_id}", "StrategyWorkflowView"),
+        ] {
+            assert_eq!(operation(&Method::GET, path), Some(Operation::Implemented));
+            assert_eq!(operation(&Method::POST, path), None);
+            let declared = &value["paths"][path]["get"];
+            assert_eq!(declared["security"], serde_json::json!([{"LocalDeveloperCookie":[]}]));
+            assert_eq!(declared["responses"]["200"]["content"]["application/json"]["schema"]["$ref"], format!("#/components/schemas/{response}"));
+            assert!(declared["parameters"].as_array().is_none_or(|p| p.iter().all(|v| v["in"] != "query")), "history must not require a current Factor, Study or Source selection");
+        }
+    }
     #[test]
     fn bounded_temporary_batch_is_a_formal_authenticated_query() {
         let (_, document) = declaration();
@@ -1490,4 +1589,135 @@ async fn private_strategy_authoring_command(
     request: Request<Body>,
 ) -> Response {
     verify::<Option<PrivateStrategyAuthoringReceiptDto>>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/strategy-creation-context",security(("LocalDeveloperCookie"=[])),params(("factor_proposal_fingerprint"=String,Query),("study_proposal_fingerprint"=String,Query),("strategy_id"=Option<String>,Query)),responses((status=200,body=crate::transport::research_wire::StrategyCreationContextView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_creation_context(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::StrategyCreationContextView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/research/strategy-preparations/commands/{command_id}",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::StrategyResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_preparation_observe(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::StrategyResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/research/strategy-preparations/{command_id}/resume",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::StrategyResearchPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::StrategyResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_preparation_resume(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::StrategyResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(post,path="/api/v2/research/strategy-preparations/{command_id}/cancellation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::StrategyResearchPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::StrategyResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_preparation_cancel(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::StrategyResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+#[utoipa::path(get,path="/api/v2/research/strategy-preparations/{command_id}/ready",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::StrategyResearchPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_preparation_ready(
+    State(host): State<Arc<Host>>,
+    request: Request<Body>,
+) -> Response {
+    verify::<crate::transport::research_wire::StrategyResearchPreparationView>(
+        host.dispatch(request).await,
+    )
+    .await
+}
+
+
+#[utoipa::path(get,path="/api/v2/strategy-workflows",security(("LocalDeveloperCookie"=[])),responses((status=200,body=crate::transport::research_wire::StrategyWorkflowInventoryView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_workflow_inventory(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::StrategyWorkflowInventoryView>(host.dispatch(request).await).await
+}
+#[utoipa::path(get,path="/api/v2/strategy-workflows/{strategy_id}",security(("LocalDeveloperCookie"=[])),params(("strategy_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::StrategyWorkflowView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_workflow_detail(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::StrategyWorkflowView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/strategy-freezes/commands/{command_id}",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::StrategyFreezeOutcomeView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_freeze_outcome(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::StrategyFreezeOutcomeView>(host.dispatch(request).await).await
+}
+#[utoipa::path(post,path="/api/v2/strategy-freezes/commands/{command_id}/resume",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::StrategyFreezeInput,responses((status=200,body=crate::transport::research_wire::StrategyFreezeView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn strategy_freeze_resume(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::StrategyFreezeView>(host.dispatch(request).await).await
+}
+
+#[cfg(test)]
+#[path="../../tests/transport/backtest_preparation_routes.rs"]
+mod backtest_preparation_contract;
+
+#[cfg(test)]
+#[path="../../tests/transport/backtest_product.rs"]
+mod backtest_product_contract;
+
+#[utoipa::path(post,path="/api/v2/backtest/preparations",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::backtest_preparation::BacktestPrepareInput,responses((status=200,body=crate::transport::research_wire::BacktestPrepareReply),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_create(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestPrepareReply>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/backtest/preparations/commands/{command_id}",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::BacktestPreparationCommandReply),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_observe(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestPreparationCommandReply>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/backtest/preparations/{command_id}/resume",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::BacktestPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::BacktestPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_resume(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestPreparationView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/backtest/preparations/{command_id}/cancellation",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::BacktestPreparationRevisionInput,responses((status=200,body=crate::transport::research_wire::BacktestPreparationView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_cancel(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestPreparationView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/backtest/preparations/{command_id}/ready",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::BacktestPreparationCommandReply),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_ready(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestPreparationCommandReply>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/backtest/preparations/{command_id}/submit",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::BacktestConfirmationInput,responses((status=200,body=crate::transport::research_wire::BacktestConfirmationOutcome),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_preparation_submit(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestConfirmationOutcome>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}",operation_id="qualification_command_outcome",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("strategy_fingerprint"=String,Path),("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::QualificationCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn qualification_command_outcome(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::QualificationCommandView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}/resume",operation_id="qualification_command_resume",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("strategy_fingerprint"=String,Path),("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::QualificationResumeInput,responses((status=200,body=crate::transport::research_wire::QualificationCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn qualification_command_resume(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::QualificationCommandView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(get,path="/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}",operation_id="qualified_promotion_command_outcome",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("strategy_fingerprint"=String,Path),("command_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::QualifiedPromotionCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn qualified_promotion_command_outcome(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::QualifiedPromotionCommandView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}/resume",operation_id="qualified_promotion_command_resume",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("strategy_fingerprint"=String,Path),("command_id"=String,Path),("Idempotency-Key"=String,Header)),request_body=crate::transport::research_wire::QualifiedPromotionInput,responses((status=200,body=crate::transport::research_wire::QualifiedPromotionCommandView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn qualified_promotion_command_resume(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::QualifiedPromotionCommandView>(host.dispatch(request).await).await
+}
+
+#[utoipa::path(post,path="/api/v2/backtest/runs/{run_id}/analysis-context",operation_id="backtest_analysis_context",tag="workstation",security(("LocalDeveloperCookie"=[])),params(("run_id"=String,Path)),responses((status=200,body=crate::transport::research_wire::BacktestAnalysisContextView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn backtest_analysis_context(State(host):State<Arc<Host>>,request:Request<Body>)->Response {
+    verify::<crate::transport::research_wire::BacktestAnalysisContextView>(host.dispatch(request).await).await
 }

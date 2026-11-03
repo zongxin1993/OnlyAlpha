@@ -255,6 +255,56 @@ def _native_research_namespace(backend: Path, user_data_root: Path, *, fresh: bo
     return identity
 
 
+def _extend_strategy_research(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str:
+    return _extend_native_namespace(dsn, user_data_root, native_backend, manual_backtest=False)
+
+
+def _extend_manual_backtest(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str:
+    return _extend_native_namespace(dsn, user_data_root, native_backend, manual_backtest=True)
+
+
+def _extend_native_namespace(
+    dsn: str, user_data_root: Path, native_backend: Path | None, *, manual_backtest: bool
+) -> str:
+    """Explicit existing-deployment extension; Rust owns the same mutation session."""
+    _verifier(dsn).assert_compatible()
+    only_assert_supported_postgres_server(dsn)
+    if not user_data_root.is_absolute():
+        raise ValueError("RESEARCH_NAMESPACE_ABSOLUTE_ROOT_REQUIRED")
+    backend = _selected_native_backend(native_backend)
+    expected = OnlyPostgresResearchDeploymentStore(dsn).load_semantic_store_id()
+    if OnlyResearchSemanticStoreIdentity(user_data_root / "research").load_verified() != expected:
+        raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
+    result = subprocess.run(
+        [
+            str(backend),
+            "--extend-manual-backtest-namespace" if manual_backtest else "--extend-strategy-research-namespace",
+            str(user_data_root),
+        ],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    payload = json.loads(result.stdout)
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "semantic_store_id"}
+        or payload["schema_version"] != 1
+    ):
+        raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_RESPONSE_INVALID")
+    identity = OnlyResearchSemanticStoreId(payload["semantic_store_id"])
+    if (
+        identity != expected
+        or OnlyResearchSemanticStoreIdentity(user_data_root / "research").load_verified() != expected
+    ):
+        raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
+    if OnlyPostgresResearchDeploymentStore(dsn).load_semantic_store_id() != expected:
+        raise RuntimeError("RESEARCH_NAMESPACE_DEPLOYMENT_MISMATCH")
+    return str(identity)
+
+
 def _initialize_deployment(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str:
     _verifier(dsn).assert_compatible()
     only_assert_supported_postgres_server(dsn)
@@ -297,6 +347,12 @@ def main() -> int:
     initialize = commands.add_parser("initialize-deployment")
     initialize.add_argument("--user-data-root", type=Path, required=True)
     initialize.add_argument("--native-backend", type=Path)
+    extend = commands.add_parser("extend-strategy-research")
+    extend.add_argument("--user-data-root", type=Path, required=True)
+    extend.add_argument("--native-backend", type=Path)
+    manual = commands.add_parser("extend-manual-backtest")
+    manual.add_argument("--user-data-root", type=Path, required=True)
+    manual.add_argument("--native-backend", type=Path)
     validate = commands.add_parser("validate")
     validate.add_argument("--run-id")
     backup = commands.add_parser("backup")
@@ -329,6 +385,14 @@ def main() -> int:
     if args.command == "initialize-deployment":
         store_id = _initialize_deployment(dsn, args.user_data_root, args.native_backend)
         print(json.dumps({"deployment": "BOUND", "semantic_store_id": store_id}, sort_keys=True))
+        return 0
+    if args.command == "extend-strategy-research":
+        store_id = _extend_strategy_research(dsn, args.user_data_root, args.native_backend)
+        print(json.dumps({"semantic_store_id": store_id}, sort_keys=True))
+        return 0
+    if args.command == "extend-manual-backtest":
+        store_id = _extend_manual_backtest(dsn, args.user_data_root, args.native_backend)
+        print(json.dumps({"semantic_store_id": store_id}, sort_keys=True))
         return 0
     if args.command == "validate":
         _validate(dsn, args.run_id)

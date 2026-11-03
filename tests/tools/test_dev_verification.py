@@ -1155,3 +1155,70 @@ def test_controlled_https_unproven_resource_or_inside_retains_host_pending(monke
         assert receipt["container_id"] == "c" * 64
         assert receipt["image_id"] == "sha256:" + "a" * 64
         assert len(receipt["source_sha256"]) == 64
+
+
+def test_controlled_https_allows_only_one_explicit_backtest_owner_fixture_case():
+    target = "packages/backend/tests/application/test_strategy_research_evidence.py::test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-native]"
+    command = ["python", "-m", "pytest", "-q", target]
+    assert dev_verification.controlled_https_command(command)
+    for changed in (
+        command[:-1] + [target.replace("backtest-native", "normal")],
+        command[:-1] + [target.split("[")[0]],
+        command[:-1] + ["packages/backend/tests/application"],
+        command + ["-k", "backtest"],
+        command + ["--override-ini", "addopts=--capture=no"],
+        command + ["--controlled-source-https"],
+        ["bash", "-lc", " ".join(command)],
+        ["python", "-c", "pass"],
+        ["pytest", "-q", target],
+    ):
+        assert not dev_verification.controlled_https_command(changed)
+
+
+@pytest.mark.parametrize("layer", ["host", "inside"])
+@pytest.mark.parametrize("controlled", [False, True])
+@pytest.mark.parametrize("entry", ["backtest", "web"])
+def test_controlled_https_exact_entry_requires_outer_opt_in_and_keeps_pending_fence(
+    monkeypatch, tmp_path, layer, controlled, entry
+):
+    target = "packages/backend/tests/application/test_strategy_research_evidence.py::test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-native]"
+    command = (
+        ["python", "-m", "pytest", "-q", target]
+        if entry == "backtest"
+        else ["python", "-m", "scripts.native_web_e2e", "--retained-market-input", "--controlled-source-https"]
+    )
+    monkeypatch.setattr(dev_verification, "ROOT", tmp_path)
+    monkeypatch.setattr(dev_verification, "CONTAINER_LOCK", tmp_path / "original-verification.lock")
+    monkeypatch.setattr(dev_verification.os, "geteuid", lambda: 10001)
+    fence = tmp_path / dev_verification.BROWSER_RESET_FENCE
+    fence.parent.mkdir(parents=True, exist_ok=True)
+    fence.write_text("unsettled original verification")
+    reservation = {}
+    with pytest.raises(ValueError, match="BROWSER_RESET_UNKNOWN" if controlled else "CONTROLLED_HTTPS_COMMAND_REFUSED"):
+        if layer == "host":
+            dev_verification.run_host(
+                "run", command, web=False, rebuild=False, reservation=reservation, controlled_source_https=controlled
+            )
+        else:
+            dev_verification.run_inside(command, controlled_source_https=controlled)
+    assert fence.read_text() == "unsettled original verification"
+    if layer == "host":
+        assert reservation["completed"] is (not controlled)
+
+
+@pytest.mark.parametrize("layer", ["host", "inside"])
+@pytest.mark.parametrize("extra", [["-k", "backtest"], ["--controlled-source-https"], ["--override-ini", "addopts="]])
+def test_controlled_https_backtest_entry_rejects_additional_arguments_at_both_boundaries(
+    monkeypatch, tmp_path, layer, extra
+):
+    target = "packages/backend/tests/application/test_strategy_research_evidence.py::test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-native]"
+    command = ["python", "-m", "pytest", "-q", target, *extra]
+    monkeypatch.setattr(dev_verification, "ROOT", tmp_path)
+    monkeypatch.setattr(dev_verification.os, "geteuid", lambda: 10001)
+    with pytest.raises(ValueError, match="CONTROLLED_HTTPS_COMMAND_REFUSED"):
+        if layer == "host":
+            dev_verification.run_host(
+                "run", command, web=False, rebuild=False, reservation={}, controlled_source_https=True
+            )
+        else:
+            dev_verification.run_inside(command, controlled_source_https=True)

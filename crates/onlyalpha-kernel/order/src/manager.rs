@@ -24,7 +24,7 @@ pub(crate) struct Entity {
     pub creation: Value,
     pub outcome: String,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Manager {
     pub(crate) config: Value,
     pub(crate) orders: BTreeMap<String, Entity>,

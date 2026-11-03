@@ -61,3 +61,13 @@ FP-STORAGE-001 (RQAlpha479) motivates complete source closure and missing-histor
 Formal Runtime admission, official end-of-replay producer, Product API/Web integration, Artifact/Report export, FIFO analytics, SIM/LIVE, Python retirement and deployment/history migration remain separate owning work.
 
 The [native Replay Driver](rust-backtest-replay.md) can additionally bind its finite market/control stream and verify passive Broker/Event drain. Its nested Backtest Result remains an `EXECUTION_TRANSCRIPT`; neither native library proof alone grants formal Runtime/Evidence publication authority.
+
+## Native encoded replay evidence
+
+New storage3 Backtest work archives Evidence3 with `trace_format = RUNTIME_ENCODED_REPLAY_TRACE@2`. Its five existing JSON artifacts remain owned by the same immutable Evidence store. `replay-trace.json` contains every actual encoded replay entry, the original binding, immutable inputs and terminal state; it is never a mutable Runtime path or a partial descriptor. Evidence2 and Trace1 retain their original exact readers and bytes; this format change does not migrate or reinterpret an old Artifact.
+
+`logical_trace_fingerprint` binds the complete canonical Trace1 byte stream produced by the original owning replay. It is checked against the original proof source after full causal verification. The artifact SHA binds the actual stored Trace2 bytes. These are different identities and neither substitutes for the other. A new compiled Artifact remains an explicit identity input; equivalent encoding does not imply cross-Artifact Work or Result equivalence.
+
+The producer and read-side owner visit each decoded step through the original native verifier and use the same canonical economic facts to produce the close curve, fees, positions and summary. A new JSON label, a reference, a successful file write or a supplied fingerprint does not create a CompletionProof. Positive termination of the real producer and the original Runtime, Dataset, Strategy and preparation witnesses remain required.
+
+The aggregate immutable bundle and native reply each remain bounded by 128 MiB. Encoded history may be retained within that bound; the complete logical history must not be expanded into one Value in the production path. Each new logical journal entry is bounded by 8 MiB when decoded, and historical validation proceeds step by step with the original complete checks. No history, seen set, input, control, Order Intent, Fill or checkpoint is pruned to satisfy these limits.

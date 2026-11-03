@@ -33,8 +33,19 @@ pub fn digest(b: &[u8]) -> String {
         .map(|v| format!("{v:02x}"))
         .collect()
 }
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static HASHED_CANONICAL_WATCH: std::cell::RefCell<Option<(String,u64)>> = const { std::cell::RefCell::new(None) };
+}
 pub(crate) fn hash(v: &Value) -> String {
-    digest(v.to_string().as_bytes())
+    let canonical=v.to_string();
+    #[cfg(test)]
+    HASHED_CANONICAL_WATCH.with(|watch| {
+        if let Some((expected,count))=watch.borrow_mut().as_mut() {
+            if expected.as_str()==canonical.as_str() {*count+=1;}
+        }
+    });
+    digest(canonical.as_bytes())
 }
 pub(crate) fn row<'a>(v: &'a Value, fields: &[&str]) -> Result<&'a Map<String, Value>, Error> {
     let r = v.as_object().ok_or_else(|| err("EXECUTION_RECORD"))?;
@@ -138,11 +149,26 @@ pub(crate) const COMPONENTS: [&str; 6] = [
     "RISK",
     "EXECUTION",
 ];
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static PREPARED_VALIDATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    pub(crate) static PREPARED_OWNED_BODY_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 /// Constructed only by the pure planner. Store transport must bind its exact encoded digest.
-#[derive(Clone, Debug)]
 pub struct Prepared {
-    pub(crate) value: Value,
-    pub(crate) planned: bool,
+    value: std::sync::Arc<Value>,
+    input_fingerprint: std::sync::Arc<std::sync::OnceLock<String>>,
+    validated_transition_data: std::sync::Arc<std::sync::OnceLock<()>>,
+    planned: bool,
+    typed_after: Option<Box<crate::Components>>,
+}
+impl Clone for Prepared {
+    fn clone(&self)->Self {Self{value:std::sync::Arc::clone(&self.value),input_fingerprint:std::sync::Arc::clone(&self.input_fingerprint),validated_transition_data:std::sync::Arc::clone(&self.validated_transition_data),planned:self.planned,typed_after:None}}
+}
+impl fmt::Debug for Prepared {
+    fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result {
+        f.debug_struct("Prepared").field("value",self.value.as_ref()).field("planned",&self.planned).finish()
+    }
 }
 impl PartialEq for Prepared {
     fn eq(&self, other: &Self) -> bool {
@@ -155,17 +181,44 @@ impl Prepared {
     pub(crate) fn new(mut v: Value) -> Result<Self, Error> {
         v["payload_hash"] = json!(hash(&v));
         let result = Self {
-            value: v,
+            value: std::sync::Arc::new(v),
+            input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
+            validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
             planned: true,
+            typed_after: None,
         };
         result.validate()?;
         Ok(result)
     }
+    /// Borrow the complete immutable canonical body as data, never a commit grant.
+    /// `record()` remains the detached owned-copy API.
+    pub fn value(&self) -> &Value {
+        self.value.as_ref()
+    }
+    pub(crate) fn is_planned(&self) -> bool {
+        self.planned
+    }
+    pub(crate) fn observation(&self) -> Self {
+        Self {
+            value: std::sync::Arc::clone(&self.value),
+            input_fingerprint: std::sync::Arc::clone(&self.input_fingerprint),
+            validated_transition_data: std::sync::Arc::clone(&self.validated_transition_data),
+            planned: false,
+            typed_after: None,
+        }
+    }
+    pub(crate) fn with_typed_after(mut self,after:crate::Components)->Self {
+        self.typed_after=Some(Box::new(after));self
+    }
+    pub(crate) fn typed_after(&self)->Option<&crate::Components>{self.typed_after.as_deref()}
     pub fn record(&self) -> Value {
-        self.value.clone()
+        let owned = self.value.as_ref().clone();
+        #[cfg(test)]
+        PREPARED_OWNED_BODY_BYTES.with(|count|count.set(count.get()+owned.to_string().len() as u64));
+        owned
     }
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        Ok(serde_json::to_vec(&self.value)?)
+        Ok(serde_json::to_vec(self.value.as_ref())?)
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let v: Value = serde_json::from_slice(bytes)?;
@@ -173,8 +226,11 @@ impl Prepared {
             return Err(err("EXECUTION_NONCANONICAL"));
         }
         let p = Self {
-            value: v,
+            value: std::sync::Arc::new(v),
+            input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
+            validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
             planned: false,
+            typed_after: None,
         };
         p.validate()?;
         Ok(p)
@@ -188,14 +244,28 @@ impl Prepared {
     pub fn input(&self) -> &Value {
         &self.value["input"]
     }
+    /// Canonical data identity of this exact immutable input, never Store freshness or admission.
+    pub fn input_fingerprint(&self) -> &str {
+        self.input_fingerprint.get_or_init(|| hash(self.input())).as_str()
+    }
+    /// Pure owner-transition data only, never current Store/Ready or planner authority.
+    /// Transport decoding always starts without this rebuildable, nonserialized data.
+    pub fn has_validated_transition_data(&self) -> bool {
+        self.validated_transition_data.get().is_some()
+    }
+    pub(crate) fn mark_transition_data_valid(&self) {
+        let _ = self.validated_transition_data.set(());
+    }
     pub fn projection_count(&self) -> usize {
         COMPONENTS.len()
     }
     pub fn events(&self) -> &Value {
         &self.value["events"]
     }
-    pub(crate) fn validate(&self) -> Result<(), Error> {
-        let v = &self.value;
+    fn validate(&self) -> Result<(), Error> {
+        #[cfg(test)]
+        PREPARED_VALIDATIONS.with(|count| count.set(count.get() + 1));
+        let v = self.value.as_ref();
         row(
             v,
             &[
@@ -217,7 +287,7 @@ impl Prepared {
         {
             return Err(err("EXECUTION_SEQUENCE"));
         }
-        if text(&v["transaction_id"])? != format!("ETX-{}", hash(&v["input"])) {
+        if text(&v["transaction_id"])? != format!("ETX-{}", self.input_fingerprint()) {
             return Err(err("EXECUTION_IDENTITY"));
         }
         let mut content = v.clone();
@@ -301,3 +371,17 @@ pub(crate) fn bound_decimal_leaves(v: &Value) -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path="typed_after_tests.rs"]
+mod typed_after_tests;
+
+
+#[cfg(test)]
+#[path="record_observation_tests.rs"]
+mod record_observation_tests;
+
+
+#[cfg(test)]
+#[path="pure_transition_data_tests.rs"]
+mod pure_transition_data_tests;

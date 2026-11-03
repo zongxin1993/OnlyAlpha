@@ -287,3 +287,30 @@ fn preparation_and_window_identity_survive_a_fresh_process() {
             .contains(&format!("PREPARATION={result}"))
     );
 }
+
+#[test]
+fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original_graph() {
+    use onlyalpha_backend::application::research_factor::compile_revision;
+    let r = reference();
+    let dependencies = json!({"close":{"input":"close","closed_only":true},
+        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"1","period":20,"closed_only":true},
+        "volume":{"input":"volume","closed_only":true},
+        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"1","period":20,"closed_only":true}});
+    let compiled = compile_revision(&r["revision"], &dependencies).unwrap();
+    let original = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
+    assert_eq!(compiled.graph().to_record(), r["graph"]);
+    assert_eq!(compiled.fingerprint(), original.fingerprint());
+    assert_eq!(compiled.revision_fingerprint(), r["revision"]["revision_fingerprint"].as_str().unwrap());
+    for mutation in ["missing-port", "extra-port", "not-closed", "unsupported-operator", "unbounded-period", "semantic-version"] {
+        let mut bindings = dependencies.clone();
+        match mutation {
+            "missing-port" => { bindings.as_object_mut().unwrap().remove("close"); },
+            "extra-port" => { bindings["unexpected"] = json!({"input":"close","closed_only":true}); },
+            "not-closed" => bindings["close"]["closed_only"] = json!(false),
+            "unsupported-operator" => bindings["close_lag_20"]["operator"] = json!("other.delay"),
+            "unbounded-period" => bindings["close_lag_20"]["period"] = json!(u64::MAX),
+            _ => bindings["close_lag_20"]["semantic_version"] = json!("2"),
+        }
+        assert!(compile_revision(&r["revision"], &bindings).is_err(), "{mutation}");
+    }
+}

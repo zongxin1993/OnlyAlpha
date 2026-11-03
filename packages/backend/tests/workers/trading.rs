@@ -1,4 +1,6 @@
 use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
+#[path = "installed_trading_algorithms.rs"]
+mod installed_trading_algorithms;
 mod support;
 use onlyalpha_backtest::{Inputs, MarketInput, RunLoop, RunSpec, Source, Trading};
 use onlyalpha_calculation_bridge::fingerprint;

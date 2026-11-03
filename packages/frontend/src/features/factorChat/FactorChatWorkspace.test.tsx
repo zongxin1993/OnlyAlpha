@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { FactorChatPage } from "./FactorChatPage";
 import { accessKey, request, type Chat } from "./api";
 
@@ -136,7 +137,11 @@ afterEach(() => {
 
 it("keeps each historical factor inside its own reply and only offers the current exact confirmation", async () => {
     requests();
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     const history = await screen.findByRole("navigation", { name: "研究历史" });
     expect(history).toHaveTextContent("20日动量");
     const first = await screen.findByRole("article", { name: "助手回复 1" });
@@ -152,7 +157,11 @@ it("keeps each historical factor inside its own reply and only offers the curren
 
 it("keeps a composer discoverable before a study exists and filters history without changing selection", async () => {
     requests();
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     const search = await screen.findByRole("textbox", { name: "搜索研究历史" });
     fireEvent.change(search, { target: { value: "不存在" } });
     await waitFor(() => {
@@ -167,7 +176,11 @@ it("keeps a composer discoverable before a study exists and filters history with
 it("shows an actionable empty state instead of model configuration and engineering instructions", async () => {
     requests(false);
     localStorage.clear();
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     expect(await screen.findByRole("button", { name: "添加模型" })).toBeEnabled();
     expect(screen.getByRole("textbox", { name: "告诉助手你的想法" })).toBeVisible();
     expect(screen.queryByText(/Fingerprint|Reducer|DTO|Lease|Revision Hash|Authority/)).toBeNull();
@@ -175,7 +188,11 @@ it("shows an actionable empty state instead of model configuration and engineeri
 
 it("does not submit a Chinese composition until it ends", async () => {
     requests();
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     const input = await screen.findByRole("textbox", { name: "告诉助手你的想法" });
     await screen.findByRole("article", { name: "助手回复 2" });
     fireEvent.change(input, { target: { value: "把观察周期改成30日" } });
@@ -195,7 +212,11 @@ it("keeps the original unresolved save identity available only in diagnostic det
         "onlyalpha.agent.chat.pending",
         JSON.stringify({ kind: "stage", resource: sid, command: mid, binding: access.binding })
     );
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     const pending = await screen.findByRole("region", { name: "待核对的操作" });
     expect(within(pending).getByText("原登记操作详情")).toBeVisible();
     expect(within(pending).getByText(mid)).not.toBeVisible();
@@ -230,7 +251,11 @@ it("explains an interrupted model reply once without duplicating internal confir
             };
         return original(...args);
     });
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     expect(
         await screen.findByText(
             "模型连接中断，未收到完整回复。系统不会自动重复请求；已保存的内容仍可查看，可新建研究继续。"
@@ -281,7 +306,11 @@ it.each(["ABANDONED", "OUTCOME_UNKNOWN"] as const)(
             "onlyalpha.agent.chat.pending",
             JSON.stringify({ kind: "stage", resource: sid, command: mid, binding: access.binding })
         );
-        render(<FactorChatPage />);
+        render(
+            <MemoryRouter>
+                <FactorChatPage />
+            </MemoryRouter>
+        );
         fireEvent.click(await screen.findByRole("button", { name: "修改研究条件" }));
         const input = screen.getByRole("textbox", { name: "告诉助手你的想法" });
         if (outcome === "ABANDONED")
@@ -414,7 +443,11 @@ it("continues the same Factor on the current assistant without resetting its mod
             };
         return fallback(...args);
     });
-    render(<FactorChatPage />);
+    render(
+        <MemoryRouter>
+            <FactorChatPage />
+        </MemoryRouter>
+    );
     fireEvent.click(await screen.findByRole("button", { name: "修改研究条件" }));
     await screen.findByRole("button", { name: "查看先前讨论和报告" });
     expect(screen.getByRole("textbox", { name: "告诉助手你的想法" })).toBeEnabled();

@@ -20,6 +20,8 @@ pub enum FilePolicy {
     Metadata,
     Asset,
     HistoryDocument,
+    /// Immutable evidence artifact only; the caller supplies its cumulative budget.
+    EvidenceArtifact,
     /// Actual native program image only; assets and history retain their 8 MiB bound.
     Executable,
 }
@@ -50,7 +52,9 @@ fn trusted_file(metadata: &Stat, uid: u32, policy: FilePolicy) -> bool {
             FilePolicy::Secret => metadata.st_mode & 0o077 == 0 && metadata.st_nlink == 1,
             // The existing atomic namespace publisher uses hard links; read sharing is safe.
             FilePolicy::Metadata | FilePolicy::HistoryDocument => metadata.st_mode & 0o022 == 0,
-            FilePolicy::Asset => metadata.st_mode & 0o022 == 0 && metadata.st_nlink == 1,
+            FilePolicy::Asset | FilePolicy::EvidenceArtifact => {
+                metadata.st_mode & 0o022 == 0 && metadata.st_nlink == 1
+            }
             FilePolicy::Executable => {
                 metadata.st_mode & 0o022 == 0
                     && metadata.st_mode & 0o111 != 0
@@ -136,12 +140,13 @@ pub fn read_file_at(
         FilePolicy::Metadata
         | FilePolicy::Asset
         | FilePolicy::HistoryDocument
-        | FilePolicy::Executable => ReadError::Unavailable,
+        | FilePolicy::Executable
+        | FilePolicy::EvidenceArtifact => ReadError::Unavailable,
     };
     let limit = limit.min(match policy {
         FilePolicy::Asset | FilePolicy::HistoryDocument => 8 * 1024 * 1024,
         FilePolicy::Secret | FilePolicy::Metadata => 32768,
-        FilePolicy::Executable => 128 * 1024 * 1024,
+        FilePolicy::Executable | FilePolicy::EvidenceArtifact => 128 * 1024 * 1024,
     });
     if matches!(policy, FilePolicy::Secret) && metadata.st_size == 0 {
         return Err(ReadError::Invalid);
@@ -318,5 +323,34 @@ mod executable_tests {
             ReadError::Invalid
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod evidence_artifact_budget_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn native_evidence_artifact_budget_does_not_widen_history_assets_or_executables() {
+        let mut random=[0u8;16];getrandom::fill(&mut random).unwrap();
+        let root=std::env::temp_dir().canonicalize().unwrap().join(format!("use_test-evidence-budget-{}",random.iter().map(|b|format!("{b:02x}")).collect::<String>()));
+        std::fs::create_dir(&root).unwrap();std::fs::set_permissions(&root,std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Transport bytes only: a large canonical replay trace can exceed the
+        // old 8 MiB history limit without becoming an executable or a grant.
+        let path=root.join("artifact");let file=std::fs::File::create(&path).unwrap();file.set_len(8*1024*1024+1).unwrap();
+        std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o600)).unwrap();let selected=open_directory(&root).unwrap();
+        for policy in [FilePolicy::Asset,FilePolicy::HistoryDocument] {
+            assert_eq!(read_file_at(&selected,OsStr::new("artifact"),policy,128*1024*1024).unwrap_err(),ReadError::Unavailable);
+        }
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::Executable,128*1024*1024).unwrap_err(),ReadError::Invalid);
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,128*1024*1024).unwrap().len(),8*1024*1024+1);
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Unavailable);
+        file.set_len(128*1024*1024+1).unwrap();
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,usize::MAX).unwrap_err(),ReadError::Unavailable);
+        file.set_len(1).unwrap();std::fs::hard_link(&path,root.join("alias")).unwrap();
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Invalid);
+        std::fs::remove_file(root.join("alias")).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o622)).unwrap();
+        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Invalid);
+        drop(selected);drop(file);std::fs::remove_dir_all(root).unwrap();
     }
 }

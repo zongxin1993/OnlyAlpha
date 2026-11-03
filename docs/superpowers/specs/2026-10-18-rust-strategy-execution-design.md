@@ -58,11 +58,11 @@ independent expected decision values prove this handoff; planner callbacks alone
 
 ## Recovery
 
-A bounded canonical checkpoint under a caller-retained expected digest binds exact program, node states/receipts, per-instrument
-accepted observations/outcomes and complete input prefix. Every successful node acknowledgment carries the actual native plugin-state SHA-256, retained separately by Rust and bound in its receipt trace; capture/restore must reproduce it. A nested state transplant cannot manufacture a newer acknowledged commitment by rehashing only its envelope. Fresh restore reconstructs all candidates, validates bindings/cursors/
+Current checkpoint schema2 under a caller-retained expected digest binds the fingerprint of the exact immutable Program already held by the owner, node states/receipts, per-instrument
+accepted observations/outcomes and complete input prefix. The exact schema1 reader keeps its original inline Program fields, canonical bytes and hash interpretation; new capture uses schema2 only. There is no latest Program lookup, old-format capture switch or journal translation. Every successful node acknowledgment carries the actual native plugin-state SHA-256, retained separately by Rust and bound in its receipt trace; capture/restore must reproduce it. A nested state transplant cannot manufacture a newer acknowledged commitment by rehashing only its envelope. Fresh restore reconstructs all candidates, validates bindings/cursors/
 observations/output roles and current component relations, then installs all state at once. A failed candidate is discarded and
 candidate processes reaped; the receiver remains unchanged, including its failed status. Coordinated MarketData/Strategy recovery
-must reject cross-cut splices, including identical terminal Bars under different histories: Strategy parent must match the latest actual preparation receipt retained by Pipeline checkpoint schema2. The coordinator owns no independent delivery-prefix authority. No business store, history migration or service-upgrade certification is implied.
+must reject cross-cut splices, including identical terminal Bars under different histories: Strategy parent must match the latest actual preparation receipt retained by the exact Pipeline checkpoint (current schema3, retained schema2). The coordinator owns no independent delivery-prefix authority. No business store, history migration or service-upgrade certification is implied.
 
 ## Proof
 

@@ -1,5 +1,8 @@
 //! Exact executable-input preflight for the declared input/algorithm ABI.
 //! The owning Run Command retains Human Research authorization.
+mod strategy;
+pub(crate) use strategy::{select as select_strategy_implementations,observed_node as observed_strategy_node};
+pub use strategy::restore_strategy;
 use crate::{
     application::{
         factor_content::hash,
@@ -99,7 +102,7 @@ pub fn restore(
     installation: &ChartInstallation,
     datasets: &Store,
 ) -> std::result::Result<PreparedInputs, PreparationError> {
-    let spec = run.specification();
+    let spec = run.factor_specification()?;
     let materialization = run.prepared_inputs["dataset_materialization"]["materialization_id"]
         .as_str()
         .ok_or(INVALID)?;

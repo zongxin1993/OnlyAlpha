@@ -92,8 +92,10 @@ def trade_update(sequence: int = 10, *, price: str = "100.12000000") -> OnlyMark
     )
 
 
-def bar_update(index: int = 0, *, close: str = "101.00000000") -> OnlyMarketDataInboundUpdate:
-    start = BASE + timedelta(minutes=index)
+def bar_update(
+    index: int = 0, *, close: str = "101.00000000", first_bar_start: datetime | None = None
+) -> OnlyMarketDataInboundUpdate:
+    start = (BASE if first_bar_start is None else first_bar_start) + timedelta(minutes=index)
     end = start + timedelta(minutes=1)
     bar = OnlyBar(
         bar_type=BAR_TYPE,

@@ -208,7 +208,7 @@ fn composite_corruption_rejected_without_replacing_current_owner() {
         match mode {
             0 => v["processed"] = json!(5),
             1 => v["frontiers"][0]["sequence"] = json!(0),
-            2 => v["program"]["consumer"] = json!("a".repeat(64)),
+            2 => v["program_fingerprint"] = json!("a".repeat(64)),
             3 => v["expected"][0][1]["samples"] = json!(99),
             4 => v["last_inputs"][0][1]["close"]["value"] = json!("10.06"),
             5 => v["state"]["unknown"] = Value::Null,
@@ -367,7 +367,7 @@ fn derived_state_delivery_and_calculation_cannot_form_a_separate_older_cut() {
 }
 
 #[test]
-fn checkpoint_two_retains_owning_delivery_receipts_and_rejects_old_schema() {
+fn checkpoint_three_retains_owning_delivery_receipts_and_rejects_schema_one() {
     let mut p = pipeline();
     let prepared = p.process(&input(1)).unwrap();
     for receipt in &prepared.receipts {
@@ -375,7 +375,7 @@ fn checkpoint_two_retains_owning_delivery_receipts_and_rejects_old_schema() {
         assert_eq!(p.last_delivery(&id), Some(receipt));
     }
     let cp = p.capture_checkpoint().unwrap();
-    assert_eq!(cp["schema_version"], 2);
+    assert_eq!(cp["schema_version"], 3);
     let mut old = cp.clone();
     old["schema_version"] = json!(1);
     assert!(restore(&mut p, &old).is_err());
@@ -385,4 +385,62 @@ fn checkpoint_two_retains_owning_delivery_receipts_and_rejects_old_schema() {
         json!(digest(&stale["delivery_receipts"]));
     assert!(restore(&mut p, &stale).is_err());
     assert_eq!(cp, p.capture_checkpoint().unwrap());
+}
+
+
+#[test]
+fn checkpoint_program_reference_preserves_full_state_and_exact_legacy_two_reader() {
+    let mut source = pipeline();
+    for i in 1..=6 { source.process(&input(i)).unwrap(); }
+    let current = source.capture_checkpoint().unwrap();
+    assert_eq!(current["schema_version"], 3);
+    assert!(current.get("program").is_none());
+    assert_eq!(current["program_fingerprint"], source.program().fingerprint());
+    let mut legacy = current.clone();
+    legacy.as_object_mut().unwrap().remove("program_fingerprint");
+    legacy["schema_version"] = json!(2);
+    legacy["program"] = source.program().to_record();
+    let components = legacy["component_bindings"]["components"].as_object_mut().unwrap();
+    components.remove("program_fingerprint");
+    components.insert("program".into(), json!(digest(&source.program().to_record())));
+    components.insert("schema_version".into(), json!(digest(&json!(2))));
+    let legacy_bytes = legacy.to_string();
+    let legacy_digest = digest(&legacy);
+    let mut recovered = pipeline();
+    recovered.restore_checkpoint(legacy_bytes.as_bytes(), &legacy_digest).unwrap();
+    assert_eq!(legacy.to_string(), legacy_bytes);
+    assert_eq!(digest(&legacy), legacy_digest);
+    assert_eq!(recovered.capture_checkpoint().unwrap(), current);
+    assert_eq!(source.process(&input(7)).unwrap().to_record(), recovered.process(&input(7)).unwrap().to_record());
+    assert!(current.to_string().len() < legacy_bytes.len());
+    let mut foreign_legacy = legacy.clone();
+    foreign_legacy["program"]["consumer"] = json!("d".repeat(64));
+    assert_ne!(foreign_legacy["program"], source.program().to_record());
+    foreign_legacy["component_bindings"]["components"]["program"] = json!(digest(&foreign_legacy["program"]));
+    let before = recovered.capture_checkpoint().unwrap();
+    assert!(restore(&mut recovered, &foreign_legacy).is_err());
+    assert_eq!(recovered.capture_checkpoint().unwrap(), before);
+}
+
+#[test]
+fn rehashed_program_reference_and_mixed_codecs_never_replace_the_held_program() {
+    let mut source = pipeline();
+    source.process(&input(1)).unwrap();
+    let current = source.capture_checkpoint().unwrap();
+    for mode in ["foreign_program", "legacy_version", "unknown_version", "inline_program"] {
+        let mut invalid = current.clone();
+        match mode {
+            "foreign_program" => invalid["program_fingerprint"] = json!("f".repeat(64)),
+            "legacy_version" => invalid["schema_version"] = json!(2),
+            "unknown_version" => invalid["schema_version"] = json!(4),
+            _ => invalid["program"] = source.program().to_record(),
+        }
+        for key in ["program_fingerprint", "schema_version", "program"] {
+            if let Some(value) = invalid.get(key).cloned() {
+                invalid["component_bindings"]["components"][key] = json!(digest(&value));
+            }
+        }
+        assert!(restore(&mut source, &invalid).is_err(), "{mode}");
+        assert_eq!(source.capture_checkpoint().unwrap(), current, "{mode}");
+    }
 }

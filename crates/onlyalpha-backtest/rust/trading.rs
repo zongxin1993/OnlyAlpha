@@ -1,5 +1,8 @@
-//! Actual native Pipeline/Strategy with passive Python plugin world and canonical Execution.
-use crate::{Candidate, Error, MarketInput, Participants, boundary, err, fields, hash};
+//! Actual native Pipeline/Strategy and canonical Execution with explicit replay profiles.
+use crate::{
+    Candidate, Error, MarketInput, NextOpenPolicy, OpeningInput, Participants, boundary, err,
+    fields, hash, next_open::{NativeExecution, NativeReplay},
+};
 use onlyalpha_calculation_bridge::{StrategyPreparation, Worker};
 use onlyalpha_clock::BigInt;
 use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, time::OnlyTimestamp};
@@ -10,7 +13,8 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 const DEADLINE: Duration = Duration::from_secs(10);
 pub struct Trading<C: NodePort> {
     preparation: StrategyPreparation<C>,
-    worker: Worker,
+    worker: Option<Worker>,
+    native: Option<NativeReplay>,
     settings: Value,
     binding: Value,
     world: Value,
@@ -18,6 +22,24 @@ pub struct Trading<C: NodePort> {
     next: usize,
     now: u64,
     effects: Vec<Value>,
+}
+/// One canonical transport derivation for actual BAR valuation and its original
+/// read-only journal consumer. Values confer no execution permission.
+fn bar_request(binding:&Value,input:&MarketInput,now:u64,sequence:usize,op:&str,payload:Value,cause:&str,day_index:Value)->Value {
+    let config=&binding["policy"]["execution"];
+    let program=&binding["program"];
+    let n=sequence as u64+1;
+    let id=format!("REPLAY-{}",hash(&json!({"market":input.identity(),"cause":cause,"sequence":n,"op":op,"payload":payload,"program":binding})));
+    json!({"schema_version":1,"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"generation":config["generation"],"runtime_kind":"BACKTEST","cluster":program["scope"]["cluster"],"revision":program["revision"]["strategy_fingerprint"],"input_id":id,"source_ref":format!("CAUSE-{}",hash(&json!([input.identity(),cause,n,op]))),"time":now,"runtime_sequence":n,"trading_day":input.bar().to_record()["trading_day"],"day_index":day_index,"op":op,"payload":payload})
+}
+pub(crate) fn valuation_input(binding:&Value,input:&MarketInput,now:u64,c:&impl NativeExecution,day_index:Value)->Result<Option<Value>,Error>{
+    let state=c.position_order_view()?;
+    let positions=state["position_accounts"].as_array().ok_or_else(||err("POSITION"))?;
+    if positions.is_empty(){return Ok(None);}
+    let n=c.sequence() as u64+1;
+    let marks=positions.iter().map(|p|{if p["instrument"]!=input.bar().instrument_id().to_string(){return Err(err("MARK_SOURCE"));}Ok(json!({"schema_version":1,"instrument":p["instrument"],"mark":input.bar().to_record()["close"]["value"],"source_ref":format!("BAR-{}",input.identity()),"family":"CLOSED_BAR","version":n,"time":now,"as_of_sequence":n}))}).collect::<Result<Vec<_>,Error>>()?;
+    let payload=json!({"schema_version":1,"valuation":format!("VALUATION-{}",input.identity()),"version":n,"position_evidence":state["position_checkpoint_fingerprint"],"economic_version":state["economic_version"],"marks":marks});
+    Ok(Some(bar_request(binding,input,now,c.sequence(),"VALUATION",payload,&input.identity(),day_index)))
 }
 impl<C: NodePort> Trading<C> {
     pub fn new(
@@ -36,43 +58,19 @@ impl<C: NodePort> Trading<C> {
                 "requests",
             ],
         )?;
-        let initial = boundary(preparation.capture_checkpoint())?;
-        let program = preparation.strategy().program();
-        let e = settings["execution"].clone();
-        let instrument = boundary(onlyalpha_domain::instrument::OnlyInstrument::from_record(
-            &settings["instrument"],
-        ))?
-        .to_record();
-
-        let cluster = program.scope().cluster.value();
-        let revision = program.revision().fingerprint();
-        let sources = &initial["pipeline"]["program"]["sources"];
-        if settings["schema_version"] != 1
-            || e["runtime_kind"] != "BACKTEST"
-            || e["engine"] != program.scope().engine.value()
-            || e["runtime"] != program.scope().runtime.value()
-            || e["generation"] != program.generation()
-            || e["profiles"].as_object().is_none_or(|m| m.len() != 1)
-            || e["profiles"][cluster]["revision"] != revision
-            || e["instruments"].as_array().is_none_or(|v| v.len() != 1)
-            || program.revision().universe().len() != 1
-            || e["instruments"][0]["id"] != program.revision().universe()[0].to_string()
-            || worker.binding() != (program.generation(), program.artifact())
-            || sources.as_array().is_none_or(|s| s.len() != 1)
-        {
+        if settings["schema_version"] != 1 {
             return Err(err("TRADING_CONTEXT"));
         }
-        if instrument != settings["instrument"]
-            || instrument["instrument_id"] != program.revision().universe()[0].to_record()
-            || instrument["price_precision"] != e["instruments"][0]["price_precision"]
-            || instrument["quantity_precision"] != e["instruments"][0]["quantity_precision"]
-            || instrument["settlement_currency"] != e["currency"]
-            || instrument["contract_multiplier"]["value"] != e["instruments"][0]["multiplier"]
-            || instrument["market_type"] != "CASH"
-        {
-            return Err(err("TRADING_INSTRUMENT_CONTEXT"));
+        let now = Self::context(&mut preparation, &settings, &initial_ns)?;
+        let program = preparation.strategy().program();
+        if worker.binding() != (program.generation(), program.artifact()) {
+            return Err(err("TRADING_CONTEXT"));
         }
-        let now = boundary(initial_ns.to_string().parse::<u64>())?;
+        let e = settings["execution"].clone();
+        let cluster = program.scope().cluster.value();
+        let revision = program.revision().fingerprint();
+        let pipeline = preparation.pipeline_program().to_record();
+        let sources = &pipeline["sources"];
         let candidate = Candidate::new(e.clone(), vec![])?;
         let mut request_ids = BTreeSet::new();
         for v in settings["requests"]
@@ -91,10 +89,11 @@ impl<C: NodePort> Trading<C> {
         settings["calendar"] = sources[0]["calendar"].clone();
         let world=boundary(worker.exchange_replay(json!({"schema_version":1,"configuration":settings,"checkpoint":null,"operation":"INIT","payload":{},"now":now}),DEADLINE))?;
         world_proof(&world)?;
-        let binding = json!({"schema_version":1,"configuration":hash(&e),"generation":program.generation(),"initial_ns":initial_ns.to_string(),"strategies":{cluster:revision},"sources":[program.source()],"program":program.to_record(),"pipeline":initial["pipeline"]["program"],"policy":settings});
+        let binding = json!({"schema_version":1,"configuration":hash(&e),"generation":program.generation(),"initial_ns":initial_ns.to_string(),"strategies":{cluster:revision},"sources":[program.source()],"program":program.to_record(),"pipeline":pipeline,"policy":settings});
         Ok(Self {
             preparation,
-            worker,
+            worker: Some(worker),
+            native: None,
             settings,
             binding,
             world,
@@ -104,8 +103,86 @@ impl<C: NodePort> Trading<C> {
             effects: vec![],
         })
     }
+    fn context(
+        preparation: &mut StrategyPreparation<C>,
+        settings: &Value,
+        initial_ns: &BigInt,
+    ) -> Result<u64, Error> {
+        boundary(preparation.capture_checkpoint())?;
+        let program = preparation.strategy().program();
+        let e = settings["execution"].clone();
+        let instrument = boundary(onlyalpha_domain::instrument::OnlyInstrument::from_record(
+            &settings["instrument"],
+        ))?
+        .to_record();
+
+        let cluster = program.scope().cluster.value();
+        let revision = program.revision().fingerprint();
+        let pipeline = preparation.pipeline_program().to_record();
+        let sources = &pipeline["sources"];
+        if e["runtime_kind"] != "BACKTEST"
+            || e["engine"] != program.scope().engine.value()
+            || e["runtime"] != program.scope().runtime.value()
+            || e["generation"] != program.generation()
+            || e["profiles"].as_object().is_none_or(|m| m.len() != 1)
+            || e["profiles"][cluster]["revision"] != revision
+            || e["instruments"].as_array().is_none_or(|v| v.len() != 1)
+            || program.revision().universe().len() != 1
+            || e["instruments"][0]["id"] != program.revision().universe()[0].to_string()
+            || sources.as_array().is_none_or(|s| s.len() != 1)
+        {
+            return Err(err("TRADING_CONTEXT"));
+        }
+        if instrument != settings["instrument"]
+            || instrument["instrument_id"] != program.revision().universe()[0].to_record()
+            || instrument["price_precision"] != e["instruments"][0]["price_precision"]
+            || instrument["quantity_precision"] != e["instruments"][0]["quantity_precision"]
+            || instrument["settlement_currency"] != e["currency"]
+            || instrument["contract_multiplier"]["value"] != e["instruments"][0]["multiplier"]
+            || instrument["market_type"] != "CASH"
+        {
+            return Err(err("TRADING_INSTRUMENT_CONTEXT"));
+        }
+        let now = boundary(initial_ns.to_string().parse::<u64>())?;
+        Ok(now)
+    }
+    /// Explicit native model profile; it never invokes the external Replay worker.
+    pub fn next_open(
+        mut preparation: StrategyPreparation<C>,
+        mut settings: Value,
+        resolver: Box<dyn NextOpenPolicy>,
+        initial_ns: BigInt,
+    ) -> Result<Self, Error> {
+        fields(
+            &settings,
+            &["schema_version", "execution", "instrument", "policy"],
+        )?;
+        if settings["schema_version"] != 2 {
+            return Err(err("TRADING_CONTEXT"));
+        }
+        let now = Self::context(&mut preparation, &settings, &initial_ns)?;
+        let pipeline = preparation.pipeline_program().to_record();
+        settings["calendar"] = pipeline["sources"][0]["calendar"].clone();
+        let program = preparation.strategy().program();
+        let cluster = program.scope().cluster.value();
+        let revision = program.revision().fingerprint();
+        let native = NativeReplay::new(&settings, resolver, initial_ns.clone(), cluster)?;
+        let binding = json!({"schema_version":1,"configuration":hash(&settings["execution"]),"generation":program.generation(),"initial_ns":initial_ns.to_string(),"strategies":{cluster:revision},"sources":[program.source()],"program":program.to_record(),"pipeline":pipeline,"policy":settings,"native_policy":native.binding(),"opening_profile":{"schema_version":1,"kind":"OPEN_CLOSE_V1"}});
+        Ok(Self {
+            preparation,
+            worker: None,
+            native: Some(native),
+            settings,
+            binding,
+            world: Value::Null,
+            fees: json!({}),
+            next: 0,
+            now,
+            effects: vec![],
+        })
+    }
     fn exchange(&mut self, operation: &str, payload: Value) -> Result<Value, Error> {
-        let value=self.worker.exchange_replay(json!({"schema_version":1,"configuration":self.settings,"checkpoint":self.world["checkpoint"],"operation":operation,"payload":payload,"now":self.now}),DEADLINE).map_err(|error|err(&format!("EXTERNAL_{operation}_{error}")))?;
+        let value=self.worker.as_mut().ok_or_else(||err("EXTERNAL_PROFILE_REQUIRED"))?.exchange_replay(json!({"schema_version":1,"configuration":self.settings,"checkpoint":self.world["checkpoint"],"operation":operation,"payload":payload,"now":self.now}),DEADLINE).map_err(|error|err(&format!("EXTERNAL_{operation}_{error}")))?;
         if matches!(operation, "INIT" | "VALIDATE" | "BAR" | "SUBMIT") {
             world_proof(&value)?;
         }
@@ -119,19 +196,12 @@ impl<C: NodePort> Trading<C> {
         payload: Value,
         cause: &str,
     ) -> Result<Value, Error> {
-        let config = c.configuration();
-        let program = self.preparation.strategy().program();
-        let n = c.records().len() as u64 + 1;
-        let id = format!(
-            "REPLAY-{}",
-            hash(
-                &json!({"market":input.identity(),"cause":cause,"sequence":n,"op":op,"payload":payload,"program":self.binding})
-            )
-        );
-        Ok(
-            json!({"schema_version":1,"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"generation":config["generation"],"runtime_kind":"BACKTEST","cluster":program.scope().cluster.value(),"revision":program.revision().fingerprint(),"input_id":id,"source_ref":format!("CAUSE-{}",hash(&json!([input.identity(),cause,n,op]))),"time":self.now,"runtime_sequence":n,"trading_day":input.bar().to_record()["trading_day"],"day_index":self.world["day_index"],"op":op,"payload":payload}),
-        )
+        let day_index = if self.native.is_some() {
+            crate::next_open::context(cause, input.event_ns(), &input.bar().to_record()["trading_day"])?["day_index"].clone()
+        } else { self.world["day_index"].clone() };
+        Ok(bar_request(&self.binding, input, self.now, c.records().len(), op, payload, cause, day_index))
     }
+
     fn apply_updates(
         &mut self,
         c: &mut Candidate,
@@ -217,18 +287,23 @@ impl<C: NodePort> Trading<C> {
         }
         Ok(())
     }
-    fn valuation(&self, c: &mut Candidate, input: &MarketInput) -> Result<(), Error> {
-        let state = c.state()?;
-        let positions = state["position"]["accounts"]
-            .as_array()
-            .ok_or_else(|| err("POSITION"))?;
-        if positions.is_empty() {
-            return Ok(());
+    fn validate_native_cut(&self) -> Result<(), Error> {
+        if let Some(native) = &self.native {
+            let strategy = self.preparation.strategy();
+            let program = strategy.program();
+            let outcome = strategy
+                .last_outcome(&program.revision().universe()[0])
+                .map(|o| o.to_record());
+            native.validate_cut(program.source(), outcome.as_ref())?;
         }
-        let n = c.records().len() as u64 + 1;
-        let marks=positions.iter().map(|p|{if p["instrument"]!=input.bar().instrument_id().to_string(){return Err(err("MARK_SOURCE"));}Ok(json!({"schema_version":1,"instrument":p["instrument"],"mark":input.bar().to_record()["close"]["value"],"source_ref":format!("BAR-{}",input.identity()),"family":"CLOSED_BAR","version":n,"time":self.now,"as_of_sequence":n}))}).collect::<Result<Vec<_>,Error>>()?;
-        let payload = json!({"schema_version":1,"valuation":format!("VALUATION-{}",input.identity()),"version":n,"position_evidence":hash(&c.checkpoint()?["components"][1]),"economic_version":state["account"]["snapshot"]["economic_version"],"marks":marks});
-        c.apply(&self.request(c, input, "VALUATION", payload, &input.identity())?)
+        Ok(())
+    }
+    fn valuation(&self, c: &mut Candidate, input: &MarketInput) -> Result<(), Error> {
+        let day_index = if self.native.is_some() {
+            crate::next_open::context(&input.identity(), input.event_ns(), &input.bar().to_record()["trading_day"])?["day_index"].clone()
+        } else { self.world["day_index"].clone() };
+        if let Some(command) = valuation_input(&self.binding, input, self.now, c, day_index)? { c.apply(&command)?; }
+        Ok(())
     }
 }
 impl<C: NodePort> Participants for Trading<C> {
@@ -236,11 +311,35 @@ impl<C: NodePort> Participants for Trading<C> {
         self.binding.clone()
     }
     fn capture(&mut self) -> Result<Value, Error> {
+        self.validate_native_cut()?;
+        if let Some(native) = &self.native {
+            return Ok(
+                json!({"schema_version":2,"binding":hash(&self.binding),"preparation":boundary(self.preparation.capture_checkpoint())?,"native":native.capture(),"now":self.now}),
+            );
+        }
         Ok(
             json!({"schema_version":1,"binding":hash(&self.binding),"preparation":boundary(self.preparation.capture_checkpoint())?,"world":self.world,"fees":self.fees,"next":self.next,"now":self.now}),
         )
     }
     fn restore(&mut self, v: &Value) -> Result<(), Error> {
+        if let Some(native) = &mut self.native {
+            fields(
+                v,
+                &["schema_version", "binding", "preparation", "native", "now"],
+            )?;
+            if v["schema_version"] != 2 || v["binding"] != hash(&self.binding) {
+                return Err(err("TRADING_CHECKPOINT"));
+            }
+            let now = v["now"].as_u64().ok_or_else(|| err("NOW"))?;
+            native.restore(&v["native"])?;
+            boundary(self.preparation.restore_checkpoint(
+                v["preparation"].to_string().as_bytes(),
+                &hash(&v["preparation"]),
+            ))?;
+            self.now = now;
+            self.validate_native_cut()?;
+            return Ok(());
+        }
         fields(
             v,
             &[
@@ -283,13 +382,16 @@ impl<C: NodePort> Participants for Trading<C> {
         Ok(())
     }
     fn process(&mut self, input: &MarketInput, c: &mut Candidate) -> Result<Value, Error> {
+        self.validate_execution(c)?;
         self.effects.clear();
         if input.source() != self.preparation.strategy().program().source() {
             return Err(err("SOURCE_BINDING"));
         }
         self.now = boundary(input.event_ns().to_string().parse())?;
-        self.world = self.exchange("BAR", json!({"bar":input.bar().to_record()}))?;
-        self.apply_updates(c, input, &input.identity())?;
+        if self.native.is_none() {
+            self.world = self.exchange("BAR", json!({"bar":input.bar().to_record()}))?;
+            self.apply_updates(c, input, &input.identity())?;
+        }
         self.valuation(c, input)?;
         let pipeline = PipelineInput {
             source: input.source().into(),
@@ -299,6 +401,11 @@ impl<C: NodePort> Participants for Trading<C> {
             quality: vec![],
         };
         let processing = boundary(self.preparation.process(&pipeline))?;
+        if let Some(native) = &mut self.native {
+            let policy = native.closed(input, &processing, c)?;
+            self.validate_execution(c)?;
+            return Ok(json!({"schema_version":2,"preparation":processing,"policy":policy}));
+        }
         let mut policy = Value::Null;
         if let Some(request) = self.settings["requests"]
             .as_array()
@@ -375,7 +482,56 @@ impl<C: NodePort> Participants for Trading<C> {
             json!({"schema_version":1,"preparation":processing,"policy":policy,"broker":self.world,"economic_evidence":self.effects}),
         )
     }
+    fn validate_initial(&self, c: &Candidate) -> Result<(), Error> {
+        self.validate_execution(c)?;
+        if let Some(native) = &self.native {
+            let strategy = self.preparation.strategy();
+            let instrument = &strategy.program().revision().universe()[0];
+            if !native.is_genesis() || strategy.last_outcome(instrument).is_some() {
+                return Err(err("NATIVE_INITIAL_GENESIS_REQUIRED"));
+            }
+        }
+        Ok(())
+    }
+    fn validate_execution(&self, c: &Candidate) -> Result<(), Error> {
+        self.validate_native_cut()?;
+        if let Some(native) = &self.native {
+            native.validate_execution(c)?;
+        }
+        Ok(())
+    }
+    fn opening_phase(&self) -> bool {
+        self.native.is_some()
+    }
+    fn opening(&mut self, input: &OpeningInput, c: &mut Candidate) -> Result<Value, Error> {
+        self.validate_execution(c)?;
+        let program = self.preparation.strategy().program();
+        if input.source() != program.source()
+            || input.instrument_id() != &program.revision().universe()[0]
+        {
+            return Err(err("SOURCE_BINDING"));
+        }
+        self.now = boundary(input.event_ns().to_string().parse())?;
+        self.native
+            .as_mut()
+            .ok_or_else(|| err("OPENING_PROFILE_REQUIRED"))?
+            .opening(input, c)
+    }
+    fn end_input(&mut self, c: &mut Candidate) -> Result<Value, Error> {
+        self.validate_execution(c)?;
+        self.native
+            .as_mut()
+            .ok_or_else(|| err("OPENING_PROFILE_REQUIRED"))?
+            .end_input(c)
+    }
+    fn cancel_input(&mut self, c: &mut Candidate) -> Result<Value, Error> {
+        self.validate_execution(c)?;
+        self.native.as_mut().ok_or_else(|| err("OPENING_PROFILE_REQUIRED"))?.cancel_input(c)
+    }
     fn quiescent(&self) -> Result<bool, Error> {
+        if let Some(native) = &self.native {
+            return native.quiescent();
+        }
         let pending = self.world["pending"]
             .as_u64()
             .ok_or_else(|| err("BROKER_PENDING_PROOF"))?;

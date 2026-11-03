@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from typing import Any, cast
@@ -18,7 +19,38 @@ from psycopg.types.json import Jsonb
 from . import backend
 from .config import Settings
 from .model import endpoint, validate_response
-from .workflow import PROMPT, STUDY_PROMPT, digest
+from .security import Denied, _recorded_backtest_analysis, verify_backtest_analysis
+from .workflow import BACKTEST_ANALYSIS_PROMPT, PROMPT, STUDY_PROMPT, digest
+
+
+def _analysis_reference(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: context[key]
+        for key in (
+            "run_id",
+            "specification_fingerprint",
+            "strategy_fingerprint",
+            "evidence_fingerprint",
+            "result_fingerprint",
+            "determinism_fingerprint",
+        )
+    }
+
+
+def _analysis_request(
+    profile: dict[str, Any], context: dict[str, Any], messages: list[dict[str, str]], text: str
+) -> dict[str, Any]:
+    return {
+        "model": profile["model_id"],
+        "messages": [
+            {"role": "system", "content": BACKTEST_ANALYSIS_PROMPT},
+            {"role": "system", "content": json.dumps(context, ensure_ascii=False, sort_keys=True, allow_nan=False)},
+            *messages,
+            {"role": "user", "content": text},
+        ],
+        "response_format": {"type": "json_object"},
+        "max_tokens": 2000,
+    }
 
 
 class Conflict(Exception):
@@ -435,10 +467,12 @@ class Store:
         session = self.session(sid, owner)
         rows = list(self.conn.execute("SELECT * FROM agent_event WHERE session=%s ORDER BY ordinal", (sid,)))
         head = None
+        prior_messages: list[dict[str, str]] = []
+        has_analysis = any(row["plan"].get("topic") == "BACKTEST_ANALYSIS" for row in rows)
         for i, row in enumerate(rows):
             if row["ordinal"] != i + 1 or digest(row["plan"]) != row["fingerprint"] or row["plan"]["expected"] != head:
                 raise Conflict("AGENT_HISTORY_CORRUPT")
-            if row["plan"].get("topic", "FACTOR") not in {"FACTOR", "STUDY"}:
+            if row["plan"].get("topic", "FACTOR") not in {"FACTOR", "STUDY", "BACKTEST_ANALYSIS"}:
                 raise Conflict("AGENT_HISTORY_CORRUPT")
             receipt = self.conn.execute(
                 "SELECT owner,outcome,intent FROM agent_command WHERE id=%s", (row["command"],)
@@ -446,6 +480,12 @@ class Store:
             body = {"expected": row["plan"]["expected"], "text": row["plan"]["text"]}
             if row["plan"].get("topic", "FACTOR") == "STUDY":
                 body.update(topic="STUDY", factor_proposal_fingerprint=row["plan"]["factor_proposal_fingerprint"])
+            elif row["plan"].get("topic") == "BACKTEST_ANALYSIS":
+                body.update(
+                    topic="BACKTEST_ANALYSIS",
+                    backtest_run_id=row["plan"]["backtest_run_id"],
+                    analysis_assertion=row["plan"]["analysis_assertion"],
+                )
             if (
                 receipt is None
                 or receipt["owner"] != owner
@@ -466,6 +506,30 @@ class Store:
                 or row["plan"]["model_revision"] != session["model"]
             ):
                 raise Conflict("AGENT_HISTORY_CORRUPT")
+            if row["plan"].get("topic") == "BACKTEST_ANALYSIS":
+                try:
+                    context = _recorded_backtest_analysis(
+                        self.settings.browser_issuer_key,
+                        row["plan"]["analysis_assertion"],
+                        owner,
+                        row["plan"]["backtest_run_id"],
+                        row["plan"]["analysis_accepted_at"],
+                    )
+                    profile, _secret = self.model(session["model"], owner)
+                    if context != row["plan"]["backtest_context"] or row["plan"]["request"] != _analysis_request(
+                        profile, context, prior_messages, row["plan"]["text"]
+                    ):
+                        raise ValueError("original analysis context differs")
+                except (Denied, KeyError, ValueError, TypeError):
+                    raise Conflict("AGENT_HISTORY_CORRUPT") from None
+            if has_analysis:
+                prior_messages.append({"role": "user", "content": row["plan"]["text"]})
+                recorded = self.result(str(row["command"]))
+                if recorded is not None:
+                    if "response" in recorded:
+                        prior_messages.append({"role": "assistant", "content": recorded["response"]["message"]})
+                    elif recorded.get("error") != "MODEL_OUTCOME_UNKNOWN":
+                        prior_messages.append({"role": "assistant", "content": recorded["error"]})
             head = row["fingerprint"]
         return session, rows
 
@@ -504,6 +568,8 @@ class Store:
                 plan, reference = references[row["fingerprint"]]
                 field = "study_reference" if plan.get("topic", "FACTOR") == "STUDY" else "factor_reference"
                 turn[field] = reference
+            if topic == "BACKTEST_ANALYSIS":
+                turn["backtest_reference"] = _analysis_reference(row["plan"]["backtest_context"])
             turns.append(turn)
         return {
             "id": sid,
@@ -553,7 +619,15 @@ class Store:
             else:
                 factor_reference = reference
                 study_reference = None
+        if topic == "BACKTEST_ANALYSIS":
+            factor_reference = None
+            study_reference = None
         return {
+            **(
+                {"backtest_reference": _analysis_reference(rows[-1]["plan"]["backtest_context"])}
+                if topic == "BACKTEST_ANALYSIS"
+                else {}
+            ),
             "id": sid,
             "factor_reference": factor_reference,
             "study_reference": study_reference,
@@ -599,8 +673,17 @@ class Store:
             if current["consumed"] >= s["budget"]:
                 raise Conflict("AGENT_BUDGET_EXHAUSTED")
             topic = body.get("topic", "FACTOR")
-            if topic not in {"FACTOR", "STUDY"}:
+            if topic not in {"FACTOR", "STUDY", "BACKTEST_ANALYSIS"}:
                 raise Conflict("AGENT_TOPIC_INVALID")
+            analysis = None
+            analysis_at = int(time.time())
+            if topic == "BACKTEST_ANALYSIS":
+                analysis = verify_backtest_analysis(
+                    self.settings.browser_issuer_key,
+                    body["analysis_assertion"],
+                    owner=owner,
+                    run_id=body["backtest_run_id"],
+                )
             if topic == "STUDY":
                 try:
                     backend.validate_study_context(study_context, owner, body["factor_proposal_fingerprint"])
@@ -646,6 +729,15 @@ class Store:
                     "max_tokens": 2000,
                 },
             }
+            if analysis is not None:
+                plan.update(
+                    topic=topic,
+                    backtest_run_id=body["backtest_run_id"],
+                    analysis_assertion=body["analysis_assertion"],
+                    analysis_accepted_at=analysis_at,
+                    backtest_context=analysis,
+                )
+                plan["request"] = _analysis_request(profile, analysis, current["messages"], body["text"])
             if topic == "STUDY":
                 plan.update(
                     topic=topic,
@@ -739,6 +831,11 @@ class Store:
                         raise ValueError("unavailable source selection")
             except (ValueError, TypeError, KeyError):
                 value = {"error": "MODEL_RESPONSE_INVALID"}
+        if plan.get("topic") == "BACKTEST_ANALYSIS" and "response" in value:
+            try:
+                validate_response(value["response"], "BACKTEST_ANALYSIS")
+            except (ValueError, TypeError, KeyError):
+                value = {"error": "MODEL_RESPONSE_INVALID"}
         if len(json.dumps(value).encode()) > 131072:
             value = {"error": "MODEL_RESPONSE_INVALID"}
         old = self.result(command)
@@ -757,6 +854,8 @@ class Store:
             s = self.session(sid, owner)
             current = self.view(sid, owner, s["workflow"])
             topic = current["topic"]
+            if topic == "BACKTEST_ANALYSIS":
+                raise Conflict("AGENT_ANALYSIS_READ_ONLY")
             if current["successor"] is not None:
                 raise Conflict("AGENT_SESSION_CONTINUED")
             content = current["study"] if topic == "STUDY" else current["candidate"]
@@ -899,7 +998,7 @@ class Store:
             or result is None
             or result["fingerprint"] != origin["result_fingerprint"]
             or digest(result["payload"]) != result["fingerprint"]
-            or topic not in {"FACTOR", "STUDY"}
+            or topic not in {"FACTOR", "STUDY", "BACKTEST_ANALYSIS"}
             or source["plan"].get("topic", "FACTOR") != topic
             or result["payload"].get("response", {}).get("study" if topic == "STUDY" else "candidate")
             != plan["body"]["advice" if topic == "STUDY" else "candidate"]

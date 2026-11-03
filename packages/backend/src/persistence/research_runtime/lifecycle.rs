@@ -19,6 +19,31 @@ impl Registry {
         held.verify()?;
         Ok(json!({"active_for_new_work":history.active,"states":history.states}))
     }
+    /// Observations of unreleased original work, not admission or permission.
+    /// Tuple fields are work ID, exact Generation, and the original owner reason.
+    pub(crate) fn unreleased_work_bindings(root: &Path) -> Result<Vec<(String, String, String)>> {
+        let mut held = RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
+        let history = held.replay()?;
+        let mut bindings = Vec::new();
+        for (work, (generation, active, original)) in &history.bindings {
+            if *active {
+                if original["kind"] != "RuntimeWorkBound" || history.closed.contains(work) { return Err(INVALID); }
+                let reason = original["reason"].as_str().ok_or(INVALID)?;
+                bindings.push((work.clone(), generation.clone(), reason.to_owned()));
+            }
+        }
+        held.verify()?;
+        Ok(bindings)
+    }
+    /// Read the exact original work occurrence and release status under the
+    /// existing shared lock. These values cannot admit or reopen work.
+    pub(crate) fn inspect_work(root:&Path,work:&str,generation:&str,owner:&str)->Result<Value> {
+        let mut held=RuntimeInputHold::acquire(root,fs::FlockOperation::NonBlockingLockShared)?;
+        let history=held.replay()?;
+        let (original,active,event)=history.bindings.get(work).ok_or("RESEARCH_RUNTIME_WORK_UNBOUND")?;
+        if original!=generation || event["kind"]!="RuntimeWorkBound" || event["reason"]!=owner {return Err("RESEARCH_RUNTIME_WORK_MISMATCH");}
+        held.verify()?;Ok(json!({"binding":event,"active":active,"closed":history.closed.contains(work)}))
+    }
     /// Explicit fresh provisioning only. Never fallback for a missing/corrupt existing journal.
     pub fn initialize_fresh(root: &Path) -> Result<Self> {
         super::publication::initialize_fresh(root)?;
@@ -138,8 +163,11 @@ impl Registry {
         self.held.verify()?;
         let proof_id = super::digest(proof, "installed_proof_fingerprint")?;
         let id = super::digest(manifest, "runtime_generation_fingerprint")?;
-        if proof["contract"] != "ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V1"
-            || proof["runtime_generation_fingerprint"] != id
+        if !matches!(
+            (proof["schema_version"].as_u64(), proof["contract"].as_str()),
+            (Some(1), Some("ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V1"))
+                | (Some(2), Some("ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"))
+        ) || proof["runtime_generation_fingerprint"] != id
         {
             return Err(INVALID);
         }
@@ -307,6 +335,42 @@ impl Registry {
             return Err("RUNTIME_GENERATION_NOT_ELIGIBLE_FOR_NEW_WORK");
         }
         self.append(json!({"kind":"RuntimeWorkBound","generation_fingerprint":generation,"work_id":work,"reason":owner}), actor, at)
+    }
+    /// Terminal lifecycle release of this original work/Generation/owner binding.
+    /// The worker must first join its children, persist terminal work, and drop
+    /// InputHolds. The existing exclusive journal lock enforces the last boundary.
+    pub fn release_work_exact(
+        &mut self,
+        work: &str,
+        generation: &str,
+        owner: &str,
+        actor: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Value> {
+        if work.trim().is_empty() || work.len() > 512 || owner.trim().is_empty()
+            || owner.len() > 256 || actor.trim().is_empty() || actor.len() > 256
+            || !crate::is_sha256_hex(generation) {
+            return Err(INVALID);
+        }
+        self.held.verify()?;
+        let (original_generation, active, origin) = self.history.bindings.get(work)
+            .ok_or("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")?;
+        if original_generation != generation || origin["kind"] != "RuntimeWorkBound" || origin["reason"] != owner {
+            return Err("RUNTIME_WORK_GENERATION_BINDING_CONFLICT");
+        }
+        if !active {
+            let ledger=self.held.record("generation-events.jsonl")?;
+            let mut original=None;
+            for line in std::str::from_utf8(&ledger).map_err(|_|INVALID)?.lines() {
+                let event:Value=serde_json::from_str(line).map_err(|_|INVALID)?;
+                if event["kind"]=="RuntimeWorkReleased" && event["work_id"]==work {
+                    if original.is_some() || event["generation_fingerprint"]!=generation || event["reason"]!=owner { return Err(INVALID); }
+                    original=Some(event);
+                }
+            }
+            return original.ok_or(INVALID);
+        }
+        self.append(json!({"kind":"RuntimeWorkReleased","generation_fingerprint":generation,"work_id":work,"reason":owner}),actor,at)
     }
     fn append(&mut self, fields: Value, actor: &str, at: OnlyUtcDateTime) -> Result<Value> {
         if actor.trim().is_empty() || actor.len() > 256 {

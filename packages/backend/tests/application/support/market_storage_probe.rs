@@ -1,6 +1,10 @@
 //! Guarded technical DB probe. It is never a business API or a Shipping UI.
 #[path = "research_execution_probe.rs"]
 mod research_execution_probe;
+#[path = "strategy_input_probe.rs"]
+mod strategy_input_probe;
+#[path = "strategy_evidence_probe.rs"]
+mod strategy_evidence_probe;
 use onlyalpha_backend::persistence::market_data::*;
 use onlyalpha_backend::persistence::market_data_wal::Wal;
 use serde_json::{Value, json};
@@ -48,6 +52,18 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         client, driver,
     )
     .await?;
+    if op == "strategy-worker-phase" {
+        return strategy_evidence_probe::worker(session,v).await;
+    }
+    if op == "strategy-evidence-provision" {
+        return strategy_evidence_probe::provision(&mut session,v).await;
+    }
+    if op == "strategy-evidence-phase" {
+        return strategy_evidence_probe::phase(&mut session,v).await;
+    }
+    if op == "strategy-submission-outcome" {
+        return strategy_input_probe::strategy_submission_probe::outcome(&mut session,v).await;
+    }
     let bytes = v["max_bytes"].as_u64().unwrap_or(32 * 1024 * 1024) as usize;
     let catalog = Catalog::new(session.client_mut().await?, 10_000, bytes)?;
     let db = text(v, "database")?;
@@ -190,7 +206,7 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                 .await?;
             json!({"manifest":r.coverage.map(|m|m.to_record()),"revision":r.revision.as_ref().map(SealedRevision::revision),"seal":r.revision.map(|r|r.seal())})
         }
-        "dataset-materialize" | "dataset-admit" | "dataset-research" => {
+        "dataset-materialize" | "dataset-admit" | "dataset-research" | "dataset-strategy-prepare" => {
             if op == "dataset-research"
                 && v["phase"] == "execute"
                 && v["mode"] == "node-authority-loss"
@@ -216,16 +232,19 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                     &v["definition"],
                     text(v, "id")?,
                     Scope::from_record(&v["scope"])?,
-                    if op == "dataset-research" { 512 } else { 100 },
+                    if op == "dataset-strategy-prepare" { 8192 } else if op == "dataset-research" { 512 } else { 100 },
                 )?;
             let datasets = onlyalpha_backend::persistence::research_dataset::Store::open(
                 Path::new(text(v, "dataset_root")?),
-                if op == "dataset-research" { 512 } else { 100 },
+                if op == "dataset-strategy-prepare" { 8192 } else if op == "dataset-research" { 512 } else { 100 },
                 8 * 1024 * 1024,
             )?;
             let result = plan
                 .materialize(&mut store, &datasets, text(v, "at")?)
                 .await?;
+            if op == "dataset-strategy-prepare" {
+                return strategy_input_probe::run(&mut session, v, &result, &datasets).await;
+            }
             if v["fault_after_dataset"] == true {
                 std::process::exit(73);
             }
@@ -410,6 +429,12 @@ async fn retained_source_prerequisite(
     const RECEIVE: i64 = 1_792_627_200_000_000_000;
     const START_MS: i64 = 1_767_225_600_000;
     const STRIDE_MS: i64 = 900_000;
+    // Controlled current-slice input; the original retained browser profile is unchanged.
+    let next_open=match v.get("fixture_profile") {
+        None=>false,Some(Value::String(profile)) if profile=="BTC_SPOT_NEXT_OPEN_2025_V1"=>true,
+        _=>return Err("unknown controlled input profile".into()),
+    };
+    let (start_ms,stride_ms,row_count,minutes)=if next_open {(1_735_861_200_000i64,60_000i64,740i64,1u16)}else{(START_MS,STRIDE_MS,575i64,15u16)};
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()
@@ -527,7 +552,7 @@ async fn retained_source_prerequisite(
             .ok_or("missing source API version")?
     );
     let semantic =
-        OnlyBarSemantic::fixed_duration(15u32.into(), None).map_err(|_| "invalid bar semantic")?;
+        OnlyBarSemantic::fixed_duration(u32::from(minutes).into(), None).map_err(|_| "invalid bar semantic")?;
     let plan = OnlyConstructionResolutionPlan::resolve(
         semantic.clone(),
         resource.capabilities(),
@@ -542,21 +567,33 @@ async fn retained_source_prerequisite(
     let construction = OnlyConstructionIdentity::new(plan, &version, None, None, None)?;
     let provider_instrument = json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING",
         "filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.000001","minQty":"0.000001"}]});
+    let provider_instrument=if next_open {
+        json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","isSpotTradingAllowed":true,
+            "orderTypes":["LIMIT","MARKET"],"baseAssetPrecision":8,"quoteAssetPrecision":8,"baseCommissionPrecision":8,"quoteCommissionPrecision":8,
+            "filters":[{"filterType":"PRICE_FILTER","minPrice":"0.01000000","maxPrice":"1000000.00000000","tickSize":"0.01000000"},
+                {"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"},
+                {"filterType":"MARKET_LOT_SIZE","minQty":"0.00000000","maxQty":"100.00000000","stepSize":"0.00000000"},
+                {"filterType":"NOTIONAL","minNotional":"5.00000000","applyMinToMarket":true,"maxNotional":"9000000.00000000","applyMaxToMarket":false,"avgPriceMins":5}]})
+    }else{provider_instrument};
     let instrument = spot_normalize::instrument(&provider_instrument)?;
-    let rows = (0..575i64)
+    let rows = (0..row_count)
         .map(|i| {
-            let start = START_MS + i * STRIDE_MS;
+            let start = start_ms + i * stride_ms;
             let price = 10000 + (i / 13) * 3 + (i * 7) % 11;
             let close = price + i % 5 - 2;
             let volume = 10 + i % 9;
+            let (price,close,volume)=if next_open {
+                (match i{0..=20=>100000,21=>100100,22=>99800,_=>99700},
+                    match i{0..=19=>100000,20=>100200,21=>99900,22..=738=>99700,_=>100000},2)
+            }else{(price,close,volume)};
             json!([
                 start,
                 price.to_string(),
-                (price + 4).to_string(),
-                (price - 4).to_string(),
+                (if next_open{price.max(close)+1}else{price+4}).to_string(),
+                (if next_open{price.min(close)-1}else{price-4}).to_string(),
                 close.to_string(),
                 volume.to_string(),
-                start + STRIDE_MS - 1,
+                start + stride_ms - 1,
                 (price * volume).to_string(),
                 100 + i % 17,
                 "0",
@@ -580,7 +617,7 @@ async fn retained_source_prerequisite(
     );
     let mut facts = vec![];
     for row in &rows {
-        let bar = spot_normalize::rest_bar_interval(row, &instrument, 15)?;
+        let bar = spot_normalize::rest_bar_interval(row, &instrument, minutes)?;
         let event = OnlyTimestamp::from_datetime(*bar.ts_event())
             .unix_nanos()
             .to_string()
@@ -596,7 +633,7 @@ async fn retained_source_prerequisite(
                 &json!({"kind":"BAR","source":resolved.identity().source_id,"instrument":bar.instrument_id().to_json()?,"bar_type":bar.bar_type().to_json()?,"bar_start":bar.bar_start().to_string(),"data_version":version})
             )?
         );
-        let update = json!({"schema_version":3,"update_id":update_id,"runtime_id":"market-data-product","source_id":resolved.identity().source_id,"source_sequence":start/(STRIDE_MS*1_000_000),"data_version":version,"instrument_id":bar.instrument_id().to_string(),"data_type":"BAR","payload":{"kind":"BAR","value":bar.to_record()},"ts_event":event,"ts_init":event,"quality_flags":["VALID"],"metadata":[],"correlation_id":null,"sequence_semantics":"CONTIGUOUS","sequence_scope":{"source_id":resolved.identity().source_id,"instrument_id":bar.instrument_id().to_json()?,"data_type":"BAR","bar_type":bar.bar_type().to_record()}});
+        let update = json!({"schema_version":3,"update_id":update_id,"runtime_id":"market-data-product","source_id":resolved.identity().source_id,"source_sequence":start/(stride_ms*1_000_000),"data_version":version,"instrument_id":bar.instrument_id().to_string(),"data_type":"BAR","payload":{"kind":"BAR","value":bar.to_record()},"ts_event":event,"ts_init":event,"quality_flags":["VALID"],"metadata":[],"correlation_id":null,"sequence_semantics":"CONTIGUOUS","sequence_scope":{"source_id":resolved.identity().source_id,"instrument_id":bar.instrument_id().to_json()?,"data_type":"BAR","bar_type":bar.bar_type().to_record()}});
         facts.push(json!({"canonical_fact_id":update_id,"raw_event_id":raw_id,"source_id":resolved.identity().source_id,"segment_id":segment_id,"capture_session_id":capture,"data_kind":"BAR","instrument_id":bar.instrument_id().to_string(),"ts_event_ns":event,"ts_receive_ns":RECEIVE,"ts_ingest_ns":RECEIVE,"canonical_payload_hash":fp(&update)?,"canonical_payload":update,"normalizer_id":"binance.spot.native","normalizer_version":resolved.implementation_fingerprint(),"quality_state":"VALID","provenance":"REST_BACKFILL"}));
     }
     let bundle = json!({"schema_version":1,"evidence":{"raw_event_id":raw_id,"source_id":resolved.identity().source_id,"capture_session_id":capture,"provider":resolved.identity().provider,"venue":resolved.identity().venue,"market":resolved.identity().market,"stream":"rest","provider_event_type":"/api/v3/klines","provider_event_id":null,"provider_sequence":null,"ts_event_ns":null,"ts_receive_ns":RECEIVE,"payload_codec":"application/json","provider_schema":"v1","payload_base64":STANDARD.encode(&raw),"raw_sha256":raw_sha,"provenance":"REST_BACKFILL","integration_binding_fingerprint":resolved.binding_fingerprint(),"bar_construction":construction.to_record()},"canonical_facts":facts});
@@ -622,7 +659,7 @@ async fn retained_source_prerequisite(
         json!({"schema_version":1,"controlled_external_input":true,"source":{"integration_id":id.value(),"integration_revision_fingerprint":revision,"expected_type_id":TYPE,"source_id":resolved.identity().source_id,"environment":resolved.identity().environment},
         "provider_http_fixture":{"exchange_info":{"timezone":"UTC","symbols":[provider_instrument]},"klines":rows},
         "selected_backend_sha256":native_sha,"binding_fingerprint":resolved.binding_fingerprint(),"segment":segment,"wal_root":wal_root,
-        "first_event_ns":((START_MS+STRIDE_MS)*1_000_000).to_string(),"last_event_ns":((START_MS+575*STRIDE_MS)*1_000_000).to_string(),"protected_start_ns":((START_MS+576*STRIDE_MS)*1_000_000).to_string(),
+        "first_event_ns":((start_ms+stride_ms)*1_000_000).to_string(),"last_event_ns":((start_ms+row_count*stride_ms)*1_000_000).to_string(),"protected_start_ns":((start_ms+(row_count+1)*stride_ms)*1_000_000).to_string(),
         "suggested_advice":{"timeframe_minutes":15,"instrument_id":"BTCUSDT.BINANCE","start_at":"2026-01-01T06:00:00Z","development_end_at":"2026-01-03T22:00:00Z","end_at":"2026-01-06T14:00:00Z","protected_start_at":"2026-01-07T00:00:00Z","protected_end_at":"2026-01-09T16:00:00Z","horizon_bars":1,"expected_block_length":12,"replicates":4096,"confidence_bps":9500,"seed":"b".repeat(64)}}),
     )
 }

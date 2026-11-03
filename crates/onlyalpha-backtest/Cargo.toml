@@ -18,3 +18,11 @@ onlyalpha-execution = { path = "../onlyalpha-kernel/execution" }
 onlyalpha-strategy = { path = "../onlyalpha-kernel/strategy" }
 onlyalpha-market-data-pipeline = { path = "../onlyalpha-kernel/market_data/pipeline" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+
+sha2 = { version = "=0.11.1", default-features = false }
+
+[dev-dependencies]
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+zstd = { version = "=0.13.3", default-features = false }

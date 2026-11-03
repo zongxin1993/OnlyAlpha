@@ -1,5 +1,7 @@
 //! Immutable native Research publication in the existing semantic owners.
 //! Execution produces numbers; verified reads validate stored facts and exact relations.
+pub(crate) mod strategy;
+pub(crate) use strategy::ReadCut as StrategyReadCut;
 use crate::application::{
     factor_content::hash,
     research_run::{
@@ -70,7 +72,9 @@ pub fn initialize_fresh_owners(root: &Path) -> Result<()> {
     fs::fsync(&research.fd).map_err(|_| UNAVAILABLE)?;
     Ok(())
 }
+pub fn initialize_strategy_owners(root:&Path)->Result<()> {strategy::initialize_owners(root)}
 pub struct Store {
+    runtime_root:Option<PathBuf>,
     root: Directory,
     calculations: Directory,
     statistics: Directory,
@@ -124,6 +128,7 @@ impl Store {
         let datasets =
             super::research_dataset::Store::open(&root.path.join("datasets"), 8192, LIMIT)?;
         Ok(Self {
+            runtime_root:None,
             root,
             calculations,
             statistics,
@@ -164,7 +169,7 @@ impl Store {
             statistics,
             evidence,
         } = execution;
-        let spec = run.specification();
+        let spec = run.factor_specification()?;
         spec.validate()?;
         self.validate_calculation(&feature, Some(spec))?;
         save(
@@ -213,6 +218,9 @@ impl Store {
         Ok(completed)
     }
     pub fn load_verified(&self, run: &VerifiedRun) -> Result<Option<VerifiedCompletion>> {
+        if matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){
+            return self.load_strategy(run,strategy::source_locks(self)?);
+        }
         let locks = self.locks()?;
         let out = self.load_without_locks(run)?;
         for l in &locks {
@@ -233,9 +241,12 @@ impl Store {
             &self.artifacts,
         ]
         .into_iter()
-        .map(|d| SourceLock::acquire(&d.path))
+        .map(|d| SourceLock::acquire(&d.path).map(Arc::new))
         .collect::<Result<Vec<_>>>()?;
-        let outcome = match self.load_without_locks(&run) {
+        let loaded=if matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){
+            self.load_strategy(&run,publication_cut.clone())
+        }else{self.load_without_locks(&run)};
+        let outcome = match loaded {
             Ok(Some(c)) => InspectionOutcome::Complete(Box::new(c)),
             Ok(None) => InspectionOutcome::Absent,
             Err(INVALID) => InspectionOutcome::Corrupt,
@@ -249,6 +260,9 @@ impl Store {
         })
     }
     pub fn read_report(&self, run: &VerifiedRun) -> Result<Value> {
+        if matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){
+            return self.read_strategy_report(run);
+        }
         if !run.completed() {
             return Err("RESEARCH_OPERATIONAL_COMPLETION_REQUIRED");
         }
@@ -266,7 +280,7 @@ impl Store {
         Ok(value)
     }
     fn load_without_locks(&self, run: &VerifiedRun) -> Result<Option<VerifiedCompletion>> {
-        let spec = run.specification();
+        let spec = run.factor_specification()?;
         spec.validate()?;
         if spec.fingerprint()? != run.specification_fingerprint() {
             return Err(INVALID);
@@ -289,6 +303,7 @@ impl Store {
             return Err(INVALID);
         }
         let completion = VerifiedCompletion {
+            strategy_cut:None,
             run: run.clone(),
             result: result_fp.into(),
             artifact: pin(&artifact, "artifact_content_fingerprint")?.into(),
@@ -911,6 +926,10 @@ pub(crate) struct SourceVerification<'cut> {
     locks: &'cut [Arc<SourceLock>],
     facts: BTreeMap<(PathBuf, String), (String, Value)>,
     bytes: usize,
+    runtime_root:Option<PathBuf>,
+    strategy_cuts:Vec<Arc<StrategyReadCut>>,
+    strategy_runs:BTreeMap<String,Value>,
+    qualification_cuts:Vec<Arc<super::qualification_decision::VerifiedDecision>>,
 }
 impl<'cut> SourceVerification<'cut> {
     pub(crate) fn new(locks: &'cut [Arc<SourceLock>]) -> Self {
@@ -918,8 +937,159 @@ impl<'cut> SourceVerification<'cut> {
             locks,
             facts: BTreeMap::new(),
             bytes: 0,
+            runtime_root:None,
+            strategy_cuts:Vec::new(),
+            strategy_runs:BTreeMap::new(),
+            qualification_cuts:Vec::new(),
         }
     }
+    pub(crate) fn with_runtime_root(mut self,root:Option<PathBuf>)->Self {self.runtime_root=root;self}
+    pub(crate) fn verify_cut(&self)->Result<()> {
+        for lock in self.locks{lock.verify()?;}
+        for cut in &self.strategy_cuts{cut.verify()?;}
+        for decision in &self.qualification_cuts{decision.verify_cut()?;}
+        Ok(())
+    }
+    /// Same source snapshot transaction as the original PG history capture.
+    /// A report is only a locator: the actual DB admission reader creates Run.
+    pub(crate) async fn verify_in_transaction(
+        &mut self,owner_root:&Path,family:&str,locator:&str,tx:&tokio_postgres::Transaction<'_>,
+    )->Result<(String,Value)>{
+        let key=(owner_root.to_path_buf(),locator.to_owned());
+        if let Some(value)=self.facts.get(&key){return Ok(value.clone());}
+        let expected=match family{"RESEARCH_RESULT"=>"results","RESEARCH_STATISTICS"=>"statistics-results",_=>return Err("NOVELTY_PROOF_UNAVAILABLE")};
+        if owner_root.file_name()!=Some(OsStr::new(expected)){return Err(INVALID);}
+        self.locks.iter().find(|l|l.directory.path==owner_root).ok_or(INVALID)?.verify()?;
+        let mut store=Store::open_for_source(owner_root.parent().ok_or(UNAVAILABLE)?)?;
+        let directory=if family=="RESEARCH_RESULT"{&store.results}else{&store.statistics};
+        let value=optional(directory,&["sha256"],locator)?.ok_or(INVALID)?;
+        let strategy=match (family,value["schema_version"].as_u64()){
+            ("RESEARCH_RESULT",Some(2))|("RESEARCH_STATISTICS",Some(1))=>true,_=>false,
+        };
+        if !strategy{return self.verify(owner_root,family,locator);}
+        let runtime=self.runtime_root.as_deref().ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+        store=store.with_runtime_root(runtime)?;
+        let mut found=false;
+        for id in store.strategy_report_ids()?{
+            if self.strategy_runs.contains_key(&id){continue;}
+            let candidate=store.strategy_source_candidate(&id)?;
+            let matches=if family=="RESEARCH_RESULT"{candidate["research_result_plan_fingerprint"]==locator}else{
+                candidate["observation"]["statistics"].as_array().is_some_and(|rows|rows.iter().any(|r|r["statistics_fingerprint"]==locator))
+            };
+            if !matches{continue;}
+            let run=super::research_submission::load_in_transaction(tx,&id,None).await?;
+            if !matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_))||!run.completed(){return Err("NOVELTY_PROOF_UNAVAILABLE");}
+            let (report,result,statistics,cut)=store.read_strategy_source(&run,self.locks.to_vec())?;
+            let mut records=vec![(store.results.path.clone(),text(&result,"research_result_plan_fingerprint")?.to_owned(),text(&result,"research_result_fingerprint")?.to_owned(),result)];
+            for statistic in statistics{records.push((store.statistics.path.clone(),text(&statistic,"statistics_fingerprint")?.to_owned(),text(&statistic,"statistics_result_fingerprint")?.to_owned(),statistic));}
+            for (root,logical,identity,value) in records{
+                let key=(root,logical);let record=(identity,value);
+                if let Some(previous)=self.facts.get(&key){if previous!=&record{return Err(INVALID);}}
+                else{self.bytes=self.bytes.checked_add(serde_json::to_vec(&record.1).map_err(|_|INVALID)?.len()).filter(|n|*n<=LIMIT).ok_or(UNAVAILABLE)?;self.facts.insert(key,record);}
+            }
+            let context=json!({"run_id":run.run_id(),"specification_fingerprint":run.specification_fingerprint(),
+                "scientific_specification_fingerprint":run.specification().scientific_specification_fingerprint()?,
+                "research_result_plan_fingerprint":report["research_result_plan_fingerprint"],"research_result_fingerprint":report["research_result_fingerprint"],
+                "artifact_content_fingerprint":report["artifact_content_fingerprint"],"candidate_fingerprint":report["candidate_fingerprint"],
+                "calculation_execution_evidence_fingerprints":report["calculation_execution_evidence_fingerprints"]});
+            self.strategy_runs.insert(id,context);self.strategy_cuts.push(cut);found=true;
+        }
+        if !found&&!self.facts.contains_key(&key){return Err("NOVELTY_PROOF_UNAVAILABLE");}
+        self.verify_cut()?;self.facts.get(&key).cloned().ok_or(INVALID)
+    }
+    /// Q enum2 is the canonical evaluator-owned namespace. Original Run/report
+    /// records are read locators, not new Decision identity or receipt requirements.
+    pub(crate) async fn verify_qualification_in_transaction(
+        &mut self,owner_root:&Path,locator:&str,tx:&tokio_postgres::Transaction<'_>,
+    )->Result<(String,Value)>{
+        use crate::application::{frozen_strategy::FrozenStore,qualification_policy::Store as Policies};
+        use super::qualification_decision::Store as Decisions;
+        use std::os::fd::AsFd;
+        let key=(owner_root.to_path_buf(),locator.to_owned());
+        if let Some(value)=self.facts.get(&key){return Ok(value.clone());}
+        let strategy=owner_root.parent().filter(|path|path.file_name()==Some(OsStr::new("strategy"))).ok_or(INVALID)?;
+        let research=strategy.parent().ok_or(INVALID)?;
+        if owner_root!=research.join("strategy/qualification-decisions"){return Err(INVALID);}
+        let source=self.locks.iter().find(|cut|cut.directory.path==owner_root).ok_or(INVALID)?.clone();
+        source.verify()?;
+        let decisions=Arc::new(Decisions::open(research)?);
+        let candidate=decisions.source_candidate(locator,&source)?;
+        if candidate["gate"]=="MANUAL_STRATEGY_TO_BACKTEST" {
+            let evidence=candidate["evidence"].as_array().filter(|rows|rows.len()==1).ok_or(INVALID)?;
+            let evidence=&evidence[0];
+            exact(evidence,&["kind","evidence_fingerprint","preparation_command_id","subject_binding_fingerprint"])?;
+            if evidence["kind"]!="STRATEGY_VALIDATION"{return Err(INVALID);}
+            let validation_id=pin(evidence,"evidence_fingerprint")?;
+            let relation_id=pin(evidence,"subject_binding_fingerprint")?;
+            let subject=pin(&candidate,"subject_strategy_fingerprint")?;
+            let preparation=crate::application::command::CommandId::new(text(evidence,"preparation_command_id")?).map_err(|_|INVALID)?;
+            let runtime=self.runtime_root.as_deref().ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+            let validations=super::strategy_validation::Store::open(research)?.with_runtime_root(runtime)?;
+            let validation=Arc::new(validations.read_verified_captured_in_transaction(tx,preparation.value(),self.locks.to_vec()).await?);
+            if validation.fingerprint()!=validation_id || validation.source_revision().fingerprint()!=subject {return Err(INVALID);}
+            let root=Directory::open(research)?;
+            let frozen=FrozenStore::open(root.fd.as_fd()).map_err(|_|INVALID)?;
+            let proof=Arc::new(frozen.read_verified_manual(validation,relation_id,64*1024*1024).map_err(|e|e.code())?);
+            let policies=Arc::new(Policies::open(root.fd.as_fd()).map_err(|_|INVALID)?);
+            let decision=Arc::new(decisions.load_manual_verified_captured(policies,&proof,locator,source)?);
+            if decision.record()!=&candidate{return Err(INVALID);}
+            decision.verify_in_transaction(tx,&decisions.namespace()?).await?;
+            let record=(locator.to_owned(),decision.record().clone());
+            self.bytes=self.bytes.checked_add(serde_json::to_vec(&record.1).map_err(|_|INVALID)?.len()).filter(|n|*n<=LIMIT).ok_or(UNAVAILABLE)?;
+            self.qualification_cuts.push(decision);self.facts.insert(key,record.clone());
+            self.verify_cut()?;return Ok(record);
+        }
+        if candidate["gate"]!="RESEARCH_TO_BACKTEST" {return Err("NOVELTY_PROOF_UNAVAILABLE");}
+        let evidence=candidate["evidence"].as_array().filter(|rows|rows.len()==1).ok_or(INVALID)?;
+        let evidence=&evidence[0];
+        exact(evidence,&["kind","evidence_fingerprint","locator_fingerprint","subject_binding_fingerprint"])?;
+        if evidence["kind"]!="RESEARCH_RESULT"{return Err("NOVELTY_PROOF_UNAVAILABLE");}
+        let result=pin(evidence,"evidence_fingerprint")?;
+        let plan=pin(evidence,"locator_fingerprint")?;
+        let relation_id=pin(evidence,"subject_binding_fingerprint")?;
+        let subject=pin(&candidate,"subject_strategy_fingerprint")?;
+        let runtime=self.runtime_root.as_deref().ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+        let store=Store::open_for_source(research)?.with_runtime_root(runtime)?;
+        let (result_id,_)=self.verify_in_transaction(&research.join("results"),"RESEARCH_RESULT",plan,tx).await?;
+        if result_id!=result{return Err(INVALID);}
+        let frozen=FrozenStore::open(store.root.fd.as_fd()).map_err(|_|INVALID)?;
+        // This new source reader uses the existing Qualification/Frozen inventory
+        // work allowance. Counts keeps its owning verification/budgets unchanged.
+        let relation=frozen.load_relation_verified(relation_id,64*1024*1024).map_err(|_|INVALID)?;
+        let binding=relation.to_record();
+        if relation.strategy_fingerprint()!=subject||binding["research_result_fingerprint"]!=result{return Err(INVALID);}
+        let policies=Arc::new(Policies::open(store.root.fd.as_fd()).map_err(|_|INVALID)?);
+        // The immutable report inventory is only a locator selection. Take a
+        // completed exact original occurrence in stable order; once selected,
+        // any corrupt owning input fails rather than searching for a substitute.
+        let mut verified=None;
+        for id in store.strategy_report_ids()? {
+            let report=store.strategy_source_candidate(&id)?;
+            if report["research_result_plan_fingerprint"]!=plan||report["research_result_fingerprint"]!=result
+                ||report["candidate_fingerprint"]!=binding["candidate_fingerprint"]
+                ||report["source_revision"]["strategy_fingerprint"]!=subject{continue;}
+            let run=super::research_submission::load_in_transaction(tx,&id,None).await?;
+            if !run.completed(){continue;}
+            if !matches!(run.specification(),crate::application::research_run::NativeSpecification::Strategy(_)){return Err(INVALID);}
+            let counts=Arc::new(store.read_verified_counts_captured(&run,&frozen,relation_id,self.locks.to_vec())?);
+            if counts.subject_strategy_fingerprint()!=subject||counts.research_result_fingerprint()!=result
+                ||counts.research_result_plan_fingerprint()!=plan||counts.freeze_relation_fingerprint()!=relation_id{return Err(INVALID);}
+            let decision=Arc::new(decisions.load_verified_captured(policies.clone(),&counts,locator,source.clone())?);
+            if decision.record()!=&candidate{return Err(INVALID);}
+            verified=Some(decision);break;
+        }
+        let decision=verified.ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+        decision.verify_cut()?;
+        let record=(locator.to_owned(),decision.record().clone());
+        self.bytes=self.bytes.checked_add(serde_json::to_vec(&record.1).map_err(|_|INVALID)?.len()).filter(|n|*n<=LIMIT).ok_or(UNAVAILABLE)?;
+        self.qualification_cuts.push(decision);
+        self.facts.insert(key,record.clone());
+        self.verify_cut()?;
+        Ok(record)
+    }
+    pub(crate) fn qualification_cuts(&self)->Vec<Arc<super::qualification_decision::VerifiedDecision>>{self.qualification_cuts.clone()}
+    pub(crate) fn strategy_runs(&self)->&BTreeMap<String,Value>{&self.strategy_runs}
+    pub(crate) fn strategy_cuts(&self)->Vec<Arc<StrategyReadCut>>{self.strategy_cuts.clone()}
     pub(crate) fn verify(
         &mut self,
         owner_root: &Path,
@@ -1199,4 +1369,164 @@ fn validate_analysis(v: &Value, plan: &Plan, observations: &[Observation]) -> Re
         }
     }
     Ok(())
+}
+
+/// Exact count projection of a verified Result and its verified Freeze relation.
+/// Only this persistence owner may construct it; no public constructor,
+/// deserializer, mutable record or caller-authored count API is exposed.
+pub struct VerifiedResearchCounts {
+    subject_strategy_fingerprint: String,
+    research_result_fingerprint: String,
+    research_result_plan_fingerprint: String,
+    freeze_relation_fingerprint: String,
+    statistics_result_count: u64,
+    calculation_result_count: u64,
+    validated_calculations:Option<Value>,
+    source_locks:Vec<Arc<SourceLock>>,
+    strategy_cut:Option<Arc<StrategyReadCut>>,
+}
+impl VerifiedResearchCounts {
+    /// Original installed definitions/implementations from the actual report,
+    /// retained under its owning cut. Unit count vectors supply no provenance.
+    pub(crate) fn validated_calculations(&self)->Result<&Value> {
+        self.verify_cut()?;
+        self.validated_calculations.as_ref().ok_or("QUALIFICATION_VALIDATED_CALCULATIONS_REQUIRED")
+    }
+    pub(crate) fn verify_cut(&self)->Result<()> {
+        if self.source_locks.is_empty() {return Err("QUALIFICATION_RESEARCH_CUT_REQUIRED");}
+        if let Some(cut)=&self.strategy_cut{cut.verify()?;}
+        for lock in &self.source_locks {lock.verify()?;}
+        Ok(())
+    }
+    pub(crate) fn source_locks(&self)->Vec<Arc<SourceLock>> {self.source_locks.clone()}
+    pub(crate) fn subject_strategy_fingerprint(&self) -> &str {
+        &self.subject_strategy_fingerprint
+    }
+    pub(crate) fn research_result_fingerprint(&self) -> &str {
+        &self.research_result_fingerprint
+    }
+    pub(crate) fn research_result_plan_fingerprint(&self) -> &str {
+        &self.research_result_plan_fingerprint
+    }
+    pub(crate) fn freeze_relation_fingerprint(&self) -> &str {
+        &self.freeze_relation_fingerprint
+    }
+    pub(crate) fn statistics_result_count(&self) -> u64 {
+        self.statistics_result_count
+    }
+    pub(crate) fn calculation_result_count(&self) -> u64 {
+        self.calculation_result_count
+    }
+}
+
+#[cfg(test)]
+impl VerifiedResearchCounts {
+    /// Unit value vectors only; never reachable in the production application.
+    pub(crate) fn for_value_test(
+        subject_strategy_fingerprint: String,
+        research_result_fingerprint: String,
+        research_result_plan_fingerprint: String,
+        freeze_relation_fingerprint: String,
+        statistics_result_count: u64,
+        calculation_result_count: u64,
+    ) -> Self {
+        Self {
+            subject_strategy_fingerprint,
+            research_result_fingerprint,
+            research_result_plan_fingerprint,
+            freeze_relation_fingerprint,
+            statistics_result_count,
+            calculation_result_count,
+            validated_calculations:None,
+            source_locks:vec![],
+            strategy_cut:None,
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_persistence_test(subject:String,result:String,plan:String,relation:String,statistics:u64,calculations:u64,cut:Arc<SourceLock>)->Self {
+        let mut value=Self::for_value_test(subject,result,plan,relation,statistics,calculations);
+        value.source_locks=vec![cut];
+        value
+    }
+}
+
+/// An owning-reader seal for complete PRIVATE_STRATEGY scientific and admission
+/// evidence. Neither parsing SourceRevision nor receiving a DTO grants this seal.
+/// Construction remains private to this persistence owner.
+pub struct VerifiedStrategyResearch {
+    run_id: String,
+    specification_fingerprint: String,
+    source_revision: onlyalpha_strategy::SourceRevision,
+    candidate_fingerprint: String,
+    research_result_fingerprint: String,
+    research_execution_evidence_fingerprints: Vec<String>,
+    admission_evidence_fingerprint: String,
+    equivalence_evidence_fingerprints: Vec<String>,
+    source_locks: Vec<Arc<SourceLock>>,
+    strategy_cut:Option<Arc<StrategyReadCut>>,
+}
+impl VerifiedStrategyResearch {
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run_id
+    }
+    pub(crate) fn specification_fingerprint(&self) -> &str {
+        &self.specification_fingerprint
+    }
+    pub(crate) fn source_revision(&self) -> &onlyalpha_strategy::SourceRevision {
+        &self.source_revision
+    }
+    pub(crate) fn candidate_fingerprint(&self) -> &str {
+        &self.candidate_fingerprint
+    }
+    pub(crate) fn research_result_fingerprint(&self) -> &str {
+        &self.research_result_fingerprint
+    }
+    pub(crate) fn research_execution_evidence_fingerprints(&self) -> &[String] {
+        &self.research_execution_evidence_fingerprints
+    }
+    pub(crate) fn admission_evidence_fingerprint(&self) -> &str {
+        &self.admission_evidence_fingerprint
+    }
+    pub(crate) fn equivalence_evidence_fingerprints(&self) -> &[String] {
+        &self.equivalence_evidence_fingerprints
+    }
+    pub(crate) fn verify_cut(&self) -> Result<()> {
+        if self.source_locks.is_empty() {
+            return Err("STRATEGY_RESEARCH_CUT_REQUIRED");
+        }
+        if let Some(cut)=&self.strategy_cut{cut.verify()?;}
+        for lock in &self.source_locks {
+            lock.verify()?;
+        }
+        Ok(())
+    }
+}
+#[cfg(test)]
+impl VerifiedStrategyResearch {
+    /// Value and persistence tests only; absent from production builds.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_value_test(
+        run_id: String,
+        specification_fingerprint: String,
+        source_revision: onlyalpha_strategy::SourceRevision,
+        candidate_fingerprint: String,
+        research_result_fingerprint: String,
+        research_execution_evidence_fingerprints: Vec<String>,
+        admission_evidence_fingerprint: String,
+        equivalence_evidence_fingerprints: Vec<String>,
+        source_locks: Vec<Arc<SourceLock>>,
+    ) -> Self {
+        Self {
+            run_id,
+            specification_fingerprint,
+            source_revision,
+            candidate_fingerprint,
+            research_result_fingerprint,
+            research_execution_evidence_fingerprints,
+            admission_evidence_fingerprint,
+            equivalence_evidence_fingerprints,
+            source_locks,
+            strategy_cut:None,
+        }
+    }
 }

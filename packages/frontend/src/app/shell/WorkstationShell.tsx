@@ -14,8 +14,8 @@ const products = [
     { to: "/factor-research", label: "因子研究", icon: "research" },
     { to: "/research/new", label: "研究 · 未实现", icon: "research" },
     { to: "/data/inputs", label: "数据 · 未实现", icon: "data" },
-    { to: "/strategies", label: "策略 · 未实现", icon: "library" },
-    { to: "/backtest/runs", label: "回测 · 未实现", icon: "runs" },
+    { to: "/strategies", label: "策略", icon: "library" },
+    { to: "/backtest", label: "回测", icon: "runs" },
     { to: "/system/health", label: "系统 · 未实现", icon: "shield" }
 ] as const;
 

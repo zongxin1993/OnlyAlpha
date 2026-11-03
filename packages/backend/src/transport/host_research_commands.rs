@@ -1,4 +1,6 @@
 //! Human-only Product commands around the retained preparation and Run owners.
+#[path="host_backtest_commands.rs"]
+mod backtest;
 use crate::{
     application::{command::CommandId, factor_studies::PrepareInput},
     security::{
@@ -38,6 +40,8 @@ impl Host {
         self.human_access.check_session(&human)?;
         let path = request.uri().path().to_owned();
         let method = request.method().clone();
+        if path.starts_with("/api/v2/backtest/preparations"){return self.backtest_preparation_command(request,human,deadline).await;}
+        if path.starts_with("/api/v2/research/strategy-preparations"){return self.strategy_preparation_command(request,human,deadline).await;}
         if method == Method::GET
             && let Some(pin) = path.strip_prefix("/api/v2/factor-study-preparation-context/")
         {
@@ -47,6 +51,7 @@ impl Host {
             && let Some(id) = path.strip_prefix("/api/v2/factor-study-preparations/commands/")
         {
             let id = CommandId::new(id).map_err(|_| invalid())?;
+            self.require_preparation_kind(&human,&id,false).await?;
             let value = self.research_preparation(human.clone(), &id).await?;
             return Ok(ingress::attach(
                 Json(value).into_response(),
@@ -70,6 +75,7 @@ impl Host {
                 .ok_or_else(invalid)?;
             let (id, action) = tail.split_once('/').ok_or_else(invalid)?;
             let id = CommandId::new(id).map_err(|_| invalid())?;
+            self.require_preparation_kind(&human,&id,false).await?;
             match action {
                 "resume" | "cancellation" => {
                     let body: FactorResearchPreparationRevisionInput =
@@ -133,6 +139,40 @@ impl Host {
             Json(value).into_response(),
             Release::Generation(human.metadata_session()),
         ))
+    }
+}
+impl Host {
+    async fn strategy_preparation_command(self:&Arc<Self>,request:Request<Body>,human:human_access::Session,deadline:Instant)->Result<Response,Failure> {
+        self.human_access.check_session(&human)?;
+        let path=request.uri().path().to_owned();let method=request.method().clone();
+        let prefix="/api/v2/research/strategy-preparations";
+        if method==Method::GET {
+            let tail=path.strip_prefix(prefix).and_then(|s|s.strip_prefix('/')).ok_or_else(invalid)?;
+            let id=if let Some(value)=tail.strip_prefix("commands/"){value}else{tail.strip_suffix("/ready").ok_or_else(invalid)?};
+            let command=CommandId::new(id).map_err(|_|invalid())?;
+            self.require_preparation_kind(&human,&command,true).await?;
+            let value=self.research_preparation(human.clone(),&command).await?;
+            return Ok(ingress::attach(Json(value).into_response(),Release::Generation(human.metadata_session())));
+        }
+        if method!=Method::POST{return Err(invalid());}
+        let (command,body)=input(request).await?;
+        if Instant::now()>=deadline{return Err(Failure::unavailable("REQUEST_DEADLINE_EXPIRED"));}
+        let tail=path.strip_prefix(prefix).and_then(|value|value.strip_prefix('/')).ok_or_else(invalid)?;
+        let (id,action)=tail.split_once('/').ok_or_else(invalid)?;
+        let id=CommandId::new(id).map_err(|_|invalid())?;
+        self.require_preparation_kind(&human,&id,true).await?;
+        let value=match action {
+            "resume"|"cancellation"=> {
+                let body:StrategyResearchPreparationRevisionInput=serde_json::from_value(body).map_err(|_|invalid())?;
+                let expected=body.expected_revision.parse::<i64>().map_err(|_|invalid())?;
+                if body.schema_version!=1 || body.preparation_command_id!=id.value() || expected<0 || expected.to_string()!=body.expected_revision {return Err(invalid());}
+                if action=="resume" {if command!=id{return Err(invalid());}self.resume_research_preparation(human.clone(),&id,expected).await?}
+                else {self.cancel_research_preparation(human.clone(),command,&id,expected).await?}
+            },
+            _=>return Err(invalid()),
+        };
+        self.human_access.check_session(&human)?;
+        Ok(ingress::attach(Json(value).into_response(),Release::Generation(human.metadata_session())))
     }
 }
 #[cfg(test)]

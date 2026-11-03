@@ -1,6 +1,6 @@
 import { Button, Tooltip, Dropdown } from "antd";
 import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider";
-import { useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
 import { WorkspaceLibraryControls } from "./WorkspaceLibraryControls";
@@ -77,7 +77,7 @@ export function WorkspacePage() {
         };
     }, []);
     const panelToggle = useRef<HTMLButtonElement>(null);
-    const [bottomTab, setBottomTab] = useState<"runs" | "results" | "backtest">("runs");
+    const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
     const [customBarDuration, setCustomBarDuration] = useState("7");
@@ -716,16 +716,9 @@ export function WorkspacePage() {
                         >
                             研究结果
                         </button>
-                        <button
-                            type="button"
-                            className="panel-tab"
-                            aria-pressed={bottomTab === "backtest"}
-                            onClick={() => {
-                                setBottomTab("backtest");
-                            }}
-                        >
+                        <Link className="panel-tab" to="/backtest">
                             回测
-                        </button>
+                        </Link>
                     </div>
                     <div className="bottom-panel__meta">
                         <button
@@ -743,11 +736,7 @@ export function WorkspacePage() {
                 </header>
                 <div className="panel-scroll" hidden={bottomCollapsed}>
                     <p className="panel-note">
-                        {bottomTab === "runs"
-                            ? "研究运行尚未实现"
-                            : bottomTab === "results"
-                              ? "研究结果尚未实现"
-                              : "回测尚未实现"}
+                        {bottomTab === "runs" ? "研究运行尚未实现" : "研究结果尚未实现"}
                     </p>
                 </div>
             </section>

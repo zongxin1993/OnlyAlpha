@@ -24,11 +24,11 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 def main() -> int:
     if TYPE_CHECKING or __package__:
         from scripts.agent_provider_bootstrap import only_provision_dev_agent_authority
-        from scripts.database import _initialize_deployment, _validate
+        from scripts.database import _extend_strategy_research, _initialize_deployment, _validate
     else:
         from agent_provider_bootstrap import only_provision_dev_agent_authority
 
-        from database import _initialize_deployment, _validate
+        from database import _extend_strategy_research, _initialize_deployment, _validate
 
     postgres_dsn = OnlyPostgresConfig.from_environment().dsn
     clickhouse = OnlyClickHouseMigrationAuthority(OnlyClickHouseClient(OnlyClickHouseConfig.from_environment()))
@@ -41,6 +41,8 @@ def main() -> int:
     artifact_root = os.environ.get("ONLYALPHA_NATIVE_ARTIFACT_ROOT")
     native_backend = None if artifact_root is None else Path(artifact_root) / "bin" / "onlyalpha-backend"
     deployment_id = _initialize_deployment(postgres_dsn, user_data_root, native_backend)
+    if _extend_strategy_research(postgres_dsn, user_data_root, native_backend) != deployment_id:
+        raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     _validate(postgres_dsn, None)
     clickhouse.validate()
     only_ensure_dev_master_key(OnlyUserDataLayout(user_data_root).root / MASTER_KEY_FILE)

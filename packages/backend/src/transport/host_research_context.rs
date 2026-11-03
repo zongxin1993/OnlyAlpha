@@ -33,7 +33,7 @@ fn preparation_summary(operation: Operation) -> Result<FactorResearchPreparation
         command_id: operation.command.value().into(),
         revision: operation.revision.to_string(),
         state: operation.state.as_str().into(),
-        study_proposal_fingerprint: operation.request.study_proposal_fingerprint,
+        study_proposal_fingerprint: operation.request.factor().map_err(Failure::unavailable)?.study_proposal_fingerprint.clone(),
         accepted_at: operation.accepted["accepted_at"]
             .as_str()
             .ok_or(Failure::unavailable("RESEARCH_PREPARATION_CORRUPT"))?
@@ -259,14 +259,14 @@ mod tests {
         Operation {
             command: CommandId::new("00000000-0000-4000-8000-000000000001").unwrap(),
             owner: "owner".into(),
-            request: PrepareInput {
+            request: crate::persistence::research_preparation::PreparationRequest::Factor(PrepareInput {
                 schema_version: 1,
                 study_proposal_fingerprint: "a".repeat(64),
                 release_manifest_fingerprint: "b".repeat(64),
                 expected_active_generation: None,
                 initialize_fresh_runtime: false,
                 research_command_id: "00000000-0000-4000-8000-000000000002".into(),
-            },
+            }),
             accepted: json!({"accepted_at":"2026-10-30T00:00:00Z"}),
             revision: 9_007_199_254_740_993,
             state: State::Ready,

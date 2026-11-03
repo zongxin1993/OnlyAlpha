@@ -1,5 +1,7 @@
 //! Finite native Research execution. Only an owning admitted Run can reach this path.
 //! Factor mathematics stays in the selected managed SDK; Research owns Target and Statistics.
+mod strategy;
+pub use strategy::{ExecutedStrategy,execute_strategy};
 use crate::application::{
     factor_content::hash,
     research_admission::{PreparationError, PreparedInputs},
@@ -80,22 +82,34 @@ impl Control {
             .clone();
         PreparationError::unknown(code, child)
     }
-    fn check(&self) -> Result<()> {
+    pub(crate) fn check(&self) -> Result<()> {
         if self.0.stopped.load(std::sync::atomic::Ordering::Acquire) {
             Err("RESEARCH_EXECUTION_CANCELLED")
         } else {
             Ok(())
         }
     }
-    fn attach(
+    /// attach() only replaces positively joined owners. Checking the retained
+    /// final owner therefore proves every original sequential child was joined.
+    pub(crate) fn verify_joined(&self)->std::result::Result<(),PreparationError> {
+        self.check()?;
+        let owner=self.0.child.lock().map_err(|e|PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",e.into_inner().clone()))?;
+        if owner.as_ref().is_none_or(|owner|owner.state()!=onlyalpha_calculation_bridge::ProcessState::Joined) {
+            return Err(PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",owner.clone()));
+        }
+        Ok(())
+    }
+    pub(crate) fn attach(
         &self,
         child: onlyalpha_calculation_bridge::Cancellation,
     ) -> std::result::Result<(), PreparationError> {
         let mut current = self.0.child.lock().map_err(|_| {
             PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN", Some(child.clone()))
         })?;
-        if current.is_some() {
-            return Err(INVALID.into());
+        // A finite observation may have several sequential mathematical phases.
+        // Replacement requires positive join of the exact previous owner.
+        if current.as_ref().is_some_and(|owner| owner.state() != onlyalpha_calculation_bridge::ProcessState::Joined) {
+            return Err(PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN", current.clone()));
         }
         *current = Some(child.clone());
         if self.0.stopped.load(std::sync::atomic::Ordering::Acquire) {
@@ -162,7 +176,28 @@ pub(crate) fn signed(mut body: Value, key: &str) -> Result<Value> {
 }
 pub fn verify_inputs(run: &VerifiedRun, inputs: &PreparedInputs) -> Result<()> {
     inputs.verify_runtime()?;
-    let spec = run.specification();
+    if let crate::application::research_run::NativeSpecification::Strategy(specification) = run.specification() {
+        let spec = specification.record();
+        let record = inputs.record();
+        if *record != run.prepared_inputs
+            || record["contract"] != "ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1"
+            || record["run_specification_fingerprint"] != specification.fingerprint()?
+            || record["run_specification_fingerprint"] != run.specification_fingerprint()
+            || record["dataset_snapshot_fingerprint"] != spec["scientific_specification"]["dataset_snapshot_fingerprint"]
+            || record["runtime_generation_fingerprint"] != spec["runtime_generation_fingerprint"]
+            || record["execution_binding"] != spec["execution_binding"]
+            || record["input_window"] != spec["input_window"]
+            || record["algorithm_resolution"]["algorithm_artifact"] != spec["algorithm_artifact_fingerprint"]
+            || record["runtime_work_binding"]["kind"] != "RuntimeWorkBound"
+            || record["runtime_work_binding"]["work_id"] != run.run_id()
+            || record["runtime_work_binding"]["reason"] != "research"
+            || inputs.runtime_manifest()["catalog_generation_fingerprint"] != spec["catalog_generation_fingerprint"]
+        {
+            return Err(INVALID);
+        }
+        return Ok(());
+    }
+    let spec = run.factor_specification()?;
     spec.validate()?;
     let factor = spec.factor()?;
     let window = factor.window(crate::application::research_factor::Window {
@@ -200,7 +235,7 @@ pub fn execute(
 ) -> std::result::Result<Executed, PreparationError> {
     control.check()?;
     verify_inputs(&run, &inputs)?;
-    let spec = run.specification();
+    let spec = run.factor_specification()?;
     let image = crate::workers::algorithm::describe_research_runtime(native_version)
         .map_err(|_| "RESEARCH_EXECUTOR_IMAGE_UNAVAILABLE")?;
     verify_executor_image(&image, &spec.execution_binding)?;

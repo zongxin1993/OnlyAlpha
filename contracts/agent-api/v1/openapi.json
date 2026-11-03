@@ -60,6 +60,45 @@
         "title": "BackendProposalView",
         "type": "object"
       },
+      "BacktestReference": {
+        "additionalProperties": false,
+        "properties": {
+          "determinism_fingerprint": {
+            "title": "Determinism Fingerprint",
+            "type": "string"
+          },
+          "evidence_fingerprint": {
+            "title": "Evidence Fingerprint",
+            "type": "string"
+          },
+          "result_fingerprint": {
+            "title": "Result Fingerprint",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "specification_fingerprint": {
+            "title": "Specification Fingerprint",
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "title": "Strategy Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "specification_fingerprint",
+          "strategy_fingerprint",
+          "evidence_fingerprint",
+          "result_fingerprint",
+          "determinism_fingerprint"
+        ],
+        "title": "BacktestReference",
+        "type": "object"
+      },
       "ChatMessage": {
         "additionalProperties": false,
         "properties": {
@@ -180,6 +219,16 @@
             ],
             "title": "Assistant"
           },
+          "backtest_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "candidate": {
             "anyOf": [
               {
@@ -240,7 +289,8 @@
           "topic": {
             "enum": [
               "FACTOR",
-              "STUDY"
+              "STUDY",
+              "BACKTEST_ANALYSIS"
             ],
             "title": "Topic",
             "type": "string"
@@ -338,6 +388,31 @@
       "MessageInput": {
         "additionalProperties": false,
         "properties": {
+          "analysis_assertion": {
+            "anyOf": [
+              {
+                "maxLength": 12288,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Assertion"
+          },
+          "backtest_run_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f-]{36}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backtest Run Id"
+          },
           "expected": {
             "anyOf": [
               {
@@ -371,7 +446,8 @@
             "default": "FACTOR",
             "enum": [
               "FACTOR",
-              "STUDY"
+              "STUDY",
+              "BACKTEST_ANALYSIS"
             ],
             "title": "Topic",
             "type": "string"
@@ -662,6 +738,16 @@
       "SessionView": {
         "additionalProperties": false,
         "properties": {
+          "backtest_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "candidate": {
             "anyOf": [
               {
@@ -785,7 +871,8 @@
           "topic": {
             "enum": [
               "FACTOR",
-              "STUDY"
+              "STUDY",
+              "BACKTEST_ANALYSIS"
             ],
             "title": "Topic",
             "type": "string"

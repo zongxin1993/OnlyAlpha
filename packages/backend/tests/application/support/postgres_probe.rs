@@ -1,8 +1,9 @@
 //! Technical infrastructure probe: never a Shipping Product endpoint.
-mod market_storage_probe;
 mod factor_studies_probe;
-mod strategy_authoring_probe;
+mod backtest_native_host;
+mod market_storage_probe;
 mod research_namespace_probe;
+mod strategy_authoring_probe;
 use onlyalpha_backend::application::command::{
     Admission, Binding, CommandId, CommandKind, Error, Outcome, OutcomeKind, Put, Receipt,
 };
@@ -661,6 +662,12 @@ fn main() -> Result<(), Box<dyn StdError>> {
         .enable_all()
         .build()?;
     runtime.block_on(async {
+  if std::env::args().skip(1).collect::<Vec<_>>()==["--read-native-backtest-terminal"] {
+    onlyalpha_backend::workers::backtest_terminal::run_stdio()?;return Ok(());
+  }
+  if std::env::args().skip(1).collect::<Vec<_>>()==["--backtest-native-host"] {
+    return backtest_native_host::serve().await;
+  }
   if std::env::args().any(|arg|arg=="--describe-research-runtime") {
     println!("{}",onlyalpha_backend::workers::algorithm::describe_research_runtime("0.11.1")?);return Ok(());
   }
@@ -683,21 +690,71 @@ fn main() -> Result<(), Box<dyn StdError>> {
   if request["op"]=="factor-study" {let result=factor_studies_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
   if request["op"]=="market-storage" {drop(client);driver.await??;let result=match market_storage_probe::run(&request["request"]).await{Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})};println!("{result}");return Ok(());}
   if request["op"]=="runtime-environment" {
+   let started=std::time::Instant::now();
+   let progress=|phase:&str|eprintln!("[runtime-environment] phase={phase} elapsed_ms={}",started.elapsed().as_millis());
    use onlyalpha_backend::{application::research_factor,workers::research_environment,persistence::research_runtime::Registry};
    use onlyalpha_calculation_bridge::ChartInstallation;
    use std::path::Path;
+   progress("pg_drain_begin");
    drop(client);driver.await??;
+   progress("pg_drain_done");
    let result=(||->Result<Value,Box<dyn StdError>> {
+    progress("factor_compile_begin");
     let factor=research_factor::compile(&request["factor"]["candidate"],&request["factor"]["draft"],&request["factor"]["revision"])?;
+    progress("factor_compile_done");
     let root=Path::new(request["release_root"].as_str().ok_or("release root")?);
+    progress("installation_verify_begin");
     let installation=ChartInstallation::open(&root.join("algorithms"),request["algorithm_artifact"].as_str().ok_or("algorithm")?)?;
-    let prepared=research_environment::prepare(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?;
+    progress("installation_verify_done");
+    progress("prepare_begin");
+    let prepared=match request["preparation_kind"].as_str() {
+      Some("STRATEGY")=>research_environment::prepare_strategy(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
+      None|Some("FACTOR")=>research_environment::prepare(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
+      _=>return Err("unsupported controlled preparation kind".into()),
+    };
+    progress("prepare_done");
     let runtime=Path::new(request["runtime_root"].as_str().ok_or("runtime root")?);
+    progress("registry_open_begin");
     let mut registry=if request["fresh"]==true {Registry::initialize_fresh(runtime)?} else {Registry::open_existing(runtime)?};
+    progress("registry_open_done");
+    progress("publication_begin");
     prepared.publish(&mut registry,request["factor"]["revision"]["source_text"].as_str().ok_or("source")?.as_bytes(),"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
+    progress("publication_done");
+    if let Some(work)=request["bind_work"].as_str() {
+      let generation=prepared.manifest()["runtime_generation_fingerprint"].as_str().ok_or("generation")?;
+      let command=CommandId::new(request["activation_command"].as_str().ok_or("controlled activation command")?)?;
+      let at=request["at"].as_str().ok_or("at")?.parse()?;
+      progress("activation_begin");
+      registry.activate(&command,generation,None,"technical-fixture",at)?;
+      progress("activation_done");
+      progress("work_binding_begin");
+      registry.bind_new_work_exact(work,generation,"research","technical-fixture",at)?;
+      progress("work_binding_done");
+    }
     Ok(json!({"manifest":prepared.manifest(),"proof":prepared.proof(),"snapshot":registry.snapshot()}))
    })();
+   progress(if result.is_ok(){"request_done"}else{"request_error"});
    println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
+  }
+  if matches!(request["op"].as_str(),Some("runtime-evidence-read"|"runtime-work-release")) {
+   use onlyalpha_backend::persistence::research_runtime::{Registry,RuntimeEvidenceHold,RuntimeInputHold};
+   use std::path::Path;
+   drop(client);driver.await??;
+   let result=(||->Result<Value,Box<dyn StdError>> {
+    let root=Path::new(request["runtime_root"].as_str().ok_or("runtime root")?);
+    let work=request["work_id"].as_str().ok_or("work")?;
+    let owner=request["owner"].as_str().ok_or("owner")?;
+    let generation=request["generation"].as_str().ok_or("generation")?;
+    if request["op"]=="runtime-work-release" {
+      let event=Registry::open_existing(root)?.release_work_exact(work,generation,owner,"use_test_terminal_joined",request["at"].as_str().ok_or("time")?.parse()?)?;
+      return Ok(json!({"event":event}));
+    }
+    let hold=RuntimeEvidenceHold::open(root,work,owner,generation)?;
+    hold.verify()?;
+    let input_available=RuntimeInputHold::open(root,work,owner,generation).is_ok();
+    Ok(json!({"manifest":hold.manifest(),"binding":hold.binding(),"input_available":input_available}))
+   })();
+   println!("{}",match result {Ok(value)=>value,Err(error)=>json!({"error":error.to_string()})});return Ok(());
   }
   let id=CommandId::new(request["command_id"].as_str().ok_or("command id")?)?;
   let op=request["op"].as_str().ok_or("operation")?;

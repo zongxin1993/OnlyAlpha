@@ -174,3 +174,6 @@ reducer, identity sets without payload equality, and incremental restore into an
 requirements instead of copying those defects. Common valid financial/status trajectories are compared with actual Python Manager
 and fresh restoration using independently expected vectors. Corrected/unsupported reference paths are tested separately; comparison
 does not certify complete implementation or persisted identity equivalence.
+
+
+The Rust `order` Manager implements `Clone` only as an independent in-memory data copy. It retains the exact configuration, complete canonical journal, state, receipts and indexes; later mutation of either copy does not mutate the other. Cloning performs no I/O, recovery, reconciliation or dispatch and grants no Runtime admission, source freshness or durable write authority. The owning Execution composition must prove its actual source independently; persisted bytes still require the existing complete checkpoint restore reader. Clone does not authenticate caller data or replace crash/restart recovery.

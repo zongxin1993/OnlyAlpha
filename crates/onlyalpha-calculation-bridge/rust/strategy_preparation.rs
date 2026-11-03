@@ -71,6 +71,9 @@ impl<C: NodePort> StrategyPreparation<C> {
     pub fn strategy(&self) -> &Executor<C> {
         &self.strategy
     }
+    pub fn pipeline_program(&self) -> &PipelineProgram {
+        self.pipeline.program()
+    }
     pub fn is_failed(&self) -> bool {
         self.failed
     }

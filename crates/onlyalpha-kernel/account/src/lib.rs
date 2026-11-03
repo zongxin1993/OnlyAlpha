@@ -8,4 +8,7 @@ pub use manager::Manager;
 pub use model::{Error, Outcome, Status, digest};
 
 mod performance;
-pub use performance::Performance;
+pub use performance::{Performance, equity_drawdown};
+
+#[cfg(test)]
+mod extension_tests;

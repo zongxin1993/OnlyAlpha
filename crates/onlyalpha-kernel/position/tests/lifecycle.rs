@@ -658,3 +658,72 @@ fn consolidated_valuation_includes_unallocated_inventory_without_cluster_attribu
     assert_eq!(effect.record()["unrealized_pnl"], "4");
     assert_eq!(m.state(), before);
 }
+
+#[test]
+fn explicit_fill_price_precision_preserves_cost_without_changing_venue_precision() {
+    let mut m = manager();
+    let mut v = trade("precise-fill", Some("a"), "BUY", "10.002000", "4", 1);
+    v["payload"]["schema_version"] = json!(2);
+    v["payload"]["price_precision"] = json!(6);
+    let outcome = m.apply(&v).unwrap();
+    assert_eq!(outcome.status, Status::Applied);
+    assert_eq!(config()["instruments"][0]["price_precision"], 2);
+    assert_eq!(m.account("BTCUSDT.BINANCE").unwrap()["cost"], "40.008");
+    assert_eq!(m.cluster("a", "BTCUSDT.BINANCE").unwrap()["cost"], "40.008");
+    let (bytes, digest) = m.checkpoint().unwrap();
+    let mut fresh = manager();
+    fresh.restore(&bytes, &digest).unwrap();
+    assert_eq!(fresh.state(), m.state());
+    assert_eq!(fresh.apply(&v).unwrap().status, Status::Duplicate);
+}
+
+#[test]
+fn explicit_fill_precision_cannot_round_or_reinterpret_legacy_prices() {
+    let mut m = manager();
+    let before = m.state();
+    let missing = trade("precise-fill", Some("a"), "BUY", "10.002000", "4", 1);
+    assert!(m.apply(&missing).is_err());
+    for precision in [json!(2), json!(19), json!(-1), Value::Null] {
+        let mut v = missing.clone();
+        v["payload"]["schema_version"] = json!(2);
+        v["payload"]["price_precision"] = precision;
+        assert!(m.apply(&v).is_err());
+        assert_eq!(m.state(), before);
+    }
+    let mut untagged = missing.clone();
+    untagged["payload"]["price_precision"] = json!(6);
+    assert!(m.apply(&untagged).is_err());
+    let mut no_precision = missing.clone();
+    no_precision["payload"]["schema_version"] = json!(2);
+    assert!(m.apply(&no_precision).is_err());
+    let legacy = trade("legacy-fill", Some("a"), "BUY", "10.00", "4", 1);
+    assert_eq!(m.apply(&legacy).unwrap().status, Status::Applied);
+}
+
+#[test]
+fn memory_clone_isolates_partial_close_reservations_and_exact_cost() {
+    let mut original = manager();
+    assert_eq!(original.apply(&trade("clone-open", Some("a"), "BUY", "10.00", "5", 1)).unwrap().status, Status::Applied);
+    assert_eq!(original.apply(&reserve("clone-reserve", "a", "4", 2)).unwrap().status, Status::Applied);
+    let before = original.checkpoint().unwrap();
+    let mut branch = original.clone();
+    assert_eq!(branch.checkpoint().unwrap(), before);
+
+    let partial = close("clone-partial", "a", "12.00", "1", 3, false);
+    let result = branch.apply(&partial).unwrap();
+    assert_eq!(result.status, Status::Applied);
+    assert_eq!(result.fact.unwrap()["realized_pnl"], "2.00");
+    assert_eq!(branch.reservation("order-a").unwrap()["remaining"], "3");
+    assert_eq!(original.reservation("order-a").unwrap()["remaining"], "4");
+    assert_eq!(original.checkpoint().unwrap(), before);
+    assert_eq!(original.apply(&partial).unwrap().status, Status::Applied);
+    assert_eq!(original.checkpoint().unwrap(), branch.checkpoint().unwrap());
+
+    let branch_before = branch.checkpoint().unwrap();
+    assert_eq!(original.apply(&close("clone-terminal", "a", "12.00", "1", 4, true)).unwrap().status, Status::Applied);
+    assert_eq!(original.reservation("order-a").unwrap()["remaining"], "0");
+    assert_eq!(original.reservation("order-a").unwrap()["released"], "2");
+    assert_eq!(original.account("BTCUSDT.BINANCE").unwrap()["cost"], "30");
+    assert_eq!(branch.account("BTCUSDT.BINANCE").unwrap()["cost"], "40");
+    assert_eq!(branch.checkpoint().unwrap(), branch_before);
+}

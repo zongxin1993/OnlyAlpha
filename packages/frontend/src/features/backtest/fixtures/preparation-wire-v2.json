@@ -1,0 +1,154 @@
+{
+    "frozen_progress": {
+        "accepted_at": "2026-11-02T00:00:00Z",
+        "backtest_command_id": "00000000-0000-4000-8000-000000008202",
+        "backtest_outcome": "UNOBSERVED",
+        "command_id": "00000000-0000-4000-8000-000000008201",
+        "detail": null,
+        "freeze_relation_fingerprint": null,
+        "origin": {
+            "freeze_relation_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": "FROZEN_STRATEGY",
+            "promotion_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "qualification_decision_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "strategy_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "phase": "VALIDATING",
+        "preparation_fingerprint": null,
+        "profile": "BTC_SPOT_NEXT_OPEN_BACKTEST_V1",
+        "promotion_fingerprint": null,
+        "qualification_decision_fingerprint": null,
+        "readiness": {
+            "code": null,
+            "state": "NOT_APPLICABLE"
+        },
+        "reserved_run_id": "fe197a03-f579-4fe4-84a3-245021144e4f",
+        "revision": "1",
+        "run_id": null,
+        "schema_version": 2,
+        "source": {
+            "environment": "LIVE",
+            "expected_type_id": "binance.spot.market_data",
+            "instrument_id": "BTCUSDT.BINANCE",
+            "integration_id": "00000000-0000-4000-8000-000000008204",
+            "integration_revision_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_id": "binance.spot.market_data.live"
+        },
+        "state": "RUNNING",
+        "strategy_fingerprint": null,
+        "validation_fingerprint": null
+    },
+    "frozen_ready": {
+        "accepted_at": "2026-11-02T00:00:00Z",
+        "backtest_command_id": "00000000-0000-4000-8000-000000008202",
+        "backtest_outcome": "UNOBSERVED",
+        "command_id": "00000000-0000-4000-8000-000000008201",
+        "detail": null,
+        "freeze_relation_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": {
+            "freeze_relation_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": "FROZEN_STRATEGY",
+            "promotion_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "qualification_decision_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "strategy_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "phase": "READY_FOR_HUMAN_CONFIRMATION",
+        "preparation_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+        "profile": "BTC_SPOT_NEXT_OPEN_BACKTEST_V1",
+        "promotion_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "qualification_decision_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "readiness": {
+            "code": null,
+            "state": "NOT_APPLICABLE"
+        },
+        "reserved_run_id": "fe197a03-f579-4fe4-84a3-245021144e4f",
+        "revision": "3",
+        "run_id": null,
+        "schema_version": 2,
+        "source": {
+            "environment": "LIVE",
+            "expected_type_id": "binance.spot.market_data",
+            "instrument_id": "BTCUSDT.BINANCE",
+            "integration_id": "00000000-0000-4000-8000-000000008204",
+            "integration_revision_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_id": "binance.spot.market_data.live"
+        },
+        "state": "READY",
+        "strategy_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "validation_fingerprint": null
+    },
+    "manual_progress": {
+        "accepted_at": "2026-11-02T00:00:00Z",
+        "backtest_command_id": "00000000-0000-4000-8000-000000008202",
+        "backtest_outcome": "UNOBSERVED",
+        "command_id": "00000000-0000-4000-8000-000000008201",
+        "detail": null,
+        "freeze_relation_fingerprint": null,
+        "origin": {
+            "kind": "MANUAL_STRATEGY",
+            "strategy_id": "private.strategy.btc_momentum",
+            "strategy_revision_fingerprint": "9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "phase": "VALIDATING",
+        "preparation_fingerprint": null,
+        "profile": "BTC_SPOT_NEXT_OPEN_BACKTEST_V1",
+        "promotion_fingerprint": null,
+        "qualification_decision_fingerprint": null,
+        "readiness": {
+            "code": null,
+            "state": "NOT_APPLICABLE"
+        },
+        "reserved_run_id": "fe197a03-f579-4fe4-84a3-245021144e4f",
+        "revision": "1",
+        "run_id": null,
+        "schema_version": 2,
+        "source": {
+            "environment": "LIVE",
+            "expected_type_id": "binance.spot.market_data",
+            "instrument_id": "BTCUSDT.BINANCE",
+            "integration_id": "00000000-0000-4000-8000-000000008204",
+            "integration_revision_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_id": "binance.spot.market_data.live"
+        },
+        "state": "RUNNING",
+        "strategy_fingerprint": null,
+        "validation_fingerprint": null
+    },
+    "manual_ready": {
+        "accepted_at": "2026-11-02T00:00:00Z",
+        "backtest_command_id": "00000000-0000-4000-8000-000000008202",
+        "backtest_outcome": "UNOBSERVED",
+        "command_id": "00000000-0000-4000-8000-000000008201",
+        "detail": null,
+        "freeze_relation_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "origin": {
+            "kind": "MANUAL_STRATEGY",
+            "strategy_id": "private.strategy.btc_momentum",
+            "strategy_revision_fingerprint": "9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "phase": "READY_FOR_HUMAN_CONFIRMATION",
+        "preparation_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+        "profile": "BTC_SPOT_NEXT_OPEN_BACKTEST_V1",
+        "promotion_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "qualification_decision_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "readiness": {
+            "code": null,
+            "state": "NOT_APPLICABLE"
+        },
+        "reserved_run_id": "fe197a03-f579-4fe4-84a3-245021144e4f",
+        "revision": "3",
+        "run_id": null,
+        "schema_version": 2,
+        "source": {
+            "environment": "LIVE",
+            "expected_type_id": "binance.spot.market_data",
+            "instrument_id": "BTCUSDT.BINANCE",
+            "integration_id": "00000000-0000-4000-8000-000000008204",
+            "integration_revision_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_id": "binance.spot.market_data.live"
+        },
+        "state": "READY",
+        "strategy_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "validation_fingerprint": "8888888888888888888888888888888888888888888888888888888888888888"
+    }
+}

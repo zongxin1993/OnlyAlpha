@@ -3,12 +3,12 @@
 use crate::{
     application::{
         research_admission::{self, PreparationError},
-        research_run::VerifiedRun,
+        research_run::{NativeSpecification, VerifiedRun},
     },
     bootstrap::workstation_startup::ResearchConnection,
     persistence::{
         research_dataset::Store as Datasets, research_runtime::RuntimeInputHold,
-        research_submission,
+        research_submission, strategy_research::Composer,
     },
     workers::research::{self, Work},
 };
@@ -28,7 +28,6 @@ use tokio::{
 };
 const UNAVAILABLE: &str = "RESEARCH_SERVICE_UNAVAILABLE";
 const UNKNOWN: &str = "RESEARCH_SERVICE_OUTCOME_UNKNOWN";
-const ROWS: usize = 10_000;
 #[derive(Clone)]
 pub(crate) struct Configuration {
     pub runtime_root: PathBuf,
@@ -106,7 +105,7 @@ impl Service {
         let (status, observed) = watch::channel(Status::Starting);
         let selected = wake.clone();
         let task = tokio::spawn(async move {
-            let mut connection = connection;
+            let mut connection = Some(connection);
             let result = serve(
                 &mut connection,
                 &writer,
@@ -117,7 +116,10 @@ impl Service {
                 &worker,
             )
             .await;
-            let closed = connection.close().await.map_err(|_| UNAVAILABLE);
+            let closed = match connection.as_mut() {
+                Some(connection) => connection.close().await.map_err(|_| UNAVAILABLE),
+                None => Err(UNKNOWN),
+            };
             match result.and(closed) {
                 Ok(()) => {
                     status.send_replace(Status::Stopped);
@@ -171,7 +173,7 @@ impl Drop for Service {
     }
 }
 async fn serve(
-    connection: &mut ResearchConnection,
+    connection: &mut Option<ResearchConnection>,
     writer: &research::SharedAuthority,
     config: &Configuration,
     wake: &Wake,
@@ -186,26 +188,14 @@ async fn serve(
         if !next_scan(wake, &mut poll).await {
             return Ok(());
         }
-        let client = connection.client_mut().await.map_err(|_| UNAVAILABLE)?;
-        let tx = client.transaction().await.map_err(|_| UNAVAILABLE)?;
-        crate::persistence::postgres::bounds(&tx)
-            .await
-            .map_err(|_| UNAVAILABLE)?;
-        let rows=tx.query("SELECT r.run_id::text FROM research_run r WHERE r.specification_schema_version=4 AND r.origin_kind='GENERAL' AND r.state IN ('QUEUED','RUNNING','CANCEL_REQUESTED') AND NOT EXISTS(SELECT 1 FROM research_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE' AND a.lease_expires_at>clock_timestamp()) ORDER BY r.queued_at,r.run_id LIMIT 10001",&[]).await.map_err(|_|UNAVAILABLE)?;
-        tx.commit().await.map_err(|_| UNAVAILABLE)?;
-        if rows.len() > ROWS {
-            return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED");
-        }
-        let ids = rows
-            .iter()
-            .map(|r| r.try_get::<_, String>(0).map_err(|_| UNAVAILABLE))
-            .collect::<Result<Vec<_>, _>>()?;
+        let client = connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| UNAVAILABLE)?;
+        let ids=research_submission::pending_native_run_ids(client).await?;
         for id in ids {
             if wake.stopped() {
                 return Ok(());
             }
             let run = research_submission::load(
-                connection.client_mut().await.map_err(|_| UNAVAILABLE)?,
+                connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| UNAVAILABLE)?,
                 &id,
                 None,
             )
@@ -217,24 +207,40 @@ async fn serve(
             // Shutdown cannot pass this CAS then start a fresh preflight later.
             let result = handoff(wake, async {
                 clock()?;
-                if research::recover_owned(writer, &run, &config.research_root, clock)
-                    .await?
-                    .is_some()
-                {
-                    return Ok(());
+                let retained = run.clone();
+                let outcome = if let Some(outcome) = research::recover_owned(writer, &run, &config.research_root, &config.runtime_root, clock).await? {
+                    outcome
+                } else {
+                    let configuration = config.clone();
+                    let worker = worker.to_owned();
+                    let attempt = uuid4()?;
+                    let runtime = tokio::runtime::Handle::current();
+                    let work = if matches!(run.specification(), NativeSpecification::Strategy(_)) {
+                        // Move the original read-only session, never the mutation
+                        // guard, through blocking SDK/artifact preparation. Its
+                        // same socket and driver return even on a known failure.
+                        let mut original = connection.take().ok_or(UNKNOWN)?;
+                        let (original, result) = tokio::task::spawn_blocking(move || {
+                            let result = runtime.block_on(async {
+                                let client = original.client_mut().await.map_err(|_| PreparationError::from(UNAVAILABLE))?;
+                                restore_work(run, &configuration, worker, attempt, Some(client)).await
+                            });
+                            (original, result)
+                        }).await.map_err(|_| PreparationError::from(UNKNOWN))?;
+                        *connection = Some(original);
+                        result?
+                    } else {
+                        tokio::task::spawn_blocking(move || runtime.block_on(restore_work(run, &configuration, worker, attempt, None)))
+                            .await.map_err(|_| PreparationError::from(UNKNOWN))??
+                    };
+                    research::run_owned(writer, work, clock).await?
+                };
+                if outcome.state.terminal() {
+                    // run_owned returned after its job/inputs/completion values
+                    // dropped. Only the Runtime owner can release this binding.
+                    release_terminal(&retained, config, wake, status, clock).await?;
                 }
-                let configuration = config.clone();
-                let worker = worker.to_owned();
-                let attempt = uuid4()?;
-                let work = tokio::task::spawn_blocking(move || {
-                    restore_work(run, &configuration, worker, attempt)
-                })
-                .await
-                .map_err(|_| PreparationError::from(UNKNOWN))?;
-                match work {
-                    Ok(work) => research::run_owned(writer, work, clock).await.map(|_| ()),
-                    Err(error) => Err(error),
-                }
+                Ok(())
             })
             .await;
             let Some(result) = result else { return Ok(()) };
@@ -248,12 +254,54 @@ async fn serve(
                 }
                 return Err(code);
             }
-            if !connection.active() {
+            if !connection.as_ref().is_some_and(ResearchConnection::active) {
                 return Err("RESEARCH_NODE_AUTHORITY_UNAVAILABLE");
             }
         }
+        if let Err(error) = cleanup_terminal_bindings(connection, writer, config, wake, status, clock).await {
+            return Err(error.code());
+        }
         status.send_replace(Status::Idle);
     }
+}
+async fn cleanup_terminal_bindings(
+    connection: &mut Option<ResearchConnection>, writer: &research::SharedAuthority,
+    config: &Configuration, wake: &Wake, status: &watch::Sender<Status>,
+    clock: &(impl Fn() -> Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
+) -> Result<(), PreparationError> {
+    let root = config.runtime_root.clone();
+    let bindings = tokio::task::spawn_blocking(move || crate::persistence::research_runtime::Registry::unreleased_work_bindings(&root))
+        .await.map_err(|_| PreparationError::from(UNKNOWN))??;
+    if bindings.len() > 10000 { return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED".into()); }
+    for (work, generation, reason) in bindings {
+        if wake.stopped() { return Ok(()); }
+        if reason != "research" { continue; }
+        let client = connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| PreparationError::from(UNAVAILABLE))?;
+        let run = match research_submission::load(client, &work, None).await {
+            // Input preparation can own a future research binding before a Run
+            // exists. That original preparation, not this scanner, owns it.
+            Err("RESEARCH_RUN_NOT_FOUND") => continue,
+            Err(error) => return Err(error.into()),
+            Ok(run) => run,
+        };
+        if run.runtime_generation_fingerprint()? != generation
+            || run.prepared_inputs["runtime_work_binding"]["work_id"] != work
+            || run.prepared_inputs["runtime_work_binding"]["reason"] != reason {
+            return Err("RESEARCH_RECOVERY_BINDING_INVALID".into());
+        }
+        let observed = crate::persistence::research_execution::ResearchExecution::new(client).observe(&run).await?;
+        if !observed.state.terminal() { continue; }
+        let cleanup = handoff(wake, async {
+            research::recover_owned(writer, &run, &config.research_root, &config.runtime_root, clock).await?
+                .filter(|value| value.state.terminal()).ok_or("RESEARCH_TERMINAL_CLEANUP_CONFLICT")?;
+            release_terminal(&run, config, wake, status, clock).await
+        }).await;
+        match cleanup {
+            None => return Ok(()),
+            Some(result) => result?,
+        }
+    }
+    Ok(())
 }
 /// One scheduling gate for initial recovery, post-commit wake and lease-expiry observation.
 /// It carries no Run or permission and cannot restart stopped admission.
@@ -279,11 +327,12 @@ async fn handoff(
     Some(result)
 }
 
-fn restore_work(
+async fn restore_work(
     run: VerifiedRun,
     config: &Configuration,
     worker_id: String,
     attempt_id: String,
+    client: Option<&mut tokio_postgres::Client>,
 ) -> Result<Work, PreparationError> {
     let owner = run.prepared_inputs["runtime_work_binding"]["reason"]
         .as_str()
@@ -292,11 +341,11 @@ fn restore_work(
         &config.runtime_root,
         run.run_id(),
         owner,
-        run.runtime_generation_fingerprint(),
+        run.runtime_generation_fingerprint()?,
     )?;
     let installation = ChartInstallation::open(
         &config.algorithms,
-        &run.specification().algorithm_artifact_fingerprint,
+        run.specification().algorithm_artifact_fingerprint()?,
     )
     .map_err(|_| "RESEARCH_ALGORITHM_INSTALLATION_CHANGED")?;
     let datasets = Datasets::open(
@@ -304,17 +353,46 @@ fn restore_work(
         8192,
         8 * 1024 * 1024,
     )?;
-    let inputs = research_admission::restore(&run, runtime, &installation, &datasets)?;
+    let inputs = match run.specification() {
+        NativeSpecification::Factor(_) => research_admission::restore(&run, runtime, &installation, &datasets)?,
+        NativeSpecification::Strategy(_) => research_admission::restore_strategy(&mut Composer::new(client.ok_or("RESEARCH_RECOVERY_READER_REQUIRED")?), &run, runtime, &installation, &datasets).await?,
+    };
     Ok(Work {
         run,
         inputs,
         datasets,
         installation,
+        runtime_root: config.runtime_root.clone(),
         evidence_root: config.research_root.clone(),
         native_version: config.native_version.clone(),
         worker_id,
         attempt_id,
     })
+}
+async fn release_terminal(
+    run: &VerifiedRun, config: &Configuration, wake: &Wake,
+    status: &watch::Sender<Status>, clock: &impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
+) -> Result<(), PreparationError> {
+    let work = run.run_id().to_owned();
+    let generation = run.runtime_generation_fingerprint()?.to_owned();
+    let owner = run.prepared_inputs["runtime_work_binding"]["reason"].as_str().filter(|v| *v == "research").ok_or("RESEARCH_RECOVERY_BINDING_INVALID")?.to_owned();
+    loop {
+        let root = config.runtime_root.clone();
+        let work = work.clone(); let generation = generation.clone(); let owner = owner.clone(); let at = clock()?;
+        let result = tokio::task::spawn_blocking(move || {
+            crate::persistence::research_runtime::Registry::open_existing(&root)?.release_work_exact(&work, &generation, &owner, "research-service", at).map(drop)
+        }).await.map_err(|_| PreparationError::from(UNKNOWN))?;
+        match result {
+            Ok(()) => return Ok(()),
+            Err("RESEARCH_RUNTIME_UNAVAILABLE") => {
+                status.send_replace(Status::Uncertain("RESEARCH_RUNTIME_CLEANUP_PENDING"));
+                // Keep this exact terminal cleanup owned. An explicit wake or
+                // another drain requests re-observation; never create new work.
+                wake.0.changed.notified().await;
+            }
+            Err(code) => return Err(code.into()),
+        }
+    }
 }
 async fn drain_original(
     error: PreparationError,

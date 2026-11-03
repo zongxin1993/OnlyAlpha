@@ -201,7 +201,7 @@ pub(crate) struct State {
     pub receivables: BTreeMap<String, D>,
     pub receipts: BTreeMap<String, String>,
     pub semantic: BTreeMap<String, String>,
-    pub journal: Vec<Value>,
+    pub journal: Vec<std::sync::Arc<Value>>,
     pub sequence: u64,
     pub economic_version: u64,
     pub valuation_version: u64,
@@ -514,12 +514,13 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
 
 pub(crate) fn checkpoint_row<'a>(
     v: &'a Value,
+    version: u8,
     fields: &[&str],
 ) -> Result<&'a serde_json::Map<String, Value>, Error> {
     let r = v
         .as_object()
         .ok_or_else(|| err("COMPONENT_CHECKPOINT_RECORD"))?;
-    if r.get("schema_version").and_then(Value::as_u64) != Some(4)
+    if r.get("schema_version").and_then(Value::as_u64) != Some(u64::from(version))
         || r.len() != fields.len() + 1
         || fields.iter().any(|f| !r.contains_key(*f))
     {

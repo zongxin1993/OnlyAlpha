@@ -629,3 +629,31 @@ fn saturated_history_keeps_existing_order_observation_and_fills_recoverable() {
     fresh.restore(&b, &h).unwrap();
     assert_eq!(fresh.checkpoint().unwrap(), (b, h));
 }
+
+#[test]
+fn memory_clone_preserves_unknown_and_isolates_lifecycle_and_receipts() {
+    let mut original = ready();
+    let mut unknown = local("SUBMIT_RESULT", 3);
+    unknown["outcome"] = json!("UNKNOWN");
+    assert_eq!(original.apply(&unknown).unwrap().result, ApplyResult::Applied);
+    let before = original.checkpoint().unwrap();
+    let mut branch = original.clone();
+    assert_eq!(branch.checkpoint().unwrap(), before);
+    assert_eq!(branch.submission("cluster", "runtime-ORDER-000001").unwrap(), "UNKNOWN");
+    assert_eq!(branch.apply(&local("BEGIN_SUBMIT", 4)).unwrap().result, ApplyResult::Invalid);
+    assert_eq!(branch.checkpoint().unwrap(), before);
+
+    let first = fill(1, "10.01", "1");
+    assert_eq!(branch.apply(&first).unwrap().result, ApplyResult::Applied);
+    assert_eq!(*snapshot(&branch).status(), OnlyOrderStatus::PartiallyFilled);
+    assert_eq!(original.checkpoint().unwrap(), before);
+    assert_eq!(original.submission("cluster", "runtime-ORDER-000001").unwrap(), "UNKNOWN");
+    assert_eq!(original.apply(&first).unwrap().result, ApplyResult::Applied);
+    assert_eq!(original.checkpoint().unwrap(), branch.checkpoint().unwrap());
+
+    let branch_before = branch.checkpoint().unwrap();
+    assert_eq!(original.apply(&fill(2, "10.02", "3")).unwrap().result, ApplyResult::Applied);
+    assert_eq!(*snapshot(&original).status(), OnlyOrderStatus::Filled);
+    assert_eq!(*snapshot(&branch).status(), OnlyOrderStatus::PartiallyFilled);
+    assert_eq!(branch.checkpoint().unwrap(), branch_before);
+}

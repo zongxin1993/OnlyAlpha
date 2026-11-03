@@ -1,8 +1,8 @@
-use crate::{Error, Inputs, MarketInput, boundary, err, hash};
+use crate::{Error, Inputs, MarketInput, OpeningInput, boundary, err, hash};
 use onlyalpha_clock::{BigInt, OnlyVirtualClock};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
 use onlyalpha_execution::{CommitIntent, Components, Record, Store, coordinate, recover};
-use onlyalpha_runtime_persistence::Runtime;
+use onlyalpha_runtime_persistence::{ReplayEntryRef, Runtime};
 use serde_json::{Value, json};
 use std::path::Path;
 /// Application participant boundary: owning readers validate state; candidate effects have no external venue access.
@@ -11,6 +11,28 @@ pub trait Participants {
     fn capture(&mut self) -> Result<Value, Error>;
     fn restore(&mut self, checkpoint: &Value) -> Result<(), Error>;
     fn process(&mut self, input: &MarketInput, execution: &mut Candidate) -> Result<Value, Error>;
+    /// Two active driver profiles exist. The default preserves the closed-bar LIMIT profile.
+    fn opening_phase(&self) -> bool {
+        false
+    }
+    fn opening(&mut self, _: &OpeningInput, _: &mut Candidate) -> Result<Value, Error> {
+        Err(err("OPENING_PROFILE_REQUIRED"))
+    }
+    fn end_input(&mut self, _: &mut Candidate) -> Result<Value, Error> {
+        Err(err("OPENING_PROFILE_REQUIRED"))
+    }
+    /// Explicit prefix cancellation is available only to a participant that can drain it.
+    fn cancel_input(&mut self, _: &mut Candidate) -> Result<Value, Error> {
+        Err(err("OPENING_PROFILE_REQUIRED"))
+    }
+    /// Verify one fresh work binding before any durable Store is created or opened.
+    fn validate_initial(&self, execution: &Candidate) -> Result<(), Error> {
+        self.validate_execution(execution)
+    }
+    /// Read-only agreement between participant state and the exact canonical execution prefix.
+    fn validate_execution(&self, _: &Candidate) -> Result<(), Error> {
+        Ok(())
+    }
     fn quiescent(&self) -> Result<bool, Error>;
 }
 #[derive(Clone)]
@@ -49,9 +71,7 @@ impl Store for Memory {
         let i = usize::try_from(n.checked_sub(1).ok_or_else(|| err("SEQUENCE"))?)
             .map_err(|_| err("BOUND"))?;
         let r = self.records.get(i).ok_or_else(|| err("MISSING"))?;
-        let mut v = r.record();
-        v["ready"] = json!(true);
-        self.records[i] = Record::decode(&v)?;
+        self.records[i] = r.observation_snapshot(true, r.delivered())?;
         Ok(())
     }
     fn acknowledge(&mut self, _: u64) -> Result<(), Error> {
@@ -75,12 +95,20 @@ impl Candidate {
             configuration,
         })
     }
+    fn from_runtime_head(runtime: &Runtime, configuration: Value) -> Result<Self, Error> {
+        let (components, records) = runtime.fork_ready()?;
+        if components.configuration() != &configuration { return Err(err("EXECUTION_CONTEXT")); }
+        Ok(Self { components, store: Memory { records }, configuration })
+    }
     pub fn apply(&mut self, input: &Value) -> Result<(), Error> {
         let p = self.components.prepare(&self.store, input)?;
         coordinate(&mut self.store, &mut self.components, &p)
     }
     pub fn state(&self) -> Result<Value, Error> {
         self.components.state(&self.store)
+    }
+    pub(crate) fn position_order_view(&self) -> Result<Value, Error> {
+        self.components.position_order_view(&self.store)
     }
     pub fn checkpoint(&self) -> Result<Value, Error> {
         self.components.checkpoint()
@@ -109,6 +137,9 @@ impl Candidate {
             .to_record())
     }
 }
+// Historical rederivation never substitutes the current official head, even for an empty suffix.
+enum DeriveSource { RuntimeHead, HistoricalPrefix(usize) }
+
 #[derive(Clone)]
 pub struct RunSpec {
     pub work_id: String,
@@ -125,7 +156,8 @@ pub struct RunLoop<P: Participants> {
     clock: OnlyVirtualClock,
     binding: Value,
     state: Value,
-    steps: Vec<Value>,
+    // Expectations privately sealed by original derivation; never source proof.
+    steps: Vec<ReplayEntryRef>,
     healthy: bool,
 }
 impl<P: Participants> RunLoop<P> {
@@ -140,7 +172,8 @@ impl<P: Participants> RunLoop<P> {
         {
             return Err(err("WORK"));
         }
-        Candidate::new(spec.configuration.clone(), vec![])?;
+        let candidate = Candidate::new(spec.configuration.clone(), vec![])?;
+        p.validate_initial(&candidate)?;
         crate::sha(&spec.kernel_artifact)?;
         crate::sha(&spec.driver_artifact)?;
         let program = p.binding();
@@ -165,8 +198,33 @@ impl<P: Participants> RunLoop<P> {
         {
             return Err(err("PARTICIPANT_CONTEXT"));
         }
-        let state = json!({"schema_version":1,"cursor":0,"clock_ns":spec.initial_ns.to_string(),"status":"RUNNING","participants":p.capture()?,"outcome":null});
-        let binding = json!({"schema_version":1,"configuration":hash(&spec.configuration),"kernel_artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"work":hash(&json!({"work_id":spec.work_id,"configuration":spec.configuration,"artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"input_pin":inputs.fingerprint(),"participants":program,"initial_ns":spec.initial_ns.to_string()})),"input_pin":inputs.fingerprint(),"program":hash(&program),"initial_state":state});
+        let mut state = json!({"schema_version":1,"cursor":0,"clock_ns":spec.initial_ns.to_string(),"status":"RUNNING","participants":p.capture()?,"outcome":null});
+        if p.opening_phase() {
+            if program["opening_profile"] != json!({"schema_version":1,"kind":"OPEN_CLOSE_V1"})
+                || inputs
+                    .records()
+                    .first()
+                    .is_some_and(|i| i.opening().event_ns() < spec.initial_ns)
+                || inputs
+                    .records()
+                    .windows(2)
+                    .any(|w| w[0].event_ns() > w[1].opening().event_ns())
+            {
+                return Err(err("OPENING_CONTEXT"));
+            }
+            state["phase"] = json!("OPEN");
+            state["input_finished"] = json!(false);
+        } else if !program["opening_profile"].is_null() {
+            return Err(err("OPENING_PROFILE_CONFLICT"));
+        }
+        let mut binding = json!({"schema_version":1,"configuration":hash(&spec.configuration),"kernel_artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"work":hash(&json!({"work_id":spec.work_id,"configuration":spec.configuration,"artifact":spec.kernel_artifact,"driver_artifact":spec.driver_artifact,"input_pin":inputs.fingerprint(),"participants":program,"initial_ns":spec.initial_ns.to_string()})),"input_pin":inputs.fingerprint(),"program":hash(&program),"initial_state":state});
+        if p.opening_phase() {
+            // Explicit new binding version. The original work hash is unchanged;
+            // read-side owners no longer have to infer identity from a locator.
+            binding["schema_version"] = json!(2);
+            binding["work_id"] = json!(spec.work_id);
+            binding["participants"] = program;
+        }
         Ok((binding, state))
     }
     pub fn create(
@@ -198,7 +256,7 @@ impl<P: Participants> RunLoop<P> {
     ) -> Result<Self, Error> {
         let (binding, state) = Self::binding(&spec, &inputs, &mut participants)?;
         let mut runtime = Runtime::open(root, spec.configuration.clone(), &spec.kernel_artifact)?;
-        runtime.replay_steps()?; // Missing work is not permission to initialize another identity.
+        runtime.replay_refs()?; // Missing work is not permission to initialize another identity.
         runtime.bind_replay(&binding)?;
         let mut result = Self {
             clock: OnlyVirtualClock::new(spec.initial_ns.clone()),
@@ -215,24 +273,50 @@ impl<P: Participants> RunLoop<P> {
         Ok(result)
     }
     fn check(&self) -> Result<(), Error> {
-        if !self.healthy || self.runtime.replay_steps()? != self.steps {
+        if !self.healthy {
             return Err(err("RECOVERY_REQUIRED"));
         }
-        self.runtime.state()?;
-        Ok(())
+        // This one fresh cut includes the original full Execution/reconcile and
+        // participant-state guard plus every actual encoded replay row.
+        self.runtime.verify_replay_refs(&self.steps)
+
     }
-    fn derive(&mut self, kind: &str, outcome: &Value, start: usize) -> Result<Value, Error> {
-        let records = self.runtime.records()?;
-        let prefix = records
-            .get(..start)
-            .ok_or_else(|| err("EXECUTION_PREFIX"))?
-            .to_vec();
-        let mut candidate = Candidate::new(self.spec.configuration.clone(), prefix)?;
+    fn derive(&mut self, kind: &str, outcome: &Value, source: DeriveSource) -> Result<Value, Error> {
+        let mut candidate = match source {
+            DeriveSource::RuntimeHead => Candidate::from_runtime_head(&self.runtime, self.spec.configuration.clone())?,
+            DeriveSource::HistoricalPrefix(start) => {
+                let records = self.runtime.records()?;
+                let prefix = records.get(..start).ok_or_else(|| err("EXECUTION_PREFIX"))?.to_vec();
+                Candidate::new(self.spec.configuration.clone(), prefix)?
+            }
+        };
+        let start = candidate.records().len();
+        self.participants.validate_execution(&candidate)?;
         let mut state = self.state.clone();
         let cursor = state["cursor"].as_u64().ok_or_else(|| err("CURSOR"))?;
         let processing = match kind {
+            "OPEN" if self.participants.opening_phase() => {
+                if state["status"] != "RUNNING"
+                    || state["phase"] != "OPEN"
+                    || state["input_finished"] != false
+                {
+                    return Err(err("OPENING_TRANSITION"));
+                }
+                let input = self
+                    .inputs
+                    .records()
+                    .get(usize::try_from(cursor).map_err(|_| err("BOUND"))?)
+                    .ok_or_else(|| err("INPUT_EXHAUSTED"))?
+                    .opening();
+                boundary(self.clock.advance_to(input.event_ns()))?;
+                let output = self.participants.opening(&input, &mut candidate)?;
+                state["phase"] = json!("CLOSE");
+                json!({"input":input.record(),"processing":output})
+            }
             "BAR" => {
-                if state["status"] != "RUNNING" {
+                if state["status"] != "RUNNING"
+                    || (self.participants.opening_phase() && (state["phase"] != "CLOSE" || state["input_finished"] != false))
+                {
                     return Err(err("NOT_RUNNING"));
                 }
                 let input = self
@@ -243,7 +327,34 @@ impl<P: Participants> RunLoop<P> {
                 boundary(self.clock.advance_to(input.event_ns()))?;
                 let output = self.participants.process(input, &mut candidate)?;
                 state["cursor"] = json!(cursor + 1);
+                if self.participants.opening_phase() {
+                    state["phase"] = json!("OPEN");
+                }
                 json!({"input":input.record(),"processing":output})
+            }
+            "INPUT_END" if self.participants.opening_phase() => {
+                if !matches!(state["status"].as_str(), Some("RUNNING" | "PAUSED"))
+                    || cursor != self.inputs.records().len() as u64
+                    || state["phase"] != "OPEN"
+                    || state["input_finished"] != false
+                {
+                    return Err(err("INPUT_END_TRANSITION"));
+                }
+                let output = self.participants.end_input(&mut candidate)?;
+                state["input_finished"] = json!(true);
+                output
+            }
+            "CANCEL_INPUT" if self.participants.opening_phase() => {
+                if !matches!(state["status"].as_str(), Some("RUNNING" | "PAUSED"))
+                    || state["input_finished"] != false {
+                    return Err(err("INPUT_CANCEL_TRANSITION"));
+                }
+                let output = self.participants.cancel_input(&mut candidate)?;
+                state["input_finished"] = json!(true);
+                // This field exists only on the new explicit cancellation cut;
+                // retained INPUT_END states keep their exact original shape.
+                state["input_cancelled"] = json!(true);
+                output
             }
             "PAUSE" if state["status"] == "RUNNING" => {
                 state["status"] = json!("PAUSED");
@@ -262,7 +373,10 @@ impl<P: Participants> RunLoop<P> {
                 match status {
                     "COMPLETED" => {
                         if !outcome["reason"].is_null()
+                            || state["input_cancelled"] == true
                             || cursor != self.inputs.records().len() as u64
+                            || (self.participants.opening_phase()
+                                && state["input_finished"] != true)
                             || !self.participants.quiescent()?
                         {
                             return Err(err("INCOMPLETE_PROOF"));
@@ -284,6 +398,7 @@ impl<P: Participants> RunLoop<P> {
             }
             _ => return Err(err("TRANSITION")),
         };
+        self.participants.validate_execution(&candidate)?;
         state["clock_ns"] = json!(boundary(self.clock.timestamp_ns())?.to_string());
         state["participants"] = self.participants.capture()?;
         let inputs = candidate.records()[start..]
@@ -293,7 +408,7 @@ impl<P: Participants> RunLoop<P> {
         let previous = self
             .steps
             .last()
-            .map_or_else(|| hash(&self.binding), |s| hash(&s["step"]));
+            .map_or_else(|| hash(&self.binding), |s| s.logical_fingerprint().to_owned());
         Ok(
             json!({"schema_version":1,"index":self.steps.len()+1,"previous":previous,"execution_start":start,"cause":{"kind":kind,"outcome":outcome,"processing":processing},"inputs":inputs,"state":state}),
         )
@@ -301,7 +416,8 @@ impl<P: Participants> RunLoop<P> {
     fn install_observed(
         &mut self,
         step: &Value,
-        observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
+        original: &ReplayEntryRef,
+        mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
     ) -> Result<(), Error> {
         let inputs = step["inputs"].as_array().ok_or_else(|| err("INPUTS"))?;
         let start = step["execution_start"]
@@ -317,26 +433,46 @@ impl<P: Participants> RunLoop<P> {
             } else {
                 self.runtime.apply(input)?;
             }
-            observer(
+            if let Some(observer)=observer.as_mut(){observer(
                 "EXECUTION_READY",
                 step["index"].as_u64().expect("index"),
                 n + 1,
-            )?;
+            )?;}
         }
-        self.runtime.save_checkpoint()?;
-        self.runtime
-            .complete_replay(step["index"].as_u64().ok_or_else(|| err("INDEX"))?)?;
+        // Replay steps and all Execution facts/Ready flags are durable on
+        // every step. Complete checkpoints are recovery optimizations; only
+        // binding2 uses this fixed fact-count cadence. Controls seal the
+        // actual head before their outward Ready boundary.
+        let end = start
+            .checked_add(u64::try_from(inputs.len()).map_err(|_| err("BOUND"))?)
+            .ok_or_else(|| err("BOUND"))?;
+        let force = matches!(step["cause"]["kind"].as_str(),
+            Some("PAUSE" | "INPUT_END" | "CANCEL_INPUT" | "TERMINATE"));
+        if self.binding["schema_version"] != 2 || force || start / 64 < end / 64 {
+            self.runtime.save_checkpoint()?;
+        }
+        let completed = self.runtime.complete_replay_ref(&self.steps, original)?;
+        if completed.last().is_none_or(|row| !row.ready()
+            || row.index() != original.index()
+            || row.physical_fingerprint() != original.physical_fingerprint()
+            || row.logical_fingerprint() != hash(step)) {
+            return Err(err("REPLAY_COMPLETION_SOURCE"));
+        }
         self.state = step["state"].clone();
-        self.steps = self.runtime.replay_steps()?;
-        observer(
+        self.steps = completed;
+        if let Some(observer)=observer.as_mut(){observer(
             "STEP_READY",
             step["index"].as_u64().expect("index"),
             self.runtime.records()?.len() as u64,
-        )?;
+        )?;}
+        // The last observer is also an external source-taint boundary.
+        // Keep recovery closed until its complete actual cut is rechecked.
+        if observer.is_some(){self.runtime.verify_replay_refs(&self.steps)?;}
         Ok(())
     }
     fn transition(&mut self, kind: &str, outcome: Value) -> Result<(), Error> {
-        self.transition_observed(kind, outcome, &mut |_, _, _| Ok(()))
+        self.check()?;
+        self.transition_after_check(kind,outcome,None)
     }
     fn transition_observed(
         &mut self,
@@ -345,6 +481,16 @@ impl<P: Participants> RunLoop<P> {
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.check()?;
+        self.transition_after_check(kind, outcome, Some(observer))
+    }
+    // Only an entry point that has just called check() may enter here. There
+    // is no observer or public call between that check and this continuation.
+    fn transition_after_check(
+        &mut self,
+        kind: &str,
+        outcome: Value,
+        mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+    ) -> Result<(), Error> {
         if kind == "TERMINATE"
             && outcome["status"] == "COMPLETED"
             && !self.runtime.pending_events()?.is_empty()
@@ -352,46 +498,89 @@ impl<P: Participants> RunLoop<P> {
             return Err(err("EVENT_DRAIN_REQUIRED"));
         }
         self.healthy = false;
-        let step = self.derive(kind, &outcome, self.runtime.records()?.len())?;
-        observer(
+        let step = self.derive(kind, &outcome, DeriveSource::RuntimeHead)?;
+        if let Some(observer)=observer.as_mut(){observer(
             "BEFORE_PREPARE",
             step["index"].as_u64().expect("index"),
             self.runtime.records()?.len() as u64,
-        )?;
-        self.runtime.prepare_replay(&step)?;
-        observer(
+        )?;}
+        let original = self.runtime.prepare_replay_ref(&self.steps, &step)?;
+        if let Some(observer)=observer.as_mut(){observer(
             "PREPARED",
             step["index"].as_u64().expect("index"),
             self.runtime.records()?.len() as u64,
-        )?;
-        self.install_observed(&step, observer)?;
+        )?;}
+        self.install_observed(&step, &original, observer)?;
         self.healthy = true;
         Ok(())
     }
     pub fn step(&mut self) -> Result<bool, Error> {
-        self.step_observed(&mut |_, _, _| Ok(()))
+        self.step_inner(None)
     }
     /// Immutable progress receipts also support deterministic crash barriers; errors require recovery.
     pub fn step_observed(
         &mut self,
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<bool, Error> {
+        self.step_inner(Some(observer))
+    }
+    fn step_inner(&mut self, observer:Option<&mut dyn FnMut(&str,u64,u64)->Result<(),Error>>)->Result<bool,Error>{
         self.check()?;
-        if self.state["cursor"] == self.inputs.records().len() as u64 {
+        if self.state["input_cancelled"] == true
+            || self.state["cursor"] == self.inputs.records().len() as u64 {
             return Ok(false);
         }
-        self.transition_observed("BAR", Value::Null, observer)?;
+        let kind = if self.binding["schema_version"] == 2 && self.state["phase"] == "OPEN" {
+            "OPEN"
+        } else {
+            "BAR"
+        };
+        self.transition_after_check(kind, Value::Null, observer)?;
         Ok(true)
     }
     pub fn run(&mut self) -> Result<(), Error> {
         while self.step()? {}
         Ok(())
     }
+    /// Persist finite input processing separately from Event acknowledgement and completion.
+    pub fn close_input(&mut self) -> Result<(), Error> {
+        self.check()?;
+        if !self.participants.opening_phase() {
+            return Err(err("OPENING_PROFILE_REQUIRED"));
+        }
+        if self.state["input_cancelled"] == true {
+            return Err(err("INPUT_CANCELLED"));
+        }
+        if self.state["input_finished"] == true {
+            return Ok(());
+        }
+        self.transition("INPUT_END", Value::Null)
+    }
+    /// Durably stop the accepted prefix without consuming unobserved closed Bars.
+    pub fn cancel_input(&mut self) -> Result<(), Error> {
+        self.cancel_input_observed(&mut |_, _, _| Ok(()))
+    }
+    pub fn cancel_input_observed(
+        &mut self,
+        observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        self.check()?;
+        if !self.participants.opening_phase() { return Err(err("OPENING_PROFILE_REQUIRED")); }
+        if self.state["input_cancelled"] == true { return Ok(()); }
+        if self.state["input_finished"] == true { return Err(err("INPUT_ALREADY_FINISHED")); }
+        self.transition_observed("CANCEL_INPUT", Value::Null, observer)
+    }
     /// Finalize exhausted input without inventing a Broker drain acknowledgement.
     pub fn finish_input(&mut self) -> Result<(), Error> {
         self.check()?;
         if self.state["cursor"] != self.inputs.records().len() as u64 {
             return Err(err("INPUT_NOT_EXHAUSTED"));
+        }
+        if self.participants.opening_phase() {
+            self.close_input()?;
+            if !self.runtime.pending_events()?.is_empty() {
+                return Err(err("EVENT_DRAIN_REQUIRED"));
+            }
         }
         if self.participants.quiescent()? && self.runtime.pending_events()?.is_empty() {
             self.terminate("COMPLETED", None)
@@ -428,48 +617,93 @@ impl<P: Participants> RunLoop<P> {
             )?;
             count += 1;
         }
+        // Preserve actual consumer acceptance and its original acknowledgement;
+        // a failed final cut requires explicit recovery of this same session.
+        if let Err(error) = self.check() {
+            self.healthy = false;
+            return Err(error);
+        }
         Ok(count)
     }
     pub fn recover(&mut self) -> Result<(), Error> {
         self.healthy = false;
         self.runtime.recover()?;
-        let stored = self.runtime.replay_steps()?;
+        let stored = self.runtime.replay_refs()?;
         self.state = self.binding["initial_state"].clone();
         self.participants.restore(&self.state["participants"])?;
         self.clock = OnlyVirtualClock::new(self.spec.initial_ns.clone());
         self.steps.clear();
-        for row in stored {
-            let step = &row["step"];
+        for original in stored {
+            // A ref names source data. Only the complete original derivation
+            // below can install that expectation in this private history.
+            let step = self.runtime.read_replay_step(&original)?;
             let kind = step["cause"]["kind"].as_str().ok_or_else(|| err("KIND"))?;
             let actual = self.derive(
                 kind,
                 &step["cause"]["outcome"],
-                usize::try_from(
-                    step["execution_start"]
-                        .as_u64()
-                        .ok_or_else(|| err("PREFIX"))?,
-                )
-                .map_err(|_| err("BOUND"))?,
+                DeriveSource::HistoricalPrefix(usize::try_from(original.execution_start())
+                    .map_err(|_| err("BOUND"))?),
             )?;
-            if actual != *step {
+            if actual != step || hash(&actual) != original.logical_fingerprint() {
                 return Err(err("PARTICIPANT_SOURCE_CONFLICT"));
             }
-            self.state = actual["state"].clone();
-            self.steps.push(row);
-        }
-        if let Some(last) = self.steps.last().cloned()
-            && last["ready"] == false
-        {
-            self.install_observed(&last["step"], &mut |_, _, _| Ok(()))?;
+            if original.ready() {
+                self.state = actual["state"].clone();
+                self.steps.push(original);
+            } else {
+                // Only the original final pending proposal can be completed;
+                // the full ready prefix and its original body are re-read by
+                // the owner before and after Ready is changed.
+                self.install_observed(&actual, &original, None)?;
+            }
         }
         self.healthy = true;
         self.check()
     }
-    pub fn trace(&self) -> Result<Value, Error> {
+    /// Complete logical Trace1, streamed in its original canonical key order.
+    /// Output is not publishable until the final fresh cut succeeds.
+    pub fn write_trace(&self, writer: &mut dyn std::io::Write) -> Result<(), Error> {
         self.check()?;
-        Ok(
-            json!({"schema_version":1,"binding":self.binding,"inputs":self.inputs.record(),"steps":self.steps,"state":self.state}),
-        )
+        crate::trace::logical(writer, &self.binding, &self.inputs.record(), &self.state,
+            &self.steps, |reference| self.runtime.read_replay_step(reference))?;
+        self.check()
+    }
+    /// Visit complete original Steps without expanding the entire history.
+    /// A callback observes data only; success requires the final fresh cut.
+    pub fn for_each_step(&self, visit: &mut dyn FnMut(&Value, bool) -> Result<(), Error>) -> Result<(), Error> {
+        self.check()?;
+        for reference in &self.steps {
+            let step = self.runtime.read_replay_step(reference)?;
+            visit(&step, reference.ready())?;
+        }
+        self.check()
+    }
+    pub fn trace_fingerprint(&self) -> Result<String, Error> {
+        crate::trace::fingerprint(|writer| self.write_trace(writer))
+    }
+    /// Full actual storage representation. No mutable path descriptor is emitted.
+    pub fn write_encoded_trace(&self, writer: &mut dyn std::io::Write) -> Result<(), Error> {
+        self.check()?;
+        match self.runtime.storage_version() {
+            2 => crate::trace::bounded(writer, |writer| self.write_trace(writer))?,
+            3 | 4 => crate::trace::encoded(writer, &self.binding, &self.inputs.record(), &self.state,
+                &self.steps, |reference, writer| self.runtime.write_encoded_step(reference, writer))?,
+            _ => return Err(err("TRACE_STORAGE_VERSION")),
+        }
+        self.check()
+    }
+    pub fn encoded_trace(&self) -> Result<Value, Error> {
+        crate::trace::value(|writer| self.write_encoded_trace(writer))
+    }
+    /// Read-only display fields; this is not the complete Trace or a proof.
+    pub fn trace_metadata(&self) -> Result<Value, Error> {
+        self.check()?;
+        Ok(json!({"binding":self.binding,"inputs":self.inputs.record(),"state":self.state}))
+    }
+    /// Explicit bounded diagnostic expansion. Production Result/Evidence never
+    /// calls this whole-history Value API.
+    pub fn trace(&self) -> Result<Value, Error> {
+        crate::trace::value(|writer| self.write_trace(writer))
     }
     pub fn progress(&self) -> Result<Value, Error> {
         self.check()?;
@@ -501,7 +735,11 @@ impl<P: Participants> RunLoop<P> {
         )?;
         let manifest = json!({"schema_version":1,"configuration":hash(&self.spec.configuration),"kernel_artifact":self.spec.kernel_artifact,"input_pin":self.inputs.fingerprint(),"initial_time":OnlyTimestamp::from_unix_nanos(self.spec.initial_ns.clone()).to_record(),"final_time":OnlyTimestamp::from_unix_nanos(final_ns).to_record(),"inputs":self.runtime.records()?.iter().map(|r|hash(r.prepared().input())).collect::<Vec<_>>()});
         let result = self.runtime.backtest_result(&manifest, outcome)?.record();
-        let proof = json!({"schema_version":1,"completion_scope":"BACKTEST_REPLAY","binding":hash(&self.binding),"market_exhausted":self.state["cursor"]==self.inputs.records().len() as u64,"processed_prefix_verified":true,"drained":events_drained&&broker_drained,"status":result["run"]["status"],"source":hash(&self.trace()?),"outcome":outcome,"execution_result":result});
+        let proof = json!({"schema_version":1,"completion_scope":"BACKTEST_REPLAY","binding":hash(&self.binding),"market_exhausted":self.state["cursor"]==self.inputs.records().len() as u64,"processed_prefix_verified":true,"drained":events_drained&&broker_drained,"status":result["run"]["status"],"source":self.trace_fingerprint()?,"outcome":outcome,"execution_result":result});
         Ok(proof)
     }
 }
+
+#[cfg(all(test,target_os="linux"))]
+#[path="candidate_configuration_tests.rs"]
+mod configuration_tests;

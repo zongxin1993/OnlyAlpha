@@ -268,6 +268,56 @@ pub(crate) fn validate_instances(calculations: &[Value], variables: &Variables) 
 #[derive(Clone, Debug)]
 pub struct Definition(Value);
 impl Definition {
+    /// Derive authoring defaults from the exact compiled Factor graph. This
+    /// value carries no Human confirmation, publication or execution grant.
+    pub(crate) fn from_compiled_factor(
+        factor: &crate::application::research_factor::CompiledFactor,
+        universe: Value,
+        market_input: Value,
+    ) -> Result<Self> {
+        let nodes=factor.graph().ordered_nodes().collect::<Vec<_>>();
+        let names=nodes.iter().enumerate().map(|(index,node)| {
+            let id=node.fingerprint();
+            let key=if id==factor.root_fingerprint() {"momentum".to_owned()} else {format!("input_{index}")};
+            (id,key)
+        }).collect::<BTreeMap<_,_>>();
+        let mut calculations=Vec::with_capacity(nodes.len());
+        let mut dependency=None;
+        for node in nodes {
+            let record=node.to_record();
+            let id=node.fingerprint();
+            let mut bindings=Vec::new();
+            for (input,binding) in record["input_bindings"].as_object().ok_or(INVALID)? {
+                let source=if let Some(parent)=binding["node_fingerprint"].as_str() {
+                    if !binding["source"].is_null() {return Err(INVALID);}
+                    json!({"kind":"VARIABLE","instance_key":names.get(parent).ok_or(INVALID)?,"output_name":binding["output_name"]})
+                } else {
+                    let field=binding["source"].as_str().ok_or(INVALID)?;
+                    if !["open","high","low","close","volume"].contains(&field) {return Err(INVALID);}
+                    json!(format!("bar.{field}"))
+                };
+                bindings.push(json!({"input_name":input,"source":source}));
+            }
+            let parameters=record["parameters"].as_object().ok_or(INVALID)?.iter()
+                .map(|(key,value)|(key.clone(),json!({"kind":"FIXED","value":value}))).collect::<BTreeMap<_,_>>();
+            let outputs=record["outputs"].as_array().ok_or(INVALID)?.iter()
+                .map(|output|output["name"].clone()).collect::<Vec<_>>();
+            if id==factor.root_fingerprint() {
+                if record["kind"]!="FACTOR" || outputs!=vec![json!("value")] {return Err(INVALID);}
+                dependency=Some(json!({"factor_id":record["type_id"],"revision_fingerprint":factor.revision_fingerprint()}));
+            } else if record["kind"]!="INDICATOR" {return Err(INVALID);}
+            calculations.push(json!({"instance_key":names.get(&id).ok_or(INVALID)?,
+                "type_reference":{"kind":record["kind"],"type_id":record["type_id"],"semantic_version":record["semantic_version"]},
+                "parameters":parameters,"published_outputs":outputs,"primary_output":"value","input_bindings":bindings}));
+        }
+        let literal=|value|json!({"kind":"LITERAL","data_type":"DECIMAL","value":{"type":"DECIMAL","value":value}});
+        let variable=json!({"kind":"VARIABLE","instance_key":"momentum","output_name":"value"});
+        Self::from_record(&json!({"schema_version":1,"universe":universe,"market_input":market_input,
+            "calculations":calculations,"factor_revision_dependencies":[dependency.ok_or(INVALID)?],
+            "eligibility":{"kind":"COMPARISON","operator":">","left":{"kind":"DATASET_FIELD","field_name":"close"},"right":literal("0")},
+            "signals":{"entry":{"kind":"COMPARISON","operator":">=","left":variable,"right":literal("0.001")},
+                "exit":{"kind":"COMPARISON","operator":"<=","left":variable,"right":literal("0")}}}))
+    }
     pub fn from_record(v: &Value) -> Result<Self> {
         if v.to_string().len() > SOURCE_WORK {
             return Err(UNAVAILABLE);
@@ -475,6 +525,39 @@ impl Draft {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    #[test]
+    fn strategy_draft_derivation_uses_exact_compiled_factor_dependencies_and_periods() {
+        let fixture:Value=serde_json::from_str(include_str!("../../tests/application/fixtures/research_factor.json")).unwrap();
+        let compiled=crate::application::research_factor::compile(&fixture["candidate"],&fixture["draft"],&fixture["revision"]).unwrap();
+        let reference=definition();
+        let derived=Definition::from_compiled_factor(&compiled,reference["universe"].clone(),reference["market_input"].clone()).unwrap().to_record();
+        assert_eq!(derived["factor_revision_dependencies"],json!([{"factor_id":fixture["revision"]["factor_id"],"revision_fingerprint":fixture["revision"]["revision_fingerprint"]}]));
+        let instances=derived["calculations"].as_array().unwrap();
+        assert_eq!(instances.len(),compiled.graph().ordered_nodes().count());
+        let root=instances.iter().find(|v|v["instance_key"]=="momentum").unwrap();
+        assert_eq!(root["type_reference"]["type_id"],fixture["revision"]["factor_id"]);
+        assert_eq!(root["parameters"]["literal_1"],json!({"kind":"FIXED","value":{"type":"DECIMAL","value":"1"}}));
+        assert_eq!(root["input_bindings"].as_array().unwrap().len(),4);
+        for name in ["onlyalpha.operator.delay","onlyalpha.operator.rolling_mean"] {
+            let dependency=instances.iter().find(|v|v["type_reference"]["type_id"]==name).unwrap();
+            assert_eq!(dependency["parameters"]["period"],json!({"kind":"FIXED","value":{"type":"INTEGER","value":20}}));
+        }
+        assert_eq!(derived["signals"]["entry"]["left"],json!({"kind":"VARIABLE","instance_key":"momentum","output_name":"value"}));
+        assert_eq!(derived["signals"]["entry"]["right"]["value"]["value"],"0.001");
+        assert_eq!(derived["signals"]["exit"]["right"]["value"]["value"],"0");
+        assert!(derived.get("quantity").is_none());
+        let mut candidate=fixture["candidate"].clone();
+        candidate["expression"]["left"]["left"]["right"]["lag"]=json!(7);
+        candidate["expression"]["right"]["right"]["mean"]=json!(9);
+        let preview=crate::application::factor_content::preview(&candidate,"private.factor.exact_periods").unwrap();
+        let revision=crate::application::private_assets::authoring::Draft::new(preview["draft"].clone()).unwrap().revision().unwrap();
+        let changed=crate::application::research_factor::compile(&candidate,&preview["draft"],&revision).unwrap();
+        let derived=Definition::from_compiled_factor(&changed,reference["universe"].clone(),reference["market_input"].clone()).unwrap().to_record();
+        for (name,period) in [("onlyalpha.operator.delay",7),("onlyalpha.operator.rolling_mean",9)] {
+            let row=derived["calculations"].as_array().unwrap().iter().find(|v|v["type_reference"]["type_id"]==name).unwrap();
+            assert_eq!(row["parameters"]["period"]["value"]["value"],period);
+        }
+    }
     fn definition() -> Value {
         let source: Value = serde_json::from_str(
             include_str!("../../../../test-data/strategy/product-sources-v1.jsonl")

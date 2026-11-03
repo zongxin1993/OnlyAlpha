@@ -1,8 +1,14 @@
 //! Finite native Backtest orchestration. This library grants no Product or LIVE authority.
 mod inputs;
+mod next_open;
+mod native_read;
 mod run;
 mod trading;
-pub use inputs::{Inputs, MarketInput, Source};
+mod terminal;
+mod trace;
+pub use terminal::TerminalSnapshot;
+pub use inputs::{Inputs, MarketInput, OpeningInput, Source};
+pub use next_open::NextOpenPolicy;
 pub use onlyalpha_execution::Error;
 pub use run::{Candidate, Participants, RunLoop, RunSpec};
 use serde_json::Value;
@@ -34,3 +40,15 @@ fn sha(s: &str) -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod next_open_tests;
+
+/// Pure validation by the canonical composition. No Store, candidate or execution grant is returned.
+pub fn validate_configuration(configuration: &Value) -> Result<(), Error> {
+    Candidate::new(configuration.clone(), vec![]).map(|_| ())
+}
+
+#[cfg(test)]
+#[path="test_support/execution.rs"]
+mod execution_test_fixture;

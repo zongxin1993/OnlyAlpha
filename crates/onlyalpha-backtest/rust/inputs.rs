@@ -1,6 +1,9 @@
 use crate::{Error, boundary, err, fields, hash, sha};
 use onlyalpha_clock::BigInt;
-use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, time::OnlyTimestamp};
+use onlyalpha_domain::{
+    base::OnlyDomainModel, identifiers::OnlyInstrumentId, market::OnlyBar, time::OnlyTimestamp,
+    value::OnlyPrice,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +111,16 @@ impl MarketInput {
     pub fn event_ns(&self) -> BigInt {
         OnlyTimestamp::from_datetime(*self.bar.ts_event()).to_unix_nanos()
     }
+    /// A causal opening view deliberately contains no high, low, close or volume.
+    pub fn opening(&self) -> OpeningInput {
+        let time = OnlyTimestamp::from_datetime(*self.bar.bar_start());
+        OpeningInput {
+            record: json!({"schema_version":1,"source":self.source,"sequence":self.sequence,"data_version":self.data_version,"input_identity":self.identity(),"instrument_id":self.bar.instrument_id().to_record(),"open":self.bar.open().to_record(),"time":time.to_record(),"trading_day":self.bar.to_record()["trading_day"]}),
+            event_ns: time.to_unix_nanos(),
+            instrument: self.bar.instrument_id().clone(),
+            open: self.bar.open().clone(),
+        }
+    }
     pub fn record(&self) -> Value {
         json!({"schema_version":1,"source":self.source,"sequence":self.sequence,"data_version":self.data_version,"bar":self.bar.to_record()})
     }
@@ -137,6 +150,40 @@ impl MarketInput {
             return Err(err("MARKET_CANONICAL"));
         }
         Ok(s)
+    }
+}
+/// Immutable opening projection of an admitted closed occurrence. No closed values are exposed.
+#[derive(Clone, Debug)]
+pub struct OpeningInput {
+    record: Value,
+    event_ns: BigInt,
+    instrument: OnlyInstrumentId,
+    open: OnlyPrice,
+}
+impl OpeningInput {
+    pub fn source(&self) -> &str {
+        self.record["source"].as_str().expect("derived source")
+    }
+    pub fn sequence(&self) -> u64 {
+        self.record["sequence"].as_u64().expect("derived sequence")
+    }
+    pub fn instrument_id(&self) -> &OnlyInstrumentId {
+        &self.instrument
+    }
+    pub fn price(&self) -> &OnlyPrice {
+        &self.open
+    }
+    pub fn event_ns(&self) -> BigInt {
+        self.event_ns.clone()
+    }
+    pub fn identity(&self) -> String {
+        self.record["input_identity"]
+            .as_str()
+            .expect("derived identity")
+            .into()
+    }
+    pub fn record(&self) -> Value {
+        self.record.clone()
     }
 }
 #[derive(Clone, Debug)]

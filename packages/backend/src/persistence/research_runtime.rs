@@ -85,6 +85,99 @@ pub struct RuntimeInputHold {
     executor: Option<Value>,
     core: Option<Value>,
 }
+/// Read-only proof of an original work's retained Generation and physical artifacts.
+/// Released/retired history is readable; it confers no execution or new-work capability.
+/// The private inner reader shares the existing journal validation, never its public grant.
+pub struct RuntimeEvidenceHold {
+    retained: RuntimeInputHold,
+}
+impl RuntimeEvidenceHold {
+    pub fn open(root: &Path, work: &str, owner: &str, generation: &str) -> Result<Self> {
+        if work.trim().is_empty() || work.len() > 512 || owner.trim().is_empty()
+            || owner.len() > 256 || !crate::is_sha256_hex(generation) {
+            return Err(INVALID);
+        }
+        let mut retained = RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
+        let history = retained.replay()?;
+        let (original_generation, _, origin) = history.bindings.get(work)
+            .ok_or("RESEARCH_RUNTIME_WORK_UNBOUND")?;
+        if original_generation != generation || origin["kind"] != "RuntimeWorkBound"
+            || origin["reason"] != owner
+            || !matches!(history.states.get(generation), Some(&"READY" | &"ACTIVE_FOR_NEW_WORK" | &"DRAINING" | &"RETIRED")) {
+            return Err("RESEARCH_RUNTIME_WORK_MISMATCH");
+        }
+        retained.manifest = history.validated.get(generation).cloned().ok_or(INVALID)?;
+        retained.binding = origin.clone();
+        // Historical verification reads the archived Artifact1/2 manifests and
+        // exact original wheel/ELF bytes. It never describes the currently loaded image.
+        retained.verify_artifacts()?;
+        let private_factors = retained.manifest["private_factor_bindings"].as_array().ok_or(INVALID)?.clone();
+        for binding in private_factors {
+            retained.private_factor(text(&binding,"runtime_artifact_fingerprint")?)?;
+        }
+        retained.verify()?;
+        Ok(Self { retained })
+    }
+    /// Read-only original mathematical inputs. No InputHold, current image
+    /// substitution, execution permission, or Research object is produced.
+    pub(crate) fn strategy_validation_inputs(&mut self,algorithm:&str)->Result<Value> {
+        let installed=self.installed_proof(algorithm)?;
+        let core=self.retained.core_artifact()?.clone();
+        let operator=self.retained.distribution_artifact("onlyalpha-plugin-operators")?;
+        let target=self.retained.distribution_artifact("onlyalpha-plugin-targets")?;
+        let bindings=self.retained.manifest["private_factor_bindings"].as_array().ok_or(INVALID)?.clone();
+        let mut factors=Vec::new();for binding in bindings {
+            let saved=self.retained.private_factor(text(&binding,"runtime_artifact_fingerprint")?)?;
+            factors.push(serde_json::json!({"binding":binding,"archive":saved}));
+        }
+        let execution=self.retained.execution_binding()?;self.retained.verify()?;
+        Ok(serde_json::json!({"installed_proof":installed,"execution_binding":execution,"core_artifact":core,
+            "operator_artifact":operator,"target_artifact":target,"private_factors":factors}))
+    }
+    /// Exact original installed observation, independently of the current image
+    /// or current SDK installation. This remains read-only history.
+    pub(crate) fn installed_proof(&mut self,algorithm_artifact:&str)->Result<Value> {
+        if !crate::is_sha256_hex(algorithm_artifact){return Err(INVALID);}
+        self.retained.verify()?;
+        let generation=sha(&self.retained.manifest,"runtime_generation_fingerprint")?;
+        let top=protected::open_directory_at(&self.retained.root,OsStr::new("runtime-generation-installed-proof")).map_err(|_|UNAVAILABLE)?;
+        let directory=protected::open_directory_at(&top,OsStr::new(&generation)).map_err(|_|UNAVAILABLE)?;
+        let mut remaining=32768;
+        let names=protected::directory_entries(&directory,&mut remaining).map_err(|_|UNAVAILABLE)?;
+        let mut selected=None;
+        for name in names {
+            let name=name.to_str().ok_or(INVALID)?;
+            let identity=name.strip_suffix(".json").filter(|s|crate::is_sha256_hex(s)).ok_or(INVALID)?;
+            let proof=self.retained.json(&format!("runtime-generation-installed-proof/{generation}/{name}"))?;
+            if digest(&proof,"installed_proof_fingerprint")?!=identity {return Err(INVALID);}
+            if proof["schema_version"]!=2 || proof["contract"]!="ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
+                || proof["runtime_generation_fingerprint"]!=generation {return Err(INVALID);}
+            if proof["algorithm_artifact"]!=algorithm_artifact {continue;}
+            if selected.replace(proof).is_some(){return Err(INVALID);}
+        }
+        self.retained.verify()?;
+        selected.ok_or("RESEARCH_INSTALLED_PROOF_UNAVAILABLE")
+    }
+    /// Original archived capability/binding only. This is a read-only fact,
+    /// not an InputHold conversion, execution grant or current-image descriptor.
+    pub(crate) fn backtest_binding(&self)->Result<Value> {
+        self.retained.verify()?;
+        let executor=self.retained.executor.as_ref().ok_or(INVALID)?;
+        if executor["schema_version"]!=2||executor["role"]!="BACKEND_RUNTIME"
+            ||executor["execution_capabilities"].as_array().is_none_or(|caps|caps.iter().filter(|c|**c==serde_json::json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"})).count()!=1){return Err("BACKTEST_EXECUTOR_UNAVAILABLE");}
+        let mut binding=self.retained.execution_binding()?;binding["protocol"]=serde_json::json!("onlyalpha.backtest.executor/1");
+        self.retained.verify()?;Ok(binding)
+    }
+    /// Actual retained Artifact1/2 body, without describing the current image.
+    pub(crate) fn executor_manifest(&self)->Result<&Value> {
+        self.retained.verify()?;
+        self.retained.executor.as_ref().ok_or("RESEARCH_EXECUTOR_UNAVAILABLE")
+    }
+    pub fn manifest(&self) -> &Value { &self.retained.manifest }
+    pub fn binding(&self) -> &Value { &self.retained.binding }
+    pub fn verify(&self) -> Result<()> { self.retained.verify() }
+}
+
 struct History {
     states: BTreeMap<String, &'static str>,
     active: Option<String>,
@@ -463,10 +556,7 @@ impl RuntimeInputHold {
             let m = self.json(&format!("{prefix}/manifest.json"))?;
             contracts::artifact(&m)?;
             let mf = digest(&m, "manifest_fingerprint")?;
-            if m["artifact_sha256"] != id
-                || !manifests.insert(mf)
-                || m["schema_version"].as_u64() != Some(1)
-            {
+            if m["artifact_sha256"] != id || !manifests.insert(mf) {
                 return Err(INVALID);
             }
             if !distributions.insert(text(&m, "distribution_name")?.to_owned()) {
@@ -496,13 +586,18 @@ impl RuntimeInputHold {
                 }
             );
             if native
-                && (!matches!(text(&m, "role")?, "BACKTEST_RUNTIME" | "RESEARCH_RUNTIME")
-                    || !native_roles.insert(text(&m, "role")?.to_owned()))
+                && (!matches!(
+                    text(&m, "role")?,
+                    "BACKTEST_RUNTIME" | "RESEARCH_RUNTIME" | "BACKEND_RUNTIME"
+                ) || !native_roles.insert(text(&m, "role")?.to_owned()))
             {
                 return Err(INVALID);
             }
             verify_bytes(&self.root, &path, id, size)?;
-            if m["role"] == "RESEARCH_RUNTIME" {
+            if matches!(
+                m["role"].as_str(),
+                Some("RESEARCH_RUNTIME" | "BACKEND_RUNTIME")
+            ) {
                 if self.executor.is_some() {
                     return Err(INVALID);
                 }
@@ -557,6 +652,11 @@ impl RuntimeInputHold {
                     .is_some_and(|v| v.contains(p))
             })
             || !implementations.is_subset(&expected)
+            || (self
+                .executor
+                .as_ref()
+                .is_some_and(|e| e["role"] == "BACKEND_RUNTIME")
+                && implementations != expected)
         {
             return Err(INVALID);
         }
@@ -606,6 +706,69 @@ impl RuntimeInputHold {
         Ok(
             json!({"executor_manifest_fingerprint":e["manifest_fingerprint"],"executor_artifact_sha256":e["artifact_sha256"],"executor_version":e["distribution_version"],"core_execution_fingerprint":e["tested_core_execution_fingerprint"],"protocol":"onlyalpha.research.executor/1"}),
         )
+    }
+    /// Exact observed Backtest capability of this held, physically verified
+    /// native image. A Research binding or an Artifact1 role cannot supply it.
+    pub(crate) fn backtest_execution_binding(&mut self) -> Result<Value> {
+        self.native_predicate_implementations()?;
+        let selected=self.executor.as_ref().ok_or("BACKTEST_EXECUTOR_UNAVAILABLE")?;
+        let capability=json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"});
+        if selected["execution_capabilities"].as_array().is_none_or(|rows|rows.iter().filter(|r|**r==capability).count()!=1) {
+            return Err("BACKTEST_EXECUTOR_UNAVAILABLE");
+        }
+        let mut binding=self.execution_binding()?;
+        binding["protocol"]=json!("onlyalpha.backtest.executor/1");
+        self.verify()?;
+        Ok(binding)
+    }
+    /// Only the actual running native producer may supply these implementation
+    /// manifests. Historical Artifact1 data remains readable and cannot grant
+    /// new native capability merely because the caller currently links it.
+    pub(crate) fn native_predicate_implementations(&mut self) -> Result<Value> {
+        self.verify_artifacts()?;
+        let selected = self
+            .executor
+            .as_ref()
+            .ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        if selected["schema_version"] != 2 || selected["role"] != "BACKEND_RUNTIME" {
+            return Err("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE");
+        }
+        let native = crate::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))
+            .map_err(|_| "RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        if native["image"]["artifact"] != selected["artifact_sha256"]
+            || native["image"]["version"] != selected["distribution_version"]
+            || selected["artifact_logical_name"]
+                != format!(
+                    "onlyalpha_backend-{}-{}.elf",
+                    native["image"]["version"].as_str().ok_or(INVALID)?,
+                    native["image"]["target"].as_str().ok_or(INVALID)?
+                )
+            || native["execution_capabilities"] != selected["execution_capabilities"]
+        {
+            return Err("RESEARCH_NATIVE_IMAGE_MISMATCH");
+        }
+        let mut summaries = native["implementations"]
+            .as_array()
+            .ok_or(INVALID)?
+            .iter()
+            .map(crate::application::research_admission::implementation_projection)
+            .collect::<Result<Vec<_>>>()?;
+        summaries.sort_by_key(|row| {
+            [
+                "kind",
+                "type_id",
+                "semantic_version",
+                "backend",
+                "implementation_fingerprint",
+            ]
+            .map(|key| row[key].as_str().unwrap_or("").to_owned())
+        });
+        if selected["implementations"] != json!(summaries) {
+            return Err("RESEARCH_NATIVE_IMPLEMENTATION_MISMATCH");
+        }
+        let implementations = native["implementations"].clone();
+        self.verify()?;
+        Ok(implementations)
     }
     /// Exact immutable runtime/source record from the existing owning artifact namespace.
     pub(crate) fn private_factor(&mut self, fingerprint: &str) -> Result<Value> {

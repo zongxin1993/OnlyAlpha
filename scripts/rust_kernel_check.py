@@ -224,11 +224,15 @@ EXECUTION_DEPENDENCIES = {
 
 
 RUNTIME_PERSISTENCE_DEPENDENCIES = {
+    "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
+    "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
+    "zstd": {"default-features": False, "version": "=0.13.3"},
     "onlyalpha-execution": {"path": "../onlyalpha-kernel/execution"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
     "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
 }
 BACKTEST_DRIVER_DEPENDENCIES = {
+    "sha2": {"default-features": False, "version": "=0.11.1"},
     "onlyalpha-runtime-persistence": {"path": "../onlyalpha-runtime-persistence"},
     "onlyalpha-calculation-bridge": {"path": "../onlyalpha-calculation-bridge"},
     **{
@@ -243,7 +247,12 @@ BACKTEST_DRIVER_DEPENDENCIES = {
     },
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
-BACKTEST_DRIVER_TEST_DEPENDENCIES: dict[str, dict[str, str]] = {}
+BACKTEST_DRIVER_TEST_DEPENDENCIES = {
+    "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
+    "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
+    "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
+    "zstd": {"version": "=0.13.3", "default-features": False},
+}
 
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
     "onlyalpha-domain": {"path": "../onlyalpha-kernel/domain"},
@@ -282,6 +291,7 @@ BINANCE_DEPENDENCIES = {
     "futures-util": {"default-features": False, "features": ["sink", "std"], "version": "=0.3.34"},
     "http": {"default-features": False, "features": ["std"], "version": "=1.5.0"},
     "onlyalpha-domain": {"path": "../../crates/onlyalpha-kernel/domain"},
+    "onlyalpha-fee": {"path": "../../crates/onlyalpha-kernel/fee"},
     "onlyalpha-integration-contract": {"path": "../../crates/onlyalpha-integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/onlyalpha-kernel/market_data/construction"},
     "onlyalpha-metadata-json": {"path": "../../crates/onlyalpha-metadata-json"},
@@ -300,6 +310,9 @@ BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
 
 
 BACKEND_DEPENDENCIES = {
+    "onlyalpha-account": {"path": "../../crates/onlyalpha-kernel/account"},
+    "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
+    "onlyalpha-backtest": {"path": "../../crates/onlyalpha-backtest"},
     "arrow-array": {"default-features": False, "version": "=59.3.2"},
     "arrow-schema": {"default-features": False, "version": "=59.3.2"},
     "parquet": {"default-features": False, "features": ["arrow", "zstd", "crc"], "version": "=59.3.2"},
@@ -349,8 +362,6 @@ BACKEND_DEPENDENCIES = {
 BACKEND_TEST_DEPENDENCIES = {
     "onlyalpha-clock": {"path": "../../crates/onlyalpha-kernel/clock"},
     "onlyalpha-runtime-persistence": {"path": "../../crates/onlyalpha-runtime-persistence"},
-    "onlyalpha-backtest": {"path": "../../crates/onlyalpha-backtest"},
-    "onlyalpha-market-data-pipeline": {"path": "../../crates/onlyalpha-kernel/market_data/pipeline"},
     "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
     "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
 }
@@ -831,15 +842,23 @@ def _validate_pure_sources(root: Path, area: str, permitted: set[str]) -> None:
             or manifest.get("lib", {}).get("path", "src/lib.rs") != "src/lib.rs"
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    declared_modules = {
+        (root / target).resolve()
+        for owner, targets in _INFRASTRUCTURE_SOURCE_MODULES.items()
+        if (root / owner).is_relative_to(event)
+        for target in targets.values()
+    }
     for path in event.rglob("*.rs"):
-        text = path.read_text()
+        text, modules = _without_declared_infrastructure_inputs(root, path)
+        if any(module.suffix != ".rs" or not module.resolve().is_relative_to(event.resolve()) for module in modules):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         if path.is_symlink() or _hidden_rust_input(text):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         for macro in re.finditer(r"\b(include_str|include_bytes)\s*!\s*\(([^)]*)\)", text):
             if path.parent != event / "tests" or macro[1] != "include_str" or macro[2].strip() not in permitted:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
         code = re.sub(r"(?m)^\s*//.*$", "", text)
-        if path.is_relative_to(event / "src") and re.search(
+        if (path.is_relative_to(event / "src") or path.resolve() in declared_modules) and re.search(
             _PURE_INPUT_PATTERN,
             code,
         ):
@@ -1042,6 +1061,14 @@ def validate_execution_sources(root: Path) -> None:
     )
     for path in (root / "crates/onlyalpha-kernel/execution/src").rglob("*.rs"):
         code = re.sub(r"(?m)^\s*//.*$", "", path.read_text())
+        if path == root / "crates/onlyalpha-kernel/execution/src/lib.rs":
+            # This exact test-only self alias resolves the existing shared
+            # execution fixture; it is not an external dependency permission.
+            code = re.sub(
+                r"(?m)^\s*#\[cfg\(test\)\]\s*\n\s*extern crate self as onlyalpha_execution;\s*$",
+                "",
+                code,
+            )
         if re.search(
             r"\bonlyalpha_(?!domain\b|order\b|position\b|account\b|strategy_ledger\b|risk\b|fee\b|settlement\b|margin\b)[a-z_]+\b",
             code,
@@ -1071,12 +1098,93 @@ def validate_calculation_sources(root: Path) -> None:
 
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
+_EXECUTION_SOURCE_TESTS = (
+    "payload_codec_tests.rs",
+    "position_order_view_tests.rs",
+    "prefix_read_tests.rs",
+    "projection_digest_tests.rs",
+    "pure_transition_data_tests.rs",
+    "record_observation_tests.rs",
+    "typed_after_tests.rs",
+    "valuation_history_tests.rs",
+    "valuation_ledger_view_tests.rs",
+)
 _INFRASTRUCTURE_RESOURCES = {
+    **{
+        f"crates/onlyalpha-kernel/execution/src/{name}": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        }
+        for name in _EXECUTION_SOURCE_TESTS
+    },
+    "packages/backend/tests/transport/backtest_preparation_routes.rs": {
+        "../../../frontend/src/features/backtest/fixtures/preparation-wire-v2.json": "packages/frontend/src/features/backtest/fixtures/preparation-wire-v2.json",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/checkpoint_work.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/replay_references.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "packages/backend/src/application/strategy_validation/tests.rs": {
+        "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+    },
+    "packages/backend/src/application/strategy_research/execution.rs": {
+        "../../../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
+        "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+    },
+    "packages/backend/src/application/research_dataset/mod.rs": {
+        "../../../tests/application/fixtures/research_dataset.json": "packages/backend/tests/application/fixtures/research_dataset.json",
+    },
+    "packages/backend/src/application/manual_backtest_context/tests.rs": {
+        "../../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+    },
+    "packages/backend/src/persistence/strategy_validation/tests.rs": {
+        "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+    },
+    "packages/backend/src/application/frozen_strategy.rs": {
+        "../../tests/application/fixtures/frozen_strategy.json": "packages/backend/tests/application/fixtures/frozen_strategy.json",
+    },
+    "packages/backend/src/workers/backtest.rs": {
+        "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
+        "../../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
+        "../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+    },
+    "packages/backend/src/transport/host_backtest_environment.rs": {
+        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+    },
+    "crates/onlyalpha-backtest/rust/test_support/execution.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/execution/economics-v1.json": "test-data/execution/economics-v1.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "crates/onlyalpha-backtest/rust/next_open_tests.rs": {
+        "../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
+        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "packages/backend/src/application/strategy_research/run_specification.rs": {
+        "../../../tests/application/fixtures/strategy_specification.json": "packages/backend/tests/application/fixtures/strategy_specification.json",
+        "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+        "../../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
+    },
+    "packages/backend/src/application/strategy_research/specification.rs": {
+        "../../../tests/application/fixtures/strategy_specification.json": "packages/backend/tests/application/fixtures/strategy_specification.json",
+        "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
+        "../../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
+    },
     "packages/backend/src/application/strategy_research.rs": {
         "../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
         "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
     },
     "packages/backend/src/application/private_strategy.rs": {
+        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
         "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
         "../../../../test-data/strategy/product-sources-v1.jsonl": "test-data/strategy/product-sources-v1.jsonl",
     },
@@ -1087,6 +1195,7 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
     },
     "packages/backend/src/application/research_run.rs": {
+        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
         "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
     },
     "packages/backend/src/persistence/research_preparation.rs": {
@@ -1101,6 +1210,106 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    **{
+        f"crates/onlyalpha-kernel/execution/src/{name}": {
+            "../tests/support/mod.rs": "crates/onlyalpha-kernel/execution/tests/support/mod.rs",
+        }
+        for name in _EXECUTION_SOURCE_TESTS
+    },
+    "crates/onlyalpha-kernel/execution/src/components.rs": {
+        "payload_codec_tests.rs": "crates/onlyalpha-kernel/execution/src/payload_codec_tests.rs",
+        "position_order_view_tests.rs": "crates/onlyalpha-kernel/execution/src/position_order_view_tests.rs",
+        "prefix_read_tests.rs": "crates/onlyalpha-kernel/execution/src/prefix_read_tests.rs",
+    },
+    "crates/onlyalpha-kernel/execution/src/model.rs": {
+        "typed_after_tests.rs": "crates/onlyalpha-kernel/execution/src/typed_after_tests.rs",
+        "record_observation_tests.rs": "crates/onlyalpha-kernel/execution/src/record_observation_tests.rs",
+        "pure_transition_data_tests.rs": "crates/onlyalpha-kernel/execution/src/pure_transition_data_tests.rs",
+    },
+    "crates/onlyalpha-kernel/execution/src/valuation.rs": {
+        "valuation_history_tests.rs": "crates/onlyalpha-kernel/execution/src/valuation_history_tests.rs",
+    },
+    "crates/onlyalpha-kernel/position/src/manager.rs": {
+        "current_exposure_tests.rs": "crates/onlyalpha-kernel/position/src/current_exposure_tests.rs",
+    },
+    "crates/onlyalpha-kernel/strategy_ledger/src/recovery.rs": {
+        "recovery_extension_tests.rs": "crates/onlyalpha-kernel/strategy_ledger/src/recovery_extension_tests.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/checkpoint_work.rs": {
+        "../../../../crates/onlyalpha-kernel/execution/tests/support/mod.rs": "crates/onlyalpha-kernel/execution/tests/support/mod.rs",
+        "prefix_work.rs": "crates/onlyalpha-runtime-persistence/tests/support/prefix_work.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs": {
+        "../../../../crates/onlyalpha-kernel/execution/tests/support/mod.rs": "crates/onlyalpha-kernel/execution/tests/support/mod.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/tests/support/replay_references.rs": {
+        "../../../../crates/onlyalpha-kernel/execution/tests/support/mod.rs": "crates/onlyalpha-kernel/execution/tests/support/mod.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/rust/dictionary_codec.rs": {
+        "dictionary_codec_tests.rs": "crates/onlyalpha-runtime-persistence/rust/dictionary_codec_tests.rs",
+    },
+    "packages/backend/src/persistence/research_evidence/strategy.rs": {
+        "columnar.rs": "packages/backend/src/persistence/research_evidence/columnar.rs",
+        "equivalence.rs": "packages/backend/src/persistence/research_evidence/equivalence.rs",
+        "physical.rs": "packages/backend/src/persistence/research_evidence/physical.rs",
+    },
+    "packages/backend/src/application/mod.rs": {
+        "../../tests/application/backtest_preparation.rs": "packages/backend/tests/application/backtest_preparation.rs",
+    },
+    "packages/backend/src/workers/backtest_worker.rs": {
+        "../../tests/application/support/backtest_worker_assertions.rs": "packages/backend/tests/application/support/backtest_worker_assertions.rs",
+    },
+    "packages/backend/src/workers/mod.rs": {
+        "../../tests/application/support/backtest_service_assertions.rs": "packages/backend/tests/application/support/backtest_service_assertions.rs",
+    },
+    "packages/backend/src/persistence/backtest_evidence.rs": {
+        "../../tests/application/support/backtest_evidence_assertions.rs": "packages/backend/tests/application/support/backtest_evidence_assertions.rs",
+    },
+    "packages/backend/src/persistence/research_preparation.rs": {
+        "research_preparation/backtest.rs": "packages/backend/src/persistence/research_preparation/backtest.rs",
+    },
+    "packages/backend/src/transport/host_backtest_commands.rs": {
+        "../../tests/transport/backtest_preparation_observation.rs": "packages/backend/tests/transport/backtest_preparation_observation.rs",
+    },
+    "packages/backend/src/transport/host_research_commands.rs": {
+        "host_backtest_commands.rs": "packages/backend/src/transport/host_backtest_commands.rs",
+    },
+    "packages/backend/src/transport/host_research_preparation.rs": {
+        "host_backtest_environment.rs": "packages/backend/src/transport/host_backtest_environment.rs",
+        "host_backtest_preparation.rs": "packages/backend/src/transport/host_backtest_preparation.rs",
+        "host_strategy_preparation.rs": "packages/backend/src/transport/host_strategy_preparation.rs",
+    },
+    "packages/backend/src/transport/routes.rs": {
+        "../../tests/transport/backtest_analysis.rs": "packages/backend/tests/transport/backtest_analysis.rs",
+        "../../tests/transport/backtest_preparation_routes.rs": "packages/backend/tests/transport/backtest_preparation_routes.rs",
+        "../../tests/transport/backtest_product.rs": "packages/backend/tests/transport/backtest_product.rs",
+        "../../tests/transport/qualification_product.rs": "packages/backend/tests/transport/qualification_product.rs",
+    },
+    "packages/backend/src/transport/host_backtest.rs": {
+        "../../tests/transport/backtest_worker_observation.rs": "packages/backend/tests/transport/backtest_worker_observation.rs",
+    },
+    "packages/backend/src/transport/host_backtest_preparation.rs": {
+        "../../tests/transport/backtest_preparation_window.rs": "packages/backend/tests/transport/backtest_preparation_window.rs",
+    },
+    "crates/onlyalpha-backtest/rust/native_read.rs": {
+        "position_order_view_tests.rs": "crates/onlyalpha-backtest/rust/position_order_view_tests.rs",
+    },
+    "crates/onlyalpha-backtest/rust/run.rs": {
+        "candidate_configuration_tests.rs": "crates/onlyalpha-backtest/rust/candidate_configuration_tests.rs",
+    },
+    "crates/onlyalpha-backtest/rust/lib.rs": {
+        "test_support/execution.rs": "crates/onlyalpha-backtest/rust/test_support/execution.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/rust/replay.rs": {
+        "../tests/support/replay_codec_work.rs": "crates/onlyalpha-runtime-persistence/tests/support/replay_codec_work.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/rust/store.rs": {
+        "checkpoint_data.rs": "crates/onlyalpha-runtime-persistence/rust/checkpoint_data.rs",
+        "../tests/support/checkpoint_work.rs": "crates/onlyalpha-runtime-persistence/tests/support/checkpoint_work.rs",
+    },
+    "crates/onlyalpha-runtime-persistence/rust/references.rs": {
+        "../tests/support/replay_references.rs": "crates/onlyalpha-runtime-persistence/tests/support/replay_references.rs",
+    },
     "plugs/onlyalpha-plugin-binance/rust/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-plugin-binance/rust/spot_temporary.rs",
     },
@@ -1112,6 +1321,12 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
+    "packages/backend/src/persistence/backtest_evidence/store.rs",
+    "packages/backend/src/persistence/research_runtime.rs",
+    "packages/backend/src/workers/algorithm.rs",
+    "packages/backend/src/workers/backtest_service.rs",
+    "packages/backend/src/workers/backtest_terminal.rs",
+    "packages/backend/src/workers/trading_nodes.rs",
     "packages/backend/examples/native_backtest_reference.rs",
     "packages/backend/src/main.rs",
     "packages/backend/src/bootstrap/workstation_startup.rs",
@@ -1125,9 +1340,10 @@ def _declared_source_file(root: Path, relative: str) -> Path:
     return path
 
 
-def _without_declared_infrastructure_inputs(root: Path, path: Path) -> str:
-    text = path.read_text()
+def _without_declared_infrastructure_inputs(root: Path, path: Path) -> tuple[str, list[Path]]:
     relative = path.relative_to(root).as_posix()
+    text = _declared_source_file(root, relative).read_text()
+    modules = []
     if relative in _CARGO_VERSION_SOURCES:
         # Cargo derives this value from the fingerprinted manifest.
         _declared_source_file(
@@ -1148,9 +1364,12 @@ def _without_declared_infrastructure_inputs(root: Path, path: Path) -> str:
     for argument, resource in _INFRASTRUCTURE_SOURCE_MODULES.get(relative, {}).items():
         pattern = r'#\s*\[\s*path\s*=\s*"' + re.escape(argument) + r'"\s*\]'
         if re.search(pattern, text):
-            _declared_source_file(root, resource)
+            declared = _declared_source_file(root, resource)
+            if (path.parent / argument).resolve() != declared.resolve():
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+            modules.append(declared)
             text = re.sub(pattern, "", text)
-    return text
+    return text, modules
 
 
 def validate_infrastructure_sources(root: Path) -> None:
@@ -1186,8 +1405,15 @@ def validate_infrastructure_sources(root: Path) -> None:
         paths = list(sources.rglob("*.rs"))
         if component == "onlyalpha-backend":
             paths.extend((area / "examples").rglob("*.rs"))
-        for path in paths:
-            text = _without_declared_infrastructure_inputs(root, path)
+        checked = set()
+        while paths:
+            path = paths.pop()
+            if path in checked:
+                continue
+            checked.add(path)
+            text, modules = _without_declared_infrastructure_inputs(root, path)
+            # Follow only statically registered edges, never admit discovered inputs.
+            paths.extend(modules)
             if path.is_symlink() or _hidden_rust_input(text) or re.search(r"\binclude_(?:str|bytes)\s*!", text):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
             if component == "onlyalpha-calculation-bridge" and re.search(
@@ -1209,8 +1435,15 @@ def validate_infrastructure_sources(root: Path) -> None:
             or manifest.get("lib") != {"path": "src/lib.rs" if component == "onlyalpha-backend" else "rust/lib.rs"}
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-        for path in (area / "rust").rglob("*.rs"):
-            text = _without_declared_infrastructure_inputs(root, path)
+        paths = list((area / "rust").rglob("*.rs"))
+        checked = set()
+        while paths:
+            path = paths.pop()
+            if path in checked:
+                continue
+            checked.add(path)
+            text, modules = _without_declared_infrastructure_inputs(root, path)
+            paths.extend(modules)
             if (
                 path.is_symlink()
                 or _hidden_rust_input(text)
@@ -1277,20 +1510,21 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "plugin_tushare",
         }:
             shutil.copytree(root / data, destination / data)
-    for source, resources in (_INFRASTRUCTURE_RESOURCES | _INFRASTRUCTURE_SOURCE_MODULES).items():
-        if any(Path(source).is_relative_to(module_path(module)) for module in modules):
-            _declared_source_file(root, source)
-            for resource in resources.values():
-                original = _declared_source_file(root, resource)
-                copied = destination / resource
-                if any((destination / parent).is_symlink() for parent in Path(resource).parents):
-                    raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-                if copied.exists() or copied.is_symlink():
-                    if _declared_source_file(destination, resource).read_bytes() != original.read_bytes():
+    for declarations in (_INFRASTRUCTURE_RESOURCES, _INFRASTRUCTURE_SOURCE_MODULES):
+        for source, resources in declarations.items():
+            if any(Path(source).is_relative_to(module_path(module)) for module in modules):
+                _declared_source_file(root, source)
+                for resource in resources.values():
+                    original = _declared_source_file(root, resource)
+                    copied = destination / resource
+                    if any((destination / parent).is_symlink() for parent in Path(resource).parents):
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-                else:
-                    copied.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(original, copied)
+                    if copied.exists() or copied.is_symlink():
+                        if _declared_source_file(destination, resource).read_bytes() != original.read_bytes():
+                            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+                    else:
+                        copied.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(original, copied)
     members = [str(module_path(module)) for module in modules]
     manifest = re.sub(
         r"(?ms)^members\s*=\s*\[[^\]]*\]",
@@ -1428,7 +1662,7 @@ def isolated_plugin_binance(root: Path, destination: Path) -> Path:
     return _isolated_modules(
         root,
         destination,
-        ("domain", "market_data_construction", "metadata_json", "integration_contract", "plugin_binance"),
+        ("domain", "fee", "market_data_construction", "metadata_json", "integration_contract", "plugin_binance"),
     )
 
 

@@ -44,10 +44,17 @@ pub(crate) fn hash(v: &Value) -> String {
     digest(v.to_string().as_bytes())
 }
 pub(crate) fn row<'a>(v: &'a Value, fields: &[&str]) -> Result<&'a Map<String, Value>, Error> {
+    row_version(v, fields, 1)
+}
+pub(crate) fn row_version<'a>(
+    v: &'a Value,
+    fields: &[&str],
+    version: u64,
+) -> Result<&'a Map<String, Value>, Error> {
     let r = v
         .as_object()
         .ok_or_else(|| err("POSITION_RECORD_REQUIRED"))?;
-    if r.get("schema_version").and_then(Value::as_u64) != Some(1)
+    if r.get("schema_version").and_then(Value::as_u64) != Some(version)
         || r.len() != fields.len() + 1
         || fields.iter().any(|f| !r.contains_key(*f))
     {

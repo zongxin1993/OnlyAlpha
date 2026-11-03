@@ -249,3 +249,68 @@ def test_full_numeric_graph_observes_actual_vector_and_streaming_backends() -> N
     gapped = program.evaluate(rows, include_trading=True)
     assert [row["values"] for row in gapped["outputs"]] == [row["values"] for row in gapped["trading_outputs"]]
     assert "equivalence_evidence" not in result and "strategy_fingerprint" not in result
+
+
+def test_zero_volume_graph_preserves_actual_math_and_forward_return_rejects_zero_price() -> None:
+    from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
+    from onlyalpha_plugin_targets.registration import resolve_forward_return
+
+    from onlyalpha.calculation.definition import OnlyCalculationReference
+
+    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
+    program = CalculationGraphEvaluator([source], vector["graph"])
+    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": "100", "volume": "0"}} for i in range(42)]
+    result = program.evaluate(rows, include_trading=True)
+    research = {row["node_fingerprint"]: row["values"] for row in result["outputs"]}
+    trading = {row["node_fingerprint"]: row["values"] for row in result["trading_outputs"]}
+    assert research == trading
+    assert research[vector["root_fingerprint"]]["value"] == [None] * len(rows)
+    mean = next(node for node in program.graph.nodes if node.definition.type_id == "onlyalpha.operator.rolling_mean")
+    assert Decimal(research[mean.fingerprint]["value"][-1]) == 0
+
+    definition = resolve_forward_return(
+        {"entry_offset": 0, "exit_offset": 5},
+        OnlyCalculationReference(None, "entry_price", "bar.close"),
+        OnlyCalculationReference(None, "exit_price", "bar.close"),
+    )
+    target = CalculationGraphEvaluator(
+        [], {"schema_version": 1, "nodes": [{"alias": None, "definition": dict(definition.to_dict())}]}
+    )
+    observed = target.evaluate(rows)["outputs"][0]["values"]["target_value"]
+    assert [Decimal(value) for value in observed[:-5]] == [Decimal(0)] * (len(rows) - 5)
+    assert observed[-5:] == [None] * 5
+    rows[0]["values"]["close"] = "0"
+    with pytest.raises(ValueError, match="finite and positive"):
+        target.evaluate(rows)
+
+
+def test_direct_zero_profiles_keep_actual_private_factor_division_null() -> None:
+    from onlyalpha_backend_algorithms.research_evaluation import NodeProfileEvaluator
+
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
+    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
+    planned, resolved = [], []
+    for raw in vector["graph"]["nodes"]:
+        definition = OnlyCalculationDefinition.from_dict(raw["definition"])
+        operands = {port.name: {"type": "DECIMAL", "value": "0"} for port in definition.inputs}
+        count = definition.warmup.minimum_observations + 22
+        planned.append(
+            {
+                "definition": raw["definition"],
+                "cases": [{"case_id": "ZERO_BOUNDARY", "inputs": [operands for _ in range(count)]}],
+            }
+        )
+        resolved.append({"definition_fingerprint": definition.fingerprint, "definition": raw["definition"]})
+    observed = NodeProfileEvaluator([source], planned, resolved).evaluate()["nodes"]
+    assert len(observed) == len(planned)
+    for node in observed:
+        case = node["cases"][0]
+        assert case["case_id"] == "ZERO_BOUNDARY"
+        assert case["research_outputs"] == case["trading_outputs"]
+        assert all(value == {"type": "DECIMAL", "value": "0"} for row in case["inputs"] for value in row.values())
+    factor = next(node for node in observed if node["node_fingerprint"] == vector["root_fingerprint"])
+    case = factor["cases"][0]
+    assert case["research_outputs"] == [{"value": {"type": "NULL", "value": None}}] * len(case["inputs"])

@@ -1,5 +1,13 @@
 use crate::{Components, model::*};
 use serde_json::{Value, json};
+#[cfg(test)]
+std::thread_local! {
+    pub(crate) static FULL_LEDGER_STATE_CAPTURES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+std::thread_local! {
+    static VALUATION_HISTORY_ACCOUNT_CAPTURES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 impl Components {
     pub(crate) fn valuation(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
@@ -44,8 +52,8 @@ impl Components {
                 return Err(err("EXECUTION_VALUATION_SOURCE_ALIAS"));
             }
         }
-        let position = self.position.state();
-        let ledger = self.ledger.state();
+        let position = self.position.current_exposure();
+        let ledger = self.ledger.valuation_view();
         let clusters: Vec<_> = self.config["profiles"]
             .as_object()
             .expect("profiles")
@@ -53,7 +61,7 @@ impl Components {
             .cloned()
             .collect();
         for (ordinal, cluster) in clusters.iter().enumerate() {
-            let rows = &ledger["ledgers"][cluster]["lines"];
+            let rows = &ledger[cluster]["lines"];
             let mut lines = vec![];
             for b in position["allocations"].as_array().expect("allocations") {
                 if b["cluster"] != *cluster {
@@ -77,7 +85,7 @@ impl Components {
             if rows.as_object().map_or(0, |m| m.len()) != lines.len() {
                 return Err(err("EXECUTION_VALUATION_ALLOCATION_COMPLETENESS"));
             }
-            let mut c=self.ledger_command(input,"VALUATION",json!({"schema_version":1,"valuation":format!("VAL-{}",hash(&json!([input["engine"],input["runtime"],input["account"],input["generation"],p["valuation"],cluster]))),"economic_version":ledger["ledgers"][cluster]["snapshot"]["economic_version"],"version":p["version"],"lines":lines}),ordinal as u64+1);
+            let mut c=self.ledger_command(input,"VALUATION",json!({"schema_version":1,"valuation":format!("VAL-{}",hash(&json!([input["engine"],input["runtime"],input["account"],input["generation"],p["valuation"],cluster]))),"economic_version":ledger[cluster]["economic_version"],"version":p["version"],"lines":lines}),ordinal as u64+1);
             c["cluster"] = json!(cluster);
             self.ledger_apply(&c)?;
         }
@@ -104,17 +112,10 @@ impl Components {
 
 impl Components {
     pub(crate) fn validate_valuation_metadata(&self, meta: &Value) -> Result<(), Error> {
-        let cp: Value = serde_json::from_slice(&boundary(self.account.checkpoint())?.0)?;
         let mut marks = json!({});
         let mut sources = json!({});
-        for command in cp["journal"]
-            .as_array()
-            .ok_or_else(|| err("EXECUTION_VALUATION_HISTORY"))?
-        {
-            if command["op"] != "VALUATION" {
-                continue;
-            }
-            for m in command["payload"]["intent"]["marks"]
+        for intent in self.account.valuation_intents() {
+            for m in intent["marks"]
                 .as_array()
                 .ok_or_else(|| err("EXECUTION_VALUATION_HISTORY"))?
             {
@@ -145,3 +146,7 @@ impl Components {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "valuation_history_tests.rs"]
+mod valuation_history_tests;

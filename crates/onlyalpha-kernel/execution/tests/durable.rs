@@ -226,6 +226,84 @@ fn decoded_payload_cannot_be_submitted_as_a_new_planner_authority() {
 }
 
 #[test]
+fn retained_record_snapshots_keep_independent_ready_delivery_and_immutable_payload() {
+    let mut h = Harness::new(config()).unwrap();
+    let planned = h.prepare(&open(1, "BUY")).unwrap();
+    let encoded = planned.encode().unwrap();
+    h.commit_only(&planned).unwrap();
+    let committed = h.store.get(1).unwrap().unwrap();
+    let committed_clone = committed.clone();
+    let committed_wire = committed.record();
+    assert!(!committed.ready());
+    assert_eq!(committed_wire["delivered"], false);
+    assert!(pending_events(&h.store, &h.components).unwrap().is_empty());
+
+    coordinate(&mut h.store, &mut h.components, &planned).unwrap();
+    let ready = h.store.get(1).unwrap().unwrap();
+    let ready_clone = ready.clone();
+    let ready_wire = ready.record();
+    assert!(ready.ready());
+    assert_eq!(ready_wire["delivered"], false);
+    assert_eq!(pending_events(&h.store, &h.components).unwrap().len(), 1);
+    h.store.mark_ready(1).unwrap();
+    h.store.acknowledge(1).unwrap();
+    let delivered = h.store.get(1).unwrap().unwrap();
+    assert!(delivered.ready());
+    assert_eq!(delivered.record()["delivered"], true);
+    assert!(pending_events(&h.store, &h.components).unwrap().is_empty());
+
+    assert_eq!(committed.record(), committed_wire);
+    assert_eq!(committed_clone.record(), committed_wire);
+    assert_eq!(ready.record(), ready_wire);
+    assert_eq!(ready_clone.record(), ready_wire);
+    for retained in [&committed, &committed_clone, &ready, &ready_clone, &delivered] {
+        assert_eq!(retained.prepared().encode().unwrap(), encoded);
+        assert_eq!(retained.prepared().record(), planned.record());
+    }
+    let mut detached = delivered.record();
+    detached["prepared"]["input"]["account"] = json!("foreign");
+    assert!(Record::decode(&detached).is_err());
+    assert_eq!(delivered.prepared().encode().unwrap(), encoded);
+    assert_eq!(h.store.get(1).unwrap().unwrap(), delivered);
+
+    let next = h.prepare(&stage(2, 1, "UNKNOWN")).unwrap();
+    coordinate(&mut h.store, &mut h.components, &next).unwrap();
+    assert_eq!(h.store.get(1).unwrap().unwrap(), delivered);
+    assert_eq!(committed.record(), committed_wire);
+    assert_eq!(ready.record(), ready_wire);
+}
+
+#[test]
+fn cloned_record_transport_remains_recovery_only_without_new_planner_authority() {
+    let mut original = Harness::new(config()).unwrap();
+    let planned = original.prepare(&open(1, "BUY")).unwrap();
+    coordinate(&mut original.store, &mut original.components, &planned).unwrap();
+    let wire = original.store.get(1).unwrap().unwrap().record();
+    let transported = Record::decode(&wire).unwrap().clone();
+    assert_eq!(transported.record(), wire);
+
+    assert!(transported.with_observed_flags(false, true).is_err());
+    for (ready, delivered) in [(false, false), (true, false), (true, true)] {
+        let observed = transported.with_observed_flags(ready, delivered).unwrap();
+        let mut expected = wire.clone();
+        expected["ready"] = json!(ready);
+        expected["delivered"] = json!(delivered);
+        assert_eq!(observed.record(), expected);
+        assert_eq!(transported.record(), wire, "observed flags cannot change an earlier snapshot");
+        assert_eq!(observed.prepared().encode().unwrap(), planned.encode().unwrap());
+        let mut foreign = Harness::new(config()).unwrap();
+        let before = foreign.components.checkpoint().unwrap();
+        assert!(coordinate(&mut foreign.store, &mut foreign.components, observed.prepared()).is_err());
+        assert_eq!(foreign.store.head().unwrap(), 0);
+        assert_eq!(foreign.components.checkpoint().unwrap(), before);
+    }
+    let mut recovered = Components::new(config()).unwrap();
+    recover(&mut original.store, &mut recovered).unwrap();
+    assert_eq!(recovered.checkpoint().unwrap(), original.components.checkpoint().unwrap());
+    assert_eq!(transported.record(), wire);
+}
+
+#[test]
 fn failed_ready_keeps_new_plans_blocked_and_missing_apply_index_is_recoverable() {
     let mut s = FileStore::new("missing-apply-index");
     let mut c = Components::new(config()).unwrap();
