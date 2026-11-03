@@ -35,6 +35,7 @@ fn roundtrip(m: &mut Manager) {
     let mut f = manager();
     f.restore(&b, &h).unwrap();
     assert_eq!(m.state(), f.state());
+    assert_eq!(f.checkpoint().unwrap(), (b, h));
     *m = f;
 }
 #[test]
@@ -290,6 +291,9 @@ fn common_vector_outputs() {
                 ))
                 .unwrap();
                 let a = m.account("BTCUSDT.BINANCE").unwrap();
+                let allocation = m.cluster("a", "BTCUSDT.BINANCE").unwrap();
+                assert_eq!(a["cost"], allocation["cost"]);
+                assert_eq!(a["quantity"], allocation["quantity"]);
                 observed.push(json!([a["quantity"], a["cost"], a["average"]]));
                 roundtrip(&mut m);
             }
@@ -703,8 +707,20 @@ fn explicit_fill_precision_cannot_round_or_reinterpret_legacy_prices() {
 #[test]
 fn memory_clone_isolates_partial_close_reservations_and_exact_cost() {
     let mut original = manager();
-    assert_eq!(original.apply(&trade("clone-open", Some("a"), "BUY", "10.00", "5", 1)).unwrap().status, Status::Applied);
-    assert_eq!(original.apply(&reserve("clone-reserve", "a", "4", 2)).unwrap().status, Status::Applied);
+    assert_eq!(
+        original
+            .apply(&trade("clone-open", Some("a"), "BUY", "10.00", "5", 1))
+            .unwrap()
+            .status,
+        Status::Applied
+    );
+    assert_eq!(
+        original
+            .apply(&reserve("clone-reserve", "a", "4", 2))
+            .unwrap()
+            .status,
+        Status::Applied
+    );
     let before = original.checkpoint().unwrap();
     let mut branch = original.clone();
     assert_eq!(branch.checkpoint().unwrap(), before);
@@ -720,7 +736,13 @@ fn memory_clone_isolates_partial_close_reservations_and_exact_cost() {
     assert_eq!(original.checkpoint().unwrap(), branch.checkpoint().unwrap());
 
     let branch_before = branch.checkpoint().unwrap();
-    assert_eq!(original.apply(&close("clone-terminal", "a", "12.00", "1", 4, true)).unwrap().status, Status::Applied);
+    assert_eq!(
+        original
+            .apply(&close("clone-terminal", "a", "12.00", "1", 4, true))
+            .unwrap()
+            .status,
+        Status::Applied
+    );
     assert_eq!(original.reservation("order-a").unwrap()["remaining"], "0");
     assert_eq!(original.reservation("order-a").unwrap()["released"], "2");
     assert_eq!(original.account("BTCUSDT.BINANCE").unwrap()["cost"], "30");

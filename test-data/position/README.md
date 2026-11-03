@@ -1,5 +1,5 @@
 # Position comparison data
 
-Literal semantic vectors and actual Python valid-common reference outputs. No Runtime admission or business history conversion. Position IDs are a new component identity, not Python durable identity compatibility.
+Independent literal semantic vectors and actual native lifecycle outputs. No Runtime admission or business history conversion. Position IDs are a new component identity, not Python durable identity compatibility.
 
 `valuation-v1.jsonl` contains independently calculated consolidated valuation vectors, including exact cost residuals and HALF_EVEN ties. `valuation-order-contract.json` retains the frozen zero-fee contract unchanged. The Order fixture test derives the complete contract from real native Order snapshots and existing typed Fee Domain constructors, then compares every field with that fixture. Execution separately checks its second-Cluster read-only preview scope and unchanged checkpoint. The canonical valuation lane requires this test's actual receipt before comparing native valuation outputs. It does not load a Python Order factory or Position implementation. Native exact-cost residuals remain independently specified, rather than using the older rounded-average PnL result as an oracle.
