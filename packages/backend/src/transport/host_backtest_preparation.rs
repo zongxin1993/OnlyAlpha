@@ -67,11 +67,12 @@ impl Host {
         let decisions=Arc::new(qualification_decision::Store::open(&config.research_root)?);
         let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
         let tx=client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(|_|INVALID)?;
-        let decision=decisions.read_verified_in_transaction(&tx,&namespace,&config.runtime_root,text(selected,"qualification_decision_fingerprint")?).await?;
+        let admission=strategy_promotion::read_selected_admission_in_transaction(&tx,&namespace,frozen,decisions,&config.runtime_root,text(selected,"strategy_fingerprint")?,text(selected,"freeze_relation_fingerprint")?,text(selected,"qualification_decision_fingerprint")?,text(selected,"promotion_fingerprint")?,64*1024*1024).await?;
         tx.commit().await.map_err(|_|INVALID)?;
-        strategy_promotion::read_verified_admission(client,&namespace,frozen,decision,text(selected,"strategy_fingerprint")?,text(selected,"freeze_relation_fingerprint")?,text(selected,"promotion_fingerprint")?,64*1024*1024).await.map_err(Into::into)
+        Ok(admission)
     }
     async fn admit_manual_backtest(&self,o:&Operation,human:&human_access::Session,validation:Arc<crate::persistence::strategy_validation::VerifiedValidation>)->Result<VerifiedBacktestAdmission> {
+        let started=Instant::now();
         use crate::{application::{frozen_strategy::FrozenStore,strategy_projection::Freezes,qualification::Request as QualificationRequest,qualification_policy::Store as Policies},
             persistence::{qualification_commands::Qualifications,strategy_promotion::{Promotions,Request as PromotionRequest},research_preparation::child_command}};
         let config=&self.research_preparation_config;let descriptor=protected_files::open_directory(&config.research_root).map_err(|_|INVALID)?;
@@ -83,21 +84,25 @@ impl Host {
         let published={let mut writer=self.writer.lock().await;let session=writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Freezes::new(session,&frozen,&namespace,human).execute_manual(&validation,&o,&now().map_err(|e|e.code())?.to_string(),100000,64*1024*1024).await?};
         let evidence=Arc::new(frozen.read_verified_manual(validation,text(&published,"freeze_relation_fingerprint")?,64*1024*1024).map_err(|e|e.code())?);
+        eprintln!("BACKTEST_ADMISSION_PHASE phase=freeze elapsed_ms={}",started.elapsed().as_millis());
         // First finish/recover this original Freeze, including its catalog row.
         // Repeated semantics retain their own valid provenance and reuse the
         // canonical grant, never a second BACKTEST stage transition.
         {let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
             if let Some(existing)=strategy_promotion::read_existing_backtest_admission_for_strategy(client,&namespace,frozen.clone(),decisions.clone(),&config.runtime_root,evidence.subject_strategy_fingerprint(),64*1024*1024).await? {return Ok(existing);}}
+        eprintln!("BACKTEST_ADMISSION_PHASE phase=reuse-query elapsed_ms={}",started.elapsed().as_millis());
         self.preparation_checkpoint(&o,human).await?;
         let command=child_command(&o.command,"manual-backtest-qualification")?;
         let request=QualificationRequest::from_manual(command,"manual-backtest","1",&evidence)?;
         let decision={let mut writer=self.writer.lock().await;let session=writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Qualifications::new(session,&namespace,policies,decisions,frozen.clone(),&self.human_access,human).execute_manual(&request,evidence,now().map_err(|e|e.code())?).await?};
+        eprintln!("BACKTEST_ADMISSION_PHASE phase=qualification elapsed_ms={}",started.elapsed().as_millis());
         self.preparation_checkpoint(&o,human).await?;
         let subject=request.subject().to_owned();
         let request=PromotionRequest::new(child_command(&o.command,"manual-backtest-promotion")?,&subject,decision.fingerprint(),text(decision.record(),"policy_fingerprint")?,"用户确认策略并准备实验回测")?;
         let promotion={let mut writer=self.writer.lock().await;let session=writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Promotions::new(session,&namespace,frozen.clone(),&self.human_access,human).promote(&request,decision.clone(),now().map_err(|e|e.code())?).await?};
+        eprintln!("BACKTEST_ADMISSION_PHASE phase=promotion elapsed_ms={}",started.elapsed().as_millis());
         let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
         strategy_promotion::read_verified_admission(client,&namespace,frozen,decision,&subject,text(&published,"freeze_relation_fingerprint")?,promotion.fingerprint(),64*1024*1024).await.map_err(Into::into)
     }
@@ -278,11 +283,18 @@ impl Host {
     }
     async fn verify_manual_validation(&self,o:&Operation,admission:&VerifiedBacktestAdmission,materialized:&MaterializedDataset)->Result<Option<Arc<crate::persistence::strategy_validation::VerifiedValidation>>> {
         if matches!(o.request.backtest()?.origin,BacktestOrigin::ManualStrategy{..}) {
-            let config=&self.research_preparation_config;
-            let store=crate::persistence::strategy_validation::Store::open(&config.research_root)?.with_runtime_root(&config.runtime_root)?;
-            let validation={let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;store.read_verified(client,o.command.value()).await?};
+            let validation=if let Some(original)=admission.manual_validation_for_preparation(o.command.value()) {
+                original
+            }else {
+                // A reused grant can name an older preparation. It cannot
+                // substitute for this occurrence's independently pinned inputs.
+                let config=&self.research_preparation_config;
+                let store=crate::persistence::strategy_validation::Store::open(&config.research_root)?.with_runtime_root(&config.runtime_root)?;
+                let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
+                Arc::new(store.read_verified(client,o.command.value()).await?)
+            };
             validation.require_backtest_inputs(o,admission.source_revision(),materialized)?;
-            Ok(Some(Arc::new(validation)))
+            Ok(Some(validation))
         }else if o.outputs["ready"]["validation_fingerprint"].is_null(){Ok(None)}else{Err(INVALID.into())}
     }
     async fn backtest_rule_source(&self,o:&Operation)->Result<()> {
@@ -298,18 +310,24 @@ impl Host {
     /// The retained owners verify original metadata and physical bytes without
     /// opening an SDK child, taking the writer, or reopening a released work.
     pub(crate) async fn backtest_readiness_observation(&self,o:&Operation,human:&human_access::Session)->Result<()> {
+        let started=Instant::now();
         if self.preparation_owner(human)?!=o.owner {return Err(INVALID.into());}
         let input=o.request.backtest()?;
         let (authority,session,selection)=self.preparation_sources(human,&input.source,true).await?;
         self.backtest_rule_source(o).await?;
         let admission=self.backtest_admission(o).await?;
-        {let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
-            let tx=client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(|_|INVALID)?;
-            admission.verify_in_transaction(&tx,admission.namespace()).await?;tx.commit().await.map_err(|_|INVALID)?;}
+        eprintln!("BACKTEST_READINESS_PHASE phase=admission elapsed_ms={}",started.elapsed().as_millis());
+        // The owning read above captured Q/P in one repeatable-read snapshot.
+        // This observation grants no Start; keep its physical cut through the
+        // final recheck. Start/READY publication retain their transaction checks.
         let datasets=Datasets::open(&self.research_preparation_config.research_root.join("datasets"),8192,8*1024*1024)?;
         let materialized=MaterializedDataset::load(&datasets,text(&o.outputs["ready"],"dataset_materialization_id")?)?;
         let validation=self.verify_manual_validation(o,&admission,&materialized).await?;
-        let prior=self.backtest_calculations(o,&admission).await?;
+        let prior=match &validation {
+            Some(validation)=>validation.record()["prepared_inputs"].clone(),
+            None=>admission.validated_calculations()?.clone(),
+        };
+        eprintln!("BACKTEST_READINESS_PHASE phase=validation elapsed_ms={}",started.elapsed().as_millis());
         let config=self.research_preparation_config.clone();let original=o.clone();
         tokio::task::spawn_blocking(move||->Result<()> {
             pinned_release(&config,&original)?;
@@ -367,6 +385,7 @@ impl Host {
         self.preparation_owner(human)?;
         authority.check_session(&session).map_err(|_|"RESEARCH_SOURCE_ACCESS_DENIED")?;
         session.require_selection(&selection,Permission::ClosedHistory).map_err(|_|"RESEARCH_SOURCE_ACCESS_DENIED")?;
+        eprintln!("BACKTEST_READINESS_PHASE phase=complete elapsed_ms={}",started.elapsed().as_millis());
         Ok(())
     }
     fn backtest_create_request(o:&Operation)->Result<CreateRequest> {

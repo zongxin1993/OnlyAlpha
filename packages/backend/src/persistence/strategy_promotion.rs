@@ -152,6 +152,10 @@ pub struct VerifiedBacktestAdmission {
     verified_decision:Arc<VerifiedDecision>,frozen:Arc<FrozenStore>,freeze:FreezeRelation,ledger:PgCut,max_work:usize,
 }
 impl VerifiedBacktestAdmission {
+    pub(crate) fn manual_validation_for_preparation(&self,command:&str)->Option<Arc<crate::persistence::strategy_validation::VerifiedValidation>> {
+        self.verified_decision.manual_evidence().map(|proof|proof.validation())
+            .filter(|validation|validation.preparation_command_id()==command).cloned()
+    }
     pub(crate) fn validated_calculations(&self)->Result<&Value> {
         self.verify_cut()?;self.verified_decision.validated_calculations()
     }
@@ -185,17 +189,45 @@ pub(crate) async fn read_verified_admission(client:&mut Client,namespace:&Semant
     let sealed=admission_in_transaction(&tx,namespace,frozen,decision,strategy,relation,promotion,max_work).await?;
     tx.commit().await.map_err(|_|UNAVAILABLE)?;Ok(sealed)
 }
+/// Exact Q/P observation on one owning snapshot, with the same bounded SQL
+/// environment as standalone admission. No caller JSON can construct a proof.
+pub(crate) async fn read_selected_admission_in_transaction(
+    tx:&Transaction<'_>,namespace:&SemanticStoreId,frozen:Arc<FrozenStore>,
+    decisions:Arc<super::qualification_decision::Store>,runtime_root:&std::path::Path,
+    strategy:&str,relation:&str,decision:&str,promotion:&str,max_work:usize,
+)->Result<VerifiedBacktestAdmission> {
+    let max_work=max_work.min(WORK);
+    if max_work==0||[strategy,relation,decision,promotion].iter().any(|id|!crate::is_sha256_hex(id)){return Err(INVALID);}
+    transaction(tx,namespace).await?;
+    let snapshot=tx.query_one("SELECT pg_catalog.current_setting('transaction_isolation')='repeatable read' AND pg_catalog.current_setting('transaction_read_only')='on'",&[]).await.map_err(|_|UNAVAILABLE)?;
+    if !snapshot.try_get::<_,bool>(0).map_err(|_|UNAVAILABLE)?{return Err(UNAVAILABLE);}
+    let decision=decisions.read_verified_in_transaction(tx,namespace,runtime_root,decision).await?;
+    let source=frozen.load_verified(strategy,max_work).map_err(|e|e.code())?;
+    let freeze=frozen.load_relation_verified(relation,max_work).map_err(|e|e.code())?;
+    files(namespace,&frozen,&decision,&source,&freeze,max_work)?;
+    // The Q owner just verified this exact capability in this same read-only
+    // snapshot. P still reads every original ledger/receipt relation itself.
+    let ledger=read_promotion_cut_with_prefix(tx,namespace,strategy,&freeze,&decision,Some(promotion),max_work,None).await?;
+    seal_admission(tx,namespace,frozen,decision,source,freeze,promotion,max_work,ledger).await
+}
 async fn admission_in_transaction(tx:&Transaction<'_>,namespace:&SemanticStoreId,frozen:Arc<FrozenStore>,decision:Arc<VerifiedDecision>,strategy:&str,relation:&str,promotion:&str,max_work:usize)->Result<VerifiedBacktestAdmission> {
     let source=frozen.load_verified(strategy,max_work).map_err(|e|e.code())?;
     let freeze=frozen.load_relation_verified(relation,max_work).map_err(|e|e.code())?;
     files(namespace,&frozen,&decision,&source,&freeze,max_work)?;
     let ledger=read_cut(tx,namespace,strategy,&freeze,&decision,Some(promotion),max_work).await?;
-    let chain=PromotionChain::from_records(strategy,ledger.chain.clone())?;
+    seal_admission(tx,namespace,frozen,decision,source,freeze,promotion,max_work,ledger).await
+}
+async fn seal_admission(
+    tx:&Transaction<'_>,namespace:&SemanticStoreId,frozen:Arc<FrozenStore>,decision:Arc<VerifiedDecision>,
+    source:SourceRevision,freeze:FreezeRelation,promotion:&str,max_work:usize,ledger:PgCut,
+)->Result<VerifiedBacktestAdmission> {
+    let relation=freeze.fingerprint().to_owned();
+    let chain=PromotionChain::from_records(source.fingerprint(),ledger.chain.clone())?;
     if chain.stage()!="BACKTEST"{return Err("QUALIFIED_PROMOTION_PROOF_REQUIRED");}
     let row=ledger.chain.iter().find(|r|r.fingerprint()==promotion).ok_or(INVALID)?.record();
     qualified_backtest_record(row,&decision)?;
     let cut=decision.source_locks();
-    let sealed=VerifiedBacktestAdmission{source,namespace:namespace.clone(),relation:relation.into(),decision:decision.fingerprint().into(),promotion:promotion.into(),cut,verified_decision:decision,frozen,freeze,ledger,max_work};
+    let sealed=VerifiedBacktestAdmission{source,namespace:namespace.clone(),relation,decision:decision.fingerprint().into(),promotion:promotion.into(),cut,verified_decision:decision,frozen,freeze,ledger,max_work};
     sealed.verify_cut()?;deployment::verify_binding_in_transaction(tx,namespace).await.map_err(|e|e.code())?;Ok(sealed)
 }
 /// Reuse the single canonical BACKTEST grant for an identical Strategy Revision.
@@ -263,6 +295,9 @@ async fn read_cut(tx:&Transaction<'_>,namespace:&SemanticStoreId,subject:&str,re
 }
 async fn read_cut_with_prefix(tx:&Transaction<'_>,namespace:&SemanticStoreId,subject:&str,relation:&FreezeRelation,decision:&VerifiedDecision,required:Option<&str>,max_work:usize,prefix:Option<&str>)->Result<PgCut> {
     decision.verify_in_transaction(tx,namespace).await?;
+    read_promotion_cut_with_prefix(tx,namespace,subject,relation,decision,required,max_work,prefix).await
+}
+async fn read_promotion_cut_with_prefix(tx:&Transaction<'_>,namespace:&SemanticStoreId,subject:&str,relation:&FreezeRelation,decision:&VerifiedDecision,required:Option<&str>,max_work:usize,prefix:Option<&str>)->Result<PgCut> {
     let mut budget=Budget(max_work.min(WORK));
     let (catalog,chain)=if let Some(prefix)=prefix {read_ledger_prefix(tx,namespace,subject,prefix,&mut budget).await?}
         else{read_ledger(tx,namespace,subject,&mut budget).await?};

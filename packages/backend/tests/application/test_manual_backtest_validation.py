@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
     ROOT,
@@ -296,4 +297,51 @@ def test_manual_freeze_provenance_reuses_the_original_complete_backtest_grant(
     assert run(second, "reuse-corrupt-catalog") == {"denied": "PROMOTION_LEDGER_CORRUPT"}
     with psycopg.connect(fixture["dsn"]) as conn:
         conn.execute("UPDATE strategy_catalog SET schema_version=1")
+    assert run(second, "reuse-existing") == original_grant
+    with psycopg.connect(fixture["dsn"]) as conn:
+        receipt = conn.execute(
+            "SELECT command_id::text FROM product_command_receipt WHERE outcome_kind='STRATEGY_PROMOTION' AND outcome_id=%s",
+            (original_grant["promotion_fingerprint"],),
+        ).fetchone()
+        assert receipt is not None
+    # Deliberate physical corruption in the isolated test namespace. Restore
+    # every original row exactly; neither reader may repair or mint a grant.
+    for table, key, identity in [
+        ("strategy_promotion_record", "promotion_record_fingerprint", original_grant["promotion_fingerprint"]),
+        ("strategy_freeze_record", "freeze_record_fingerprint", original_grant["freeze_relation_fingerprint"]),
+        (
+            "qualification_command_admission",
+            "decision_fingerprint",
+            original_grant["qualification_decision_fingerprint"],
+        ),
+        ("product_command_receipt", "command_id", receipt[0]),
+    ]:
+        with psycopg.connect(fixture["dsn"]) as conn:
+            saved = conn.execute(f"SELECT to_jsonb(t) FROM {table} t WHERE {key}=%s", (identity,)).fetchone()
+            assert saved is not None and isinstance(saved[0], dict)
+            record = saved[0]
+            conn.execute(f"ALTER TABLE {table} DISABLE TRIGGER USER")
+            conn.execute(f"DELETE FROM {table} WHERE {key}=%s", (identity,))
+            conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER USER")
+        try:
+            denied = run(
+                {
+                    **second,
+                    "selected_grant": original_grant,
+                    "standalone_denied": table == "qualification_command_admission",
+                },
+                "selected-denied",
+            )
+            assert set(denied) == {"denied"} and isinstance(denied["denied"], str)
+            with psycopg.connect(fixture["dsn"]) as conn:
+                assert conn.execute(f"SELECT count(*) FROM {table} WHERE {key}=%s", (identity,)).fetchone() == (0,)
+        finally:
+            with psycopg.connect(fixture["dsn"]) as conn:
+                conn.execute(
+                    f"INSERT INTO {table} SELECT (jsonb_populate_record(NULL::{table},%s)).*", (Jsonb(record),)
+                )
+                assert conn.execute(f"SELECT to_jsonb(t) FROM {table} t WHERE {key}=%s", (identity,)).fetchone() == (
+                    record,
+                )
     assert run(second, "reuse-existing") == original_grant

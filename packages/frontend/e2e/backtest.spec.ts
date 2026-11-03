@@ -32,12 +32,27 @@ test("normal backtest works without Agent and reopens the same run after restart
         await expect(view.getByText("成交明细", { exact: true })).toBeVisible();
         await expect(view.getByText("期末持仓", { exact: true })).toBeVisible();
         await expect(view.locator(".backtest-metrics")).not.toContainText("暂不可用");
-        await expect(view.getByRole("table")).toHaveCount(2);
-        await expect(view.getByRole("cell", { name: "买入", exact: true }).first()).toBeVisible();
+        const trades = view.getByRole("table").filter({
+            has: page.getByRole("columnheader", { name: "成交时间（UTC）", exact: true })
+        });
+        const positions = view.getByRole("table").filter({
+            has: page.getByRole("columnheader", { name: "持仓数量（BTC）", exact: true })
+        });
+        const details = view.getByRole("table").filter({
+            has: page.getByText("样本（UTC）", { exact: true })
+        });
+        await expect(trades).toHaveCount(1);
+        await expect(positions).toHaveCount(1);
+        await expect(details).toHaveCount(1);
+        await expect(trades.getByRole("cell", { name: "买入", exact: true }).first()).toBeVisible();
         return {
             path: new URL(page.url()).pathname,
             metrics: await view.locator(".backtest-metrics").innerText(),
-            tables: await view.getByRole("table").allInnerTexts()
+            tables: [
+                await trades.innerText(),
+                await positions.innerText(),
+                await details.innerText()
+            ]
         };
     }
     await page.goto("/");

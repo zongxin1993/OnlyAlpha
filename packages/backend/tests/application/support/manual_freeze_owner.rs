@@ -44,11 +44,29 @@ pub async fn run_phase(session:&mut AuthoritySession,root:&Path,phase:&str) {
     let message=http::Request::builder().uri("/api/v2/integration-types").header("host","127.0.0.1:5173").header("cookie",format!("onlyalpha_dev_session={token}")).body(()).unwrap();
     let Admission::Owner(human)=access.admit(&message).unwrap() else {panic!("actual owner session")};
     assert_eq!(human.subject_id().unwrap(),owner);
+    if phase=="selected-denied" {
+        let selected=&request["selected_grant"];
+        let frozen=Arc::new(frozen);let decisions=Arc::new(crate::persistence::qualification_decision::Store::open(root).unwrap());
+        let tx=session.client_mut().await.unwrap().build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.unwrap();
+        let denied=crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+            &tx,&namespace,frozen.clone(),decisions.clone(),Path::new(request["runtime_root"].as_str().unwrap()),
+            selected["strategy_fingerprint"].as_str().unwrap(),selected["freeze_relation_fingerprint"].as_str().unwrap(),
+            selected["qualification_decision_fingerprint"].as_str().unwrap(),selected["promotion_fingerprint"].as_str().unwrap(),WORK,
+        ).await.err().expect("a missing original owning fact cannot produce an admission");
+        tx.rollback().await.unwrap();
+        if request["standalone_denied"]==true {
+            assert!(crate::persistence::strategy_promotion::read_existing_backtest_admission_for_strategy(
+                session.client_mut().await.unwrap(),&namespace,frozen,decisions,Path::new(request["runtime_root"].as_str().unwrap()),
+                selected["strategy_fingerprint"].as_str().unwrap(),WORK,
+            ).await.is_err(),"standalone Q verification remains mandatory");
+        }
+        println!("MANUAL_FREEZE_VALUE {}",json!({"denied":denied}));return;
+    }
     if matches!(phase,"reuse-absent"|"reuse-existing"|"reuse-corrupt-catalog") {
         let frozen=Arc::new(frozen);
         let decisions=Arc::new(crate::persistence::qualification_decision::Store::open(root).unwrap());
         let result=crate::persistence::strategy_promotion::read_existing_backtest_admission_for_strategy(
-            session.client_mut().await.unwrap(),&namespace,frozen,decisions,
+            session.client_mut().await.unwrap(),&namespace,frozen.clone(),decisions.clone(),
             Path::new(request["runtime_root"].as_str().unwrap()),validation.source_revision().fingerprint(),WORK,
         ).await;
         let value=if phase=="reuse-corrupt-catalog" {
@@ -57,6 +75,54 @@ pub async fn run_phase(session:&mut AuthoritySession,root:&Path,phase:&str) {
             assert!(result.unwrap().is_none());json!({"grant":null})
         }else {
             let proof=result.unwrap().expect("original qualified BACKTEST grant");proof.verify_cut().unwrap();
+            for (isolation,read_only) in [
+                (tokio_postgres::IsolationLevel::ReadCommitted,true),
+                (tokio_postgres::IsolationLevel::RepeatableRead,false),
+            ] {
+                let tx=session.client_mut().await.unwrap().build_transaction().isolation_level(isolation).read_only(read_only).start().await.unwrap();
+                let refused=crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+                    &tx,&namespace,frozen.clone(),decisions.clone(),Path::new(request["runtime_root"].as_str().unwrap()),
+                    proof.strategy_fingerprint(),proof.freeze_relation_fingerprint(),proof.qualification_decision_fingerprint(),proof.promotion_fingerprint(),WORK,
+                ).await;
+                assert_eq!(refused.err(),Some("PROMOTION_LEDGER_UNAVAILABLE"),"this entry cannot deduplicate Q outside its original readonly RR snapshot");
+                tx.rollback().await.unwrap();
+            }
+            let tx=session.client_mut().await.unwrap().build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.unwrap();
+            tx.batch_execute("SET LOCAL search_path=pg_temp;SET LOCAL statement_timeout='4000ms';SET LOCAL lock_timeout='1500ms'").await.unwrap();
+            let selected=crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+                &tx,&namespace,frozen,decisions,Path::new(request["runtime_root"].as_str().unwrap()),
+                proof.strategy_fingerprint(),proof.freeze_relation_fingerprint(),proof.qualification_decision_fingerprint(),proof.promotion_fingerprint(),WORK,
+            ).await.unwrap();
+            assert_eq!(selected.promotion_fingerprint(),proof.promotion_fingerprint());
+            assert_eq!(selected.qualification_decision_fingerprint(),proof.qualification_decision_fingerprint());
+            assert_eq!(selected.freeze_relation_fingerprint(),proof.freeze_relation_fingerprint());
+            let path:String=tx.query_one("SHOW search_path",&[]).await.unwrap().get(0);
+            assert_eq!(path.replace(' ',""),"pg_catalog,public,pg_temp");
+            let budgets:Vec<i64>=tx.query("SELECT setting::bigint FROM pg_settings WHERE name IN ('lock_timeout','statement_timeout') ORDER BY name",&[]).await.unwrap().iter().map(|row|row.get(0)).collect();
+            assert_eq!(budgets,vec![1500,4000],"the owning entry retains stricter caller budgets");
+            tx.commit().await.unwrap();selected.verify_cut().unwrap();
+            let freeze=research_preparation::child_command(&command,"manual-backtest-freeze").unwrap();
+            let current_freeze=freeze_outcome(session.client_mut().await.unwrap(),&namespace,owner,&freeze).await.unwrap();
+            let retained=proof.manual_validation_for_preparation(command.value());
+            assert_eq!(retained.is_some(),current_freeze["result"]["freeze_relation_fingerprint"]==proof.freeze_relation_fingerprint());
+            if let Some(retained)=retained {
+                assert_eq!(retained.fingerprint(),validation.fingerprint());
+                let prepared=&retained.record()["prepared_inputs"];
+                let datasets=crate::persistence::research_dataset::Store::open(&root.join("datasets"),8192,WORK).unwrap();
+                let dataset=crate::application::research_dataset::MaterializedDataset::load(&datasets,prepared["dataset_materialization"]["materialization_id"].as_str().unwrap()).unwrap();
+                // Readiness metadata is not an admission. Use actual verified
+                // inputs to test its binding; no persisted progress is changed.
+                let mut observed=original.clone();
+                observed.outputs["ready"]=json!({"validation_fingerprint":retained.fingerprint(),
+                    "admission":{"strategy_fingerprint":proof.strategy_fingerprint()},
+                    "algorithm_resolution":prepared["algorithm_resolution"],
+                    "algorithm_resolution_request":prepared["algorithm_resolution_request"],
+                    "native_implementations":prepared["native_implementations"]});
+                retained.require_backtest_inputs(&observed,proof.source_revision(),&dataset).unwrap();
+                let mut wrong=retained.fingerprint().to_owned();wrong.replace_range(..1,if wrong.starts_with('a'){"b"}else{"a"});
+                observed.outputs["ready"]["validation_fingerprint"]=json!(wrong);
+                assert!(retained.require_backtest_inputs(&observed,proof.source_revision(),&dataset).is_err(),"same preparation never masks a changed validation pin by reloading");
+            }
             json!({"strategy_fingerprint":proof.strategy_fingerprint(),"freeze_relation_fingerprint":proof.freeze_relation_fingerprint(),
                 "qualification_decision_fingerprint":proof.qualification_decision_fingerprint(),"promotion_fingerprint":proof.promotion_fingerprint()})
         };

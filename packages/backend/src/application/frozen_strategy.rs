@@ -652,6 +652,7 @@ pub(crate) struct VerifiedManualBacktestEvidence {
     files:Vec<crate::persistence::research_evidence::strategy::physical::Witness>,
 }
 impl VerifiedManualBacktestEvidence {
+    pub(crate) fn validation(&self)->&std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation> {&self.validation}
     pub(crate) fn validated_calculations(&self)->std::result::Result<&Value,&'static str> {
         self.verify_cut()?;Ok(&self.validation.record()["prepared_inputs"])
     }
