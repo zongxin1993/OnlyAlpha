@@ -149,6 +149,47 @@ def test_backtest_profile_returns_exact_minute_input_and_declares_empty_chart_co
         assert exchange(ca, chart) == (200, b"[]")
 
 
+def test_backtest_external_rules_are_complete_and_do_not_change_retained_instrument_steps(
+    tmp_path: Path, loopback_dns: None
+) -> None:
+    query = "/api/v3/exchangeInfo?showPermissionSets=false&symbols=%5B%22BTCUSDT%22%5D"
+    with owner.controlled_source_https(tmp_path, backtest=True) as (ca, fixture):
+        install_input(fixture)
+        status, raw = exchange(ca, query)
+        symbol = json.loads(raw)["symbols"][0]
+        assert status == 200
+        assert symbol["symbol"] == "BTCUSDT" and symbol["isSpotTradingAllowed"] is True
+        assert "MARKET" in symbol["orderTypes"]
+        assert [
+            symbol[key]
+            for key in (
+                "baseAssetPrecision",
+                "quoteAssetPrecision",
+                "baseCommissionPrecision",
+                "quoteCommissionPrecision",
+            )
+        ] == [8, 8, 8, 8]
+        filters = {item["filterType"]: item for item in symbol["filters"]}
+        assert filters["PRICE_FILTER"]["tickSize"] == "0.01"
+        assert filters["LOT_SIZE"] == {
+            "filterType": "LOT_SIZE",
+            "stepSize": "0.000001",
+            "minQty": "0.000001",
+            "maxQty": "9000",
+        }
+        assert filters["NOTIONAL"] == {
+            "filterType": "NOTIONAL",
+            "minNotional": "5",
+            "applyMinToMarket": True,
+            "maxNotional": "9000000",
+            "applyMaxToMarket": False,
+            "avgPriceMins": 5,
+        }
+    with owner.controlled_source_https(tmp_path) as (ca, fixture):
+        install_input(fixture)
+        assert json.loads(exchange(ca, query)[1]) == fixture["exchange_info"]
+
+
 @pytest.mark.parametrize("change", ["earlier", "later", "unaligned", "other-interval", "wide-chart"])
 def test_backtest_profile_refuses_undeclared_minute_or_chart_range(
     tmp_path: Path, loopback_dns: None, change: str

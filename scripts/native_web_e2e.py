@@ -364,6 +364,55 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
                         ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         response = fixture["exchange_info"]
+                        if backtest:
+                            # Explicit synthetic venue rules, not inferred from
+                            # normalized metadata or evidence of historical rules.
+                            # Keep the retained Source's instrument tick/step.
+                            response = {
+                                "timezone": "UTC",
+                                "symbols": [
+                                    {
+                                        "symbol": "BTCUSDT",
+                                        "baseAsset": "BTC",
+                                        "quoteAsset": "USDT",
+                                        "status": "TRADING",
+                                        "isSpotTradingAllowed": True,
+                                        "orderTypes": ["LIMIT", "MARKET"],
+                                        "baseAssetPrecision": 8,
+                                        "quoteAssetPrecision": 8,
+                                        "baseCommissionPrecision": 8,
+                                        "quoteCommissionPrecision": 8,
+                                        "filters": [
+                                            {
+                                                "filterType": "PRICE_FILTER",
+                                                "minPrice": "0.01",
+                                                "maxPrice": "1000000",
+                                                "tickSize": "0.01",
+                                            },
+                                            {
+                                                "filterType": "LOT_SIZE",
+                                                "minQty": "0.000001",
+                                                "maxQty": "9000",
+                                                "stepSize": "0.000001",
+                                            },
+                                            {
+                                                "filterType": "MARKET_LOT_SIZE",
+                                                "minQty": "0",
+                                                "maxQty": "100",
+                                                "stepSize": "0",
+                                            },
+                                            {
+                                                "filterType": "NOTIONAL",
+                                                "minNotional": "5",
+                                                "applyMinToMarket": True,
+                                                "maxNotional": "9000000",
+                                                "applyMaxToMarket": False,
+                                                "avgPriceMins": 5,
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
                     elif request.path == "/api/v3/klines":
                         if set(query) != {"symbol", "interval", "startTime", "endTime", "limit"} or any(
                             len(v) != 1 for v in query.values()
