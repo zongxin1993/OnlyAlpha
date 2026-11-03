@@ -100,6 +100,20 @@ explicit `integration`/`web-e2e` profiles. Unqualified default startup cannot tr
 those preparation chains. Controlled integration/CI retains its explicit topology;
 do not select those profiles for daily development.
 
+## Empty native Runtime Registry provisioning
+
+The explicit Infrastructure operator command is:
+
+```text
+onlyalpha-backend --initialize-fresh-runtime-registry ABSOLUTE_USER_DATA_ROOT ABSOLUTE_SCHEMA_ROOT
+```
+
+It uses the selected artifact's canonical SQL bytes and the existing bound Research namespace. The current contained-development operator transport requires an explicit PostgreSQL `sslmode=disable`; Prefer and Require are refused rather than downgraded. This command is not a Product entrypoint or a recovery tool. It only applies before any business command admission, Research/Backtest Run, preparation or Chart operation/fact/compilation exists. Positive or unreadable history is not an empty deployment. An existing Runtime path, including an empty or partial directory, file or symlink, is never adopted, repaired or replaced.
+
+The same physical AuthoritySession covers schema/server compatibility, namespace/binding and fresh-deployment checks before and after atomic publication. Success follows positive session closure. Publication/readback, guard or closure uncertainty returns `RESEARCH_RUNTIME_INITIALIZATION_OUTCOME_UNKNOWN`, retains the original directory and emits no success receipt; there is no automatic cleanup, retry or rebind.
+
+The result is only an empty append-only Generation journal and its original lock. No artifact, Generation, activation or work binding is created. The Backtest browser fixture uses this as an explicitly declared Infrastructure precondition before any metadata, Source or user business steps. Factor authoring, Strategy saving, actual environment preparation, validation, Freeze, admission and Run submission remain the normal Shipping Web workflow. It does not turn missing historical Runtime state into a fresh initialization opportunity.
+
 ## Formal verification resource policy
 
 `AGENTS.md` §6.1 owns the local verification/debugging rules: use the single

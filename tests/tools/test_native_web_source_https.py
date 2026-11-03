@@ -10,7 +10,9 @@ import hashlib
 import json
 import socket
 import ssl
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,16 +25,24 @@ QUERY = f"/api/v3/klines?symbol=BTCUSDT&interval=15m&startTime={START}&endTime={
 
 
 @pytest.fixture
-def loopback_dns(monkeypatch):
+def loopback_dns(monkeypatch: pytest.MonkeyPatch) -> None:
     resolve = socket.getaddrinfo
 
-    def local(host, *args, **kwargs):
+    def local(host: Any, *args: Any, **kwargs: Any) -> Any:
         return resolve("127.0.0.1" if host == HOST else host, *args, **kwargs)
 
-    monkeypatch.setattr(owner.socket, "getaddrinfo", local)
+    monkeypatch.setattr("scripts.native_web_e2e.socket.getaddrinfo", local)
 
 
-def exchange(ca, path=QUERY, *, host=HOST, server_name=HOST, method="GET", context=None):
+def exchange(
+    ca: Path,
+    path: str = QUERY,
+    *,
+    host: str = HOST,
+    server_name: str = HOST,
+    method: str = "GET",
+    context: ssl.SSLContext | None = None,
+) -> tuple[int, bytes]:
     tls = context or ssl.create_default_context(cafile=str(ca))
     assert tls.verify_mode == ssl.CERT_REQUIRED and tls.check_hostname
     with socket.create_connection(("127.0.0.1", 443), timeout=5) as transport:
@@ -45,11 +55,13 @@ def exchange(ca, path=QUERY, *, host=HOST, server_name=HOST, method="GET", conte
     return int(headers.split(b" ", 2)[1]), body
 
 
-def install_input(fixture):
+def install_input(fixture: dict[str, Any]) -> None:
     fixture.update(exchange_info={"timezone": "UTC", "symbols": []}, klines=[])
 
 
-def test_scoped_https_uses_actual_ca_hostname_verification_and_records_empty_raw_response(tmp_path, loopback_dns):
+def test_scoped_https_uses_actual_ca_hostname_verification_and_records_empty_raw_response(
+    tmp_path: Path, loopback_dns: None
+) -> None:
     with owner.controlled_source_https(tmp_path) as (ca, fixture):
         install_input(fixture)
         assert exchange(ca) == (200, b"[]")
@@ -63,12 +75,12 @@ def test_scoped_https_uses_actual_ca_hostname_verification_and_records_empty_raw
 
 @pytest.mark.parametrize("failure", ["untrusted-ca", "wrong-certificate-hostname"])
 def test_real_tls_handshake_rejects_untrusted_ca_or_wrong_certificate_hostname(
-    tmp_path, loopback_dns, monkeypatch, failure
-):
+    tmp_path: Path, loopback_dns: None, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
     if failure == "wrong-certificate-hostname":
-        run = owner.subprocess.run
+        run = subprocess.run
 
-        def wrong_san(command, **kwargs):
+        def wrong_san(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
             if command[:3] == ["openssl", "x509", "-req"]:
                 path = Path(command[command.index("-extfile") + 1])
                 path.write_text(path.read_text().replace(f"DNS:{HOST}", "DNS:unrelated.invalid"))
@@ -76,7 +88,7 @@ def test_real_tls_handshake_rejects_untrusted_ca_or_wrong_certificate_hostname(
 
         # Vary only the peer certificate input. Real TLS validation remains on;
         # SNI is still the expected official host, so this proves client SAN checking.
-        monkeypatch.setattr(owner.subprocess, "run", wrong_san)
+        monkeypatch.setattr("scripts.native_web_e2e.subprocess.run", wrong_san)
     with owner.controlled_source_https(tmp_path) as (ca, fixture):
         install_input(fixture)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT) if failure == "untrusted-ca" else None
@@ -99,7 +111,9 @@ def test_real_tls_handshake_rejects_untrusted_ca_or_wrong_certificate_hostname(
         {"method": "POST"},
     ],
 )
-def test_unexpected_external_requests_fail_the_whole_scoped_fixture(tmp_path, loopback_dns, change):
+def test_unexpected_external_requests_fail_the_whole_scoped_fixture(
+    tmp_path: Path, loopback_dns: None, change: dict[str, Any]
+) -> None:
     with pytest.raises(RuntimeError, match="CONTROLLED_SOURCE_REQUEST_REJECTED"):
         with owner.controlled_source_https(tmp_path) as (ca, fixture):
             install_input(fixture)
@@ -107,9 +121,52 @@ def test_unexpected_external_requests_fail_the_whole_scoped_fixture(tmp_path, lo
             assert status in {400, 501}
 
 
-def test_wrong_sni_is_rejected_during_real_handshake_and_marks_fixture_failed(tmp_path, loopback_dns):
+def test_wrong_sni_is_rejected_during_real_handshake_and_marks_fixture_failed(
+    tmp_path: Path, loopback_dns: None
+) -> None:
     with pytest.raises(RuntimeError, match="CONTROLLED_SOURCE_REQUEST_REJECTED"):
         with owner.controlled_source_https(tmp_path) as (ca, fixture):
             install_input(fixture)
             with pytest.raises(ssl.SSLError):
                 exchange(ca, server_name="unrelated.invalid")
+
+
+def test_backtest_profile_returns_exact_minute_input_and_declares_empty_chart_context(
+    tmp_path: Path, loopback_dns: None
+) -> None:
+    first, end = 1735861200000, 1735905600000
+    query = f"/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime={first}&endTime={end - 1}&limit=1000"
+    chart = "/api/v3/klines?symbol=BTCUSDT&interval=15m&startTime=1792806300000&endTime=1793706299999&limit=1000"
+    with owner.controlled_source_https(tmp_path, backtest=True) as (ca, fixture):
+        install_input(fixture)
+        status, raw = exchange(ca, query)
+        rows = json.loads(raw)
+        assert status == 200 and len(rows) == 740
+        assert rows[0][0] == first and rows[-1][6] == end - 1
+        assert [row[0] for row in rows] == list(range(first, end, 60000))
+        assert rows[0][1:6] == ["90000.00", "90001.00", "89999.00", "90000.00", "100"]
+        assert rows[60][4] == "96000.00" and rows[120][4] == "90000.00"
+        assert exchange(ca, chart) == (200, b"[]")
+
+
+@pytest.mark.parametrize("change", ["earlier", "later", "unaligned", "other-interval", "wide-chart"])
+def test_backtest_profile_refuses_undeclared_minute_or_chart_range(
+    tmp_path: Path, loopback_dns: None, change: str
+) -> None:
+    first, end = 1735861200000, 1735905600000
+    query = f"/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime={first}&endTime={end - 1}&limit=1000"
+    if change == "earlier":
+        query = query.replace(str(first), str(first - 60000))
+    elif change == "later":
+        query = query.replace(str(end - 1), str(end + 59999))
+    elif change == "unaligned":
+        query = query.replace(str(first), str(first + 1))
+    elif change == "other-interval":
+        query = query.replace("interval=1m", "interval=5m")
+    else:
+        query = "/api/v3/klines?symbol=BTCUSDT&interval=15m&startTime=1792806300000&endTime=1793707199999&limit=1000"
+    with pytest.raises(RuntimeError, match="CONTROLLED_SOURCE_REQUEST_REJECTED"):
+        with owner.controlled_source_https(tmp_path, backtest=True) as (ca, fixture):
+            install_input(fixture)
+            status, _ = exchange(ca, query)
+            assert status == 400

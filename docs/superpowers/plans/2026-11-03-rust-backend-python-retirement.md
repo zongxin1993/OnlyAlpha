@@ -165,9 +165,9 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 **Interfaces:** 使用现有策略与回测页面、正式 Product API 和真实 canonical backend；`--restart-check` 下通过普通 UI URL/记录恢复同一任务。测试 evidence 只保存可从 UI 获得的导航/显示信息，不注入业务 state。Agent 进程/凭据缺席，模型解读不作为前置条件。
 
 1. 编写 `test('normal backtest works without Agent and reopens the same run after restart', ...)`：从正常导航/编辑器选择或创建确切 Python 因子、指标和受支持策略条件，保存策略；选择真实正式 Source，配置样本、资金、费用；确认准备，等待真实 READY，再明确开始；等待终态，读取净值/回撤、费用、成交/持仓与原 Run。不得使用 `page.request`、route mocks、DB seed 或 JS state injection 代做上述业务步骤。对当前普通路径不支持的 Python authoring 形式不凭空新增支持。
-2. 无当前产品步骤的 fixture 仅建立声明的既有外部数据前提，不能预建本次因子/策略/准备/Run。受控外部输入明确标为 hermetic input，不称作真实市场证据。复用现有事实来源与样本约束，不扩大到全市场回测。
+2. 无当前产品步骤的 fixture 仅建立声明的既有外部数据前提，不能预建本次因子/策略/准备/Run。 空白测试部署可先通过原生基础设施入口建立空 Registry；不能预建 Generation、activation、work binding 或计算验证，也不能把已有业务历史当作空白。受控外部输入明确标为 hermetic input，不称作真实市场证据。复用现有事实来源与样本约束，不扩大到全市场回测。
 3. 刷新/重启后从正常记录入口重新打开同一任务，核对 UI 可见样本/策略版本、指标、成交和原 URL；算法原 artifact 仍精确绑定。取消、UNKNOWN 原操作查询恢复的技术 fault tests 在 Task 5/6，Browser 按真实可见状态检验下一步，不能增加隐藏 fault 控件。
-4. Run: `python3 scripts/dev_verification.py run -- python -m scripts.native_web_e2e --retained-market-input --controlled-source-https --restart-check e2e/backtest.spec.ts`。现有 runner 要求 controlled HTTPS 与 retained input 同时启用；不加 `--agent`。正常使用数据源不同而不需该受控输入时，在上下文说明并删掉这两个输入选项，不能改用 mock backend。预期完整用户路径和相同原 Run 的 restart phase 均成功；环境不可用明确保留为未验收。
+4. Run: `python3 scripts/dev_verification.py --controlled-source-https run -- python -m scripts.native_web_e2e --retained-market-input --controlled-source-https --backtest-market-input --restart-check e2e/backtest.spec.ts`。外层验证器与 runner 同时显式选择 controlled HTTPS；既有 retained input 建立 Source 前提，backtest input 只提供固定 20+720 分钟受控外部响应并声明近期 15m 图表历史缺席，不预建准备或 Run。不加 `--agent`。正常使用数据源不同而不需该受控输入时，在上下文说明并移除全部受控输入相关选项（含外层验证器选项），不能改用 mock backend。预期完整用户路径和相同原 Run 的 restart phase 均成功；环境不可用明确保留为未验收。
 5. 同路径 dogfooding 检查必要输入/默认值、关键费用/样本、loading/empty/error/unavailable/success、焦点/键盘、窄屏与滚动；复用合同预算，记录实际耗时，不能提高 timeout 掩盖回归。普通错误可从 UI 恢复，结果尚未确认不能显示成可盲重试失败。
 6. 执行只受实际产品修复影响的前端/后端回归，修复后重跑相应路径。最终 bounded review 核对各批保留断言与真实源码/安装闭包，报告技术、DB、Browser 与平台证据边界。达到设计与 AGENTS.md Stop Condition 后停止，不顺延 Agent/SIM/LIVE、发布或全仓性能优化。
 

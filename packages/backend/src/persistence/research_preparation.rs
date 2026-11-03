@@ -1088,7 +1088,7 @@ pub(crate) fn validate_activation(o: &Operation, e: &Value) -> Result<()> {
 
 /// Original durable facts in this semantic namespace forbid treating a lost Registry as fresh.
 pub(crate) async fn runtime_history_exists(tx: &Transaction<'_>) -> Result<bool> {
-    let row=tx.query_one("SELECT EXISTS(SELECT 1 FROM research_preparation WHERE outputs_payload::jsonb ? 'environment') OR EXISTS(SELECT 1 FROM research_factor_study_authorization) OR EXISTS(SELECT 1 FROM research_run WHERE specification_schema_version IN (4,5)) OR EXISTS(SELECT 1 FROM research_strategy_study_authorization)",&[]).await.map_err(db)?;
+    let row=tx.query_one("SELECT EXISTS(SELECT 1 FROM research_preparation WHERE outputs_payload::jsonb ? 'environment') OR EXISTS(SELECT 1 FROM research_factor_study_authorization) OR EXISTS(SELECT 1 FROM research_run WHERE specification_schema_version IN (4,5)) OR EXISTS(SELECT 1 FROM research_strategy_study_authorization) OR EXISTS(SELECT 1 FROM backtest_run)",&[]).await.map_err(db)?;
     row.try_get(0).map_err(db)
 }
 pub(crate) fn guard_fresh_runtime(has_history: bool) -> Result<()> {

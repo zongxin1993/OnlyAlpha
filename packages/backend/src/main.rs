@@ -104,10 +104,8 @@ async fn main() {
 /// this command needs no Web, algorithms or market-data services. NoTls is used
 /// only when the operator's DSN explicitly selects Disable; Prefer/Require are
 /// rejected rather than downgraded. All errors are credential-safe codes.
-async fn extend_research_namespace(
-    root: &std::path::Path,
-    manual_backtest: bool,
-) -> Result<onlyalpha_backend::bootstrap::deployment::SemanticStoreId, String> {
+async fn namespace_operator_session()
+-> Result<onlyalpha_backend::persistence::authority_session::AuthoritySession, String> {
     use onlyalpha_backend::persistence::authority_session::AuthoritySession;
     let dsn = zeroize::Zeroizing::new(required("ONLYALPHA_POSTGRES_DSN").map_err(str::to_owned)?);
     let mut pg: tokio_postgres::Config = dsn
@@ -124,9 +122,15 @@ async fn extend_research_namespace(
             .await
             .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?
             .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?;
-    let mut session = AuthoritySession::acquire(client, tokio::spawn(connection))
+    AuthoritySession::acquire(client, tokio::spawn(connection))
         .await
-        .map_err(|e| e.code().to_owned())?;
+        .map_err(|e| e.code().to_owned())
+}
+async fn extend_research_namespace(
+    root: &std::path::Path,
+    manual_backtest: bool,
+) -> Result<onlyalpha_backend::bootstrap::deployment::SemanticStoreId, String> {
+    let mut session = namespace_operator_session().await?;
     let result = if manual_backtest {
         onlyalpha_backend::bootstrap::research_namespace::extend_manual_backtest(root, &mut session)
             .await
@@ -142,8 +146,53 @@ async fn extend_research_namespace(
     }
 }
 
+async fn initialize_runtime_registry(
+    root: &std::path::Path,
+    schema: &std::path::Path,
+) -> Result<serde_json::Value, String> {
+    let schema =
+        onlyalpha_backend::bootstrap::configuration::load_schema_history(schema, 8 * 1024 * 1024)
+            .map_err(|error| error.code().to_owned())?;
+    let mut session = namespace_operator_session().await?;
+    let result = onlyalpha_backend::bootstrap::research_namespace::initialize_runtime_registry(
+        root,
+        &schema,
+        &mut session,
+    )
+    .await
+    .map_err(str::to_owned);
+    let closed = session
+        .close()
+        .await
+        .map_err(|error| error.code().to_owned());
+    runtime_initialization_reply(result, closed)
+}
+fn runtime_initialization_reply(
+    result: Result<serde_json::Value, String>,
+    closed: Result<(), String>,
+) -> Result<serde_json::Value, String> {
+    match (result, closed) {
+        (Err(code), _) => Err(code),
+        (Ok(mut value), Ok(())) => {
+            value["schema_version"] = serde_json::json!(1);
+            Ok(value)
+        }
+        (_, Err(_)) => Err("RESEARCH_RUNTIME_INITIALIZATION_OUTCOME_UNKNOWN".into()),
+    }
+}
+
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [command, root, schema] = args.as_slice()
+        && command == "--initialize-fresh-runtime-registry"
+    {
+        let value =
+            initialize_runtime_registry(std::path::Path::new(root), std::path::Path::new(schema))
+                .await?;
+        println!("{value}");
+        return Ok(());
+    }
+
     if let [command, database] = args.as_slice()
         && matches!(
             command.as_str(),
@@ -297,4 +346,31 @@ async fn run() -> Result<(), String> {
     signal.abort();
     let _ = signal.await;
     result
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use super::*;
+    #[test]
+    fn runtime_initialization_reply_never_reports_success_after_uncertain_close() {
+        let value = serde_json::json!({"active_for_new_work":null,"states":{}});
+        assert_eq!(
+            runtime_initialization_reply(
+                Ok(value.clone()),
+                Err("PRODUCT_KERNEL_AUTHORITY_RELEASE_FAILED".into())
+            ),
+            Err("RESEARCH_RUNTIME_INITIALIZATION_OUTCOME_UNKNOWN".into())
+        );
+        assert_eq!(
+            runtime_initialization_reply(Ok(value), Ok(())).unwrap(),
+            serde_json::json!({"schema_version":1,"active_for_new_work":null,"states":{}})
+        );
+        assert_eq!(
+            runtime_initialization_reply(
+                Err("POSTGRES_SCHEMA_INCOMPATIBLE".into()),
+                Err("PRODUCT_KERNEL_AUTHORITY_LOST".into())
+            ),
+            Err("POSTGRES_SCHEMA_INCOMPATIBLE".into())
+        );
+    }
 }

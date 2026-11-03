@@ -14,6 +14,7 @@ pub mod transport;
 #[path = "../../../src/workers/mod.rs"]
 pub mod workers;
 mod backtest_run_lifecycle;
+mod runtime_registry_init;
 mod strategy_preparation_queue;
 mod backtest_preparation_queue;
 mod qualification_lifecycle;
@@ -69,6 +70,11 @@ async fn actual_command_boundary() {
     println!("FREEZE_TEST_BACKEND_PID {backend_pid}");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut session = AuthoritySession::acquire(client, driver).await.unwrap();
+    if let Some(phase)=phase.strip_prefix("runtime-initialize:") {
+        runtime_registry_init::run(&mut session,&root,phase).await;
+        return;
+    }
+
     if let Some(phase)=phase.strip_prefix("manual-producer:") {manual_validation_producer::run_phase(&mut session,&root,phase).await.unwrap();return;}
     if let Some(phase)=phase.strip_prefix("manual-freeze:") {manual_freeze_owner::run_phase(&mut session,&root,phase).await;return;}
     if let Some(phase)=phase.strip_prefix("backtest-preparation:") {

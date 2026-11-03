@@ -73,6 +73,37 @@ def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any
     return verify_artifacts(directory, source_inputs(root), backend, frontend_version=frontend, manifest_sha256=digest)
 
 
+def initialize_runtime_registry(backend: Path, resources: Path, data: Path, dsn: str) -> None:
+    """Infrastructure precondition only: no Generation, activation or work exists."""
+    result = subprocess.run(
+        [str(backend), "--initialize-fresh-runtime-registry", str(data), str(resources / "schema")],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    def unique(fields: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = dict(fields)
+        if len(value) != len(fields):
+            raise ValueError("RUNTIME_REGISTRY_NATIVE_RESPONSE_INVALID")
+        return value
+
+    if len(result.stdout) > 32768:
+        raise ValueError("RUNTIME_REGISTRY_NATIVE_RESPONSE_INVALID")
+    payload = json.loads(result.stdout, object_pairs_hook=unique)
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "active_for_new_work", "states"}
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or payload["active_for_new_work"] is not None
+        or payload["states"] != {}
+    ):
+        raise ValueError("RUNTIME_REGISTRY_NATIVE_RESPONSE_INVALID")
+
+
 def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Existing authoring facts for read-only tests, created by their Rust owner.
 
@@ -100,12 +131,13 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
             "onlyalpha-backend",
             "--example",
             "command-postgres-probe",
+            "--release",
         ],
         cwd=ROOT,
         env=environment,
         check=True,
     )
-    probe = output / target / "debug/examples/command-postgres-probe"
+    probe = output / target / "release/examples/command-postgres-probe"
 
     def command(action: str, **values: Any) -> dict[str, Any]:
         request = {
@@ -155,7 +187,7 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 
 
 @contextmanager
-def controlled_source_https(output: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Controlled external Binance input; never a Product/Authority substitute.
 
     The host runner owns the explicit official-hostname mapping. This process
@@ -173,6 +205,30 @@ def controlled_source_https(output: Path) -> Iterator[tuple[Path, dict[str, Any]
     # Frozen external-input scope. Unrecorded bars return []; they do not prove
     # market absence and do not authorize the product to invent complete inputs.
     first_ms, exclusive_end_ms, stride_ms = 1767139200000, 1767744000000, 900000
+    # Explicit synthetic external facts for the approved 20 + 720 minute window.
+    # No prepared Dataset, Strategy, Generation or Run is installed by this input.
+    minute_first, minute_end = 1735861200000, 1735905600000
+    minute_rows: list[list[Any]] = []
+    if backtest:
+        for index, opened in enumerate(range(minute_first, minute_end, 60000)):
+            phase = index % 120
+            price = 90000 + min(phase, 120 - phase) * 100
+            minute_rows.append(
+                [
+                    opened,
+                    f"{price}.00",
+                    f"{price + 1}.00",
+                    f"{price - 1}.00",
+                    f"{price}.00",
+                    "100",
+                    opened + 59999,
+                    f"{price * 100}.00",
+                    100,
+                    "50",
+                    f"{price * 50}.00",
+                    "0",
+                ]
+            )
 
     def record(value: dict[str, Any], violation: str | None = None) -> None:
         with guard:
@@ -313,15 +369,39 @@ def controlled_source_https(output: Path) -> Iterator[tuple[Path, dict[str, Any]
                             len(v) != 1 for v in query.values()
                         ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
-                        if query["symbol"] != ["BTCUSDT"] or query["interval"] != ["15m"] or query["limit"] != ["1000"]:
+                        interval = query["interval"]
+                        if (
+                            query["symbol"] != ["BTCUSDT"]
+                            or interval not in (["15m"], ["1m"])
+                            or query["limit"] != ["1000"]
+                        ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         start, end = query["startTime"][0], query["endTime"][0]
                         if not start.isascii() or not start.isdecimal() or not end.isascii() or not end.isdecimal():
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         lower, upper = int(start), int(end) + 1
-                        if not first_ms <= lower < upper <= exclusive_end_ms or lower % stride_ms or upper % stride_ms:
-                            raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
-                        response = [row for row in fixture["klines"] if lower <= row[0] < upper][:1000]
+                        if backtest and interval == ["1m"]:
+                            if not minute_first <= lower < upper <= minute_end or lower % 60000 or upper % 60000:
+                                raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
+                            response = [row for row in minute_rows if lower <= row[0] < upper][:1000]
+                        elif interval == ["15m"]:
+                            if lower % stride_ms or upper % stride_ms or lower >= upper:
+                                raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
+                            if first_ms <= lower < upper <= exclusive_end_ms:
+                                response = [row for row in fixture["klines"] if lower <= row[0] < upper][:1000]
+                            elif (
+                                backtest
+                                and 1735689600000 <= lower < upper <= 1798761600000
+                                and upper - lower <= 1000 * stride_ms
+                            ):
+                                # The ordinary home chart requests recent 15m history.
+                                # This declared precondition has no such observations;
+                                # [] is incomplete input, never a claim of market absence.
+                                response = []
+                            else:
+                                raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
+                        else:
+                            raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                     else:
                         raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_PATH")
                 except (ValueError, KeyError) as failure:
@@ -381,6 +461,8 @@ def controlled_source_https(output: Path) -> Iterator[tuple[Path, dict[str, Any]
                 "public_ca_sha256": hashlib.sha256(ca.read_bytes()).hexdigest(),
                 "scope_start_ms": first_ms,
                 "scope_end_ms": exclusive_end_ms,
+                "backtest_minute_scope": [minute_first, minute_end] if backtest else None,
+                "empty_chart_scope": [1735689600000, 1798761600000, 1000] if backtest else None,
             }
         )
         thread = threading.Thread(target=server.serve_forever, name="controlled-source-https")
@@ -407,7 +489,7 @@ def seed_retained_market_input(
     The selected runtime artifact must already have passed selected_artifact().
     """
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    probe = ROOT / "test-results/rust-kernel/target" / target / "debug/examples/command-postgres-probe"
+    probe = ROOT / "test-results/rust-kernel/target" / target / "release/examples/command-postgres-probe"
     native = resources / "bin/onlyalpha-backend"
     expected = selected["default_pair"]["backend_sha256"]
     if not probe.is_file() or native.is_symlink() or hashlib.sha256(native.read_bytes()).hexdigest() != expected:
@@ -540,6 +622,11 @@ def main() -> int:
         action="store_true",
         help="Serve scoped controlled external input with normal official-host TLS",
     )
+    parser.add_argument(
+        "--backtest-market-input",
+        action="store_true",
+        help="Declare synthetic one-minute Backtest input and absent recent chart history",
+    )
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
     parser.add_argument(
         "--restart-check", action="store_true", help="Repeat selected browser checks after a fully drained Host restart"
@@ -549,6 +636,8 @@ def main() -> int:
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.backtest_market_input and not (args.controlled_source_https and args.retained_market_input):
+        raise ValueError("BACKTEST_INPUT_REQUIRES_CONTROLLED_SOURCE")
     if args.controlled_source_https and not args.retained_market_input:
         raise ValueError("CONTROLLED_SOURCE_REQUIRES_RETAINED_INPUT")
     if (args.artifact is None) != (args.artifact_sha256 is None):
@@ -559,7 +648,7 @@ def main() -> int:
     output = ROOT / "test-results/native-web-e2e" / operation
     output.mkdir(parents=True)
     external: AbstractContextManager[tuple[Path, dict[str, Any]]] = (
-        controlled_source_https(output)
+        controlled_source_https(output, backtest=args.backtest_market_input)
         if args.controlled_source_https
         else nullcontext((Path("/etc/ssl/certs/ca-certificates.crt"), {}))
     )
@@ -614,6 +703,8 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     deployment_id = _initialize_deployment(dsn, data, executable)
     if conninfo_to_dict(dsn).get("sslmode") not in (None, "disable"):
         raise ValueError("NATIVE_E2E_CONTAINED_POSTGRES_TRANSPORT_REQUIRED")
+    if args.backtest_market_input:
+        initialize_runtime_registry(executable, resources, data, make_conninfo(dsn, sslmode="disable"))
     if _extend_strategy_research(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
         raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     if _extend_manual_backtest(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
