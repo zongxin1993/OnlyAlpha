@@ -1334,7 +1334,7 @@ def test_local_package_mode_runs_only_default_profile_without_full_receipt(
 
     def replay_environment(root: Path, artifacts: Path) -> dict[str, str]:
         prepared.append((root, artifacts))
-        return {"REPLAY_PYTHON": "controlled-python"}
+        return {"ONLYALPHA_TRADING_TEST_INSTALLATION": "controlled-installation"}
 
     monkeypatch.setattr("scripts.backtest_replay_check.replay_environment", replay_environment)
     receipt = tmp_path / "test-results/rust-kernel/last-run.json"
@@ -1366,7 +1366,7 @@ def test_local_package_mode_runs_only_default_profile_without_full_receipt(
     assert check.main([flag for package in packages for flag in ("--package", package)]) == 0
     assert commands == check.targeted_build_commands("aarch64-unknown-linux-gnu", packages)
     assert len(prepared) == int(needs_replay)
-    assert all(("REPLAY_PYTHON" in environment) == needs_replay for environment in environments)
+    assert all(("ONLYALPHA_TRADING_TEST_INSTALLATION" in environment) == needs_replay for environment in environments)
     assert not receipt.exists()
 
 

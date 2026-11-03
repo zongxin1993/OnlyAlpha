@@ -1,8 +1,8 @@
 //! Exact experimental participant construction. Values grant no Freeze, promotion, Run or LIVE authority.
+use bigdecimal::num_bigint::BigInt;
 use onlyalpha_backtest::{Error, Inputs, NextOpenPolicy, Trading};
 use onlyalpha_calculation::product::Graph;
 use onlyalpha_calculation_bridge::StrategyPreparation;
-use bigdecimal::num_bigint::BigInt;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     numeric::OnlyDecimal,
@@ -55,16 +55,35 @@ impl NextOpenPolicy for BinanceNextOpenPolicy {
         boundary(self.0.fill(order, price, quantity, context))
     }
 }
+/// Pure model-rule/Fee port over an already validated plugin value. This
+/// grants no Product preparation, Runtime admission or publication authority.
+pub fn next_open_policy(policy: SpotSimulationPolicy) -> Box<dyn NextOpenPolicy> {
+    Box::new(BinanceNextOpenPolicy(policy))
+}
 /// Reconstruct only the original immutable plugin policy for terminal source
 /// verification. The retained rules and complete policy capture must agree;
 /// current exchange rules, SDKs and authoring state are never consulted.
-pub fn terminal_policy(settings:&Value,native_policy:&Value)->Result<Box<dyn NextOpenPolicy>,Error>{
-    let snapshot=boundary(SpotRuleSnapshot::from_record(&native_policy["rules_snapshot"]))?;
-    let policy=boundary(SpotSimulationPolicy::new(snapshot,settings["execution"].clone()))?;
-    let mut original=native_policy.clone();
-    original.as_object_mut().ok_or_else(||invalid("TERMINAL_POLICY"))?.remove("execution_model").ok_or_else(||invalid("TERMINAL_POLICY"))?;
-    if policy.binding()!=original{return Err(invalid("TERMINAL_POLICY"));}
-    Ok(Box::new(BinanceNextOpenPolicy(policy)))
+pub fn terminal_policy(
+    settings: &Value,
+    native_policy: &Value,
+) -> Result<Box<dyn NextOpenPolicy>, Error> {
+    let snapshot = boundary(SpotRuleSnapshot::from_record(
+        &native_policy["rules_snapshot"],
+    ))?;
+    let policy = boundary(SpotSimulationPolicy::new(
+        snapshot,
+        settings["execution"].clone(),
+    ))?;
+    let mut original = native_policy.clone();
+    original
+        .as_object_mut()
+        .ok_or_else(|| invalid("TERMINAL_POLICY"))?
+        .remove("execution_model")
+        .ok_or_else(|| invalid("TERMINAL_POLICY"))?;
+    if policy.binding() != original {
+        return Err(invalid("TERMINAL_POLICY"));
+    }
+    Ok(next_open_policy(policy))
 }
 /// Immutable construction values only. Owning readers and Product admission must authenticate them separately.
 #[derive(Clone)]
@@ -253,7 +272,7 @@ impl PreparedNextOpen {
         Trading::next_open(
             preparation,
             self.settings,
-            Box::new(BinanceNextOpenPolicy(self.policy)),
+            next_open_policy(self.policy),
             self.initial_ns,
         )
     }
@@ -396,8 +415,8 @@ pub(crate) mod tests {
         let source = source_revision();
         assert_eq!(r["strategy_fingerprint"], source.fingerprint());
         assert_eq!(r["settings"]["execution"], configuration(&source));
-        assert_eq!(r["settings"]["execution"]["schema_version"],2);
-        assert_eq!(r["settings"]["execution"]["account_checkpoint_version"],5);
+        assert_eq!(r["settings"]["execution"]["schema_version"], 2);
+        assert_eq!(r["settings"]["execution"]["account_checkpoint_version"], 5);
         let quantity = OnlyQuantity::from_record(&r["settings"]["policy"]["quantity"]).unwrap();
         assert_eq!(
             quantity

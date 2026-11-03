@@ -2365,7 +2365,7 @@ def main(argv: list[str] | None = None) -> int:
     validate_sources(ROOT)
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
     if packages:
-        # Only backend-owned composition tests consume REPLAY_*.
+        # Only backend-owned composition tests consume installed arithmetic fixtures.
         # Strategy/worker changes select that direct consumer via Cargo metadata.
         if "onlyalpha-backend" in packages:
             from scripts.backtest_replay_check import replay_environment

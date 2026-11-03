@@ -13,13 +13,14 @@ from pathlib import Path
 import pytest
 
 
-def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = False) -> None:
+def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     from scripts.build_algorithm_sdk import ROOT, install
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
-    installation = tmp_path / "installed"
-    artifact = install(tmp_path / "wheels", installation)
-    factor = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
+    if root.resolve() != ROOT.resolve():
+        raise ValueError("TRADING_TEST_SOURCE_ROOT_MISMATCH")
+    installation = output / "installed"
+    artifact = install(output / "wheels", installation)
+    factor = json.loads((root / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
     fields = (
         "factor_id",
         "semantic_version",
@@ -54,12 +55,12 @@ def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = Fal
     assert observation.returncode == 0, observation.stderr
     base = next(
         json.loads(line)["record"]
-        for line in (ROOT / "test-data/domain/fact-records-v1.jsonl").read_text().splitlines()
+        for line in (root / "test-data/domain/fact-records-v1.jsonl").read_text().splitlines()
         if json.loads(line)["id"] == "bar"
     )
     base["bar_type"]["instrument_id"]["symbol"]["value"] = "BTCUSDT"
     base["bar_type"]["instrument_id"]["venue"]["value"] = "BINANCE"
-    request = tmp_path / "inputs.json"
+    request = output / "inputs.json"
     request.write_text(
         json.dumps(
             {
@@ -67,23 +68,31 @@ def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = Fal
                 "registrations": json.loads(observation.stdout),
                 "base": base,
                 "strategy": json.loads(
-                    (ROOT / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text()
+                    (root / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text()
                 )["strategy"]["definition"],
                 "calculations": json.loads(
-                    (ROOT / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
+                    (root / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
                 ),
             }
         )
     )
+    return {
+        "ONLYALPHA_TRADING_TEST_INPUT": str(request),
+        "ONLYALPHA_TRADING_TEST_INSTALLATION": str(installation),
+        "ONLYALPHA_TRADING_TEST_ARTIFACT": artifact,
+    }
+
+
+def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = False) -> None:
+    from scripts.build_algorithm_sdk import ROOT
+    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
+
+    installed = installed_trading_environment(ROOT, tmp_path)
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     environment = compiler_environment(os.environ, ROOT / "test-results/rust-kernel/target")
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
-    environment.update(
-        ONLYALPHA_TRADING_TEST_INPUT=str(request),
-        ONLYALPHA_TRADING_TEST_INSTALLATION=str(installation),
-        ONLYALPHA_TRADING_TEST_ARTIFACT=artifact,
-    )
+    environment.update(installed)
     built = subprocess.run(
         [
             "cargo",
