@@ -53,6 +53,31 @@ fn complete_transcript_seals_actual_ready_facts_and_owner_values_without_writes(
         json!({"schema_version":1,"unix_nanos":100})
     );
     assert_eq!(h.checkpoint().unwrap(), before);
+    let failed = h
+        .components
+        .backtest_result(&h.store, &manifest(&h), &outcome("FAILED"))
+        .unwrap()
+        .record();
+    assert_eq!(failed["run"]["status"], "FAILED");
+    let cancelled = h
+        .components
+        .backtest_result(&h.store, &manifest(&h), &outcome("CANCELLED"))
+        .unwrap()
+        .record();
+    assert_eq!(cancelled["run"]["status"], "CANCELLED");
+    assert_eq!(
+        failed["run"]["requested_outcome"]["reason"],
+        "driver-reason"
+    );
+    assert_eq!(
+        failed["run"]["requested_outcome"]["reason"],
+        cancelled["run"]["requested_outcome"]["reason"]
+    );
+    assert_ne!(
+        failed["result_fingerprint"],
+        cancelled["result_fingerprint"]
+    );
+    assert_ne!(failed["id"], cancelled["id"]);
     let mut detached = result.record();
     detached["run"]["status"] = json!("FAILED");
     assert_eq!(result.record(), v);

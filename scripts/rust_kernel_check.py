@@ -2119,7 +2119,7 @@ def check_performance_reference(root: Path, env: dict[str, str], target: str) ->
         if len(rows) != 1:
             raise ValueError("PERFORMANCE_REFERENCE_OUTPUT")
         compare_native(root, json.loads(rows[0]))
-    print("PERFORMANCE_PYTHON_NATIVE_COMMON_AND_LITERAL_VECTORS: PASS", flush=True)
+    print("PERFORMANCE_NATIVE_LITERAL_VECTORS: PASS", flush=True)
 
 
 def check_backtest_result_reference(root: Path, env: dict[str, str], target: str) -> None:
@@ -2160,7 +2160,7 @@ def check_backtest_result_reference(root: Path, env: dict[str, str], target: str
         if len(rows) != 1:
             raise ValueError("BACKTEST_RESULT_REFERENCE_OUTPUT")
         compare_native(root, json.loads(rows[0]))
-    print("BACKTEST_RESULT_PYTHON_COMMON_AND_NATIVE_LITERALS: PASS", flush=True)
+    print("BACKTEST_RESULT_NATIVE_LITERALS_AND_IDENTITIES: PASS", flush=True)
 
 
 def check_reconciliation_reference(root: Path, env: dict[str, str], target: str) -> None:
