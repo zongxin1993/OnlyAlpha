@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import timedelta
-from urllib.parse import urlsplit
 
 from psycopg.conninfo import make_conninfo
 
@@ -78,15 +77,6 @@ class OnlyPostgresConfig:
 
     def operational_dsn(self, options: OnlyPostgresOperationalConnectionOptions | None = None) -> str:
         return (options or OnlyPostgresOperationalConnectionOptions()).apply(self.dsn)
-
-
-def only_assert_postgres_test_database(dsn: str, *, restore: bool = False) -> str:
-    database = urlsplit(dsn).path.removeprefix("/")
-    suffix = "_restore_test" if restore else "_test"
-    if not database or not database.endswith(suffix):
-        purpose = "restore-test" if restore else "integration-test"
-        raise RuntimeError(f"POSTGRES_{purpose.upper().replace('-', '_')}_DATABASE_REQUIRED")
-    return database
 
 
 def _milliseconds(value: timedelta) -> int:

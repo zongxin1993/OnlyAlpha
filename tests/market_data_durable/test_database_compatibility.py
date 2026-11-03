@@ -16,8 +16,8 @@ from onlyalpha.persistence.postgres import (
     ONLYALPHA_POSTGRES_SERVER_MAJOR,
     OnlyPostgresMarketDataCatalog,
     OnlyPostgresServerVersion,
-    only_assert_postgres_test_database,
 )
+from scripts.database_guard import assert_test_database
 
 
 class _VersionClient:
@@ -64,17 +64,14 @@ def test_market_data_runtime_owners_reject_unsupported_database_versions(
 
 
 def test_database_test_and_restore_names_cannot_target_production() -> None:
-    assert only_assert_postgres_test_database("postgresql://host/onlyalpha_test") == "onlyalpha_test"
-    assert (
-        only_assert_postgres_test_database("postgresql://host/onlyalpha_restore_test", restore=True)
-        == "onlyalpha_restore_test"
-    )
+    assert assert_test_database("postgresql://host/onlyalpha_test") == "onlyalpha_test"
+    assert assert_test_database("postgresql://host/onlyalpha_restore_test", restore=True) == "onlyalpha_restore_test"
     assert only_assert_clickhouse_test_database("onlyalpha_test_run1") == "onlyalpha_test_run1"
     assert only_assert_clickhouse_test_database("onlyalpha_restore_run1", restore=True) == "onlyalpha_restore_run1"
     with pytest.raises(RuntimeError, match="POSTGRES_INTEGRATION_TEST_DATABASE_REQUIRED"):
-        only_assert_postgres_test_database("postgresql://host/onlyalpha")
+        assert_test_database("postgresql://host/onlyalpha")
     with pytest.raises(RuntimeError, match="POSTGRES_RESTORE_TEST_DATABASE_REQUIRED"):
-        only_assert_postgres_test_database("postgresql://host/onlyalpha_test", restore=True)
+        assert_test_database("postgresql://host/onlyalpha_test", restore=True)
     with pytest.raises(RuntimeError, match="CLICKHOUSE_TEST_DATABASE_REQUIRED"):
         only_assert_clickhouse_test_database("onlyalpha")
     with pytest.raises(RuntimeError, match="CLICKHOUSE_RESTORE_DATABASE_REQUIRED"):

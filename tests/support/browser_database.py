@@ -10,7 +10,7 @@ from typing import Any
 import psycopg
 
 from onlyalpha.persistence.clickhouse import OnlyClickHouseClient
-from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+from scripts.database_guard import assert_test_database
 from scripts.dev_verification import BROWSER_RESET_FENCE
 
 DEV_TEST_DSN = "postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha_dev_validation_test"
@@ -19,7 +19,7 @@ CLICKHOUSE_NAMESPACES = frozenset({"onlyalpha_test_chart_study_browser", "onlyal
 
 
 def reset_dev_browser_test_namespace(dsn: str, clickhouse: OnlyClickHouseClient) -> None:
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     if dsn != DEV_TEST_DSN:
         raise ValueError("BROWSER_TEST_RESET_DATABASE_REFUSED")
     if clickhouse.config.database not in CLICKHOUSE_NAMESPACES or clickhouse.config.url != "http://clickhouse:8123":

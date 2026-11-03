@@ -8,9 +8,9 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from onlyalpha.canonical import only_canonical_fingerprint
 
 import onlyalpha.market_data.durable.revision as market_data_revision
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.data.identity import only_bar_update_id
 from onlyalpha.data.models import (
@@ -52,9 +52,10 @@ from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseMigrationAuthority,
     only_assert_clickhouse_test_database,
 )
-from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog, only_assert_postgres_test_database
+from onlyalpha.persistence.postgres import OnlyPostgresMarketDataCatalog
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from scripts.database import _backup, _restore_test
+from scripts.database_guard import assert_test_database
 from scripts.market_data_database import _backup_segment, _restore_segment
 
 from .conftest import BAR_CONSTRUCTION, BAR_TYPE, BASE, INSTRUMENT, SOURCE, VERSION, bar_update
@@ -91,7 +92,7 @@ def test_combined_real_database_authority_recovery_and_maintenance(
     postgres_dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not postgres_dsn:
         pytest.fail("ONLYALPHA_POSTGRES_DSN is required")
-    only_assert_postgres_test_database(postgres_dsn)
+    assert_test_database(postgres_dsn)
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")
@@ -222,7 +223,7 @@ def test_combined_real_database_authority_recovery_and_maintenance(
 
 def test_native_fifteen_minute_revision_survives_real_database_restart(tmp_path: Path) -> None:
     postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(postgres_dsn)
+    assert_test_database(postgres_dsn)
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     database = f"onlyalpha_test_{uuid.uuid4().hex}"
     client = _clickhouse(database)
@@ -300,7 +301,7 @@ def test_native_fifteen_minute_revision_survives_real_database_restart(tmp_path:
 
 def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: Path) -> None:
     postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(postgres_dsn)
+    assert_test_database(postgres_dsn)
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     database = f"onlyalpha_test_{uuid.uuid4().hex}"
     client = _clickhouse(database)
@@ -409,7 +410,7 @@ def test_derived_seven_minute_identity_rebuilds_from_real_sealed_base(tmp_path: 
 
 def test_real_databases_batch_nine_page_segments_and_idempotent_retry(tmp_path: Path) -> None:
     postgres_dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(postgres_dsn)
+    assert_test_database(postgres_dsn)
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     database = f"onlyalpha_test_{uuid.uuid4().hex}"
     client = _clickhouse(database)

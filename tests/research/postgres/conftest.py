@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+from scripts.database_guard import assert_test_database
 
 
 def reset_postgres_test_namespace() -> str:
@@ -18,7 +18,7 @@ def reset_postgres_test_namespace() -> str:
     dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not dsn:
         pytest.fail("ONLYALPHA_POSTGRES_DSN is required for the canonical Compose research-postgres lane")
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")
@@ -74,7 +74,7 @@ def isolated_postgres_cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
                 assert 180000 <= connection.info.server_version < 190000
                 connection.execute("CREATE DATABASE chart_native_migration_test")
             dsn = "postgresql://onlyalpha@/chart_native_migration_test?" + urlencode({"host": str(sockets)})
-            only_assert_postgres_test_database(dsn)
+            assert_test_database(dsn)
             monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", dsn)
             yield dsn
         finally:

@@ -54,7 +54,7 @@ def _produce() -> tuple[str, str]:
         OnlyClickHouseMigrationAuthority,
         only_assert_clickhouse_test_database,
     )
-    from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+    from scripts.database_guard import assert_test_database
     from scripts.dev_verification import CUT_METADATA, source_inputs
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
@@ -64,7 +64,7 @@ def _produce() -> tuple[str, str]:
     if ROOT != Path("/workspace") or cut["operation_id"] != operation or cut["inputs"] != inputs:
         raise ValueError("CHART_VECTOR_FROZEN_CANONICAL_SOURCE_REQUIRED")
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     database = "onlyalpha_test_chart_query_vector"
     only_assert_clickhouse_test_database(database)
     ch = OnlyClickHouseClient(

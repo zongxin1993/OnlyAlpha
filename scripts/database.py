@@ -24,7 +24,6 @@ from onlyalpha.persistence.postgres import (
     OnlyPostgresResearchOperationsStore,
     OnlyPostgresResearchRunStore,
     OnlyPostgresSchemaVerifier,
-    only_assert_postgres_test_database,
     only_assert_supported_postgres_server,
     only_discover_postgres_migrations,
 )
@@ -36,6 +35,7 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchSemanticStoreIdentity,
 )
 from onlyalpha.research.run import OnlyResearchRunId
+from scripts.database_guard import assert_test_database
 
 ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"
 _POSTGRES_CLIENT_TOOLS = frozenset({"pg_dump", "pg_restore", "psql"})
@@ -166,11 +166,18 @@ def _backup(dsn: str, destination: Path) -> Path:
 
 
 def _restore_test(source_dsn: str, target_dsn: str, backup: Path, run_id: str | None) -> None:
-    source = conninfo_to_dict(source_dsn)
+    target_database = assert_test_database(target_dsn, restore=True)
     target = conninfo_to_dict(target_dsn)
-    if source.get("dbname") == target.get("dbname") and source.get("host") == target.get("host"):
+    try:
+        source_database = conninfo_to_dict(source_dsn).get("dbname")
+    except psycopg.Error:
+        raise RuntimeError("POSTGRES_RESTORE_SOURCE_DATABASE_REQUIRED") from None
+    if not isinstance(source_database, str) or not source_database:
+        raise RuntimeError("POSTGRES_RESTORE_SOURCE_DATABASE_REQUIRED")
+    # Host spelling cannot prove different database instances. Conservatively
+    # require different explicit database names, including URI query overrides.
+    if source_database == target_database:
         raise RuntimeError("restore-test target must be isolated from the source database")
-    only_assert_postgres_test_database(target_dsn, restore=True)
     with psycopg.connect(target_dsn) as connection:
         result = connection.execute("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'").fetchone()
         if result is None:

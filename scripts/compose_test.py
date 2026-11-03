@@ -6,21 +6,25 @@ import os
 import signal
 import subprocess
 import sys
+from pathlib import Path
 
 import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
-from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.database_guard import assert_test_database
 
 
 def main() -> int:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(dsn)
-    admin_dsn = dsn.rsplit("/", 1)[0] + "/postgres"
-    database = dsn.rsplit("/", 1)[-1]
+    database = assert_test_database(dsn)
+    admin_dsn = make_conninfo(dsn, dbname="postgres")
     with psycopg.connect(admin_dsn, autocommit=True) as connection:
         exists = connection.execute("SELECT 1 FROM pg_database WHERE datname = %s", (database,)).fetchone()
         if exists is None:
-            connection.execute(f'CREATE DATABASE "{database}"')
+            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
     if len(sys.argv) < 2:
         raise ValueError("COMPOSE_TEST_COMMAND_REQUIRED")
     command = sys.argv[1:]

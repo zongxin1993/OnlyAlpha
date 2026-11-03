@@ -31,7 +31,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+from scripts.database_guard import assert_test_database
 from scripts.dev_verification import source_inputs
 from scripts.native_workstation_build import build
 from scripts.runtime_artifacts import product_versions, verify_artifacts
@@ -440,7 +440,7 @@ def seed_retained_market_input(
 @contextmanager
 def agent_database(dsn: str, output: Path, backend: Path, installation: Path) -> Iterator[Path]:
     """Infrastructure precondition only: separate unprivileged test database and keys."""
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     name = "oa_agent_browser_" + uuid.uuid4().hex + "_test"
     with psycopg.connect(dsn, autocommit=True) as admin:
         password = uuid.uuid4().hex
@@ -570,7 +570,7 @@ def main() -> int:
 def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fixture: dict[str, Any]) -> int:
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")

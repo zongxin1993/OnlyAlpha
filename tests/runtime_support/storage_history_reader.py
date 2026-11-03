@@ -12,7 +12,6 @@ from onlyalpha.persistence.postgres import (
     MASTER_KEY_FILE,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresSchemaVerifier,
-    only_assert_postgres_test_database,
 )
 from onlyalpha.persistence.postgres.credentials import OnlyPostgresCredentialAuthority, only_load_master_key
 from onlyalpha.research.artifact.scientific_v3_store import OnlyParquetResearchScientificArtifactStoreV3
@@ -20,11 +19,12 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchDeploymentCoherenceVerifier,
     OnlyResearchSemanticStoreIdentity,
 )
+from scripts.database_guard import assert_test_database
 
 
 def main() -> int:
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     expected = json.loads(sys.stdin.read())
     layout = OnlyUserDataLayout(Path(expected["root"]))
     OnlyPostgresSchemaVerifier(dsn).assert_compatible()

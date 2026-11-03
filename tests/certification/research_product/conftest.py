@@ -6,7 +6,7 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+from scripts.database_guard import assert_test_database
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def postgres_dsn() -> str:
     dsn = os.environ.get("ONLYALPHA_POSTGRES_DSN")
     if not dsn:
         pytest.fail("ONLYALPHA_POSTGRES_DSN is required for the Compose research product certification lane")
-    only_assert_postgres_test_database(dsn)
+    assert_test_database(dsn)
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")

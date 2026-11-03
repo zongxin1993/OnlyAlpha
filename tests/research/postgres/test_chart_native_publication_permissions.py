@@ -215,12 +215,12 @@ def role_scope_inventory(dsn: str):
 @contextmanager
 def retained_role_database(dsn: str):
     """Introduce and remove only this test's database, preserving shared groups."""
-    from onlyalpha.persistence.postgres import only_assert_postgres_test_database
+    from scripts.database_guard import assert_test_database
     from tests.research.postgres.migration_support import current_migrations
 
     database = "chart_role_history_" + uuid.uuid4().hex + "_test"
     other = urlsplit(dsn)._replace(path="/" + database).geturl()
-    only_assert_postgres_test_database(other)
+    assert_test_database(other)
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
     try:

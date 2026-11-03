@@ -10,14 +10,13 @@ from pathlib import Path
 
 import psycopg
 import pytest
-
 from onlyalpha.canonical import only_canonical_json
+
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     MASTER_KEY_FILE,
     OnlyPostgresResearchDeploymentStore,
     OnlyPostgresResearchRunStore,
-    only_assert_postgres_test_database,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.research_run_store import _COLUMNS, _insert_run_query
@@ -45,6 +44,7 @@ from onlyalpha.research.run.evidence import (
     only_research_admission_resolution_fingerprint,
 )
 from scripts.database import _backup, _initialize_deployment, _restore_test
+from scripts.database_guard import assert_test_database
 from tests.certification.research_product.support import (
     provision_product_api_master_key,
 )
@@ -68,7 +68,7 @@ def _semantic_readers(root: Path):  # type: ignore[no-untyped-def]
 def test_paired_database_files_and_key_restore_exact_history_and_reject_missing_or_corrupt_proofs(
     postgres_dsn: str, tmp_path: Path
 ) -> None:
-    only_assert_postgres_test_database(postgres_dsn)
+    assert_test_database(postgres_dsn)
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path)
     master_key_path = provision_product_api_master_key(tmp_path)
