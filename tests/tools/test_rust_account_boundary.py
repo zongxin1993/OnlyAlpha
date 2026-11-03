@@ -25,9 +25,3 @@ def test_account_rejects_effects_and_reverse_layers(tmp_path: Path, code: str) -
     source.write_text(code)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         check.validate_account_sources(tmp_path)
-
-
-def test_actual_python_account_reference_matches_independent_vectors() -> None:
-    from scripts.account_reference_check import reference_outputs
-
-    assert len(reference_outputs()) >= 3

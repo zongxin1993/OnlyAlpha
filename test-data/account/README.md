@@ -1,5 +1,5 @@
-# Account cash reference vectors
+# Account comparison data
 
-Literal balances independently specified from cash conservation. Python's actual AccountManager handles simple valid flows; formal AccountTradeReducer handles fee/rebate, Reservation deltas and valuation. Rust consumes the same cases. Common economics do not certify old reader parity, Runtime activation or deployment/history migration.
+Literal balances are independently specified from cash conservation. Native Account lifecycle tests apply each explicit reservation/fill and compare cash, remaining reservation, fees, realized PnL and equity against every expected row, including fresh restoration after each fill. The output checker uses the same literals without importing a Python Manager or Execution reducer. Common economics do not certify old reader parity, Runtime activation or deployment/history migration.
 
-Each case declares its reference path. `manager_and_reducer` uses both actual Python paths; `reducer_only` covers an authoritative rebate greater than purchase cost. Python direct AccountTradeCashFlow rejects its negative net fee, so that older DTO is explicitly excluded from that case's comparison, while the formal typed fee/reducer and Rust must still match its independent literal result. This is a classified reference deviation, not a fallback or whole-module parity claim.
+The rebate-exceeds-buy case retains an authoritative rebate greater than purchase cost and its negative net fee. The older Python direct AccountTradeCashFlow DTO could not represent that input; removing the old comparison path does not remove this case or weaken the native signed-fee contract.
