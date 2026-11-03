@@ -352,6 +352,11 @@ fn common_reference_outputs() {
         realized = next_realized;
         fees = next_fees;
     }
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../../test-data/execution/partial-close-v1.json"
+    ))
+    .unwrap();
+    assert_eq!(json!(rows), expected);
     println!("EXECUTION_COMMON_JSON {}", json!(rows));
 }
 

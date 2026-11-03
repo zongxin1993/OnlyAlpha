@@ -1052,6 +1052,7 @@ def validate_execution_sources(root: Path) -> None:
         {
             '"../../../../test-data/execution/domain-inputs.json"',
             '"../../../../test-data/execution/economics-v1.json"',
+            '"../../../../test-data/execution/partial-close-v1.json"',
             '"../../../../test-data/settlement/common-v1.json"',
             '"../../../../test-data/margin/common-v1.json"',
             '"../../../../test-data/position/valuation-order-contract.json"',
@@ -2342,7 +2343,7 @@ def check_execution_reference(root: Path, env: dict[str, str], target: str) -> N
         if len(lines) != 1:
             raise ValueError("EXECUTION_NATIVE_REFERENCE_OUTPUT_MISSING")
         compare_native_outputs(json.loads(lines[0]))
-        print("EXECUTION_ACTUAL_PYTHON_RUST_COMMON_PASS", profile, flush=True)
+        print("EXECUTION_NATIVE_INDEPENDENT_VECTORS_PASS", profile, flush=True)
 
 
 def check_risk_reference(root: Path, env: dict[str, str], target: str) -> None:
