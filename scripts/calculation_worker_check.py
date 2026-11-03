@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import platform
 import subprocess
@@ -75,12 +74,7 @@ def main() -> int:
         print(completed.stdout, end="", flush=True)
         print(completed.stderr, end="", file=sys.stderr, flush=True)
         completed.check_returncode()
-        base = next(
-            json.loads(line)["record"]
-            for line in (ROOT / "test-data/domain/fact-records-v1.jsonl").read_text().splitlines()
-            if json.loads(line).get("id") == "bar"
-        )
-        compare_reference(completed.stdout, base)
+        compare_reference(completed.stdout)
     return 0
 
 
