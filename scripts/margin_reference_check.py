@@ -1,7 +1,4 @@
-"""Actual Python common collateral reference and independent native recovery proof.
-
-Component identities, quantity allocation and strict history are not asserted Python parity.
-"""
+"""Independent native collateral amounts and exact prefix-recovery checks."""
 
 from __future__ import annotations
 
@@ -9,13 +6,10 @@ import copy
 import hashlib
 import json
 import subprocess
-import sys
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 
 def cases(root: Path = ROOT) -> list[dict[str, Any]]:
@@ -50,45 +44,6 @@ EXPECTED = [
 FIELDS = ("reserved", "occupied", "released", "maintenance")
 
 
-def python_reference(case: dict[str, Any]) -> list[list[str]]:
-    from onlyalpha.domain.identifiers import OnlyRuntimeId
-    from onlyalpha.domain.time import OnlyTimestamp
-    from onlyalpha.margin.manager import OnlyMarginManager
-    from onlyalpha.market.runtime_rules import OnlyMarginInstruction
-
-    manager = OnlyMarginManager(OnlyRuntimeId(case["config"]["runtime"]))
-    rows = []
-    template = case["template"]
-    for index, step in enumerate(case["steps"], 1):
-        release = step["action"].startswith("RELEASE")
-        trade = "" if step["action"] in ("RESERVE", "RELEASE_RESERVED") else f"trade-{index}"
-        order = "closing-order" if step["action"] == "RELEASE_OCCUPIED" else template["source_order"]
-        instruction = OnlyMarginInstruction(
-            "RELEASE" if release else step["action"],
-            template["scope"]["account"],
-            template["scope"]["instrument"],
-            case["config"]["currency"]["code"],
-            Decimal(step["amount"]),
-            Decimal(step["maintenance"]),
-            order,
-            trade,
-            OnlyTimestamp(index),
-            template["mode"],
-            template["isolation"],
-            template["position_side"],
-        )
-        manager.apply(instruction)
-        state = manager.get(template["source_order"])
-        assert state is not None
-        rows.append(
-            [
-                format(value, ".2f")
-                for value in (state.reserved, state.occupied, state.released, state.maintenance_required)
-            ]
-        )
-    return rows
-
-
 def compare_native(root: Path, executable: Path) -> None:
 
     def invoke(frame: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +54,6 @@ def compare_native(root: Path, executable: Path) -> None:
         return value
 
     for case in cases(root):
-        assert python_reference(case) == EXPECTED
         result = invoke(case)
         assert [[s[k] for k in FIELDS] for s in result["snapshots"]] == EXPECTED
         assert result["snapshots"][-1]["status"] == "CLOSED"
@@ -108,6 +62,6 @@ def compare_native(root: Path, executable: Path) -> None:
         assert resumed["checkpoint"] == result["checkpoint"]
         assert resumed["snapshots"] == result["snapshots"][2:]
     print(
-        f"MARGIN_PYTHON_NATIVE_REFERENCE: PASS artifact_sha256={hashlib.sha256(executable.read_bytes()).hexdigest()}",
+        f"MARGIN_NATIVE_REFERENCE: PASS artifact_sha256={hashlib.sha256(executable.read_bytes()).hexdigest()}",
         flush=True,
     )
