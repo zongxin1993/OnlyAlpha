@@ -173,3 +173,12 @@ def test_actual_native_readonly_source_in_production_profile(tmp_path: Path) -> 
         "installed_trading_algorithms::next_open_trading::native_terminal_readonly_snapshot_verifies_cancelled_original_journal_and_rejects_splices",
         release=True,
     )
+
+
+@pytest.mark.timeout(180)
+def test_installed_latest_closed_full_interval_and_recovery_in_production_profile(tmp_path: Path) -> None:
+    installed_trading_case(
+        tmp_path,
+        "installed_trading_algorithms::next_open_trading::installed_source_to_native_next_open_kernel_and_durable_recovery",
+        release=True,
+    )

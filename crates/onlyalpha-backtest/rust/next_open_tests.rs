@@ -182,7 +182,8 @@ impl NextOpenPolicy for ProofPolicy {
             runtime_id: original.runtime_id().clone(),
             account_id: original.account_id().clone(),
             cluster_id: original.cluster_id().clone(),
-            order_id: original.order_id().clone(),
+            order_id: onlyalpha_domain::identifiers::OnlyOrderId::from_record(&order["order_id"])
+                .unwrap(),
             instrument_id: original.instrument_id().clone(),
             market_product_id: original.market_product_id().clone(),
             market_product_version: original.market_product_version().clone(),
@@ -207,8 +208,11 @@ impl NextOpenPolicy for ProofPolicy {
         contract["binding"] = binding.to_record();
         for assessment in ["expected", "maximum"] {
             contract["estimate"][assessment]["binding"] = binding.to_record();
+            contract["estimate"][assessment]["subject"]["order_id"] = order["order_id"].clone();
         }
         contract["funding"]["binding_fingerprint"] = json!(binding.fingerprint());
+        contract["funding"]["order_id"] = order["order_id"].clone();
+        assert_eq!(binding.order_id().to_record(), order["order_id"]);
         let quantity = OnlyQuantity::from_record(&order["quantity"]).unwrap();
         let notional = self.money(price, &quantity);
         if order["side"] == "BUY" {
@@ -412,9 +416,23 @@ fn pending_close_cannot_be_rebound_to_a_flat_execution_genesis() {
 #[test]
 fn user_cancel_clears_only_the_unsent_signal_and_retains_actual_position_and_cost() {
     let (mut policy, mut execution) = native_state("10000.00");
-    policy.closed(&native_input(2, "10.00"), &decision(true, false), &execution).unwrap();
-    policy.opening(&native_input(3, "10.00").opening(), &mut execution).unwrap();
-    policy.closed(&native_input(3, "10.00"), &decision(false, true), &execution).unwrap();
+    policy
+        .closed(
+            &native_input(2, "10.00"),
+            &decision(true, false),
+            &execution,
+        )
+        .unwrap();
+    policy
+        .opening(&native_input(3, "10.00").opening(), &mut execution)
+        .unwrap();
+    policy
+        .closed(
+            &native_input(3, "10.00"),
+            &decision(false, true),
+            &execution,
+        )
+        .unwrap();
     assert_eq!(policy.capture()["pending"]["side"], "SELL");
     let before = execution.state().unwrap();
     let records = execution.records().to_vec();
@@ -425,8 +443,14 @@ fn user_cancel_clears_only_the_unsent_signal_and_retains_actual_position_and_cos
     assert!(stopped["cancelled_orders"].as_array().unwrap().is_empty());
     assert_eq!(execution.state().unwrap(), before);
     assert_eq!(execution.records(), records);
-    assert_eq!(before["position"]["accounts"][0]["snapshot"]["quantity"], "4");
-    assert_eq!(before["position"]["accounts"][0]["snapshot"]["cost"], "40.008");
+    assert_eq!(
+        before["position"]["accounts"][0]["snapshot"]["quantity"],
+        "4"
+    );
+    assert_eq!(
+        before["position"]["accounts"][0]["snapshot"]["cost"],
+        "40.008"
+    );
     assert!(policy.capture()["pending"].is_null());
     assert!(policy.quiescent().unwrap());
     let checkpoint = policy.capture();
@@ -434,22 +458,231 @@ fn user_cancel_clears_only_the_unsent_signal_and_retains_actual_position_and_cos
     restored.restore(&checkpoint).unwrap();
     assert_eq!(restored.capture(), checkpoint);
     restored.validate_execution(&execution).unwrap();
-    assert!(restored.opening(&native_input(4, "12.00").opening(), &mut execution).is_err());
+    assert!(
+        restored
+            .opening(&native_input(4, "12.00").opening(), &mut execution)
+            .is_err()
+    );
 }
 
 #[test]
 fn whole_fill_native_producer_binds_the_actual_model_and_fee_estimate_in_admit2() {
-    let (mut policy,mut execution)=native_state("10000.00");
-    policy.closed(&native_input(2,"10.00"),&decision(true,false),&execution).unwrap();
-    policy.opening(&native_input(3,"10.00").opening(),&mut execution).unwrap();
-    let admit=execution.records().iter().map(|r|r.prepared().input()).find(|r|r["op"]=="ADMIT").unwrap();
-    let contract=&admit["payload"]["settlement_fill_contract"];
-    assert_eq!(admit["payload"]["schema_version"],2);
-    assert_eq!(contract["kind"],"BACKTEST_WHOLE_FILL");assert_eq!(contract["maximum_fill_count"],1);
-    assert_eq!(contract["model"]["kind"],"GUARANTEED_WHOLE_FILL");
-    assert_eq!(contract["model"]["configuration_fingerprint"],crate::hash(execution.configuration()));
-    assert_eq!(contract["model"]["policy_fingerprint"],admit["payload"]["request"]["metadata"]["replay_policy"]);
-    assert_eq!(contract["model_fingerprint"],crate::hash(&contract["model"]));
-    assert_eq!(contract["fee_estimate_assumptions_fingerprint"],admit["payload"]["fee_contract"]["estimate"]["assumptions_fingerprint"]);
-    assert_eq!(policy.capture()["execution_model"],contract["model"]);
+    let (mut policy, mut execution) = native_state("10000.00");
+    policy
+        .closed(
+            &native_input(2, "10.00"),
+            &decision(true, false),
+            &execution,
+        )
+        .unwrap();
+    policy
+        .opening(&native_input(3, "10.00").opening(), &mut execution)
+        .unwrap();
+    let admit = execution
+        .records()
+        .iter()
+        .map(|r| r.prepared().input())
+        .find(|r| r["op"] == "ADMIT")
+        .unwrap();
+    let contract = &admit["payload"]["settlement_fill_contract"];
+    assert_eq!(admit["payload"]["schema_version"], 2);
+    assert_eq!(contract["kind"], "BACKTEST_WHOLE_FILL");
+    assert_eq!(contract["maximum_fill_count"], 1);
+    assert_eq!(contract["model"]["kind"], "GUARANTEED_WHOLE_FILL");
+    assert_eq!(
+        contract["model"]["configuration_fingerprint"],
+        crate::hash(execution.configuration())
+    );
+    assert_eq!(
+        contract["model"]["policy_fingerprint"],
+        admit["payload"]["request"]["metadata"]["replay_policy"]
+    );
+    assert_eq!(
+        contract["model_fingerprint"],
+        crate::hash(&contract["model"])
+    );
+    assert_eq!(
+        contract["fee_estimate_assumptions_fingerprint"],
+        admit["payload"]["fee_contract"]["estimate"]["assumptions_fingerprint"]
+    );
+    assert_eq!(policy.capture()["execution_model"], contract["model"]);
+}
+
+#[test]
+fn next_open_bar_marks_keep_all_economic_effects_without_writing_flat_history_again() {
+    fn binding(c: &Candidate) -> Value {
+        json!({"schema_version":1,"program":{"scope":{"cluster":"cluster"},"revision":{"strategy_fingerprint":"revision"}},"policy":{"schema_version":2,"execution":c.configuration(),"policy":{"kind":"NEXT_OPEN_LONG_ONLY_V1"}},"opening_profile":{"schema_version":1,"kind":"OPEN_CLOSE_V1"}})
+    }
+    fn mark(c: &Candidate, index: u64) -> Result<Option<Value>, crate::Error> {
+        let input = native_input(index, "12.00");
+        let now = input.event_ns().to_string().parse().unwrap();
+        let context = crate::next_open::context(
+            &input.identity(),
+            input.event_ns(),
+            &input.bar().to_record()["trading_day"],
+        )?;
+        crate::trading::valuation_input(&binding(c), &input, now, c, context["day_index"].clone())
+    }
+    let (mut policy, mut c) = native_state("10000.00");
+    assert!(mark(&c, 1).unwrap().is_none());
+    policy
+        .closed(&native_input(2, "10.00"), &decision(true, false), &c)
+        .unwrap();
+    policy
+        .opening(&native_input(3, "10.00").opening(), &mut c)
+        .unwrap();
+    let held_mark = mark(&c, 3)
+        .unwrap()
+        .expect("nonzero exposure requires the full BAR valuation");
+    assert_eq!(held_mark["op"], "VALUATION");
+    c.apply(&held_mark).unwrap();
+    assert_eq!(
+        c.state().unwrap()["account"]["snapshot"]["market_value"],
+        "48.00"
+    );
+    policy
+        .closed(&native_input(4, "12.00"), &decision(false, true), &c)
+        .unwrap();
+    policy
+        .opening(&native_input(5, "12.00").opening(), &mut c)
+        .unwrap();
+    let flat = c.state().unwrap();
+    assert_eq!(flat["account"]["snapshot"]["cash"], "10005.98");
+    assert_eq!(flat["account"]["snapshot"]["market_value"], "0.00");
+    assert_eq!(flat["account"]["snapshot"]["unrealized_pnl"], "0.00");
+    assert_eq!(flat["account"]["snapshot"]["fees"], "2.00");
+    assert!(
+        !flat["position"]["accounts"].as_array().unwrap().is_empty(),
+        "closed history must remain retained"
+    );
+    let count = c.records().len();
+    for index in [6, 300, 740] {
+        assert!(
+            mark(&c, index).unwrap().is_none(),
+            "retained closed books must not request another price-sensitive barrier at {index}"
+        );
+        assert_eq!(c.records().len(), count);
+        assert_eq!(c.state().unwrap(), flat);
+    }
+    let input = native_input(6, "12.00");
+    let mut legacy = binding(&c);
+    legacy["policy"]["schema_version"] = json!(1);
+    let now = input.event_ns().to_string().parse().unwrap();
+    let context = crate::next_open::context(
+        &input.identity(),
+        input.event_ns(),
+        &input.bar().to_record()["trading_day"],
+    )
+    .unwrap();
+    assert!(
+        crate::trading::valuation_input(&legacy, &input, now, &c, context["day_index"].clone())
+            .unwrap()
+            .is_some(),
+        "the old LIMIT profile must keep its original BAR policy"
+    );
+    for fault in ["opening", "policy", "schema"] {
+        let mut wrong = binding(&c);
+        match fault {
+            "opening" => wrong["opening_profile"]["kind"] = json!("OTHER_PROFILE"),
+            "policy" => wrong["policy"]["policy"]["kind"] = json!("OTHER_POLICY"),
+            _ => wrong["policy"]["schema_version"] = json!(3),
+        }
+        assert!(
+            crate::trading::valuation_input(&wrong, &input, now, &c, context["day_index"].clone())
+                .is_err()
+        );
+    }
+    let checkpoint = policy.capture();
+    let (mut restored, _) = native_state("10000.00");
+    restored.restore(&checkpoint).unwrap();
+    let mut c = Candidate::new(c.configuration().clone(), c.records().to_vec()).unwrap();
+    assert_eq!(c.state().unwrap(), flat);
+    assert!(
+        mark(&c, 6).unwrap().is_none(),
+        "recovery must retain the complete flat-book decision"
+    );
+    restored
+        .closed(&native_input(5, "12.00"), &decision(true, false), &c)
+        .unwrap();
+    let reopened = restored
+        .opening(&native_input(6, "12.00").opening(), &mut c)
+        .unwrap();
+    assert_eq!(reopened["status"], "FILLED");
+    assert!(
+        mark(&c, 6).unwrap().is_some(),
+        "reopened exposure must resume full BAR valuation"
+    );
+}
+
+#[test]
+fn native_book_uses_one_complete_owner_view_without_per_order_source_queries() {
+    use crate::next_open::NativeExecution;
+    use std::cell::Cell;
+    struct Observed<'a> {
+        inner: &'a Candidate,
+        views: Cell<u64>,
+        orders: Cell<u64>,
+    }
+    impl NativeExecution for Observed<'_> {
+        fn configuration(&self) -> &Value {
+            self.inner.configuration()
+        }
+        fn state(&self) -> Result<Value, crate::Error> {
+            self.inner.state()
+        }
+        fn position_order_view(&self) -> Result<Value, crate::Error> {
+            self.views.set(self.views.get() + 1);
+            self.inner.position_order_view()
+        }
+        fn checkpoint(&self) -> Result<Value, crate::Error> {
+            self.inner.checkpoint()
+        }
+        fn sequence(&self) -> usize {
+            self.inner.records().len()
+        }
+        fn order(&self, cluster: &str, id: &str) -> Result<Value, crate::Error> {
+            self.orders.set(self.orders.get() + 1);
+            self.inner.order(cluster, id)
+        }
+        fn fee_order_preview(
+            &self,
+            cluster: &str,
+            request: &Value,
+            at: u64,
+        ) -> Result<Value, crate::Error> {
+            self.inner.fee_order_preview(cluster, request, at)
+        }
+        fn apply(&mut self, _: &Value) -> Result<(), crate::Error> {
+            panic!("query cannot write")
+        }
+    }
+    let (mut policy, mut c) = native_state("10000.00");
+    policy
+        .closed(&native_input(2, "10.00"), &decision(true, false), &c)
+        .unwrap();
+    policy
+        .opening(&native_input(3, "10.00").opening(), &mut c)
+        .unwrap();
+    policy
+        .closed(&native_input(4, "12.00"), &decision(false, true), &c)
+        .unwrap();
+    policy
+        .opening(&native_input(5, "12.00").opening(), &mut c)
+        .unwrap();
+    let before = c.checkpoint().unwrap();
+    let records = c.records().to_vec();
+    let observed = Observed {
+        inner: &c,
+        views: Cell::new(0),
+        orders: Cell::new(0),
+    };
+    policy.validate_execution(&observed).unwrap();
+    assert_eq!(observed.views.get(), 1);
+    assert_eq!(
+        observed.orders.get(),
+        0,
+        "the same immutable book must not repeat a full source guard for each historical order"
+    );
+    assert_eq!(c.checkpoint().unwrap(), before);
+    assert_eq!(c.records(), records.as_slice());
 }

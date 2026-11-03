@@ -23,43 +23,55 @@ impl LedgerReconciliation {
 }
 impl Components {
     // Shared complete-source guard for read-only Execution projections. The Store owns immutable records.
-    pub(crate) fn verified_source<S:Store,F:FnMut(&Record)->Result<(),Error>>(&self,store:&S,visit:F)->Result<Value,Error>{
-        let _=self.payload_hashes()?;
-        let genesis=Self::genesis_payload_hashes(&self.config)?;
-        self.verified_source_with_genesis(store,&genesis,visit)
+    pub(crate) fn verified_source<S: Store, F: FnMut(&Record) -> Result<(), Error>>(
+        &self,
+        store: &S,
+        visit: F,
+    ) -> Result<Value, Error> {
+        let _ = self.payload_hashes()?;
+        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        self.verified_source_with_genesis(store, &genesis, visit)
     }
-    fn verified_source_with_genesis<S:Store,F:FnMut(&Record)->Result<(),Error>>(&self,store:&S,genesis:&[String],mut visit:F)->Result<Value,Error>{
-        let owner_hashes=self.payload_hashes()?;
-        self.ready_source_with_genesis(store,genesis)?;
+    fn verified_source_with_genesis<S: Store, F: FnMut(&Record) -> Result<(), Error>>(
+        &self,
+        store: &S,
+        genesis: &[String],
+        mut visit: F,
+    ) -> Result<Value, Error> {
+        let owner_hashes = self.payload_hashes()?;
+        self.ready_source_with_genesis(store, genesis)?;
         let mut head = Value::Null;
         let mut time = Value::Null;
         if object(&self.meta["transactions"])?.len() as u64 != self.sequence {
             return Err(err("RECONCILIATION_TRANSACTION_COMPLETENESS"));
         }
         // Capture one exact immutable prefix for the consumer and source identity.
-        let mut predecessor=genesis.to_vec();
-        let configuration_hash=hash(&self.config);
+        let mut predecessor = genesis.to_vec();
+        let configuration_hash = hash(&self.config);
         for sequence in 1..=self.sequence {
             let record = store
                 .get(sequence)?
                 .ok_or_else(|| err("RECONCILIATION_SOURCE_MISSING"))?;
             let prepared = record.prepared();
-            self.require_account_checkpoint(&prepared.value()["projections"][2]["result"])?;
+            Self::require_account_checkpoint_version(
+                &self.config,
+                prepared.account_checkpoint_version(),
+            )?;
             if self.meta["transactions"][sequence.to_string()] != prepared.id() {
                 return Err(err("RECONCILIATION_TRANSACTION_CAUSE"));
             }
             if !record.ready()
                 || prepared.sequence() != sequence
-                || prepared.value()["config_hash"] != configuration_hash
+                || prepared.configuration_fingerprint() != configuration_hash
             {
                 return Err(err("RECONCILIATION_SOURCE_PREFIX"));
             }
             for (i, previous) in predecessor.iter_mut().enumerate() {
-                let projection = &prepared.value()["projections"][i];
-                if projection["before_hash"] != *previous {
+                let (before, after) = &prepared.projection_hashes()[i];
+                if before != previous {
                     return Err(err("RECONCILIATION_SOURCE_LINEAGE"));
                 }
-                *previous = text(&projection["result_hash"])?.to_owned();
+                previous.clone_from(after);
             }
             let input = prepared.input();
             for k in [
@@ -82,7 +94,7 @@ impl Components {
             }
             visit(&record)?;
             head =
-                json!({"transaction":prepared.id(),"payload_hash":prepared.value()["payload_hash"]});
+                json!({"transaction":prepared.id(),"payload_hash":prepared.payload_fingerprint()});
             time = prepared.input()["time"].clone();
         }
         if predecessor.as_slice() != owner_hashes {
@@ -103,9 +115,9 @@ impl Components {
                 .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?,
         ))?;
         let mut expected = BTreeMap::new();
-        let owners=self.payloads()?;
-        let genesis=Self::genesis_payload_hashes(&self.config)?;
-        let source = self.verified_source_with_genesis(store,&genesis,|record| {
+        let owners = self.payloads()?;
+        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        let source = self.verified_source_with_genesis(store, &genesis, |record| {
             record_fee(record, &mut fee_owner, &mut expected)
         })?;
         if fee_owner.checkpoint() != *checkpoint {

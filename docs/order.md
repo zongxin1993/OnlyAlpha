@@ -45,6 +45,7 @@ Overfill 被拒绝。价格与数量使用 `OnlyPrice/OnlyQuantity`，不使用�
 ## 4. Manager、Query 与 Context API
 
 Manager 维护 request/client/venue ID 唯一索引，以及 Cluster、Account、Instrument、open/recent 索引。
+Rust Manager 的 `snapshots()` 借用完整当前 Order Snapshot 集合，包含终态订单，不过滤 cluster；仅供 owning Execution 在完成 source guard 后校验完整关系，不能作为策略跨 cluster 查询入口或授权。
 `OnlyOrderQueryService` 只返回 Snapshot。所有 submit 在创建 Order 前同步经过 Runtime 的
 `OnlyRiskService`，Risk REJECT/ERROR 返回结构化结果且没有 Order 或 Execution 副作用。策略 API 为：
 

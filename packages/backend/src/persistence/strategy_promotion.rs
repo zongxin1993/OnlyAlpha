@@ -429,6 +429,9 @@ pub(crate) struct VerifiedBacktestHistory {
 }
 impl VerifiedBacktestHistory {
     pub(crate) fn source_revision(&self)->&SourceRevision {&self.source}
+    pub(crate) fn validated_calculations(&self)->Result<&Value> {
+        self.verify_cut()?;self.decision.validated_calculations()
+    }
     pub(crate) fn verify_cut(&self)->Result<()> {
         files(&self.namespace,&self.frozen,&self.decision,&self.source,&self.relation,self.max_work)
     }

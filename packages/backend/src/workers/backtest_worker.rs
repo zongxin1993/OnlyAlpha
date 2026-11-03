@@ -138,12 +138,18 @@ async fn run_one(connection:&mut Option<ResearchConnection>,writer:&SharedAuthor
     let handle=tokio::runtime::Handle::current();let mut original=connection.take().ok_or(UNKNOWN)?;
     let mut job=tokio::task::spawn_blocking(move || {
         let result=handle.block_on(async {
+            let started=std::time::Instant::now();
+            let phase=|name:&str|eprintln!("BACKTEST_JOB_PHASE phase={name} elapsed_ms={}",started.elapsed().as_millis());
+            phase("history-open");
             let client=original.client_mut().await.map_err(|_|JobFailure::Known(UNAVAILABLE))?;
             let context=backtest_evidence::read_context(client,selected.namespace(),&configuration.research_root,&configuration.runtime_root,selected.run_id(),Some(selected.owner())).await.map_err(JobFailure::Known)?;
+            phase("history-ready");
             let store=Store::open(&configuration.backtest_root,&configuration.research_root,&configuration.runtime_root).map_err(JobFailure::Known)?;
             if let Some(proof)=store.load_completion(&context).map_err(JobFailure::Known)? {return Ok(CompletedJob::Published(proof));}
-            let operation=context.original_operation().clone();drop(context);
-            let work=Work::restore(client,&selected,&operation,&configuration).await.map_err(JobFailure::Native)?;
+            phase("completion-read");
+            let operation=context.original_operation().clone();
+            let work=Work::restore(context,&selected,&operation,&configuration).map_err(JobFailure::Native)?;
+            phase("work-restored");
             #[cfg(test)] tests::blocking_phase(selected.run_id(),"before_produce");
             match backtest_service::produce(work,mode,&child).map_err(JobFailure::Native)? {
                 Produced::Paused(paused)=>{paused.verify_cut().map_err(JobFailure::Known)?;drop(paused);Ok(CompletedJob::Paused)},

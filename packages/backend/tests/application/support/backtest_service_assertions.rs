@@ -59,7 +59,8 @@ fn terminal(joined:&JoinedBacktest,expected:&str,configuration:&Configuration)->
 /// helper never prepares, promotes, creates a Run, changes its Claim or releases
 /// Runtime work; those remain the existing owning Product test's real steps.
 pub(crate) async fn whole_interval(client:&mut Client,run:&VerifiedRun,original:&Operation,configuration:&Configuration)->JoinedBacktest {
-    let work=Work::restore(client,run,original,configuration).await.unwrap_or_else(|e|panic!("actual work restore: {}",e.code()));
+    let context=crate::persistence::backtest_evidence::read_context(client,run.namespace(),&configuration.research_root,&configuration.runtime_root,run.run_id(),Some(run.owner())).await.unwrap();
+    let work=Work::restore(context,run,original,configuration).unwrap_or_else(|e|panic!("actual work restore: {}",e.code()));
     let result=backtest_service::produce(work,StartMode::Create,&Control::default()).unwrap_or_else(|mut e|{let code=e.code();e.drain().unwrap();panic!("actual producer: {code}")});
     let Produced::Terminal(joined)=result else {panic!("unrequested pause")};let snapshot=terminal(&joined,"COMPLETED",configuration);
     let proof=joined.observation().proof();assert_eq!(proof["market_exhausted"],true);
@@ -73,7 +74,8 @@ pub(crate) async fn whole_interval(client:&mut Client,run:&VerifiedRun,original:
 /// its OPEN. No next CLOSE is exposed, and a fresh concrete restore must retain
 /// the canonical Order/Fill identity rather than re-execute that opening.
 pub(crate) async fn pause_after_open_then_cancel(client:&mut Client,run:&VerifiedRun,original:&Operation,configuration:&Configuration)->JoinedBacktest {
-    let work=Work::restore(client,run,original,configuration).await.unwrap_or_else(|e|panic!("{}",e.code()));
+    let context=crate::persistence::backtest_evidence::read_context(client,run.namespace(),&configuration.research_root,&configuration.runtime_root,run.run_id(),Some(run.owner())).await.unwrap();
+    let work=Work::restore(context,run,original,configuration).unwrap_or_else(|e|panic!("{}",e.code()));
     backtest_service::test_pause_after_step(43);
     let Produced::Paused(paused)=backtest_service::produce(work,StartMode::Create,&Control::default()).unwrap_or_else(|e|panic!("{}",e.code())) else{panic!("shutdown pause must not create a terminal result")};
     paused.verify_cut().unwrap();assert_eq!(paused.run().run_id(),run.run_id());
@@ -82,7 +84,8 @@ pub(crate) async fn pause_after_open_then_cancel(client:&mut Client,run:&Verifie
     let fills=|trace:&Value|trace["steps"].as_array().unwrap().iter().flat_map(|s|s["step"]["inputs"].as_array().unwrap()).filter(|i|i["op"]=="FILL").cloned().collect::<Vec<_>>();
     assert_eq!(fills(&before).len(),1);drop(paused);
     // A later Claim uses Resume; the original Run identity and journal are exact.
-    let work=Work::restore(client,run,original,configuration).await.unwrap_or_else(|e|panic!("{}",e.code()));
+    let context=crate::persistence::backtest_evidence::read_context(client,run.namespace(),&configuration.research_root,&configuration.runtime_root,run.run_id(),Some(run.owner())).await.unwrap();
+    let work=Work::restore(context,run,original,configuration).unwrap_or_else(|e|panic!("{}",e.code()));
     backtest_service::test_cancel_after_step(46); // PAUSE44, RESUME45, then the original pending BAR46.
     let Produced::Terminal(joined)=backtest_service::produce(work,StartMode::Resume,&Control::default()).unwrap_or_else(|e|panic!("{}",e.code())) else{panic!("user cancellation is terminal")};
     let snapshot=terminal(&joined,"CANCELLED",configuration);let proof=joined.observation().proof();
@@ -103,7 +106,8 @@ pub(crate) async fn pause_after_open_then_cancel(client:&mut Client,run:&Verifie
 /// Create never opens an existing work, and Resume never initializes a new one.
 /// The caller also snapshots the original journal around this refusal.
 pub(crate) async fn refuse_mode(client:&mut Client,run:&VerifiedRun,original:&Operation,configuration:&Configuration,mode:StartMode)->&'static str {
-    let work=Work::restore(client,run,original,configuration).await.unwrap_or_else(|e|panic!("{}",e.code()));
+    let context=crate::persistence::backtest_evidence::read_context(client,run.namespace(),&configuration.research_root,&configuration.runtime_root,run.run_id(),Some(run.owner())).await.unwrap();
+    let work=Work::restore(context,run,original,configuration).unwrap_or_else(|e|panic!("{}",e.code()));
     let mut error=match backtest_service::produce(work,mode,&Control::default()){Err(error)=>error,Ok(_)=>panic!("incompatible original Claim mode was accepted")};
     let code=error.code();error.drain().unwrap();assert_eq!(error.code(),code,"positive child join cannot rewrite an unknown operational outcome as success");code
 }

@@ -75,6 +75,11 @@ impl Manager {
         }
         Ok(entity.snapshot.clone())
     }
+    /// Complete immutable current owner inventory, including terminal Orders.
+    /// This is data only; the caller retains its owning source/authority checks.
+    pub fn snapshots(&self) -> impl Iterator<Item = &OnlyOrderSnapshot> {
+        self.orders.values().map(|entity| &entity.snapshot)
+    }
     pub fn submission(&self, cluster: &str, order: &str) -> Result<&str, Error> {
         self.get(cluster, order)?;
         Ok(&self.orders[order].outcome)

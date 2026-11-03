@@ -1,11 +1,14 @@
 //! Actual native Pipeline/Strategy and canonical Execution with explicit replay profiles.
 use crate::{
     Candidate, Error, MarketInput, NextOpenPolicy, OpeningInput, Participants, boundary, err,
-    fields, hash, next_open::{NativeExecution, NativeReplay},
+    fields, hash,
+    next_open::{NativeExecution, NativeReplay},
 };
 use onlyalpha_calculation_bridge::{StrategyPreparation, Worker};
 use onlyalpha_clock::BigInt;
-use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, time::OnlyTimestamp};
+use onlyalpha_domain::{
+    base::OnlyDomainModel, execution::OnlyOrderRequest, numeric::OnlyDecimal, time::OnlyTimestamp,
+};
 use onlyalpha_market_data_pipeline::{PipelineInput, construction::OnlyConstructionFact};
 use onlyalpha_strategy::NodePort;
 use serde_json::{Value, json};
@@ -25,21 +28,97 @@ pub struct Trading<C: NodePort> {
 }
 /// One canonical transport derivation for actual BAR valuation and its original
 /// read-only journal consumer. Values confer no execution permission.
-fn bar_request(binding:&Value,input:&MarketInput,now:u64,sequence:usize,op:&str,payload:Value,cause:&str,day_index:Value)->Value {
-    let config=&binding["policy"]["execution"];
-    let program=&binding["program"];
-    let n=sequence as u64+1;
-    let id=format!("REPLAY-{}",hash(&json!({"market":input.identity(),"cause":cause,"sequence":n,"op":op,"payload":payload,"program":binding})));
+fn bar_request(
+    binding: &Value,
+    input: &MarketInput,
+    now: u64,
+    sequence: usize,
+    op: &str,
+    payload: Value,
+    cause: &str,
+    day_index: Value,
+) -> Value {
+    let config = &binding["policy"]["execution"];
+    let program = &binding["program"];
+    let n = sequence as u64 + 1;
+    let id = format!(
+        "REPLAY-{}",
+        hash(
+            &json!({"market":input.identity(),"cause":cause,"sequence":n,"op":op,"payload":payload,"program":binding})
+        )
+    );
     json!({"schema_version":1,"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"generation":config["generation"],"runtime_kind":"BACKTEST","cluster":program["scope"]["cluster"],"revision":program["revision"]["strategy_fingerprint"],"input_id":id,"source_ref":format!("CAUSE-{}",hash(&json!([input.identity(),cause,n,op]))),"time":now,"runtime_sequence":n,"trading_day":input.bar().to_record()["trading_day"],"day_index":day_index,"op":op,"payload":payload})
 }
-pub(crate) fn valuation_input(binding:&Value,input:&MarketInput,now:u64,c:&impl NativeExecution,day_index:Value)->Result<Option<Value>,Error>{
-    let state=c.position_order_view()?;
-    let positions=state["position_accounts"].as_array().ok_or_else(||err("POSITION"))?;
-    if positions.is_empty(){return Ok(None);}
-    let n=c.sequence() as u64+1;
+// Pure quantity predicate over the caller's complete owning Ready view. It
+// supplies neither source freshness nor an execution/valuation capability.
+fn native_bar_has_exposure(state: &Value) -> Result<bool, Error> {
+    let accounts = state["position_accounts"]
+        .as_array()
+        .ok_or_else(|| err("POSITION"))?;
+    let allocations = state["position_allocations"]
+        .as_array()
+        .ok_or_else(|| err("POSITION"))?;
+    if accounts.is_empty() && !allocations.is_empty() {
+        return Err(err("POSITION"));
+    }
+    let mut exposed = false;
+    for book in accounts.iter().chain(allocations) {
+        let quantity: OnlyDecimal = boundary(
+            book["snapshot"]["quantity"]
+                .as_str()
+                .ok_or_else(|| err("POSITION"))?
+                .parse(),
+        )?;
+        exposed |= !quantity.is_zero();
+    }
+    Ok(exposed)
+}
+pub(crate) fn valuation_input(
+    binding: &Value,
+    input: &MarketInput,
+    now: u64,
+    c: &impl NativeExecution,
+    day_index: Value,
+) -> Result<Option<Value>, Error> {
+    let state = c.position_order_view()?;
+    let positions = state["position_accounts"]
+        .as_array()
+        .ok_or_else(|| err("POSITION"))?;
+    match binding["policy"]["schema_version"].as_u64() {
+        Some(1) => {
+            // The retained closed-only LIMIT driver keeps its original policy.
+            if positions.is_empty() {
+                return Ok(None);
+            }
+        }
+        Some(2) => {
+            if binding["opening_profile"] != json!({"schema_version":1,"kind":"OPEN_CLOSE_V1"})
+                || binding["policy"]["policy"]["kind"] != "NEXT_OPEN_LONG_ONLY_V1"
+            {
+                return Err(err("TRADING_CONTEXT"));
+            }
+            // Historical closed books remain in the source. This cash driver
+            // requests a further BAR price barrier only for actual exposure.
+            // Validate every quantity, including all Allocations, without netting.
+            if !native_bar_has_exposure(&state)? {
+                return Ok(None);
+            }
+        }
+        _ => return Err(err("TRADING_CONTEXT")),
+    }
+    let n = c.sequence() as u64 + 1;
     let marks=positions.iter().map(|p|{if p["instrument"]!=input.bar().instrument_id().to_string(){return Err(err("MARK_SOURCE"));}Ok(json!({"schema_version":1,"instrument":p["instrument"],"mark":input.bar().to_record()["close"]["value"],"source_ref":format!("BAR-{}",input.identity()),"family":"CLOSED_BAR","version":n,"time":now,"as_of_sequence":n}))}).collect::<Result<Vec<_>,Error>>()?;
-    let payload=json!({"schema_version":1,"valuation":format!("VALUATION-{}",input.identity()),"version":n,"position_evidence":state["position_checkpoint_fingerprint"],"economic_version":state["economic_version"],"marks":marks});
-    Ok(Some(bar_request(binding,input,now,c.sequence(),"VALUATION",payload,&input.identity(),day_index)))
+    let payload = json!({"schema_version":1,"valuation":format!("VALUATION-{}",input.identity()),"version":n,"position_evidence":state["position_checkpoint_fingerprint"],"economic_version":state["economic_version"],"marks":marks});
+    Ok(Some(bar_request(
+        binding,
+        input,
+        now,
+        c.sequence(),
+        "VALUATION",
+        payload,
+        &input.identity(),
+        day_index,
+    )))
 }
 impl<C: NodePort> Trading<C> {
     pub fn new(
@@ -197,9 +276,25 @@ impl<C: NodePort> Trading<C> {
         cause: &str,
     ) -> Result<Value, Error> {
         let day_index = if self.native.is_some() {
-            crate::next_open::context(cause, input.event_ns(), &input.bar().to_record()["trading_day"])?["day_index"].clone()
-        } else { self.world["day_index"].clone() };
-        Ok(bar_request(&self.binding, input, self.now, c.records().len(), op, payload, cause, day_index))
+            crate::next_open::context(
+                cause,
+                input.event_ns(),
+                &input.bar().to_record()["trading_day"],
+            )?["day_index"]
+                .clone()
+        } else {
+            self.world["day_index"].clone()
+        };
+        Ok(bar_request(
+            &self.binding,
+            input,
+            self.now,
+            c.records().len(),
+            op,
+            payload,
+            cause,
+            day_index,
+        ))
     }
 
     fn apply_updates(
@@ -300,9 +395,18 @@ impl<C: NodePort> Trading<C> {
     }
     fn valuation(&self, c: &mut Candidate, input: &MarketInput) -> Result<(), Error> {
         let day_index = if self.native.is_some() {
-            crate::next_open::context(&input.identity(), input.event_ns(), &input.bar().to_record()["trading_day"])?["day_index"].clone()
-        } else { self.world["day_index"].clone() };
-        if let Some(command) = valuation_input(&self.binding, input, self.now, c, day_index)? { c.apply(&command)?; }
+            crate::next_open::context(
+                &input.identity(),
+                input.event_ns(),
+                &input.bar().to_record()["trading_day"],
+            )?["day_index"]
+                .clone()
+        } else {
+            self.world["day_index"].clone()
+        };
+        if let Some(command) = valuation_input(&self.binding, input, self.now, c, day_index)? {
+            c.apply(&command)?;
+        }
         Ok(())
     }
 }
@@ -526,7 +630,10 @@ impl<C: NodePort> Participants for Trading<C> {
     }
     fn cancel_input(&mut self, c: &mut Candidate) -> Result<Value, Error> {
         self.validate_execution(c)?;
-        self.native.as_mut().ok_or_else(|| err("OPENING_PROFILE_REQUIRED"))?.cancel_input(c)
+        self.native
+            .as_mut()
+            .ok_or_else(|| err("OPENING_PROFILE_REQUIRED"))?
+            .cancel_input(c)
     }
     fn quiescent(&self) -> Result<bool, Error> {
         if let Some(native) = &self.native {
@@ -564,4 +671,63 @@ fn world_proof(value: &Value) -> Result<(), Error> {
         return Err(err("BROKER_WORLD_PROOF"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod native_bar_valuation_tests {
+    use super::*;
+    fn book(quantity: Value) -> Value {
+        json!({"snapshot":{"quantity":quantity}})
+    }
+    #[test]
+    fn flat_means_every_complete_account_and_allocation_is_individually_zero() {
+        let view = |accounts: Value, allocations: Value| json!({"position_accounts":accounts,"position_allocations":allocations});
+        assert!(!native_bar_has_exposure(&view(json!([]), json!([]))).unwrap());
+        assert!(
+            !native_bar_has_exposure(&view(
+                json!([book(json!("0"))]),
+                json!([book(json!("0.00"))])
+            ))
+            .unwrap()
+        );
+        assert!(
+            native_bar_has_exposure(&view(
+                json!([book(json!("0"))]),
+                json!([book(json!("1")), book(json!("-1"))])
+            ))
+            .unwrap(),
+            "consolidated zero cannot hide offsetting Allocation exposure"
+        );
+        assert!(
+            native_bar_has_exposure(&view(json!([book(json!("1"))]), json!([book(json!("0"))])))
+                .unwrap()
+        );
+        assert!(native_bar_has_exposure(&view(json!([book(json!("-1"))]), json!([]))).unwrap());
+        assert!(native_bar_has_exposure(&view(json!([]), json!([book(json!("1"))]))).is_err());
+        for malformed in [
+            Value::Null,
+            json!(0),
+            json!("NaN"),
+            json!("invalid"),
+            json!({}),
+        ] {
+            for state in [
+                view(json!([book(malformed.clone())]), json!([])),
+                view(json!([book(json!("0"))]), json!([book(malformed.clone())])),
+                view(json!([book(json!("1")), book(malformed)]), json!([])),
+            ] {
+                assert!(
+                    native_bar_has_exposure(&state).is_err(),
+                    "incomplete quantity proof became a flat/nonflat verdict"
+                );
+            }
+        }
+        for malformed in [
+            json!({}),
+            json!({"position_accounts":[]}),
+            json!({"position_accounts":[],"position_allocations":null}),
+        ] {
+            assert!(native_bar_has_exposure(&malformed).is_err());
+        }
+    }
 }

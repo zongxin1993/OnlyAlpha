@@ -1,7 +1,7 @@
 use crate::{Error, Inputs, MarketInput, OpeningInput, boundary, err, hash};
 use onlyalpha_clock::{BigInt, OnlyVirtualClock};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
-use onlyalpha_execution::{CommitIntent, Components, Record, Store, coordinate, recover};
+use onlyalpha_execution::{CommitIntent, Components, Prepared, Record, Store, coordinate, recover};
 use onlyalpha_runtime_persistence::{ReplayEntryRef, Runtime};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -50,7 +50,7 @@ impl Store for Memory {
         Ok(self
             .records
             .get(usize::try_from(n - 1).map_err(|_| err("BOUND"))?)
-            .cloned())
+            .map(Record::compact_snapshot))
     }
     fn commit(&mut self, i: &CommitIntent) -> Result<Record, Error> {
         let n = i.prepared().sequence();
@@ -83,6 +83,7 @@ pub struct Candidate {
     components: Components,
     store: Memory,
     configuration: Value,
+    plans: Vec<Prepared>,
 }
 impl Candidate {
     pub(crate) fn new(configuration: Value, records: Vec<Record>) -> Result<Self, Error> {
@@ -93,16 +94,35 @@ impl Candidate {
             components,
             store,
             configuration,
+            plans: Vec::new(),
         })
     }
     fn from_runtime_head(runtime: &Runtime, configuration: Value) -> Result<Self, Error> {
         let (components, records) = runtime.fork_ready()?;
-        if components.configuration() != &configuration { return Err(err("EXECUTION_CONTEXT")); }
-        Ok(Self { components, store: Memory { records }, configuration })
+        if components.configuration() != &configuration {
+            return Err(err("EXECUTION_CONTEXT"));
+        }
+        Ok(Self {
+            components,
+            store: Memory { records },
+            configuration,
+            plans: Vec::new(),
+        })
     }
     pub fn apply(&mut self, input: &Value) -> Result<(), Error> {
+        if self.plans.len() >= 512 {
+            return Err(err("INPUTS"));
+        }
+        // Earlier plans keep their original canonical body and planner origin.
+        // Only the last plan needs its optional typed acceleration state; drop
+        // the previous copy before constructing another full candidate head.
+        if let Some(previous) = self.plans.last_mut() {
+            *previous = previous.compact_clone();
+        }
         let p = self.components.prepare(&self.store, input)?;
-        coordinate(&mut self.store, &mut self.components, &p)
+        coordinate(&mut self.store, &mut self.components, &p)?;
+        self.plans.push(p);
+        Ok(())
     }
     pub fn state(&self) -> Result<Value, Error> {
         self.components.state(&self.store)
@@ -137,8 +157,41 @@ impl Candidate {
             .to_record())
     }
 }
+// Original planner objects are local to one derive/install. Passive Records,
+// serialized inputs and retained source expectations cannot construct them.
+struct DerivedStep {
+    record: Value,
+    plans: Vec<Prepared>,
+}
+impl DerivedStep {
+    fn verify_plans(&self) -> Result<(), Error> {
+        let inputs = self.record["inputs"]
+            .as_array()
+            .ok_or_else(|| err("INPUTS"))?;
+        let start = self.record["execution_start"]
+            .as_u64()
+            .ok_or_else(|| err("PREFIX"))?;
+        if inputs.len() != self.plans.len() || inputs.len() > 512 {
+            return Err(err("EXECUTION_PLAN_RELATION"));
+        }
+        for (index, (input, plan)) in inputs.iter().zip(&self.plans).enumerate() {
+            let sequence = start
+                .checked_add(index as u64)
+                .and_then(|n| n.checked_add(1))
+                .ok_or_else(|| err("BOUND"))?;
+            if plan.sequence() != sequence || plan.input() != input {
+                return Err(err("EXECUTION_PLAN_RELATION"));
+            }
+        }
+        Ok(())
+    }
+}
+
 // Historical rederivation never substitutes the current official head, even for an empty suffix.
-enum DeriveSource { RuntimeHead, HistoricalPrefix(usize) }
+enum DeriveSource {
+    RuntimeHead,
+    HistoricalPrefix(usize),
+}
 
 #[derive(Clone)]
 pub struct RunSpec {
@@ -279,14 +332,23 @@ impl<P: Participants> RunLoop<P> {
         // This one fresh cut includes the original full Execution/reconcile and
         // participant-state guard plus every actual encoded replay row.
         self.runtime.verify_replay_refs(&self.steps)
-
     }
-    fn derive(&mut self, kind: &str, outcome: &Value, source: DeriveSource) -> Result<Value, Error> {
+    fn derive(
+        &mut self,
+        kind: &str,
+        outcome: &Value,
+        source: DeriveSource,
+    ) -> Result<DerivedStep, Error> {
         let mut candidate = match source {
-            DeriveSource::RuntimeHead => Candidate::from_runtime_head(&self.runtime, self.spec.configuration.clone())?,
+            DeriveSource::RuntimeHead => {
+                Candidate::from_runtime_head(&self.runtime, self.spec.configuration.clone())?
+            }
             DeriveSource::HistoricalPrefix(start) => {
                 let records = self.runtime.records()?;
-                let prefix = records.get(..start).ok_or_else(|| err("EXECUTION_PREFIX"))?.to_vec();
+                let prefix = records
+                    .get(..start)
+                    .ok_or_else(|| err("EXECUTION_PREFIX"))?
+                    .to_vec();
                 Candidate::new(self.spec.configuration.clone(), prefix)?
             }
         };
@@ -315,7 +377,8 @@ impl<P: Participants> RunLoop<P> {
             }
             "BAR" => {
                 if state["status"] != "RUNNING"
-                    || (self.participants.opening_phase() && (state["phase"] != "CLOSE" || state["input_finished"] != false))
+                    || (self.participants.opening_phase()
+                        && (state["phase"] != "CLOSE" || state["input_finished"] != false))
                 {
                     return Err(err("NOT_RUNNING"));
                 }
@@ -346,7 +409,8 @@ impl<P: Participants> RunLoop<P> {
             }
             "CANCEL_INPUT" if self.participants.opening_phase() => {
                 if !matches!(state["status"].as_str(), Some("RUNNING" | "PAUSED"))
-                    || state["input_finished"] != false {
+                    || state["input_finished"] != false
+                {
                     return Err(err("INPUT_CANCEL_TRANSITION"));
                 }
                 let output = self.participants.cancel_input(&mut candidate)?;
@@ -405,39 +469,49 @@ impl<P: Participants> RunLoop<P> {
             .iter()
             .map(|r| r.prepared().input().clone())
             .collect::<Vec<_>>();
-        let previous = self
-            .steps
-            .last()
-            .map_or_else(|| hash(&self.binding), |s| s.logical_fingerprint().to_owned());
-        Ok(
-            json!({"schema_version":1,"index":self.steps.len()+1,"previous":previous,"execution_start":start,"cause":{"kind":kind,"outcome":outcome,"processing":processing},"inputs":inputs,"state":state}),
-        )
+        let previous = self.steps.last().map_or_else(
+            || hash(&self.binding),
+            |s| s.logical_fingerprint().to_owned(),
+        );
+        let derived = DerivedStep {
+            record: json!({"schema_version":1,"index":self.steps.len()+1,"previous":previous,"execution_start":start,"cause":{"kind":kind,"outcome":outcome,"processing":processing},"inputs":inputs,"state":state}),
+            plans: candidate.plans,
+        };
+        derived.verify_plans()?;
+        Ok(derived)
     }
     fn install_observed(
         &mut self,
-        step: &Value,
+        mut derived: DerivedStep,
         original: &ReplayEntryRef,
         mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
     ) -> Result<(), Error> {
+        derived.verify_plans()?;
+        let step = &derived.record;
         let inputs = step["inputs"].as_array().ok_or_else(|| err("INPUTS"))?;
         let start = step["execution_start"]
             .as_u64()
             .ok_or_else(|| err("PREFIX"))?;
         let records = self.runtime.records()?;
-        for (index, input) in inputs.iter().enumerate() {
+        // Consume and release each original plan after matching or installing
+        // it; no typed state is retained in the RunLoop or durable journal.
+        for (index, plan) in derived.plans.drain(..).enumerate() {
             let n = start + index as u64;
             if let Some(old) = records.get(usize::try_from(n).map_err(|_| err("BOUND"))?) {
-                if old.prepared().input() != input {
+                if old.prepared() != &plan {
                     return Err(err("EXECUTION_RELATION"));
                 }
             } else {
-                self.runtime.apply(input)?;
+                self.runtime.apply_prepared(&plan)?;
             }
-            if let Some(observer)=observer.as_mut(){observer(
-                "EXECUTION_READY",
-                step["index"].as_u64().expect("index"),
-                n + 1,
-            )?;}
+            drop(plan);
+            if let Some(observer) = observer.as_mut() {
+                observer(
+                    "EXECUTION_READY",
+                    step["index"].as_u64().expect("index"),
+                    n + 1,
+                )?;
+            }
         }
         // Replay steps and all Execution facts/Ready flags are durable on
         // every step. Complete checkpoints are recovery optimizations; only
@@ -446,33 +520,41 @@ impl<P: Participants> RunLoop<P> {
         let end = start
             .checked_add(u64::try_from(inputs.len()).map_err(|_| err("BOUND"))?)
             .ok_or_else(|| err("BOUND"))?;
-        let force = matches!(step["cause"]["kind"].as_str(),
-            Some("PAUSE" | "INPUT_END" | "CANCEL_INPUT" | "TERMINATE"));
+        let force = matches!(
+            step["cause"]["kind"].as_str(),
+            Some("PAUSE" | "INPUT_END" | "CANCEL_INPUT" | "TERMINATE")
+        );
         if self.binding["schema_version"] != 2 || force || start / 64 < end / 64 {
             self.runtime.save_checkpoint()?;
         }
         let completed = self.runtime.complete_replay_ref(&self.steps, original)?;
-        if completed.last().is_none_or(|row| !row.ready()
-            || row.index() != original.index()
-            || row.physical_fingerprint() != original.physical_fingerprint()
-            || row.logical_fingerprint() != hash(step)) {
+        if completed.last().is_none_or(|row| {
+            !row.ready()
+                || row.index() != original.index()
+                || row.physical_fingerprint() != original.physical_fingerprint()
+                || row.logical_fingerprint() != hash(step)
+        }) {
             return Err(err("REPLAY_COMPLETION_SOURCE"));
         }
         self.state = step["state"].clone();
         self.steps = completed;
-        if let Some(observer)=observer.as_mut(){observer(
-            "STEP_READY",
-            step["index"].as_u64().expect("index"),
-            self.runtime.records()?.len() as u64,
-        )?;}
+        if let Some(observer) = observer.as_mut() {
+            observer(
+                "STEP_READY",
+                step["index"].as_u64().expect("index"),
+                self.runtime.records()?.len() as u64,
+            )?;
+        }
         // The last observer is also an external source-taint boundary.
         // Keep recovery closed until its complete actual cut is rechecked.
-        if observer.is_some(){self.runtime.verify_replay_refs(&self.steps)?;}
+        if observer.is_some() {
+            self.runtime.verify_replay_refs(&self.steps)?;
+        }
         Ok(())
     }
     fn transition(&mut self, kind: &str, outcome: Value) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind,outcome,None)
+        self.transition_after_check(kind, outcome, None)
     }
     fn transition_observed(
         &mut self,
@@ -498,19 +580,24 @@ impl<P: Participants> RunLoop<P> {
             return Err(err("EVENT_DRAIN_REQUIRED"));
         }
         self.healthy = false;
-        let step = self.derive(kind, &outcome, DeriveSource::RuntimeHead)?;
-        if let Some(observer)=observer.as_mut(){observer(
-            "BEFORE_PREPARE",
-            step["index"].as_u64().expect("index"),
-            self.runtime.records()?.len() as u64,
-        )?;}
-        let original = self.runtime.prepare_replay_ref(&self.steps, &step)?;
-        if let Some(observer)=observer.as_mut(){observer(
-            "PREPARED",
-            step["index"].as_u64().expect("index"),
-            self.runtime.records()?.len() as u64,
-        )?;}
-        self.install_observed(&step, &original, observer)?;
+        let derived = self.derive(kind, &outcome, DeriveSource::RuntimeHead)?;
+        let step = &derived.record;
+        if let Some(observer) = observer.as_mut() {
+            observer(
+                "BEFORE_PREPARE",
+                step["index"].as_u64().expect("index"),
+                self.runtime.records()?.len() as u64,
+            )?;
+        }
+        let original = self.runtime.prepare_replay_ref(&self.steps, step)?;
+        if let Some(observer) = observer.as_mut() {
+            observer(
+                "PREPARED",
+                step["index"].as_u64().expect("index"),
+                self.runtime.records()?.len() as u64,
+            )?;
+        }
+        self.install_observed(derived, &original, observer)?;
         self.healthy = true;
         Ok(())
     }
@@ -524,10 +611,14 @@ impl<P: Participants> RunLoop<P> {
     ) -> Result<bool, Error> {
         self.step_inner(Some(observer))
     }
-    fn step_inner(&mut self, observer:Option<&mut dyn FnMut(&str,u64,u64)->Result<(),Error>>)->Result<bool,Error>{
+    fn step_inner(
+        &mut self,
+        observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+    ) -> Result<bool, Error> {
         self.check()?;
         if self.state["input_cancelled"] == true
-            || self.state["cursor"] == self.inputs.records().len() as u64 {
+            || self.state["cursor"] == self.inputs.records().len() as u64
+        {
             return Ok(false);
         }
         let kind = if self.binding["schema_version"] == 2 && self.state["phase"] == "OPEN" {
@@ -565,9 +656,15 @@ impl<P: Participants> RunLoop<P> {
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.check()?;
-        if !self.participants.opening_phase() { return Err(err("OPENING_PROFILE_REQUIRED")); }
-        if self.state["input_cancelled"] == true { return Ok(()); }
-        if self.state["input_finished"] == true { return Err(err("INPUT_ALREADY_FINISHED")); }
+        if !self.participants.opening_phase() {
+            return Err(err("OPENING_PROFILE_REQUIRED"));
+        }
+        if self.state["input_cancelled"] == true {
+            return Ok(());
+        }
+        if self.state["input_finished"] == true {
+            return Err(err("INPUT_ALREADY_FINISHED"));
+        }
         self.transition_observed("CANCEL_INPUT", Value::Null, observer)
     }
     /// Finalize exhausted input without inventing a Broker drain acknowledgement.
@@ -605,8 +702,15 @@ impl<P: Participants> RunLoop<P> {
         &mut self,
         mut consumer: impl FnMut(&Value) -> Result<(), Error>,
     ) -> Result<usize, Error> {
-        self.check()?;
-        let events = self.runtime.pending_events()?;
+        if !self.healthy {
+            return Err(err("RECOVERY_REQUIRED"));
+        }
+        let events = self.runtime.pending_events_at_replay_refs(&self.steps)?;
+        // No callback or write runs for an empty observation. Its one complete
+        // current cut is sufficient; the next public call reads its own source.
+        if events.is_empty() {
+            return Ok(0);
+        }
         let mut count = 0;
         for event in events {
             consumer(&event)?;
@@ -641,20 +745,21 @@ impl<P: Participants> RunLoop<P> {
             let actual = self.derive(
                 kind,
                 &step["cause"]["outcome"],
-                DeriveSource::HistoricalPrefix(usize::try_from(original.execution_start())
-                    .map_err(|_| err("BOUND"))?),
+                DeriveSource::HistoricalPrefix(
+                    usize::try_from(original.execution_start()).map_err(|_| err("BOUND"))?,
+                ),
             )?;
-            if actual != step || hash(&actual) != original.logical_fingerprint() {
+            if actual.record != step || hash(&actual.record) != original.logical_fingerprint() {
                 return Err(err("PARTICIPANT_SOURCE_CONFLICT"));
             }
             if original.ready() {
-                self.state = actual["state"].clone();
+                self.state = actual.record["state"].clone();
                 self.steps.push(original);
             } else {
                 // Only the original final pending proposal can be completed;
                 // the full ready prefix and its original body are re-read by
                 // the owner before and after Ready is changed.
-                self.install_observed(&actual, &original, None)?;
+                self.install_observed(actual, &original, None)?;
             }
         }
         self.healthy = true;
@@ -664,13 +769,22 @@ impl<P: Participants> RunLoop<P> {
     /// Output is not publishable until the final fresh cut succeeds.
     pub fn write_trace(&self, writer: &mut dyn std::io::Write) -> Result<(), Error> {
         self.check()?;
-        crate::trace::logical(writer, &self.binding, &self.inputs.record(), &self.state,
-            &self.steps, |reference| self.runtime.read_replay_step(reference))?;
+        crate::trace::logical(
+            writer,
+            &self.binding,
+            &self.inputs.record(),
+            &self.state,
+            &self.steps,
+            |reference| self.runtime.read_replay_step(reference),
+        )?;
         self.check()
     }
     /// Visit complete original Steps without expanding the entire history.
     /// A callback observes data only; success requires the final fresh cut.
-    pub fn for_each_step(&self, visit: &mut dyn FnMut(&Value, bool) -> Result<(), Error>) -> Result<(), Error> {
+    pub fn for_each_step(
+        &self,
+        visit: &mut dyn FnMut(&Value, bool) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         self.check()?;
         for reference in &self.steps {
             let step = self.runtime.read_replay_step(reference)?;
@@ -686,8 +800,14 @@ impl<P: Participants> RunLoop<P> {
         self.check()?;
         match self.runtime.storage_version() {
             2 => crate::trace::bounded(writer, |writer| self.write_trace(writer))?,
-            3 | 4 => crate::trace::encoded(writer, &self.binding, &self.inputs.record(), &self.state,
-                &self.steps, |reference, writer| self.runtime.write_encoded_step(reference, writer))?,
+            3 | 4 => crate::trace::encoded(
+                writer,
+                &self.binding,
+                &self.inputs.record(),
+                &self.state,
+                &self.steps,
+                |reference, writer| self.runtime.write_encoded_step(reference, writer),
+            )?,
             _ => return Err(err("TRACE_STORAGE_VERSION")),
         }
         self.check()
@@ -740,6 +860,6 @@ impl<P: Participants> RunLoop<P> {
     }
 }
 
-#[cfg(all(test,target_os="linux"))]
-#[path="candidate_configuration_tests.rs"]
+#[cfg(all(test, target_os = "linux"))]
+#[path = "candidate_configuration_tests.rs"]
 mod configuration_tests;

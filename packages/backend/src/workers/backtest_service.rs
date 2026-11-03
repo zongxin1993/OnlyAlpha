@@ -1,7 +1,7 @@
 //! Concrete admitted Backtest producer. SQL fencing/lifecycle belongs to its caller.
 //! Only a terminal native replay followed by positive joins can mint JoinedBacktest.
 use crate::{application::{backtest_run::VerifiedRun,private_strategy::exact,research_admission::PreparationError},
-    persistence::{backtest_evidence::{self,BacktestReadContext},research_preparation::Operation,research_runtime::RuntimeInputHold,strategy_research::Composer},
+    persistence::{backtest_evidence::BacktestReadContext,research_preparation::Operation,research_runtime::RuntimeInputHold},
     security::immutable_json::{self,Directory},
     workers::{algorithm::AlgorithmProcess,backtest_result::ObservedBacktest,trading_nodes::InstalledTradingNodes,trading_program}};
 use onlyalpha_backtest::{RunLoop,RunSpec,Trading};
@@ -13,7 +13,6 @@ use onlyalpha_strategy::{Executor,NodeFailure,Scope};
 use rustix::fs;
 use serde_json::{Value,json};
 use std::{fmt,path::PathBuf,sync::{Arc,Mutex,atomic::{AtomicU8,Ordering}},time::Duration};
-use tokio_postgres::Client;
 const INVALID:&str="BACKTEST_PRODUCER_INPUT_MISMATCH";
 const UNAVAILABLE:&str="BACKTEST_PRODUCER_UNAVAILABLE";
 const UNKNOWN:&str="BACKTEST_ALGORITHM_OUTCOME_UNKNOWN";
@@ -74,15 +73,20 @@ impl Error {
 impl fmt::Debug for Error{fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{f.write_str(self.code)}}
 impl fmt::Display for Error{fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{f.write_str(self.code)}}
 impl std::error::Error for Error{}
-/// No parsed READY, observation value or history context can construct this work.
+/// No parsed READY, observation value or history context alone grants work:
+/// restoration must also acquire the current exact Runtime execution hold.
 pub(crate) struct Work {hold:Arc<Lifetime>,configuration:Configuration,request:Value}
 impl Work {
-    /// The Shipping service moves its original readonly connection to a blocking
-    /// job before invoking this function; no writer or second connection is opened.
-    pub(crate) async fn restore(client:&mut Client,run:&VerifiedRun,original:&Operation,configuration:&Configuration)->std::result::Result<Self,Error>{
-        let context=backtest_evidence::read_context(client,run.namespace(),&configuration.research_root,&configuration.runtime_root,run.run_id(),Some(run.owner())).await.map_err(Error::bare)?;
+    /// Consume the original job's already verified history cut; never reopen a
+    /// second transaction for the same immutable Run. Current execution holds
+    /// and installed capabilities remain independently required below.
+    pub(crate) fn restore(context:Arc<BacktestReadContext>,run:&VerifiedRun,original:&Operation,configuration:&Configuration)->std::result::Result<Self,Error>{
+        let started=std::time::Instant::now();
+        let phase=|name:&str|eprintln!("BACKTEST_WORK_RESTORE_PHASE phase={name} elapsed_ms={}",started.elapsed().as_millis());
+        phase("begin");
         let mut error=Error::bare(INVALID);error.context=Some(context.clone());
-        let restored:std::result::Result<Self,PreparationError>=async {
+        let restored:std::result::Result<Self,PreparationError>=(|| {
+            context.roots_match(&configuration.research_root,&configuration.runtime_root)?;
             context.verify_cut()?;
             if context.run().specification_fingerprint()!=run.specification_fingerprint() || context.run().admission_resolution_fingerprint()!=run.admission_resolution_fingerprint()
                 || context.run().namespace()!=run.namespace() || context.run().owner()!=run.owner()
@@ -90,22 +94,29 @@ impl Work {
                 || context.original_operation().accepted!=original.accepted || context.original_operation().outputs["ready"]!=original.outputs["ready"] {return Err(INVALID.into());}
             let operation=context.original_operation();let input=operation.request.backtest()?;let ready=&operation.outputs["ready"];
             if input.backtest_command_id!=run.resolution()["runtime_work_binding"]["reason"] || operation.request.reserved_run_id()!=run.run_id(){return Err(INVALID.into());}
+            phase("context");
             let mut runtime=RuntimeInputHold::open(&configuration.runtime_root,run.run_id(),&input.backtest_command_id,run.runtime_generation_fingerprint())?;
             if runtime.binding()!=&run.resolution()["runtime_work_binding"] || runtime.binding()!=&operation.outputs["environment"]["binding"]
                 || runtime.backtest_execution_binding()?!=run.resolution()["backtest_binding"] || ready["backtest_binding"]!=run.resolution()["backtest_binding"] {return Err(INVALID.into());}
+            runtime.verify_artifacts()?;phase("runtime-artifacts");
             let installation=Arc::new(ChartInstallation::open(&configuration.algorithms_root,text(&ready["algorithm_resolution"],"algorithm_artifact")?).map_err(|_|UNAVAILABLE)?);
             error.installation=Some(installation.clone());
-            let (resolved,_)=Composer::new(client).resolve_retained(&ready["composition"],runtime,&installation).await?;
-            let (runtime,resolution,request)=resolved.into_preparation();
+            // Backtest is not a Research composition. Restore the exact
+            // calculation evidence already sealed by the original Run owner;
+            // the native producer below still resolves actual installed CAPS.
+            let resolution=context.validated_calculations()?;phase("calculations");
+            let request=resolution["algorithm_resolution_request"].clone();
+            if resolution["algorithm_resolution"]["algorithm_artifact"]!=installation.artifact_fingerprint(){return Err(INVALID.into());}
+            let runtime=Arc::new(runtime);
             // Retain the real hold before any further comparison can fail.
             let hold=Arc::new(Lifetime{context:context.clone(),runtime,installation});error.hold=Some(hold.clone());
             let source=context.source_revision().to_record();
-            if resolution["algorithm_resolution"]!=ready["algorithm_resolution"] || request!=ready["algorithm_resolution_request"] || resolution["composition"]!=ready["composition"]
+            if resolution["algorithm_resolution"]!=ready["algorithm_resolution"] || request!=ready["algorithm_resolution_request"]
                 || resolution["decision"]["decision_graph"]!=source["decision_graph"] || resolution["decision"]["signal_semantics"]!=source["signal_semantics"]
                 || context.prepared().record()!=run.resolution()["preparation"] || context.prepared().record()!=ready["preparation"]
                 || context.prepared().inputs().record()!=ready["input_sources"] || configuration.native_version!=env!("CARGO_PKG_VERSION") {return Err(INVALID.into());}
-            hold.verify()?;Ok(Self{hold,configuration:configuration.clone(),request})
-        }.await;
+            hold.verify()?;phase("complete");Ok(Self{hold,configuration:configuration.clone(),request})
+        })();
         match restored {Ok(work)=>Ok(work),Err(failure)=>{error.code=failure.code();if let Some(owner)=failure.recovery_owner(){let _=error.children.observe(owner.clone());}Err(error)}}
     }
 }
@@ -161,7 +172,10 @@ fn native(work:&Work,children:&ChildGroup)->Result<(RunSpec,Trading<InstalledTra
     let artifact=text(&hold.context.run().resolution()["backtest_binding"],"executor_artifact_sha256")?.to_owned();
     let kind=prepared.inputs().records().first().ok_or(INVALID)?.bar().bar_type().clone();
     let construction=OnlyConstructionGraph::new(vec![OnlyConstructionInput::Bar(kind.clone())],vec![]).map_err(|_|INVALID)?;
-    let pipeline=PipelineProgram::new(OnlyMarketDataStateScope::new(scope.engine,scope.runtime),program.generation(),128,
+    // This profile delivers only LATEST_CLOSED and has no construction or
+    // Pipeline calculation slots. Historical lookback belongs to the actual
+    // incremental numerical nodes, whose complete checkpoints remain retained.
+    let pipeline=PipelineProgram::new(OnlyMarketDataStateScope::new(scope.engine,scope.runtime),program.generation(),1,
         vec![SourceProgram::new(market_source,Arc::new(spot_calendar().map_err(|_|INVALID)?),Arc::new(OnlyConstructionRegistry::default()),&artifact,construction.clone()).map_err(|_|INVALID)?],
         vec![ClusterProgram{cluster:scope.cluster,subscription:OnlyBarSubscription::new("native-next-open-strategy",vec![kind.clone()],construction,Some(kind),OnlyBarFreshness::LatestClosed).map_err(|_|INVALID)?}],vec![],&artifact).map_err(|_|INVALID)?;
     let group=children.clone();let observe=Arc::new(move|owner|group.observe(owner));
@@ -183,15 +197,20 @@ pub(crate) fn produce(work:Work,mode:StartMode,control:&Control)->std::result::R
             else if restored["state"]["input_finished"]==true {run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;run.finish_input().map_err(|_|UNAVAILABLE)?;}
             else {
                 if restored["state"]["status"]=="PAUSED" && control.requested()!=1 {run.resume().map_err(|_|UNAVAILABLE)?;}
+                let mut step_time=Duration::ZERO;let mut delivery_time=Duration::ZERO;let mut step_count=0_u64;
                 loop {
                     match control.requested() {
                         1=>{if run.progress().map_err(|_|UNAVAILABLE)?["status"]!="PAUSED"{run.pause().map_err(|_|UNAVAILABLE)?;}paused=true;break;},
                         2=>{run.cancel_input().map_err(|_|UNAVAILABLE)?;run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;run.terminate("CANCELLED",Some("USER_CANCELLED")).map_err(|_|UNAVAILABLE)?;break;},
                         _=>{},
                     }
+                    let started=std::time::Instant::now();
                     #[cfg(test)] let advanced=run.step_observed(&mut |phase,index,_|{test_after_step(phase,index,control);Ok(())}).map_err(|_|UNKNOWN)?;
                     #[cfg(not(test))] let advanced=run.step().map_err(|_|UNKNOWN)?;
+                    step_time+=started.elapsed();let started=std::time::Instant::now();
                     run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;
+                    delivery_time+=started.elapsed();step_count+=1;
+                    if step_count%128==0 || !advanced {eprintln!("BACKTEST_NATIVE_PROGRESS steps={step_count} step_ms={} delivery_ms={}",step_time.as_millis(),delivery_time.as_millis());}
                     if !advanced {run.close_input().map_err(|_|UNAVAILABLE)?;run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;run.finish_input().map_err(|_|UNAVAILABLE)?;break;}
                 }
             }

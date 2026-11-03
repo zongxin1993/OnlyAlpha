@@ -35,6 +35,15 @@ impl Record {
     pub fn prepared(&self) -> &Prepared {
         &self.prepared
     }
+    /// Same observed flags and original marker, with an independent lazy body
+    /// memo. This data copy supplies no Store, Ready or new planner proof.
+    pub fn compact_snapshot(&self) -> Self {
+        Self {
+            prepared: Arc::new(self.prepared.compact_clone()),
+            ready: self.ready,
+            delivered: self.delivered,
+        }
+    }
     pub fn ready(&self) -> bool {
         self.ready
     }
@@ -47,7 +56,11 @@ impl Record {
         if delivered && !ready {
             return Err(err("EXECUTION_DELIVERY_BEFORE_READY"));
         }
-        Ok(Self { prepared: Arc::clone(&self.prepared), ready, delivered })
+        Ok(Self {
+            prepared: Arc::clone(&self.prepared),
+            ready,
+            delivered,
+        })
     }
     /// Passive canonical data only: always discard planner origin and typed after-state.
     /// Supplied flags still require the caller's actual owning Store observation.
@@ -95,11 +108,16 @@ pub trait Store {
     fn mark_ready(&mut self, sequence: u64) -> Result<(), Error>;
     fn acknowledge(&mut self, sequence: u64) -> Result<(), Error>;
 }
-fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record, original:Option<&Prepared>) -> Result<(), Error> {
+fn resume<S: Store>(
+    store: &mut S,
+    c: &mut Components,
+    record: Record,
+    original: Option<&Prepared>,
+) -> Result<(), Error> {
     let p = match original {
-        Some(original) if original==record.prepared()=>original,
-        Some(_)=>return Err(err("EXECUTION_STORE_PAYLOAD_CONFLICT")),
-        None=>record.prepared(),
+        Some(original) if original == record.prepared() => original,
+        Some(_) => return Err(err("EXECUTION_STORE_PAYLOAD_CONFLICT")),
+        None => record.prepared(),
     };
     let observed = store
         .get(p.sequence())?
@@ -124,15 +142,19 @@ fn resume<S: Store>(store: &mut S, c: &mut Components, record: Record, original:
         if !record.ready() {
             return Err(err("EXECUTION_LOCAL_AHEAD_OF_STORE"));
         }
-        for index in 0..p.projection_count(){Components::validated_typed_after(p,index)?;}
+        for index in 0..p.projection_count() {
+            Components::validated_typed_after(p, index)?;
+        }
         return Ok(());
     }
     // A recovered/lost installation index may already contain result owners.
     // Such a caller checkpoint cannot certify the original transition prefix.
     let validates_data = c.pending.is_none()
         && p.value()["predecessor"] == c.sequence
-        && c.payload_hashes()?.iter().enumerate().all(|(index, actual)|
-            p.value()["projections"][index]["before_hash"] == *actual);
+        && c.payload_hashes()?
+            .iter()
+            .enumerate()
+            .all(|(index, actual)| p.value()["projections"][index]["before_hash"] == *actual);
     if c.pending.is_none() {
         c.pending = Some((p.id().into(), 0));
     }

@@ -32,10 +32,19 @@ impl BacktestReadContext {
     pub(crate) fn original_operation(&self)->&Operation {&self.operation}
     pub(crate) fn prepared(&self)->&PreparedNextOpen {&self.owners.prepared}
     pub(crate) fn source_revision(&self)->&onlyalpha_strategy::SourceRevision {self.owners.history.source_revision()}
+    /// The current manual occurrence owns its calculation evidence even when
+    /// the canonical grant originated in an earlier equivalent preparation.
+    pub(crate) fn validated_calculations(&self)->Result<&Value> {
+        self.verify_cut()?;
+        match &self.owners.validation {
+            Some(validation)=>Ok(&validation.record()["prepared_inputs"]),
+            None=>self.owners.history.validated_calculations(),
+        }
+    }
     pub(super) fn installed_proof(&self)->&Value {&self.owners.installed}
     pub(super) fn runtime_manifest(&self)->&Value {self.owners.runtime.manifest()}
     pub(super) fn executor_manifest(&self)->Result<&Value> {self.owners.runtime.executor_manifest()}
-    pub(super) fn roots_match(&self,research:&Path,runtime:&Path)->Result<()> {
+    pub(crate) fn roots_match(&self,research:&Path,runtime:&Path)->Result<()> {
         if research!=self.owners.research_root||runtime!=self.owners.runtime_root {return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");}Ok(())
     }
     pub(crate) fn verify_cut(&self)->Result<()> {

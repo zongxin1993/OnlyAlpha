@@ -42,14 +42,30 @@ pub(crate) trait NativeExecution {
     fn apply(&mut self, input: &Value) -> Result<(), Error>;
 }
 impl NativeExecution for Candidate {
-    fn configuration(&self) -> &Value { self.configuration() }
-    fn state(&self) -> Result<Value, Error> { self.state() }
-    fn position_order_view(&self) -> Result<Value, Error> { self.position_order_view() }
-    fn checkpoint(&self) -> Result<Value, Error> { self.checkpoint() }
-    fn sequence(&self) -> usize { self.records().len() }
-    fn order(&self, cluster: &str, order: &str) -> Result<Value, Error> { self.order(cluster, order) }
-    fn fee_order_preview(&self, cluster: &str, request: &Value, at: u64) -> Result<Value, Error> { self.fee_order_preview(cluster, request, at) }
-    fn apply(&mut self, input: &Value) -> Result<(), Error> { self.apply(input) }
+    fn configuration(&self) -> &Value {
+        self.configuration()
+    }
+    fn state(&self) -> Result<Value, Error> {
+        self.state()
+    }
+    fn position_order_view(&self) -> Result<Value, Error> {
+        self.position_order_view()
+    }
+    fn checkpoint(&self) -> Result<Value, Error> {
+        self.checkpoint()
+    }
+    fn sequence(&self) -> usize {
+        self.records().len()
+    }
+    fn order(&self, cluster: &str, order: &str) -> Result<Value, Error> {
+        self.order(cluster, order)
+    }
+    fn fee_order_preview(&self, cluster: &str, request: &Value, at: u64) -> Result<Value, Error> {
+        self.fee_order_preview(cluster, request, at)
+    }
+    fn apply(&mut self, input: &Value) -> Result<(), Error> {
+        self.apply(input)
+    }
 }
 
 pub(crate) struct NativeReplay {
@@ -194,24 +210,56 @@ impl NativeReplay {
     }
     /// Read-only validation of this owner's retained checkpoint profile. No
     /// resolver, SDK factory, admission or Fill operation is invoked.
-    pub(crate) fn read_quiescent(settings:&Value,native_policy:&Value,checkpoint:&Value)->Result<bool,Error>{
-        fields(checkpoint,&["schema_version","binding","execution_model","pending","last","finished"])?;
-        let mut binding=native_policy.clone();
-        let model=binding.as_object_mut().ok_or_else(||err("NEXT_OPEN_BINDING"))?.remove("execution_model").ok_or_else(||err("NEXT_OPEN_BINDING"))?;
-        let expected=json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":hash(&settings["execution"]),"policy_fingerprint":hash(&binding)});
-        if checkpoint["schema_version"]!=2 || model!=expected || checkpoint["execution_model"]!=model
-            || binding["schema_version"]!=1 || binding["configuration"]!=hash(&settings["execution"])
-            || binding["reference_policy"]!="MODEL_NEXT_OPEN"
-            || checkpoint["binding"]!=hash(&json!([binding,settings["policy"]]))
-            || !checkpoint["finished"].is_boolean() || (!checkpoint["pending"].is_null()&&!checkpoint["pending"].is_object())
-            || (!checkpoint["last"].is_null()&&!checkpoint["last"].is_object())
-            || (checkpoint["finished"]==true&&!checkpoint["pending"].is_null()) {return Err(err("NEXT_OPEN_CHECKPOINT"));}
-        Ok(checkpoint["finished"]==true&&checkpoint["pending"].is_null())
+    pub(crate) fn read_quiescent(
+        settings: &Value,
+        native_policy: &Value,
+        checkpoint: &Value,
+    ) -> Result<bool, Error> {
+        fields(
+            checkpoint,
+            &[
+                "schema_version",
+                "binding",
+                "execution_model",
+                "pending",
+                "last",
+                "finished",
+            ],
+        )?;
+        let mut binding = native_policy.clone();
+        let model = binding
+            .as_object_mut()
+            .ok_or_else(|| err("NEXT_OPEN_BINDING"))?
+            .remove("execution_model")
+            .ok_or_else(|| err("NEXT_OPEN_BINDING"))?;
+        let expected = json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":hash(&settings["execution"]),"policy_fingerprint":hash(&binding)});
+        if checkpoint["schema_version"] != 2
+            || model != expected
+            || checkpoint["execution_model"] != model
+            || binding["schema_version"] != 1
+            || binding["configuration"] != hash(&settings["execution"])
+            || binding["reference_policy"] != "MODEL_NEXT_OPEN"
+            || checkpoint["binding"] != hash(&json!([binding, settings["policy"]]))
+            || !checkpoint["finished"].is_boolean()
+            || (!checkpoint["pending"].is_null() && !checkpoint["pending"].is_object())
+            || (!checkpoint["last"].is_null() && !checkpoint["last"].is_object())
+            || (checkpoint["finished"] == true && !checkpoint["pending"].is_null())
+        {
+            return Err(err("NEXT_OPEN_CHECKPOINT"));
+        }
+        Ok(checkpoint["finished"] == true && checkpoint["pending"].is_null())
     }
     pub(crate) fn restore(&mut self, v: &Value) -> Result<(), Error> {
         fields(
             v,
-            &["schema_version", "binding", "execution_model", "pending", "last", "finished"],
+            &[
+                "schema_version",
+                "binding",
+                "execution_model",
+                "pending",
+                "last",
+                "finished",
+            ],
         )?;
         if v["schema_version"] != 2
             || v["execution_model"] != self.execution_model()
@@ -317,17 +365,25 @@ impl NativeReplay {
         let relations = state["orders"]
             .as_object()
             .ok_or_else(|| err("ORDER_PROOF"))?;
-        let mut active = false;
-        for (id, relation) in relations {
+        if state["schema_version"] != 2 {
+            return Err(err("ORDER_PROOF"));
+        }
+        for relation in relations.values() {
             if relation["cluster"] != self.cluster {
                 return Err(err("ORDER_SCOPE"));
             }
-            let order = c.order(&self.cluster, id)?;
-            active |= !matches!(
-                order["status"].as_str(),
-                Some("FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED")
-            );
         }
+        let active = state["active_order_ids"]
+            .as_array()
+            .ok_or_else(|| err("ORDER_PROOF"))?;
+        let mut seen = std::collections::BTreeSet::new();
+        for id in active {
+            let id = id.as_str().ok_or_else(|| err("ORDER_PROOF"))?;
+            if !relations.contains_key(id) || !seen.insert(id) {
+                return Err(err("ORDER_PROOF"));
+            }
+        }
+        let active = !active.is_empty();
         let mut quantity: OnlyDecimal = boundary("0".parse())?;
         for allocation in state["position_allocations"]
             .as_array()
@@ -590,11 +646,23 @@ impl NativeReplay {
             let ctx = &self.last["context"];
             if order["status"] != "PENDING_CANCEL" {
                 let (request_id, message) = if reason == "INPUT_EXHAUSTED" {
-                    (format!("END-CANCEL-{}",hash(&json!([id,self.binding]))), "finite model input exhausted")
+                    (
+                        format!("END-CANCEL-{}", hash(&json!([id, self.binding]))),
+                        "finite model input exhausted",
+                    )
                 } else {
-                    (format!("USER-CANCEL-{}",hash(&json!([id,self.binding,reason]))), "user cancelled finite model input")
+                    (
+                        format!("USER-CANCEL-{}", hash(&json!([id, self.binding, reason]))),
+                        "user cancelled finite model input",
+                    )
                 };
-                c.apply(&self.request(c,identity,ctx,"CANCEL",json!({"schema_version":1,"order":id,"request_id":request_id,"reason":message})))?;
+                c.apply(&self.request(
+                    c,
+                    identity,
+                    ctx,
+                    "CANCEL",
+                    json!({"schema_version":1,"order":id,"request_id":request_id,"reason":message}),
+                ))?;
             }
             c.apply(&self.request(c,identity,ctx,"TERMINAL",json!({"schema_version":1,"order":id,"outcome":"CANCELLED","collateral":{"schema_version":1,"kind":"NONE","instruction":null,"close_allocation":null}})))?;
             cancelled.push(json!(id));

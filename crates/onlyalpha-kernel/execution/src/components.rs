@@ -19,20 +19,43 @@ pub struct Components {
     pub(crate) meta: Value,
     pub(crate) sequence: u64,
     pub(crate) pending: Option<(String, usize)>,
-    payload_cache: std::sync::OnceLock<(std::sync::Arc<Vec<Value>>,Vec<String>)>,
+    payload_cache: std::sync::OnceLock<(std::sync::Arc<Vec<Value>>, Vec<String>)>,
 }
 impl Components {
     pub fn new(config: Value) -> Result<Self, Error> {
-        let fields=["engine","runtime","account","gateway","generation","runtime_kind","currency","initial_cash","capitals","profiles","instruments"];
-        let account_version=match config["schema_version"].as_u64(){
-            Some(1)=>{row(&config,&fields)?;4},
-            Some(2)=>{
-                let r=config.as_object().ok_or_else(||err("EXECUTION_RECORD"))?;
-                if r.len()!=fields.len()+2||fields.iter().any(|field|!r.contains_key(*field))||!r.contains_key("account_checkpoint_version"){return Err(err("EXECUTION_FIELDS"));}
-                if config["account_checkpoint_version"]!=5||config["runtime_kind"]!="BACKTEST"{return Err(err("EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"));}
+        let fields = [
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+            "currency",
+            "initial_cash",
+            "capitals",
+            "profiles",
+            "instruments",
+        ];
+        let account_version = match config["schema_version"].as_u64() {
+            Some(1) => {
+                row(&config, &fields)?;
+                4
+            }
+            Some(2) => {
+                let r = config.as_object().ok_or_else(|| err("EXECUTION_RECORD"))?;
+                if r.len() != fields.len() + 2
+                    || fields.iter().any(|field| !r.contains_key(*field))
+                    || !r.contains_key("account_checkpoint_version")
+                {
+                    return Err(err("EXECUTION_FIELDS"));
+                }
+                if config["account_checkpoint_version"] != 5 || config["runtime_kind"] != "BACKTEST"
+                {
+                    return Err(err("EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"));
+                }
                 5
-            },
-            _=>return Err(err("EXECUTION_FIELDS")),
+            }
+            _ => return Err(err("EXECUTION_FIELDS")),
         };
         for f in ["engine", "runtime", "account", "gateway", "generation"] {
             id(&config[f])?;
@@ -118,7 +141,11 @@ impl Components {
                 json!({"schema_version":1,"engine_id":config["engine"],"runtime_id":config["runtime"],"gateway_id":config["gateway"],"generation":config["generation"]}),
             ))?,
             position: boundary(onlyalpha_position::Manager::new(pc))?,
-            account: boundary(if account_version==5{onlyalpha_account::Manager::new_checkpoint5(ac)}else{onlyalpha_account::Manager::new(ac)})?,
+            account: boundary(if account_version == 5 {
+                onlyalpha_account::Manager::new_checkpoint5(ac)
+            } else {
+                onlyalpha_account::Manager::new(ac)
+            })?,
             ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
             risk: boundary(onlyalpha_risk::Manager::new(rc))?,
             config: config.clone(),
@@ -135,12 +162,16 @@ impl Components {
     /// Independent data only; callers still prove their current owning Store.
     pub(crate) fn clone_data(&self) -> Self {
         Self {
-            config: self.config.clone(), precision: self.precision,
-            order: self.order.clone(), position: self.position.clone(),
+            config: self.config.clone(),
+            precision: self.precision,
+            order: self.order.clone(),
+            position: self.position.clone(),
             account: self.account.clone(),
             ledger: self.ledger.clone(),
-            risk: self.risk.clone(), meta: self.meta.clone(),
-            sequence: self.sequence, pending: self.pending.clone(),
+            risk: self.risk.clone(),
+            meta: self.meta.clone(),
+            sequence: self.sequence,
+            pending: self.pending.clone(),
             payload_cache: self.payload_cache.clone(),
         }
     }
@@ -154,55 +185,105 @@ impl Components {
         Ok(self.clone_data())
     }
     pub(crate) fn ready_source<S: crate::Store>(&self, store: &S) -> Result<(), Error> {
-        let _=self.payload_hashes()?;
-        let genesis=Self::genesis_payload_hashes(&self.config)?;
-        self.ready_source_with_genesis(store,&genesis)
+        let _ = self.payload_hashes()?;
+        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        self.ready_source_with_genesis(store, &genesis)
     }
-    pub(crate) fn genesis_payload_hashes(config:&Value)->Result<Vec<String>,Error>{
+    pub(crate) fn genesis_payload_hashes(config: &Value) -> Result<Vec<String>, Error> {
         Ok(Self::new(config.clone())?.payload_hashes()?.to_vec())
     }
     // Images are derived here from the same immutably borrowed owners. They
     // are data only; actual Store facts are still checked on every invocation.
-    pub(crate) fn ready_source_with_genesis<S:crate::Store>(&self,store:&S,genesis:&[String])->Result<(),Error>{
-        let current=self.payload_hashes()?;
-        if self.pending.is_some()||store.head()?!=self.sequence{return Err(err("EXECUTION_NOT_PROJECTION_READY"));}
-        let expected=Self::ready_prefix_with_genesis(store,&self.config,self.sequence,genesis.to_vec())?;
-        if expected.as_slice()!=current{return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));}
+    pub(crate) fn ready_source_with_genesis<S: crate::Store>(
+        &self,
+        store: &S,
+        genesis: &[String],
+    ) -> Result<(), Error> {
+        let current = self.payload_hashes()?;
+        if self.pending.is_some() || store.head()? != self.sequence {
+            return Err(err("EXECUTION_NOT_PROJECTION_READY"));
+        }
+        let expected =
+            Self::ready_prefix_with_genesis(store, &self.config, self.sequence, genesis.to_vec())?;
+        if expected.as_slice() != current {
+            return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));
+        }
         Ok(())
     }
-    pub(crate) fn ready_prefix<S: crate::Store>(store:&S,config:&Value,sequence:u64)->Result<Vec<String>,Error>{
-        Self::ready_prefix_with_genesis(store,config,sequence,Self::genesis_payload_hashes(config)?)
+    pub(crate) fn ready_prefix<S: crate::Store>(
+        store: &S,
+        config: &Value,
+        sequence: u64,
+    ) -> Result<Vec<String>, Error> {
+        Self::ready_prefix_with_genesis(
+            store,
+            config,
+            sequence,
+            Self::genesis_payload_hashes(config)?,
+        )
     }
-    fn ready_prefix_with_genesis<S:crate::Store>(store:&S,config:&Value,sequence:u64,mut previous:Vec<String>)->Result<Vec<String>,Error>{
-        let configuration_hash=hash(config);
+    fn ready_prefix_with_genesis<S: crate::Store>(
+        store: &S,
+        config: &Value,
+        sequence: u64,
+        mut previous: Vec<String>,
+    ) -> Result<Vec<String>, Error> {
+        let configuration_hash = hash(config);
         match store.read_prefix(sequence)? {
-            Some(records)=>{
-                if u64::try_from(records.len()).ok()!=Some(sequence){return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));}
-                for (index,record) in records.iter().enumerate(){
-                    Self::validate_ready_prefix_record(record,config,&configuration_hash,index as u64+1,&mut previous)?;
+            Some(records) => {
+                if u64::try_from(records.len()).ok() != Some(sequence) {
+                    return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));
                 }
-            },
-            None=>{
+                for (index, record) in records.iter().enumerate() {
+                    Self::validate_ready_prefix_record(
+                        record,
+                        config,
+                        &configuration_hash,
+                        index as u64 + 1,
+                        &mut previous,
+                    )?;
+                }
+            }
+            None => {
                 // Keep each default get immediately followed by its original
                 // validation. A later callback/error cannot overtake a bad row.
                 for n in 1..=sequence {
-                    let record=store.get(n)?.ok_or_else(||err("EXECUTION_READY_SOURCE_MISSING"))?;
-                    Self::validate_ready_prefix_record(&record,config,&configuration_hash,n,&mut previous)?;
+                    let record = store
+                        .get(n)?
+                        .ok_or_else(|| err("EXECUTION_READY_SOURCE_MISSING"))?;
+                    Self::validate_ready_prefix_record(
+                        &record,
+                        config,
+                        &configuration_hash,
+                        n,
+                        &mut previous,
+                    )?;
                 }
-            },
+            }
         }
         Ok(previous)
     }
-    fn validate_ready_prefix_record(record:&crate::Record,config:&Value,configuration_hash:&str,n:u64,previous:&mut [String])->Result<(),Error>{
-        let prepared=record.prepared();
-        Self::require_account_checkpoint_for_config(config,&prepared.value()["projections"][2]["result"])?;
-        if !record.ready()||prepared.sequence()!=n||prepared.value()["config_hash"]!=configuration_hash {
+    fn validate_ready_prefix_record(
+        record: &crate::Record,
+        config: &Value,
+        configuration_hash: &str,
+        n: u64,
+        previous: &mut [String],
+    ) -> Result<(), Error> {
+        let prepared = record.prepared();
+        Self::require_account_checkpoint_version(config, prepared.account_checkpoint_version())?;
+        if !record.ready()
+            || prepared.sequence() != n
+            || prepared.configuration_fingerprint() != configuration_hash
+        {
             return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));
         }
-        for (i,prior) in previous.iter_mut().enumerate(){
-            let projection=&prepared.value()["projections"][i];
-            if projection["before_hash"]!=*prior{return Err(err("EXECUTION_READY_LINEAGE_CONFLICT"));}
-            *prior=text(&projection["result_hash"])?.to_owned();
+        for (i, prior) in previous.iter_mut().enumerate() {
+            let (before, after) = &prepared.projection_hashes()[i];
+            if before != prior {
+                return Err(err("EXECUTION_READY_LINEAGE_CONFLICT"));
+            }
+            prior.clone_from(after);
         }
         Ok(())
     }
@@ -286,24 +367,83 @@ impl Components {
     /// Position identity is its complete canonical checkpoint SHA, not metadata.
     pub fn position_order_view<S: crate::Store>(&self, store: &S) -> Result<Value, Error> {
         self.ready_source(store)?;
+        let relations = self.meta["orders"]
+            .as_object()
+            .ok_or_else(|| err("EXECUTION_ORDER_VIEW_RELATION"))?;
+        for (id, relation) in relations {
+            let cluster = text(&relation["cluster"])?;
+            let snapshot = boundary(self.order.get(cluster, id))?;
+            if snapshot.order_id().value() != id.as_str()
+                || snapshot.cluster_id().value() != cluster
+            {
+                return Err(err("EXECUTION_ORDER_VIEW_RELATION"));
+            }
+        }
+        let mut active = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for snapshot in self.order.snapshots() {
+            let id = snapshot.order_id().value();
+            let cluster = snapshot.cluster_id().value();
+            if !seen.insert(id)
+                || relations
+                    .get(id)
+                    .is_none_or(|relation| relation["cluster"] != cluster)
+                || self.config["profiles"].get(cluster).is_none()
+                || Some(snapshot.runtime_id().value()) != self.config["runtime"].as_str()
+                || Some(snapshot.account_id().value()) != self.config["account"].as_str()
+            {
+                return Err(err("EXECUTION_ORDER_VIEW_RELATION"));
+            }
+            if Self::order_snapshot_is_active(snapshot) {
+                active.push(id.to_owned());
+            }
+        }
+        if seen.len() != relations.len() {
+            return Err(err("EXECUTION_ORDER_VIEW_RELATION"));
+        }
+        active.sort();
         let position = self.position.current_exposure();
         let account = self.account.snapshot();
-        Ok(json!({"schema_version":1,"orders":self.meta["orders"],"position_accounts":position["accounts"],"position_allocations":position["allocations"],"economic_version":account["economic_version"],"position_checkpoint_fingerprint":self.payload_digest(1)?}))
+        Ok(
+            json!({"schema_version":2,"orders":self.meta["orders"],"active_order_ids":active,
+            "position_accounts":position["accounts"],"position_allocations":position["allocations"],
+            "economic_version":account["economic_version"],"position_checkpoint_fingerprint":self.payload_digest(1)?}),
+        )
+    }
+    /// Pure status classification of an already validated Domain snapshot.
+    /// This supplies no source, Ready or dispatch authority.
+    pub fn order_snapshot_is_active(
+        snapshot: &onlyalpha_domain::execution::OnlyOrderSnapshot,
+    ) -> bool {
+        !matches!(
+            snapshot.status().as_str(),
+            "FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED"
+        )
     }
     pub fn state<S: crate::Store>(&self, store: &S) -> Result<Value, Error> {
         self.ready_source(store)?;
         #[cfg(test)]
-        FULL_STATE_CONSTRUCTIONS.with(|count|count.set(count.get()+1));
+        FULL_STATE_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
         Ok(
             json!({"schema_version":1,"execution_sequence":self.sequence,"account":self.account.state(),"position":self.position.state(),"ledger":self.ledger.state(),"risk":self.risk.state(),"execution":self.meta}),
         )
     }
-    fn require_account_checkpoint_for_config(config:&Value,value:&Value)->Result<(),Error>{
-        let expected=if config["schema_version"]==2{5}else{4};
-        if value["schema_version"]!=expected{return Err(err("EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"));}
+    fn require_account_checkpoint_for_config(config: &Value, value: &Value) -> Result<(), Error> {
+        Self::require_account_checkpoint_version(config, value["schema_version"].as_u64())
+    }
+    pub(crate) fn require_account_checkpoint_version(
+        config: &Value,
+        version: Option<u64>,
+    ) -> Result<(), Error> {
+        let expected = if config["schema_version"] == 2 { 5 } else { 4 };
+        if version != Some(expected) {
+            return Err(err("EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"));
+        }
         Ok(())
     }
-    pub(crate) fn require_account_checkpoint(&self,value:&Value)->Result<(),Error>{Self::require_account_checkpoint_for_config(&self.config,value)}
+    pub(crate) fn require_account_checkpoint(&self, value: &Value) -> Result<(), Error> {
+        Self::require_account_checkpoint_for_config(&self.config, value)
+    }
     pub(crate) fn invalidate_payloads(&mut self) {
         let _ = self.payload_cache.take();
     }
@@ -322,27 +462,32 @@ impl Components {
             boundary(self.risk.checkpoint())?,
         ] {
             #[cfg(test)]
-            PAYLOAD_CAPTURE_BYTES.with(|count|count.set(count.get()+bytes.len() as u64));
+            PAYLOAD_CAPTURE_BYTES.with(|count| count.set(count.get() + bytes.len() as u64));
             ps.push(serde_json::from_slice(&bytes)?);
             fingerprints.push(fingerprint);
         }
         #[cfg(test)]
-        PAYLOAD_CAPTURE_BYTES.with(|count|count.set(count.get()+self.meta.to_string().len() as u64));
+        PAYLOAD_CAPTURE_BYTES
+            .with(|count| count.set(count.get() + self.meta.to_string().len() as u64));
         ps.push(self.meta.clone());
         self.require_account_checkpoint(&ps[2])?;
         // Each actual owner already hashed its exact canonical bytes above.
         // Metadata has no separate encoder and retains its complete value hash.
         fingerprints.push(hash(&ps[5]));
         let payloads = std::sync::Arc::new(ps);
-        let _ = self.payload_cache.set((payloads,fingerprints));
-        Ok(std::sync::Arc::clone(&self.payload_cache.get().expect("codec image initialized").0))
+        let _ = self.payload_cache.set((payloads, fingerprints));
+        Ok(std::sync::Arc::clone(
+            &self.payload_cache.get().expect("codec image initialized").0,
+        ))
     }
-    pub(crate) fn payload_hashes(&self) -> Result<&[String],Error> {
-        let _=self.payloads()?;
+    pub(crate) fn payload_hashes(&self) -> Result<&[String], Error> {
+        let _ = self.payloads()?;
         Ok(&self.payload_cache.get().expect("codec image initialized").1)
     }
     pub(crate) fn payload_digest(&self, index: usize) -> Result<String, Error> {
-        if index >= 6 { return Err(err("EXECUTION_PROJECTION_INDEX")); }
+        if index >= 6 {
+            return Err(err("EXECUTION_PROJECTION_INDEX"));
+        }
         if let Some((owners, hashes)) = self.payload_cache.get() {
             self.require_account_checkpoint(&owners[2])?;
             return Ok(hashes[index].clone());
@@ -351,7 +496,8 @@ impl Components {
         // this actual owner here; completion still captures all six owners.
         if index == 5 {
             #[cfg(test)]
-            PAYLOAD_CAPTURE_BYTES.with(|count|count.set(count.get()+self.meta.to_string().len() as u64));
+            PAYLOAD_CAPTURE_BYTES
+                .with(|count| count.set(count.get() + self.meta.to_string().len() as u64));
             return Ok(hash(&self.meta));
         }
         let (bytes, fingerprint) = match index {
@@ -363,13 +509,21 @@ impl Components {
             _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
         };
         #[cfg(test)]
-        PAYLOAD_CAPTURE_BYTES.with(|count|count.set(count.get()+bytes.len() as u64));
-        if index == 2 { self.require_account_checkpoint(&serde_json::from_slice(&bytes)?)?; }
+        PAYLOAD_CAPTURE_BYTES.with(|count| count.set(count.get() + bytes.len() as u64));
+        if index == 2 {
+            self.require_account_checkpoint(&serde_json::from_slice(&bytes)?)?;
+        }
         Ok(fingerprint)
     }
     pub fn checkpoint(&self) -> Result<Value, Error> {
-        let mut checkpoint=json!({"schema_version":1,"config":self.config,"sequence":self.sequence,"pending":self.pending.as_ref().map(|(id,i)|json!([id,i]))});
-        checkpoint.as_object_mut().expect("checkpoint object").insert("components".into(),Value::Array(self.payloads()?.as_ref().clone()));
+        let mut checkpoint = json!({"schema_version":1,"config":self.config,"sequence":self.sequence,"pending":self.pending.as_ref().map(|(id,i)|json!([id,i]))});
+        checkpoint
+            .as_object_mut()
+            .expect("checkpoint object")
+            .insert(
+                "components".into(),
+                Value::Array(self.payloads()?.as_ref().clone()),
+            );
         Ok(checkpoint)
     }
     pub fn restore(&mut self, v: &Value, expected: &str) -> Result<(), Error> {
@@ -419,13 +573,22 @@ impl Components {
     fn install_payload(&mut self, i: usize, p: &Value) -> Result<(), Error> {
         self.invalidate_payloads();
         #[cfg(test)]
-        PROJECTION_RESTORES.with(|counts| {let mut actual=counts.get();if let Some(count)=actual.get_mut(i){*count+=1;}counts.set(actual);});
+        PROJECTION_RESTORES.with(|counts| {
+            let mut actual = counts.get();
+            if let Some(count) = actual.get_mut(i) {
+                *count += 1;
+            }
+            counts.set(actual);
+        });
         let b = serde_json::to_vec(p)?;
         let h = digest(&b);
         match i {
             0 => boundary(self.order.restore(&b, &h))?,
             1 => boundary(self.position.restore(&b, &h))?,
-            2 => {self.require_account_checkpoint(p)?;boundary(self.account.restore(&b, &h))?;},
+            2 => {
+                self.require_account_checkpoint(p)?;
+                boundary(self.account.restore(&b, &h))?;
+            }
             3 => boundary(self.ledger.restore(&b, &h))?,
             4 => boundary(self.risk.restore(&b, &h))?,
             5 => {
@@ -487,26 +650,36 @@ impl Components {
         }
         Ok(())
     }
-    pub(crate) fn validated_typed_after(p:&Prepared,i:usize)->Result<Option<&Self>,Error> {
-        if i>=6{return Err(err("EXECUTION_PROJECTION_INDEX"));}
-        let projection=&p.value()["projections"][i];
-        let typed_after=p.typed_after();
-        if let Some(after)=typed_after {
-            if !p.is_planned(){return Err(err("EXECUTION_TYPED_AFTER_ORIGIN"));}
-            if hash(&after.config)!=p.value()["config_hash"]{return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));}
-            let (actual,actual_hash)=if i==5 {(after.meta.clone(),hash(&after.meta))}else{
-                let (bytes,hash)=match i {
-                    0=>boundary(after.order.checkpoint())?,
-                    1=>boundary(after.position.checkpoint())?,
-                    2=>boundary(after.account.checkpoint())?,
-                    3=>boundary(after.ledger.checkpoint())?,
-                    4=>boundary(after.risk.checkpoint())?,
-                    _=>return Err(err("EXECUTION_PROJECTION_INDEX")),
+    pub(crate) fn validated_typed_after(p: &Prepared, i: usize) -> Result<Option<&Self>, Error> {
+        if i >= 6 {
+            return Err(err("EXECUTION_PROJECTION_INDEX"));
+        }
+        let projection = &p.value()["projections"][i];
+        let typed_after = p.typed_after();
+        if let Some(after) = typed_after {
+            if !p.is_planned() {
+                return Err(err("EXECUTION_TYPED_AFTER_ORIGIN"));
+            }
+            if hash(&after.config) != p.value()["config_hash"] {
+                return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));
+            }
+            let (actual, actual_hash) = if i == 5 {
+                (after.meta.clone(), hash(&after.meta))
+            } else {
+                let (bytes, hash) = match i {
+                    0 => boundary(after.order.checkpoint())?,
+                    1 => boundary(after.position.checkpoint())?,
+                    2 => boundary(after.account.checkpoint())?,
+                    3 => boundary(after.ledger.checkpoint())?,
+                    4 => boundary(after.risk.checkpoint())?,
+                    _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
                 };
-                (serde_json::from_slice::<Value>(&bytes)?,hash)
+                (serde_json::from_slice::<Value>(&bytes)?, hash)
             };
-            if i==2{after.require_account_checkpoint(&actual)?;}
-            if actual!=projection["result"]||actual_hash!=projection["result_hash"] {
+            if i == 2 {
+                after.require_account_checkpoint(&actual)?;
+            }
+            if actual != projection["result"] || actual_hash != projection["result_hash"] {
                 return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));
             }
         }
@@ -527,7 +700,9 @@ impl Components {
         if p.sequence() > 1 && !store.get(p.sequence() - 1)?.is_some_and(|v| v.ready()) {
             return Err(err("EXECUTION_PREDECESSOR_UNREADY"));
         }
-        if p.value()["config_hash"] != hash(&self.config) || p.value()["predecessor"] != self.sequence {
+        if p.value()["config_hash"] != hash(&self.config)
+            || p.value()["predecessor"] != self.sequence
+        {
             return Err(err("EXECUTION_PROJECTION_SCOPE_OR_SEQUENCE"));
         }
         if i >= 6 {
@@ -542,8 +717,10 @@ impl Components {
             return Err(err("EXECUTION_PROJECTION_ORDER"));
         }
         let projection = &p.value()["projections"][i];
-        if i==2{self.require_account_checkpoint(&projection["result"])?;}
-        let typed_after=Self::validated_typed_after(p,i)?;
+        if i == 2 {
+            self.require_account_checkpoint(&projection["result"])?;
+        }
+        let typed_after = Self::validated_typed_after(p, i)?;
         let h = self.payload_digest(i)?;
         if i < next {
             if projection["result_hash"] != h {
@@ -558,15 +735,15 @@ impl Components {
             if self.pending.is_none() {
                 self.pending = Some((p.id().into(), 0));
             }
-            if let Some(after)=typed_after.filter(|_|i<5) {
+            if let Some(after) = typed_after.filter(|_| i < 5) {
                 self.invalidate_payloads();
                 match i {
-                    0=>self.order=after.order.clone(),
-                    1=>self.position=after.position.clone(),
-                    2=>self.account=after.account.clone(),
-                    3=>self.ledger=after.ledger.clone(),
-                    4=>self.risk=after.risk.clone(),
-                    _=>return Err(err("EXECUTION_PROJECTION_INDEX")),
+                    0 => self.order = after.order.clone(),
+                    1 => self.position = after.position.clone(),
+                    2 => self.account = after.account.clone(),
+                    3 => self.ledger = after.ledger.clone(),
+                    4 => self.risk = after.risk.clone(),
+                    _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
                 }
             } else if matches!(i, 2 | 3) {
                 // The actual owning before-hash was proved above. Extend
@@ -586,7 +763,9 @@ impl Components {
                 } else {
                     boundary(self.ledger.restore_exact_extension(&bytes, fingerprint))?;
                 }
-            } else { self.install_payload(i, &projection["result"])?; }
+            } else {
+                self.install_payload(i, &projection["result"])?;
+            }
         }
         if i == 5 {
             self.validate_valuation_metadata(&self.meta)?;
@@ -635,13 +814,13 @@ pub(crate) fn settlement_config(config: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path="payload_codec_tests.rs"]
+#[path = "payload_codec_tests.rs"]
 mod payload_codec_tests;
 
 #[cfg(test)]
-#[path="position_order_view_tests.rs"]
+#[path = "position_order_view_tests.rs"]
 mod position_order_view_tests;
 
 #[cfg(test)]
-#[path="prefix_read_tests.rs"]
+#[path = "prefix_read_tests.rs"]
 mod prefix_read_tests;

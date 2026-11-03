@@ -138,7 +138,9 @@ fn installed_preparation(
     let pipeline = PipelineProgram::new(
         OnlyMarketDataStateScope::new(scope.engine, scope.runtime),
         program.generation(),
-        128,
+        // Match the concrete LATEST_CLOSED producer; period-20 mathematical
+        // history remains in the independently checkpointed installed nodes.
+        1,
         vec![SourceProgram::new(
             program.source(),
             Arc::new(calendar),
@@ -255,6 +257,19 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     let warm = run.trace()?;
     assert_eq!(warm["state"]["cursor"], 20);
     assert_eq!(warm["state"]["phase"], "OPEN");
+    let series = warm["state"]["participants"]["preparation"]["pipeline"]["state"]["series"]
+        .as_array()
+        .unwrap();
+    assert_eq!(series.len(), 1);
+    assert_eq!(
+        series[0]["history"].as_array().unwrap().len(),
+        1,
+        "LATEST_CLOSED retention is independent of the actual 20-period numerical state"
+    );
+    assert_eq!(
+        series[0]["version"], 20,
+        "retention must not reset the cumulative Source frontier"
+    );
     assert!(fills(&warm).is_empty());
     assert_eq!(
         decimal(&run.state()?["account"]["snapshot"]["cash"]),

@@ -38,11 +38,13 @@ std::thread_local! {
     pub(crate) static HASHED_CANONICAL_WATCH: std::cell::RefCell<Option<(String,u64)>> = const { std::cell::RefCell::new(None) };
 }
 pub(crate) fn hash(v: &Value) -> String {
-    let canonical=v.to_string();
+    let canonical = v.to_string();
     #[cfg(test)]
     HASHED_CANONICAL_WATCH.with(|watch| {
-        if let Some((expected,count))=watch.borrow_mut().as_mut() {
-            if expected.as_str()==canonical.as_str() {*count+=1;}
+        if let Some((expected, count)) = watch.borrow_mut().as_mut() {
+            if expected.as_str() == canonical.as_str() {
+                *count += 1;
+            }
         }
     });
     digest(canonical.as_bytes())
@@ -154,99 +156,283 @@ std::thread_local! {
     pub(crate) static PREPARED_VALIDATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     pub(crate) static PREPARED_OWNED_BODY_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+// Pure data derived only after the complete original body verifier succeeds.
+// Its encoded body remains the unique representation; headers grant no source,
+// planner, Store, Ready or execution authority.
+struct CanonicalPreparedData {
+    bytes: Vec<u8>,
+    transaction: String,
+    sequence: u64,
+    predecessor: u64,
+    configuration: String,
+    payload: String,
+    input: Value,
+    events: Value,
+    projections: Vec<(String, String)>,
+    account_format: Option<u64>,
+    position_order_data: Value,
+    order_snapshot_data: Value,
+}
 /// Constructed only by the pure planner. Store transport must bind its exact encoded digest.
 pub struct Prepared {
-    value: std::sync::Arc<Value>,
+    value: std::sync::OnceLock<std::sync::Arc<Value>>,
+    data: Option<std::sync::Arc<CanonicalPreparedData>>,
     input_fingerprint: std::sync::Arc<std::sync::OnceLock<String>>,
     validated_transition_data: std::sync::Arc<std::sync::OnceLock<()>>,
     planned: bool,
     typed_after: Option<Box<crate::Components>>,
 }
 impl Clone for Prepared {
-    fn clone(&self)->Self {Self{value:std::sync::Arc::clone(&self.value),input_fingerprint:std::sync::Arc::clone(&self.input_fingerprint),validated_transition_data:std::sync::Arc::clone(&self.validated_transition_data),planned:self.planned,typed_after:None}}
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            data: self.data.clone(),
+            input_fingerprint: std::sync::Arc::clone(&self.input_fingerprint),
+            validated_transition_data: std::sync::Arc::clone(&self.validated_transition_data),
+            planned: self.planned,
+            typed_after: None,
+        }
+    }
 }
 impl fmt::Debug for Prepared {
-    fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result {
-        f.debug_struct("Prepared").field("value",self.value.as_ref()).field("planned",&self.planned).finish()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Prepared")
+            .field("value", self.value())
+            .field("planned", &self.planned)
+            .finish()
     }
 }
 impl PartialEq for Prepared {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+        match (&self.data, &other.data) {
+            (Some(left), Some(right))
+                if std::sync::Arc::ptr_eq(left, right) || left.bytes == right.bytes =>
+            {
+                true
+            }
+            _ => self.value() == other.value(),
+        }
     }
 }
 impl Eq for Prepared {}
 
 impl Prepared {
+    #[cfg(test)]
+    pub(crate) fn retained_expansion(&self) -> Option<std::sync::Weak<Value>> {
+        self.value.get().map(std::sync::Arc::downgrade)
+    }
     pub(crate) fn new(mut v: Value) -> Result<Self, Error> {
         v["payload_hash"] = json!(hash(&v));
-        let result = Self {
-            value: std::sync::Arc::new(v),
+        let mut result = Self {
+            value: std::sync::OnceLock::from(std::sync::Arc::new(v)),
+            data: None,
             input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
             validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
             planned: true,
             typed_after: None,
         };
         result.validate()?;
+        let bytes = serde_json::to_vec(result.value())?;
+        // Value permits unchecked arbitrary-precision Number construction.
+        // Prove this exact representation has the original reader's meaning
+        // and depth limits before an observation may release its expanded form.
+        let decoded: Value =
+            serde_json::from_slice(&bytes).map_err(|_| err("EXECUTION_NONCANONICAL"))?;
+        if &decoded != result.value() {
+            return Err(err("EXECUTION_NONCANONICAL"));
+        }
+        result.retain_canonical_data(bytes);
         Ok(result)
     }
     /// Borrow the complete immutable canonical body as data, never a commit grant.
     /// `record()` remains the detached owned-copy API.
     pub fn value(&self) -> &Value {
-        self.value.as_ref()
+        self.value
+            .get_or_init(|| {
+                let data = self.data.as_ref().expect("validated canonical data");
+                std::sync::Arc::new(
+                    serde_json::from_slice(&data.bytes)
+                        .expect("validated immutable canonical JSON"),
+                )
+            })
+            .as_ref()
     }
     pub(crate) fn is_planned(&self) -> bool {
         self.planned
     }
-    pub(crate) fn observation(&self) -> Self {
+    /// Same original planner marker and exact data, without optional expanded
+    /// or typed acceleration state. Decoded data remains non-planner data.
+    pub fn compact_clone(&self) -> Self {
         Self {
-            value: std::sync::Arc::clone(&self.value),
+            value: std::sync::OnceLock::new(),
+            data: self.data.clone(),
             input_fingerprint: std::sync::Arc::clone(&self.input_fingerprint),
             validated_transition_data: std::sync::Arc::clone(&self.validated_transition_data),
-            planned: false,
+            planned: self.planned,
             typed_after: None,
         }
     }
-    pub(crate) fn with_typed_after(mut self,after:crate::Components)->Self {
-        self.typed_after=Some(Box::new(after));self
+    pub(crate) fn observation(&self) -> Self {
+        let mut result = self.compact_clone();
+        result.planned = false;
+        result
     }
-    pub(crate) fn typed_after(&self)->Option<&crate::Components>{self.typed_after.as_deref()}
+    fn retain_canonical_data(&mut self, bytes: Vec<u8>) {
+        let body = self.value();
+        let projections = body["projections"]
+            .as_array()
+            .expect("validated projections");
+        let data = CanonicalPreparedData {
+            bytes,
+            transaction: body["transaction_id"]
+                .as_str()
+                .expect("validated")
+                .to_owned(),
+            sequence: body["sequence"].as_u64().expect("validated"),
+            predecessor: body["predecessor"].as_u64().expect("validated"),
+            configuration: body["config_hash"].as_str().expect("validated").to_owned(),
+            payload: body["payload_hash"].as_str().expect("validated").to_owned(),
+            input: body["input"].clone(),
+            events: body["events"].clone(),
+            projections: projections
+                .iter()
+                .map(|row| {
+                    (
+                        row["before_hash"].as_str().expect("validated").to_owned(),
+                        row["result_hash"].as_str().expect("validated").to_owned(),
+                    )
+                })
+                .collect(),
+            account_format: projections[2]["result"]["schema_version"].as_u64(),
+            order_snapshot_data: projections[0]["result"]["state"]["orders"].clone(),
+            position_order_data: json!({"schema_version":1,"orders":projections[5]["result"]["orders"],
+                "position_accounts":projections[1]["result"]["state"]["accounts"],
+                "position_allocations":projections[1]["result"]["state"]["allocations"],
+                "economic_version":projections[2]["result"]["state"]["snapshot"]["economic_version"],
+                "position_checkpoint_fingerprint":projections[1]["result_hash"]}),
+        };
+        self.data = Some(std::sync::Arc::new(data));
+    }
+    pub(crate) fn with_typed_after(mut self, after: crate::Components) -> Self {
+        self.typed_after = Some(Box::new(after));
+        self
+    }
+    pub(crate) fn typed_after(&self) -> Option<&crate::Components> {
+        self.typed_after.as_deref()
+    }
     pub fn record(&self) -> Value {
-        let owned = self.value.as_ref().clone();
+        let owned = match self.value.get() {
+            Some(value) => value.as_ref().clone(),
+            None => {
+                serde_json::from_slice(&self.data.as_ref().expect("validated canonical data").bytes)
+                    .expect("validated immutable canonical JSON")
+            }
+        };
         #[cfg(test)]
-        PREPARED_OWNED_BODY_BYTES.with(|count|count.set(count.get()+owned.to_string().len() as u64));
+        PREPARED_OWNED_BODY_BYTES
+            .with(|count| count.set(count.get() + owned.to_string().len() as u64));
         owned
     }
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        Ok(serde_json::to_vec(self.value.as_ref())?)
+        Ok(self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .bytes
+            .clone())
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let v: Value = serde_json::from_slice(bytes)?;
         if serde_json::to_vec(&v)? != bytes {
             return Err(err("EXECUTION_NONCANONICAL"));
         }
-        let p = Self {
-            value: std::sync::Arc::new(v),
+        let mut p = Self {
+            value: std::sync::OnceLock::from(std::sync::Arc::new(v)),
+            data: None,
             input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
             validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
             planned: false,
             typed_after: None,
         };
         p.validate()?;
+        p.retain_canonical_data(bytes.to_vec());
         Ok(p)
     }
     pub fn id(&self) -> &str {
-        self.value["transaction_id"].as_str().expect("validated")
+        match &self.data {
+            Some(data) => &data.transaction,
+            None => self.value()["transaction_id"].as_str().expect("validated"),
+        }
     }
     pub fn sequence(&self) -> u64 {
-        self.value["sequence"].as_u64().expect("validated")
+        match &self.data {
+            Some(data) => data.sequence,
+            None => self.value()["sequence"].as_u64().expect("validated"),
+        }
+    }
+    /// Original complete-body fields, derived only after canonical validation.
+    /// None of these data reads proves a current Store or Ready source.
+    pub fn predecessor_sequence(&self) -> u64 {
+        self.data
+            .as_ref()
+            .expect("validated canonical data")
+            .predecessor
+    }
+    pub fn configuration_fingerprint(&self) -> &str {
+        &self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .configuration
+    }
+    pub fn payload_fingerprint(&self) -> &str {
+        &self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .payload
+    }
+    pub fn projection_hashes(&self) -> &[(String, String)] {
+        &self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .projections
+    }
+    pub fn account_checkpoint_version(&self) -> Option<u64> {
+        self.data
+            .as_ref()
+            .expect("validated canonical data")
+            .account_format
+    }
+    /// Pure fields of these original projections, never an owning current-source view.
+    pub fn position_order_data(&self) -> &Value {
+        &self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .position_order_data
+    }
+    /// Exact original Order rows only. Consumers still validate complete
+    /// Domain snapshots and their owning source; this is no activity proof.
+    pub fn order_snapshot_data(&self) -> &Value {
+        &self
+            .data
+            .as_ref()
+            .expect("validated canonical data")
+            .order_snapshot_data
     }
     pub fn input(&self) -> &Value {
-        &self.value["input"]
+        match &self.data {
+            Some(data) => &data.input,
+            None => &self.value()["input"],
+        }
     }
     /// Canonical data identity of this exact immutable input, never Store freshness or admission.
     pub fn input_fingerprint(&self) -> &str {
-        self.input_fingerprint.get_or_init(|| hash(self.input())).as_str()
+        self.input_fingerprint
+            .get_or_init(|| hash(self.input()))
+            .as_str()
     }
     /// Pure owner-transition data only, never current Store/Ready or planner authority.
     /// Transport decoding always starts without this rebuildable, nonserialized data.
@@ -260,12 +446,15 @@ impl Prepared {
         COMPONENTS.len()
     }
     pub fn events(&self) -> &Value {
-        &self.value["events"]
+        match &self.data {
+            Some(data) => &data.events,
+            None => &self.value()["events"],
+        }
     }
     fn validate(&self) -> Result<(), Error> {
         #[cfg(test)]
         PREPARED_VALIDATIONS.with(|count| count.set(count.get() + 1));
-        let v = self.value.as_ref();
+        let v = self.value();
         row(
             v,
             &[
@@ -373,15 +562,13 @@ pub(crate) fn bound_decimal_leaves(v: &Value) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path="typed_after_tests.rs"]
+#[path = "typed_after_tests.rs"]
 mod typed_after_tests;
 
-
 #[cfg(test)]
-#[path="record_observation_tests.rs"]
+#[path = "record_observation_tests.rs"]
 mod record_observation_tests;
 
-
 #[cfg(test)]
-#[path="pure_transition_data_tests.rs"]
+#[path = "pure_transition_data_tests.rs"]
 mod pure_transition_data_tests;
