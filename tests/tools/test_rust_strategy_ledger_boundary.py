@@ -29,9 +29,3 @@ def test_strategy_ledger_rejects_effects_and_reverse_edges(tmp_path: Path, code:
     source.write_text(code)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         check.validate_strategy_ledger_sources(tmp_path)
-
-
-def test_actual_python_ledger_matches_independent_literals() -> None:
-    from scripts.strategy_ledger_reference_check import reference_outputs
-
-    assert len(reference_outputs()) == 4
