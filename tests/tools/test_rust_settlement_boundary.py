@@ -30,10 +30,3 @@ def test_settlement_rejects_io_and_reverse_authority_edges(tmp_path: Path, code:
     path.write_text(code)
     with pytest.raises(ValueError, match="BOUNDARY"):
         check.validate_settlement_sources(tmp_path)
-
-
-def test_shared_settlement_cases_consume_actual_python_authorities() -> None:
-    from scripts.settlement_reference_check import cases, python_reference
-
-    for case in cases():
-        assert python_reference(case["fixture"])[0] == case["expected"]

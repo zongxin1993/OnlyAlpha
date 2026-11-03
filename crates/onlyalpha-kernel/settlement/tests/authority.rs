@@ -1,3 +1,4 @@
+use onlyalpha_domain::{base::OnlyDomainModel, calendar::OnlyTradingCalendar};
 use onlyalpha_settlement::*;
 use serde_json::{Value, json};
 fn fixture() -> Value {
@@ -24,6 +25,8 @@ fn config() -> Value {
 #[test]
 fn t1_holiday_calendar_and_atomic_fresh_recovery() {
     let mut v = fixture();
+    let calendar = OnlyTradingCalendar::from_record(&v["calendar"]).unwrap();
+    assert_eq!(calendar.to_record(), v["calendar"]);
     for k in [
         "asset_trade_available",
         "cash_withdrawable",
@@ -401,72 +404,138 @@ fn reserved_receipt_accepts_large_economics_time_and_six_transitions() {
 // A controlled whole-fill producer declaration is a technical precondition,
 // never Runtime, venue, LIVE, or Product admission authority.
 fn whole_fill_contract() -> Value {
-    let model=json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":digest(&config()),"policy_fingerprint":"a".repeat(64)});
+    let model = json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":digest(&config()),"policy_fingerprint":"a".repeat(64)});
     json!({"schema_version":1,"kind":"BACKTEST_WHOLE_FILL","maximum_fill_count":1,"model_fingerprint":digest(&model),"model":model,"fee_estimate_assumptions_fingerprint":"b".repeat(64)})
 }
 #[test]
 fn whole_fill_reserves_one_real_instruction_slot_for_exact_high_precision_quantity() {
-    for precision in [5,8] {
-        let mut authority=Authority::new(config(),1).unwrap();
-        let mut input=fixture();input["quantity"]=json!("0.01");
-        let contract=whole_fill_contract();
-        authority.admit_whole_fill_order(input["scope"].clone(),"order","BUY","0.01",precision,&contract).unwrap();
-        let admitted=authority.checkpoint();
-        assert_eq!(admitted["schema_version"],2);
-        assert_eq!(admitted["capacity"],1);
-        assert_eq!(admitted["orders"]["order"]["precision"],precision);
-        assert_eq!(admitted["orders"]["order"]["quantity"],"0.01");
-        assert_eq!(admitted["orders"]["order"]["fill_contract"],contract);
-        let instruction=compile(input).unwrap();authority.register(&instruction).unwrap();
-        let filled=authority.checkpoint();
-        authority.register(&instruction).unwrap();assert_eq!(authority.checkpoint(),filled);
-        let mut fresh=Authority::new(config(),1).unwrap();fresh.restore(&filled,&digest(&filled)).unwrap();
-        assert_eq!(fresh.checkpoint(),filled);
-        let mut legacy=Authority::new(config(),512).unwrap();
-        assert!(legacy.admit_order(fixture()["scope"].clone(),"order","BUY","0.01",precision).is_err());
-        assert_eq!(legacy.checkpoint()["schema_version"],1);
+    for precision in [5, 8] {
+        let mut authority = Authority::new(config(), 1).unwrap();
+        let mut input = fixture();
+        input["quantity"] = json!("0.01");
+        let contract = whole_fill_contract();
+        authority
+            .admit_whole_fill_order(
+                input["scope"].clone(),
+                "order",
+                "BUY",
+                "0.01",
+                precision,
+                &contract,
+            )
+            .unwrap();
+        let admitted = authority.checkpoint();
+        assert_eq!(admitted["schema_version"], 2);
+        assert_eq!(admitted["capacity"], 1);
+        assert_eq!(admitted["orders"]["order"]["precision"], precision);
+        assert_eq!(admitted["orders"]["order"]["quantity"], "0.01");
+        assert_eq!(admitted["orders"]["order"]["fill_contract"], contract);
+        let instruction = compile(input).unwrap();
+        authority.register(&instruction).unwrap();
+        let filled = authority.checkpoint();
+        authority.register(&instruction).unwrap();
+        assert_eq!(authority.checkpoint(), filled);
+        let mut fresh = Authority::new(config(), 1).unwrap();
+        fresh.restore(&filled, &digest(&filled)).unwrap();
+        assert_eq!(fresh.checkpoint(), filled);
+        let mut legacy = Authority::new(config(), 512).unwrap();
+        assert!(
+            legacy
+                .admit_order(
+                    fixture()["scope"].clone(),
+                    "order",
+                    "BUY",
+                    "0.01",
+                    precision
+                )
+                .is_err()
+        );
+        assert_eq!(legacy.checkpoint()["schema_version"], 1);
     }
 }
 #[test]
 fn whole_fill_rejects_partial_second_fill_and_changed_admission_without_mutation() {
-    let mut authority=Authority::new(config(),1).unwrap();
-    let mut input=fixture();input["quantity"]=json!("0.01");
-    let contract=whole_fill_contract();
-    authority.admit_whole_fill_order(input["scope"].clone(),"order","BUY","0.01",5,&contract).unwrap();
-    let before=authority.checkpoint();
-    let mut partial=input.clone();partial["quantity"]=json!("0.005");
-    assert!(authority.register(&compile(partial).unwrap()).is_err());assert_eq!(authority.checkpoint(),before);
-    for field in ["model_fingerprint","fee_estimate_assumptions_fingerprint"] {
-        let mut changed=contract.clone();changed[field]=json!("c".repeat(64));
-        assert!(authority.admit_whole_fill_order(input["scope"].clone(),"order","BUY","0.01",5,&changed).is_err());
-        assert_eq!(authority.checkpoint(),before);
+    let mut authority = Authority::new(config(), 1).unwrap();
+    let mut input = fixture();
+    input["quantity"] = json!("0.01");
+    let contract = whole_fill_contract();
+    authority
+        .admit_whole_fill_order(input["scope"].clone(), "order", "BUY", "0.01", 5, &contract)
+        .unwrap();
+    let before = authority.checkpoint();
+    let mut partial = input.clone();
+    partial["quantity"] = json!("0.005");
+    assert!(authority.register(&compile(partial).unwrap()).is_err());
+    assert_eq!(authority.checkpoint(), before);
+    for field in ["model_fingerprint", "fee_estimate_assumptions_fingerprint"] {
+        let mut changed = contract.clone();
+        changed[field] = json!("c".repeat(64));
+        assert!(
+            authority
+                .admit_whole_fill_order(input["scope"].clone(), "order", "BUY", "0.01", 5, &changed)
+                .is_err()
+        );
+        assert_eq!(authority.checkpoint(), before);
     }
-    let first=compile(input.clone()).unwrap();authority.register(&first).unwrap();
-    let filled=authority.checkpoint();
-    let mut extra=another(input,2);extra["order"]=json!("order");extra["scope"]=fixture()["scope"].clone();
-    assert!(authority.register(&compile(extra).unwrap()).is_err());assert_eq!(authority.checkpoint(),filled);
+    let first = compile(input.clone()).unwrap();
+    authority.register(&first).unwrap();
+    let filled = authority.checkpoint();
+    let mut extra = another(input, 2);
+    extra["order"] = json!("order");
+    extra["scope"] = fixture()["scope"].clone();
+    assert!(authority.register(&compile(extra).unwrap()).is_err());
+    assert_eq!(authority.checkpoint(), filled);
 }
 #[test]
 fn whole_fill_is_backtest_only_and_hashes_without_the_actual_manifest_cannot_reserve() {
-    for kind in ["LIVE","SIM"] {
-        let mut config=config();config["runtime_kind"]=json!(kind);
-        let mut scope=fixture()["scope"].clone();scope["runtime_kind"]=json!(kind);
-        let mut authority=Authority::new(config,512).unwrap();
-        authority.admit_order(scope.clone(),"legacy","BUY","4",0).unwrap();
-        let before=authority.checkpoint();
-        assert!(authority.admit_whole_fill_order(scope,"order","BUY","0.01",5,&whole_fill_contract()).is_err());
-        assert_eq!(authority.checkpoint(),before);
+    for kind in ["LIVE", "SIM"] {
+        let mut config = config();
+        config["runtime_kind"] = json!(kind);
+        let mut scope = fixture()["scope"].clone();
+        scope["runtime_kind"] = json!(kind);
+        let mut authority = Authority::new(config, 512).unwrap();
+        authority
+            .admit_order(scope.clone(), "legacy", "BUY", "4", 0)
+            .unwrap();
+        let before = authority.checkpoint();
+        assert!(
+            authority
+                .admit_whole_fill_order(scope, "order", "BUY", "0.01", 5, &whole_fill_contract())
+                .is_err()
+        );
+        assert_eq!(authority.checkpoint(), before);
     }
     for mutation in 0..4 {
-        let mut contract=whole_fill_contract();
+        let mut contract = whole_fill_contract();
         match mutation {
-            0=>{contract.as_object_mut().unwrap().remove("model");},
-            1=>contract["model_fingerprint"]=json!("c".repeat(64)),
-            2=>{contract["model"]["maximum_fill_count"]=json!(2);contract["maximum_fill_count"]=json!(2);contract["model_fingerprint"]=json!(digest(&contract["model"]));},
-            _=>{contract["model"]["kind"]=json!("CALLER_ASSERTED");contract["model_fingerprint"]=json!(digest(&contract["model"]));},
+            0 => {
+                contract.as_object_mut().unwrap().remove("model");
+            }
+            1 => contract["model_fingerprint"] = json!("c".repeat(64)),
+            2 => {
+                contract["model"]["maximum_fill_count"] = json!(2);
+                contract["maximum_fill_count"] = json!(2);
+                contract["model_fingerprint"] = json!(digest(&contract["model"]));
+            }
+            _ => {
+                contract["model"]["kind"] = json!("CALLER_ASSERTED");
+                contract["model_fingerprint"] = json!(digest(&contract["model"]));
+            }
         }
-        let mut authority=Authority::new(config(),512).unwrap();let before=authority.checkpoint();
-        assert!(authority.admit_whole_fill_order(fixture()["scope"].clone(),"order","BUY","0.01",5,&contract).is_err());
-        assert_eq!(authority.checkpoint(),before);
+        let mut authority = Authority::new(config(), 512).unwrap();
+        let before = authority.checkpoint();
+        assert!(
+            authority
+                .admit_whole_fill_order(
+                    fixture()["scope"].clone(),
+                    "order",
+                    "BUY",
+                    "0.01",
+                    5,
+                    &contract
+                )
+                .is_err()
+        );
+        assert_eq!(authority.checkpoint(), before);
     }
 }
