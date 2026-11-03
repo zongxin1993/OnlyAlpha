@@ -135,7 +135,7 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 
 ## Task 7: 工程数据库工具与 canonical runner 消除旧后端导入
 
-**Files:** `scripts/database.py`、`compose_test.py`、`market_data_database.py`、`prepare_web_e2e.py`、`dev_verification.py`、`native_web_e2e.py` 中真实 legacy 调用；Rust `packages/backend/src/main.rs`、`bootstrap/research_namespace.rs`、`bootstrap/research_namespace/manual_backtest.rs`、`persistence/schema.rs` 及需要承担现有基础设施操作的 backend owner。Test `tests/tools/test_browser_database.py`、`test_manual_namespace_operator.py`、`test_dev_verification.py`、`test_dev_native_startup.py` 与 Rust 对应 bootstrap/schema tests。
+**Files:** `scripts/database.py`、`compose_test.py`、`market_data_database.py`、`dev_verification.py`、`native_web_e2e.py` 中真实 legacy 调用；Rust `packages/backend/src/main.rs`、`bootstrap/research_namespace.rs`、`bootstrap/research_namespace/manual_backtest.rs`、`persistence/schema.rs` 及需要承担现有基础设施操作的 backend owner。Test `tests/tools/test_browser_database.py`、`test_manual_namespace_operator.py`、`test_dev_verification.py`、`test_dev_native_startup.py` 与 Rust 对应 bootstrap/schema tests。
 
 **Interfaces:** 复用 `--initialize-fresh-research-namespace`、`--verify-research-namespace`、`--extend-strategy-research-namespace`、`--extend-manual-backtest-namespace`。保留 `_extend_manual_backtest(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str` 等当前调用方已消费的工程函数签名，函数只调用原生 owner，不构造 Python business objects。
 
