@@ -4,6 +4,144 @@ mod support;
 use onlyalpha_execution::{Components, Record, coordinate, recover};
 use serde_json::{Value, json};
 use support::*;
+// Hermetic zero-fee model for the frozen test Order; not a market policy or
+// Product writer. The original fixture remains an independent expected record.
+fn native_zero_fee_contract(
+    order: &onlyalpha_domain::execution::OnlyOrderSnapshot,
+    at: u64,
+) -> Value {
+    use onlyalpha_domain::{
+        base::OnlyDomainModel,
+        enums::OnlyCurrencyType,
+        fee::*,
+        numeric::{only_multiply, only_quantize},
+        time::OnlyTimestamp,
+        value::{OnlyCurrency, OnlyMoney},
+    };
+    let currency = OnlyCurrency::new("CNY", 2, OnlyCurrencyType::Fiat).unwrap();
+    let digest = "0".repeat(64);
+    let scope = OnlyOrderFeeApplicabilityScopeIdentity::create(
+        OnlyOrderFeeApplicabilityScopeIdentityInput {
+            market_product_id: "TEST_ZERO_FEE".into(),
+            market: "TEST".into(),
+            venue: "TEST".into(),
+            instrument_class: "CASH".into(),
+            broker_id: "TEST_BROKER".into(),
+            account_id: order.account_id().clone(),
+            instrument_id: order.instrument_id().clone(),
+            charge_currency: currency.clone(),
+            fingerprint: String::new(),
+        },
+    )
+    .unwrap();
+    let binding = OnlyOrderFeePolicyBinding::create(OnlyOrderFeePolicyBindingInput {
+        runtime_id: order.runtime_id().clone(),
+        account_id: order.account_id().clone(),
+        cluster_id: order.cluster_id().clone(),
+        order_id: order.order_id().clone(),
+        instrument_id: order.instrument_id().clone(),
+        market_product_id: "TEST_ZERO_FEE".into(),
+        market_product_version: "1".into(),
+        market_fee_pack: OnlyMarketFeePackIdentity::new(OnlyMarketFeePackIdentityInput {
+            pack_id: "TEST_ZERO_MARKET_FEES".into(),
+            pack_version: "1".into(),
+            fingerprint: digest.clone(),
+        })
+        .unwrap(),
+        broker_fee_contract: OnlyBrokerFeeContractIdentity::new(
+            OnlyBrokerFeeContractIdentityInput {
+                contract_id: "TEST_ZERO_BROKER_FEES".into(),
+                contract_version: "1".into(),
+                broker_id: "TEST_BROKER".into(),
+                account_scope: OnlyBrokerFeeAccountScope::new(OnlyBrokerFeeAccountScopeInput {
+                    scope_type: OnlyBrokerFeeAccountScopeType::ExactAccount,
+                    account_id: Some(order.account_id().clone()),
+                })
+                .unwrap(),
+                fingerprint: digest.clone(),
+            },
+        )
+        .unwrap(),
+        applicability_scope: scope,
+        order_fixed_schedules: vec![],
+        fill_effective_families: vec![],
+        charge_currency: currency.clone(),
+        bound_at: OnlyTimestamp::from_unix_nanos(at.into()),
+        fingerprint: String::new(),
+    })
+    .unwrap();
+    let zero = OnlyMoney::new("0".parse().unwrap(), currency.clone()).unwrap();
+    let assessment = OnlyFeeAssessment::new(OnlyFeeAssessmentInput {
+        assessment_id: "test-zero-fee".into(),
+        subject: OnlyFeeSubject::new(OnlyFeeSubjectInput {
+            runtime_id: order.runtime_id().clone(),
+            account_id: order.account_id().clone(),
+            cluster_id: order.cluster_id().clone(),
+            order_id: order.order_id().clone(),
+            instrument_id: order.instrument_id().clone(),
+        })
+        .unwrap(),
+        trade_id: None,
+        components: vec![],
+        total_charges: zero.clone(),
+        total_rebates: zero.clone(),
+        policy_fingerprint: digest.clone(),
+        resolution_fingerprint: digest.clone(),
+        local_finality: OnlyLocalFeeFinality::ModelConfirmed,
+        binding: binding.clone(),
+    })
+    .unwrap();
+    let estimate = OnlyOrderFeeEstimate::new(OnlyOrderFeeEstimateInput {
+        expected: assessment.clone(),
+        maximum: assessment,
+        reservation_charge: zero.clone(),
+        estimated_rebate: zero.clone(),
+        assumptions_fingerprint: digest.clone(),
+    })
+    .unwrap();
+    let amount = order.price().as_ref().map_or_else(
+        || "0".parse().unwrap(),
+        |price| only_multiply(price.value(), order.quantity().value()).unwrap(),
+    );
+    let principal = OnlyMoney::new(
+        only_quantize(&amount, &"0.01".parse().unwrap()).unwrap(),
+        currency,
+    )
+    .unwrap();
+    let funding = OnlyOrderFundingPlan::new(OnlyOrderFundingPlanInput {
+        order_id: order.order_id().clone(),
+        principal_reservation: principal.clone(),
+        fee_reservation: zero,
+        total_reservation: principal,
+        binding_fingerprint: binding.fingerprint().clone(),
+        estimate_fingerprint: digest,
+    })
+    .unwrap();
+    json!({"binding":binding.to_record(),"estimate":estimate.to_record(),"funding":funding.to_record()})
+}
+#[test]
+fn native_order_fee_contract_matches_frozen_valuation_fixture() {
+    let mut cfg = config();
+    cfg["capitals"] = json!({"cluster":"500.00","other":"500.00"});
+    cfg["profiles"]["other"] = cfg["profiles"]["cluster"].clone();
+    let mut h = Harness::new(cfg).unwrap();
+    apply(&mut h, &open(1, "BUY"));
+    let before = h.checkpoint().unwrap();
+    let mut request = open(4, "BUY")["payload"]["request"].clone();
+    request["request_id"]["value"] = json!("request-2");
+    let preview = h
+        .components
+        .fee_order_preview(&h.store, "other", &request, 4)
+        .unwrap();
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../../test-data/position/valuation-order-contract.json"
+    ))
+    .unwrap();
+    assert_eq!(native_zero_fee_contract(&preview, 4), expected);
+    assert_ne!(native_zero_fee_contract(&preview, 5), expected);
+    assert_eq!(h.checkpoint().unwrap(), before);
+    println!("VALUATION_ORDER_CONTRACT: PASS");
+}
 fn apply(h: &mut Harness, v: &Value) {
     let p = h.prepare(v).unwrap();
     coordinate(&mut h.store, &mut h.components, &p).unwrap();

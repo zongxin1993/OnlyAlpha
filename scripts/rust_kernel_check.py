@@ -2209,6 +2209,34 @@ def check_valuation_reference(root: Path, env: dict[str, str], target: str) -> N
 
     data = (root / "test-data/position/valuation-v1.jsonl").read_text()
     for profile in ([], ["--release"]):
+        contract = subprocess.run(
+            [
+                "cargo",
+                "test",
+                "-p",
+                "onlyalpha-execution",
+                "--test",
+                "valuation",
+                "--frozen",
+                "--offline",
+                "--target",
+                target,
+                "-j1",
+                *profile,
+                "--",
+                "--exact",
+                "native_order_fee_contract_matches_frozen_valuation_fixture",
+                "--nocapture",
+                "--test-threads=1",
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if contract.stdout.count("VALUATION_ORDER_CONTRACT: PASS") != 1:
+            raise ValueError("VALUATION_ORDER_CONTRACT_OUTPUT")
         subprocess.run(
             [
                 "cargo",
