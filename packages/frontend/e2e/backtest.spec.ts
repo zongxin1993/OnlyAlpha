@@ -119,7 +119,28 @@ test("normal backtest works without Agent and reopens the same run after restart
     await page.getByRole("combobox", { name: "回测行情数据源", exact: true }).press("Enter");
     await page.getByRole("button", { name: "确认策略并准备回测", exact: true }).click();
     const start = page.getByRole("button", { name: "开始回测", exact: true });
-    await expect(start).toBeEnabled({ timeout: 120_000 });
+    const readyDeadline = Date.now() + 120_000;
+    const readUnavailable = page
+        .getByRole("alert")
+        .filter({ hasText: "暂时无法读取当前记录。已有策略与回测仍然保留，请重新查看。" });
+    await expect
+        .poll(async () => (await start.isEnabled()) || (await readUnavailable.isVisible()), {
+            timeout: 120_000
+        })
+        .toBe(true);
+    if (await readUnavailable.isVisible()) {
+        // Normal user recovery observes the same operation. It never resubmits
+        // preparation, and the original READY budget continues to apply.
+        const remaining = readyDeadline - Date.now();
+        expect(remaining).toBeGreaterThan(0);
+        await page
+            .getByRole("button", { name: "重新查看", exact: true })
+            .click({ timeout: remaining });
+    }
+    const remaining = readyDeadline - Date.now();
+    expect(remaining).toBeGreaterThan(0);
+    await expect(start).toBeEnabled({ timeout: remaining });
+    expect(Date.now()).toBeLessThanOrEqual(readyDeadline);
     await page.screenshot({ path: testInfo.outputPath("backtest-ready.png"), fullPage: true });
     await start.focus();
     await expect(start).toBeFocused();

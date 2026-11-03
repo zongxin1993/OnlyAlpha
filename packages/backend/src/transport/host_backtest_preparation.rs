@@ -79,13 +79,15 @@ impl Host {
         let policies=Arc::new(Policies::open(descriptor.as_fd()).map_err(|e|e.code())?);
         let decisions=Arc::new(qualification_decision::Store::open(&config.research_root)?);
         validation.verify_cut()?;
-        // Repeated semantics reuse the actual canonical grant, never a second stage transition.
-        {let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
-            if let Some(existing)=strategy_promotion::read_existing_backtest_admission_for_strategy(client,&namespace,frozen.clone(),decisions.clone(),&config.runtime_root,validation.source_revision().fingerprint(),64*1024*1024).await? {return Ok(existing);}}
         let o=self.preparation_checkpoint(o,human).await?;
         let published={let mut writer=self.writer.lock().await;let session=writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Freezes::new(session,&frozen,&namespace,human).execute_manual(&validation,&o,&now().map_err(|e|e.code())?.to_string(),100000,64*1024*1024).await?};
         let evidence=Arc::new(frozen.read_verified_manual(validation,text(&published,"freeze_relation_fingerprint")?,64*1024*1024).map_err(|e|e.code())?);
+        // First finish/recover this original Freeze, including its catalog row.
+        // Repeated semantics retain their own valid provenance and reuse the
+        // canonical grant, never a second BACKTEST stage transition.
+        {let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
+            if let Some(existing)=strategy_promotion::read_existing_backtest_admission_for_strategy(client,&namespace,frozen.clone(),decisions.clone(),&config.runtime_root,evidence.subject_strategy_fingerprint(),64*1024*1024).await? {return Ok(existing);}}
         self.preparation_checkpoint(&o,human).await?;
         let command=child_command(&o.command,"manual-backtest-qualification")?;
         let request=QualificationRequest::from_manual(command,"manual-backtest","1",&evidence)?;

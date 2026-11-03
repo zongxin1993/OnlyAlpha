@@ -44,6 +44,24 @@ pub async fn run_phase(session:&mut AuthoritySession,root:&Path,phase:&str) {
     let message=http::Request::builder().uri("/api/v2/integration-types").header("host","127.0.0.1:5173").header("cookie",format!("onlyalpha_dev_session={token}")).body(()).unwrap();
     let Admission::Owner(human)=access.admit(&message).unwrap() else {panic!("actual owner session")};
     assert_eq!(human.subject_id().unwrap(),owner);
+    if matches!(phase,"reuse-absent"|"reuse-existing"|"reuse-corrupt-catalog") {
+        let frozen=Arc::new(frozen);
+        let decisions=Arc::new(crate::persistence::qualification_decision::Store::open(root).unwrap());
+        let result=crate::persistence::strategy_promotion::read_existing_backtest_admission_for_strategy(
+            session.client_mut().await.unwrap(),&namespace,frozen,decisions,
+            Path::new(request["runtime_root"].as_str().unwrap()),validation.source_revision().fingerprint(),WORK,
+        ).await;
+        let value=if phase=="reuse-corrupt-catalog" {
+            assert_eq!(result.err(),Some("PROMOTION_LEDGER_CORRUPT"));json!({"denied":"PROMOTION_LEDGER_CORRUPT"})
+        }else if phase=="reuse-absent" {
+            assert!(result.unwrap().is_none());json!({"grant":null})
+        }else {
+            let proof=result.unwrap().expect("original qualified BACKTEST grant");proof.verify_cut().unwrap();
+            json!({"strategy_fingerprint":proof.strategy_fingerprint(),"freeze_relation_fingerprint":proof.freeze_relation_fingerprint(),
+                "qualification_decision_fingerprint":proof.qualification_decision_fingerprint(),"promotion_fingerprint":proof.promotion_fingerprint()})
+        };
+        println!("MANUAL_FREEZE_VALUE {}",value);return;
+    }
     if phase.starts_with("q-")||phase.starts_with("p-") {
         qualification_promotion_phase(session,root,phase,&request,&original,&frozen,&namespace,&access,&human).await;return;
     }

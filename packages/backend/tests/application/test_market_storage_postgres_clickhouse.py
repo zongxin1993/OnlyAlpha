@@ -25,8 +25,8 @@ from typing import Any, cast
 
 import psycopg
 import pytest
-
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
+
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
 from onlyalpha.market_data.durable.codec import only_encode_record_bundle
 from onlyalpha.market_data.durable.models import (
@@ -40,12 +40,13 @@ from onlyalpha.persistence.clickhouse import (
     OnlyClickHouseClient,
     OnlyClickHouseConfig,
     OnlyClickHouseMarketFactStore,
-    OnlyClickHouseMigrationAuthority,
     only_assert_clickhouse_test_database,
 )
 from onlyalpha.persistence.clickhouse.market_data_store import _physical_row_sql, _quote
 from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarketDataCatalog, _scope_payload
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from scripts.native_http_contract import native_executable
+from scripts.native_web_e2e import clickhouse_namespace
 from tests.market_data_durable.conftest import bar_update, reference_update, trade_update
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(120)]
@@ -95,7 +96,7 @@ def market_probe() -> Path:
 @contextmanager
 def market_database(postgres_dsn: str) -> Iterator[OnlyClickHouseClient]:
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    name = "onlyalpha_test_native_market_storage"
+    name = "onlyalpha_test_native_market_storage_" + uuid.uuid4().hex
     only_assert_clickhouse_test_database(name)
     config = OnlyClickHouseConfig(
         os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
@@ -105,12 +106,12 @@ def market_database(postgres_dsn: str) -> Iterator[OnlyClickHouseClient]:
         storage_policy=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY", "hot_cold"),
     )
     client = OnlyClickHouseClient(config)
-    client.execute(f"DROP DATABASE IF EXISTS {name} SYNC", database="default")
-    OnlyClickHouseMigrationAuthority(client).migrate()
+    backend = native_executable(release=True)
+    clickhouse_namespace(backend, name, initialize=True)
     try:
         yield client
     finally:
-        client.execute(f"DROP DATABASE IF EXISTS {name} SYNC", database="default")
+        clickhouse_namespace(backend, name, initialize=False)
 
 
 @pytest.fixture
@@ -1264,6 +1265,8 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
     """Real persistent stage boundaries; never execute a missing prerequisite."""
     import hashlib
 
+    from onlyalpha.canonical import only_canonical_json
+    from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
     from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
         OnlyPrivateFactorAdapterV1,
         OnlyPrivateFactorIsolatedProgramHost,
@@ -1273,7 +1276,6 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
     from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest
     from onlyalpha_plugin_operators.provider import quant_asset_provider
 
-    from onlyalpha.canonical import only_canonical_json
     from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest, OnlyRuntimeGenerationValidationEvidence
     from onlyalpha.quant_assets import (
         OnlyPrivateFactorRevision,
@@ -1283,7 +1285,6 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
         OnlyQuantAssetProvider,
         OnlyQuantAssetProviderManifest,
     )
-    from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
     from scripts.build_algorithm_sdk import install
 
     case = native_environment_case
@@ -2203,6 +2204,7 @@ def _assert_actual_strategy_evaluation(
 ) -> None:
     """Independent value checks over two actual numerical producers; no evidence grant."""
     from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
     from onlyalpha.domain.time import OnlyTimestamp
     from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
     from onlyalpha.research.evaluation.result import OnlyResearchStatisticRow, OnlyResearchStatisticStatus
@@ -2526,6 +2528,7 @@ def _assert_complete_strategy_profiles(
     from itertools import product
 
     from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
     from onlyalpha.calculation.equivalence import only_required_calculation_equivalence_profile
 
     fixed = {

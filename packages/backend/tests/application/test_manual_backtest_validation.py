@@ -109,7 +109,9 @@ def _owner(
     marker = "MANUAL_PRODUCER_VALUE " if producer else "MANUAL_FREEZE_VALUE "
     values = [json.loads(line.removeprefix(marker)) for line in result.stdout.splitlines() if line.startswith(marker)]
     assert len(values) == 1, result.stdout + result.stderr
-    return values[0]
+    value = values[0]
+    assert isinstance(value, dict), "native owner must return an object"
+    return value
 
 
 @pytest.fixture
@@ -262,3 +264,36 @@ def test_manual_cancel_cleanup_retries_after_original_runtime_owner_drains(
         )
         assert conn.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM backtest_run").fetchone() == (0,)
+
+
+def test_manual_freeze_provenance_reuses_the_original_complete_backtest_grant(
+    actual_manual_parents: dict[str, Any],
+) -> None:
+    fixture = actual_manual_parents
+    first, second = fixture["parents"]
+
+    def run(parent: dict[str, Any], phase: str) -> dict[str, Any]:
+        return _owner(fixture["binary"], fixture["dsn"], fixture["research"], "manual-freeze:" + phase, parent)
+
+    with psycopg.connect(fixture["dsn"]) as conn:
+        assert conn.execute("SELECT count(*) FROM strategy_catalog").fetchone() == (0,)
+    original_freeze = run(first, "freeze")
+    assert run(first, "reuse-absent") == {"grant": None}
+    run(first, "q-qualify")
+    run(first, "p-promote")
+    original_grant = run(first, "reuse-existing")
+    later_freeze = run(second, "freeze")
+    assert original_freeze["strategy_fingerprint"] == later_freeze["strategy_fingerprint"]
+    assert original_freeze["freeze_relation_fingerprint"] != later_freeze["freeze_relation_fingerprint"]
+    assert original_grant["freeze_relation_fingerprint"] == original_freeze["freeze_relation_fingerprint"]
+    assert run(second, "reuse-existing") == original_grant
+    with psycopg.connect(fixture["dsn"]) as conn:
+        assert conn.execute("SELECT count(*) FROM strategy_freeze_record").fetchone() == (2,)
+        assert conn.execute("SELECT count(*) FROM strategy_promotion_record").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM qualification_command_admission").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM backtest_run").fetchone() == (0,)
+        conn.execute("UPDATE strategy_catalog SET schema_version=2")
+    assert run(second, "reuse-corrupt-catalog") == {"denied": "PROMOTION_LEDGER_CORRUPT"}
+    with psycopg.connect(fixture["dsn"]) as conn:
+        conn.execute("UPDATE strategy_catalog SET schema_version=1")
+    assert run(second, "reuse-existing") == original_grant
