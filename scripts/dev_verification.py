@@ -70,13 +70,27 @@ def environment_inputs(root: Path) -> dict[str, str]:
         paths += sorted((root / directory).glob("*/pyproject.toml"))
     paths += sorted((root / "packages/backend/python").glob("*/pyproject.toml"))
     paths += [
+        root / name for name in ("hatch_build.py", "scripts/embed_build_provenance.py") if (root / name).is_file()
+    ]
+    paths += [
         root / name / "pyproject.toml"
         for name in (
             "test-data/external_plugins/onlyalpha_test_plugin",
             "test-data/runtime_factor_provider",
         )
     ]
-    return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+    result = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+    # The retiring umbrella wheel is non-editable: include data/stubs and
+    # force-included migrations as well as Python, not just dependency metadata.
+    result.update(
+        (name, digest)
+        for name, digest in source_inputs(root).items()
+        if name.startswith(
+            ("src/onlyalpha/", "packages/backend/python/algorithms/sdk/onlyalpha/", "database/postgres/migrations/")
+        )
+        and name not in {"src/onlyalpha/_build_provenance.json", "src/onlyalpha/_build_provenance.sha256"}
+    )
+    return result
 
 
 def source_inputs(root: Path) -> dict[str, str]:

@@ -101,6 +101,25 @@ packages = ["src/onlyalpha"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "database/postgres/migrations" = "onlyalpha/persistence/postgres/migrations"
+"packages/backend/python/algorithms/sdk/onlyalpha/canonical.py" = "onlyalpha/canonical.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/definition.py" = "onlyalpha/calculation/definition.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/compatibility.py" = "onlyalpha/calculation/compatibility.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/graph.py" = "onlyalpha/calculation/graph.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/implementation.py" = "onlyalpha/calculation/implementation.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/decimal_execution.py" = "onlyalpha/calculation/decimal_execution.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/chart_decimal.py" = "onlyalpha/calculation/chart_decimal.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/chart_study.py" = "onlyalpha/calculation/chart_study.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/value_semantics.py" = "onlyalpha/calculation/value_semantics.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/__init__.py" = "onlyalpha/algorithm/__init__.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/batch.py" = "onlyalpha/algorithm/batch.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/private_factor.py" = "onlyalpha/algorithm/private_factor.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/calculation/registry.py" = "onlyalpha/calculation/registry.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/quant_assets/private_factor_provider_snapshot.py" = "onlyalpha/quant_assets/private_factor_provider_snapshot.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/codec.py" = "onlyalpha/algorithm/codec.py"
+"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/type_declaration.py" = "onlyalpha/algorithm/type_declaration.py"
+
+[tool.hatch.build.targets.sdist.force-include]
+"packages/backend/python/algorithms/sdk" = "packages/backend/python/algorithms/sdk"
 
 [tool.hatch.build]
 exclude = ["src/onlyalpha/_build_provenance.json", "src/onlyalpha/_build_provenance.sha256"]
@@ -127,6 +146,7 @@ quote-style = "double"
 [tool.mypy]
 python_version = "3.12"
 strict = true
+mypy_path = ["packages/backend/python/algorithms/sdk"]
 files = [
     "src/onlyalpha",
     "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",

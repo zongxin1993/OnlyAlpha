@@ -1,6 +1,6 @@
 """Build and install the current minimal algorithm closure, without editable imports.
 
-The existing OnlyAlpha distribution supplies only its necessary SDK files here;
+The backend algorithm resource supplies its necessary SDK files here;
 this is the worker's exact installation artifact, not a second backend distribution.
 """
 
@@ -27,6 +27,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK = (
+    "__init__.py",
+    "calculation/__init__.py",
+    "quant_assets/__init__.py",
     "canonical.py",
     "calculation/definition.py",
     "calculation/compatibility.py",
@@ -116,12 +119,10 @@ def wheel(output: Path, distribution: str, sources: dict[str, bytes], dependenci
 
 def build(output: Path) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
-    sdk = {"onlyalpha/" + name: (ROOT / "src/onlyalpha" / name).read_bytes() for name in SDK}
-    sdk["onlyalpha/__init__.py"] = b'"""Minimal mathematical authoring SDK; no business services."""\n'
-    sdk["onlyalpha/calculation/__init__.py"] = (
-        b"from onlyalpha.calculation.definition import *\nfrom onlyalpha.calculation.decimal_execution import only_decimal_context, only_quantize_decimal, only_decimal_execution_semantic_dependency\nfrom onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1\n"
-    )
-    sdk["onlyalpha/quant_assets/__init__.py"] = b'"""Pure immutable algorithm snapshot DTO only."""\n'
+    sdk = {
+        "onlyalpha/" + name: (ROOT / "packages/backend/python/algorithms/sdk/onlyalpha" / name).read_bytes()
+        for name in SDK
+    }
     plugin = {
         "onlyalpha_plugin_indicators/" + name: (
             ROOT / "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators" / name

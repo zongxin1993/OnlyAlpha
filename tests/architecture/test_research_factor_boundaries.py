@@ -10,7 +10,10 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_calculation_core_does_not_depend_on_concrete_provider_or_private_example_package() -> None:
-    for path in Path("src/onlyalpha/calculation").glob("*.py"):
+    for path in [
+        *Path("src/onlyalpha/calculation").glob("*.py"),
+        *Path("packages/backend/python/algorithms/sdk/onlyalpha/calculation").glob("*.py"),
+    ]:
         imports = _imports(path)
         assert not any(name.startswith(("onlyalpha_plugin_", "onlyalpha_example_")) for name in imports), path
 
@@ -29,7 +32,13 @@ def test_quant_asset_placement_uses_plugins_for_public_capabilities_and_seeds_fo
 def test_example_seeds_are_not_installed_or_auto_imported() -> None:
     metadata = Path("pyproject.toml").read_text(encoding="utf-8")
     dockerfile = Path("deploy/Dockerfile.dev").read_text(encoding="utf-8")
-    application = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/onlyalpha").rglob("*.py"))
+    application = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [
+            *Path("src/onlyalpha").rglob("*.py"),
+            *Path("packages/backend/python/algorithms/sdk/onlyalpha").rglob("*.py"),
+        ]
+    )
     assert "onlyalpha-example-factor" not in metadata + dockerfile
     assert "onlyalpha-example-strategies" not in metadata + dockerfile
     assert "examples/private-assets" not in application

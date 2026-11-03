@@ -62,7 +62,8 @@ RUN python scripts/embed_build_provenance.py --revision "${ONLYALPHA_BUILD_SOURC
     && python packages/onlyalpha-agent-orchestrator/provenance_build.py \
         --revision "${ONLYALPHA_BUILD_SOURCE_REVISION}"
 
-RUN uv sync --frozen --all-packages --no-dev
+RUN uv sync --frozen --all-packages --no-dev \
+    && uv pip install --offline --no-deps --reinstall-package onlyalpha .
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     ONLYALPHA_POSTGRES_CLIENT_BIN_DIR=/usr/lib/postgresql/18/bin \
@@ -82,7 +83,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 USER onlyalpha
 RUN git config --global --add safe.directory /workspace
-RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance
+RUN uv sync --frozen --all-packages --no-dev --group compose-acceptance \
+    && uv pip install --offline --no-deps --reinstall-package onlyalpha .
 # Prepare the exact existing contract tool while builds have network access;
 # the isolated validation service executes only cached tools, offline.
 RUN python - <<'PY_CONTRACT_TOOLS'

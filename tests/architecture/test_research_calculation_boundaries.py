@@ -77,7 +77,10 @@ def test_research_job_has_no_trading_or_runtime_authority_imports() -> None:
 
 
 def test_calculation_core_does_not_import_research_or_arrow() -> None:
-    for path in Path("src/onlyalpha/calculation").rglob("*.py"):
+    for path in [
+        *Path("src/onlyalpha/calculation").rglob("*.py"),
+        *Path("packages/backend/python/algorithms/sdk/onlyalpha/calculation").rglob("*.py"),
+    ]:
         source = path.read_text()
         assert "onlyalpha.research" not in source
         assert "pyarrow" not in source

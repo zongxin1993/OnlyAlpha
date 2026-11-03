@@ -96,6 +96,27 @@ def test_required_dependencies_come_from_backend_and_executor_metadata(source_re
     assert release_sources.required_units(root) == {"libs", "plugin-test", "plugin-math"}
 
 
+def test_backend_source_bundle_owns_sdk_without_legacy_root_files(source_repo, tmp_path):
+    root, _ = source_repo
+    sdk = root / "packages/backend/python/algorithms/sdk/onlyalpha/canonical.py"
+    sdk.parent.mkdir(parents=True)
+    sdk.write_text("VALUE = 'algorithm SDK'\n")
+    builder = root / "scripts/build_algorithm_sdk.py"
+    builder.parent.mkdir()
+    builder.write_text("SDK = ('canonical.py',)\n")
+    git(root, "add", ".")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "algorithm sources")
+    revision = git(root, "rev-parse", "HEAD")
+    bundle = tmp_path / "backend.zip"
+    digest = release_sources.export(root, "backend", revision, bundle)
+    manifest = release_sources.verify(root, "backend", bundle, digest)
+    assert str(sdk.relative_to(root)) in manifest["files"]
+    assert not any(name.startswith("src/") for name in manifest["files"])
+    sdk.write_text("VALUE = 'changed SDK bytes'\n")
+    with pytest.raises(ValueError, match="RELEASE_SOURCE"):
+        release_sources.verify(root, "backend", bundle, digest)
+
+
 @pytest.mark.parametrize("requirement", [" onlyalpha-plugin-math==0.5.0", "onlyalpha-plugin-math == 0.5.0"])
 def test_valid_whitespace_cannot_omit_bundled_plugin_provenance(source_repo, requirement):
     root, _ = source_repo

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import hashlib
 import io
 import json
@@ -100,14 +99,6 @@ def _paths(root: Path, unit: str, inputs: dict[str, str]) -> set[str]:
             )
             if "scripts/" + name in inputs
         )
-        sdk_builder = root / "scripts/build_algorithm_sdk.py"
-        if sdk_builder.exists():
-            sdk = next(
-                ast.literal_eval(node.value)
-                for node in ast.parse(sdk_builder.read_text()).body
-                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "SDK" for t in node.targets)
-            )
-            selected.update("src/onlyalpha/" + name for name in sdk)
     # Follow literal compile-time Rust inputs, including independently owned vectors.
     # Dynamic includes require an explicit closure design, never silent omission.
     for name in list(selected):

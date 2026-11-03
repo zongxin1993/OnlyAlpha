@@ -10,7 +10,10 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_core_does_not_import_calculation_plugins_or_own_concrete_algorithms() -> None:
-    for path in Path("src/onlyalpha").rglob("*.py"):
+    for path in [
+        *Path("src/onlyalpha").rglob("*.py"),
+        *Path("packages/backend/python/algorithms/sdk/onlyalpha").rglob("*.py"),
+    ]:
         imports = _imports(path)
         assert not any(
             name.startswith(
@@ -52,15 +55,20 @@ def test_semantic_definition_layer_has_no_runtime_or_trading_authority_imports()
         "onlyalpha.position",
         "onlyalpha.transaction",
     )
-    for path in Path("src/onlyalpha/calculation").glob("*.py"):
+    for path in [
+        *Path("src/onlyalpha/calculation").glob("*.py"),
+        *Path("packages/backend/python/algorithms/sdk/onlyalpha/calculation").glob("*.py"),
+    ]:
         imports = _imports(path)
         assert not any(name.startswith(forbidden) for name in imports), (path, imports)
 
 
 def test_calculation_semantic_identity_is_separate_from_explicit_implementation_identity() -> None:
-    calculation = Path("src/onlyalpha/calculation")
-    algorithm = Path("src/onlyalpha/algorithm")
+    calculation = Path("packages/backend/python/algorithms/sdk/onlyalpha/calculation")
+    legacy_calculation = Path("src/onlyalpha/calculation")
+    algorithm = Path("packages/backend/python/algorithms/sdk/onlyalpha/algorithm")
     sources = [
+        *legacy_calculation.glob("*.py"),
         *calculation.glob("*.py"),
         algorithm / "batch.py",
         algorithm / "private_factor.py",
@@ -79,7 +87,7 @@ def test_calculation_semantic_identity_is_separate_from_explicit_implementation_
         calculation / "definition.py",
         algorithm / "private_factor.py",
         calculation / "decimal_execution.py",
-        calculation / "equivalence.py",
+        legacy_calculation / "equivalence.py",
         calculation / "graph.py",
         calculation / "implementation.py",
     }

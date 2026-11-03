@@ -50,7 +50,10 @@ def test_sweep_defines_no_parallel_semantic_or_durable_authority() -> None:
 
 
 def test_template_identity_does_not_leak_into_calculation_core() -> None:
-    for path in Path("src/onlyalpha/calculation").glob("*.py"):
+    for path in [
+        *Path("src/onlyalpha/calculation").glob("*.py"),
+        *Path("packages/backend/python/algorithms/sdk/onlyalpha/calculation").glob("*.py"),
+    ]:
         source = path.read_text(encoding="utf-8")
         assert "TemplateNodeId" not in source
         assert "onlyalpha.research.sweep" not in source

@@ -114,6 +114,31 @@ def test_backend_python_constituents_are_environment_inputs(tmp_path: Path) -> N
     assert dev_verification.environment_inputs(tmp_path) != before
 
 
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "src/onlyalpha/domain/value.py",
+        "src/onlyalpha/py.typed",
+        "src/onlyalpha/research/experiment/__init__.pyi",
+        "packages/backend/python/algorithms/sdk/onlyalpha/canonical.py",
+        "database/postgres/migrations/0001_schema.sql",
+    ],
+)
+def test_noneditable_sdk_and_legacy_sources_cannot_reuse_a_stale_environment(tmp_path: Path, relative: str) -> None:
+    _environment(tmp_path)
+    empty = dev_verification.environment_inputs(tmp_path)
+    source = tmp_path / relative
+    source.parent.mkdir(parents=True)
+    source.write_text("first source")
+    before = dev_verification.environment_inputs(tmp_path)
+    assert before != empty
+    source.write_text("changed source")
+    assert dev_verification.environment_inputs(tmp_path) != before
+    source.unlink()
+    assert dev_verification.environment_inputs(tmp_path) != before
+    assert dev_verification.environment_inputs(tmp_path) == empty
+
+
 def test_docker_context_filter_changes_require_environment_rebuild(tmp_path: Path) -> None:
     _environment(tmp_path)
     before = dev_verification.environment_inputs(tmp_path)

@@ -82,13 +82,17 @@ def test_generated_web_client_has_only_canonical_openapi_source() -> None:
 
 def test_core_domain_has_no_api_contract_tooling_dependency() -> None:
     forbidden = {"openapi_contract", "onlyalpha_http_server", "fastapi", "starlette"}
-    for path in (ROOT / "src/onlyalpha").rglob("*.py"):
+    for path in [
+        *(ROOT / "src/onlyalpha").rglob("*.py"),
+        *(ROOT / "packages/backend/python/algorithms/sdk/onlyalpha").rglob("*.py"),
+    ]:
         assert not (imported_modules_for_path(path, ROOT) & forbidden), path
 
 
 def test_contract_metadata_does_not_enter_semantic_identity_code() -> None:
     semantic_roots = (
         ROOT / "src/onlyalpha/calculation",
+        ROOT / "packages/backend/python/algorithms/sdk/onlyalpha/calculation",
         ROOT / "src/onlyalpha/research",
         ROOT / "src/onlyalpha/strategy",
     )
