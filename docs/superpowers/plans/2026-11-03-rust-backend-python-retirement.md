@@ -32,6 +32,22 @@
 4. Agent 暂停后标准构建/启动仍安装或启动它：Task 2 在 Agent 包安装器不可调用、模型凭据不存在的情况下完成标准构建/启动；不能删除存储或旧会话来绕过。
 5. 删除测试导致验证空跑或安全 guard 消失：Task 3–8 逐项保留有效断言并执行真实收集；Task 7 验证 `_test` DSN、namespace fencing、UNKNOWN 与退出信号传播。
 
+## 主要实现参考：NautilusTrader v2
+
+Owner 选择以 NautilusTrader 为本轮迁移的主要工程参考。参考固定为 [develop@0afcf8bc30f18114a5147c09700460e949face50](https://github.com/nautechsystems/nautilus_trader/tree/0afcf8bc30f18114a5147c09700460e949face50)，不是旧版 `develop_v1` Cython 实现；版本区别见其 [v2 migration guide](https://github.com/nautechsystems/nautilus_trader/blob/0afcf8bc30f18114a5147c09700460e949face50/MIGRATION_V2.md)。以下是实现方向和未来验证要求，不是 OnlyAlpha 已完成状态。
+
+| 当前任务 | 优先参考的 Nautilus 实现 | OnlyAlpha 落地与验证边界 |
+|---|---|---|
+| Task 1/5：Python 指标、因子及策略算法 | [EMA 策略示例](https://github.com/nautechsystems/nautilus_trader/blob/0afcf8bc30f18114a5147c09700460e949face50/docs/tutorials/ema_cross.py)、[Python 指标对象适配](https://github.com/nautechsystems/nautilus_trader/blob/0afcf8bc30f18114a5147c09700460e949face50/crates/common/src/python/indicators.rs)、`crates/common/src/actor/data_actor.rs` | 审计现有算法实例的创建、预热、增量更新、ready、结果与 checkpoint 生命周期；优先复用当前 worker/session，避免每条输入重新安装、启动或重算整个历史。保留 Python 自定义算法和现有有效 API；不为名称一致另造注册框架，不移入业务 Authority。验证真实安装后的连续输入、预热边界、实例隔离和恢复后数值一致。 |
+| Task 6：Rust 回测循环与数据调度 | [Rust engine](https://github.com/nautechsystems/nautilus_trader/blob/0afcf8bc30f18114a5147c09700460e949face50/crates/backtest/src/engine.rs)、[有序多流 iterator](https://github.com/nautechsystems/nautilus_trader/blob/0afcf8bc30f18114a5147c09700460e949face50/crates/data/src/replay/iterator.rs)、`crates/backtest/src/exchange.rs` | 对照既有 RunLoop/Trading/worker 的实际调用图，检查游标推进、时钟、同时间排序、指标更新、策略决策、撮合与事件排空顺序。沿用当前 Rust owners；不复制第二套 engine。用独立顺序/费用/现金/成交向量及 fresh-process 故障恢复验证。 |
+| Task 6/9：性能与产品闭环 | [同步 Python callback 边界](https://nautilustrader.io/docs/latest/concepts/python/)、上述 Rust 主循环 | 将输入读取、Rust 状态推进、算法计算、进程/协议边界和 journal/recovery 成本分开测量；先定位重复工作再改。库故障向量可用明确的小型完整输入，但不能缩短 Product admission 样本、变更身份或提高超时，并以此声称正常产品性能通过。 |
+
+Nautilus 的内置指标通常由 Rust 实现并暴露 Python API，自定义指标则可保留 Python 对象；这不改变本轮保留 Python 因子、策略、指标算法的决定。其同进程 PyO3 回调不等于隔离执行，本轮仍遵守 ADR 0141 的受控算法边界，不引入 PyO3、依赖、任意 Python 交易 callback 或新的控制入口。
+
+Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/) 包含 OHLC 模拟路径，零延迟下 `on_bar` 订单可在当前 Bar 收盘状态成交，并非原生 NEXT_OPEN。OnlyAlpha 保留现有 NEXT_OPEN、canonical identity、immutable inputs、Web/API、Risk、Evidence 与 durable recovery 语义；不照搬成交假设、风险 bypass 示例或内存对象地址身份。
+
+每个后续能力批次在当前 Task Contract 中先列出相关 upstream 文件、可复用的本地实现、采用点与语义差异，再冻结修改集；没有缺口则仅迁消费者和删除旧接线。新增或实质改变选型仍遵守 Global Constraints，不借参考项目绕过 owning Contract。
+
 ## 工程文件与交付边界
 
 | 边界 | 当前文件与计划责任 |
@@ -112,7 +128,7 @@
 **Interfaces:** `backtest_service::Produced::{Terminal(JoinedBacktest), Paused(PausedBacktest)}` 保持只有真实 terminal replay 和 positive child joins 才能获得 JoinedBacktest；沿用 `onlyalpha_backtest::{RunLoop, RunSpec, Trading}`，结果继续由原 Run 和 verified Evidence 推导。
 
 1. 找出所有旧 Python replay、结果构造、性能对照和 Runtime 工具消费者；尤其 `scripts/backtest_replay_check.py::replay_environment(root: Path, artifacts: Path) -> dict[str, str]` 当前仍构造 Python domain/Dataset，是 Rust package 验证的间接旧依赖。
-2. 将 replay 技术前提改为现有独立向量和 Rust owning composition：复用 backend 现有 `tests/application/support/backtest_native_host.rs`、回测服务/worker支持及 runtime-persistence fixtures，不新增对外产品入口。不再用旧 Python backend 生成预期值或正式 Evidence；受控输入仅作库/故障测试技术前提。
+2. 将 replay 技术前提改为现有独立向量和 Rust owning composition：优先复用 backend 已安装算法的 trading fixture、`tests/application/support/backtest_native_host.rs`、回测服务/worker支持及 runtime-persistence fixtures，不新增对外产品入口。不再用旧 Python backend 生成预期值或正式 Evidence；受控输入仅作库/故障测试技术前提。库故障向量必须运行其完整声明输入及实际算法/Execution，保持经济效果和每个适用 cut/mutation；与正常 Product 的固定 admission、样本及性能证据分开，不为库测试伪造 Product preparation。
 3. 复用 `crates/onlyalpha-backtest/tests/replay.rs`、`open_phases.rs`、runtime-persistence 的 `replay_journal.rs` 和 backend 现有 lifecycle/service/evidence tests；有缺口时补断言：pause/cancel/error/terminal 各自身份与 owner 保留、子进程未 join 不得释放容量或 mint success、crash/restart 不重复业务效果、损坏必需 fact 显式拒绝、相同初态和有序输入产生相同结果/bytes。
 4. 旧结果与 performance comparison 中有效现金、费用、成交、持仓、净值/回撤和 traceability 断言迁入 Rust owning tests；删除只为 Python parity 存在的 evaluator 与路径。不能以数值看起来一致代替独立错误/recovery 断言。
 5. 运行 `python3 scripts/dev_verification.py run -- python scripts/rust_kernel_check.py --package onlyalpha-backtest --package onlyalpha-runtime-persistence --package onlyalpha-backend`，仅在这三包均实际受影响时使用该组合，否则缩小。执行该批数据库 producer/lifecycle 测试；旧历史 work 所需 artifacts/readers 不可用时明确阻塞其删除，不引入新旧源码 loader。
