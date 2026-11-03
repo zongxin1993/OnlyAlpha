@@ -2201,7 +2201,7 @@ def check_reconciliation_reference(root: Path, env: dict[str, str], target: str)
         if len(rows) != 1:
             raise ValueError("RECONCILIATION_REFERENCE_OUTPUT")
         compare_native(root, json.loads(rows[0]))
-    print("RECONCILIATION_PYTHON_NATIVE_COMMON_AND_LITERAL_VECTORS: PASS", flush=True)
+    print("RECONCILIATION_NATIVE_LITERAL_VECTORS: PASS", flush=True)
 
 
 def check_valuation_reference(root: Path, env: dict[str, str], target: str) -> None:
