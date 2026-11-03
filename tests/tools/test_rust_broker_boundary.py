@@ -1,4 +1,4 @@
-"""Broker semantic isolation and actual Virtual Broker comparison inputs."""
+"""Broker semantic isolation and frozen normalized Broker inputs."""
 
 from pathlib import Path
 
@@ -34,10 +34,9 @@ def test_broker_rejects_io_and_reverse_authority_edges(tmp_path: Path, code: str
         check.validate_broker_sources(tmp_path)
 
 
-def test_real_virtual_broker_trace_has_session_independent_canonical_facts() -> None:
-    from scripts.broker_reference_check import check_fixture, virtual_corpus
+def test_frozen_virtual_broker_trace_has_session_independent_canonical_facts() -> None:
+    from scripts.broker_reference_check import virtual_corpus
 
-    check_fixture()
     cases = virtual_corpus()
     assert [case["fact"]["kind"] for case in cases[:3]] == ["ACCEPTED", "TRADE", "CANCELLED"]
     assert cases[1]["fact"]["payload"]["fill"]["quantity"]["value"] == "40"

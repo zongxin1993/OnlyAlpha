@@ -2008,10 +2008,9 @@ def check_strategy_ledger_reference(root: Path, env: dict[str, str], target: str
 
 
 def check_broker_reference(root: Path, env: dict[str, str], target: str) -> None:
-    from scripts.broker_reference_check import check_fixture, virtual_corpus
+    from scripts.broker_reference_check import virtual_corpus
 
-    check_fixture()
-    cases = virtual_corpus()
+    cases = virtual_corpus(root)
     actual = subprocess.check_output(
         [
             "cargo",
@@ -2032,7 +2031,7 @@ def check_broker_reference(root: Path, env: dict[str, str], target: str) -> None
         input=json.dumps(cases),
     )
     if json.loads(actual) != [{k: case[k] for k in ("identity", "fingerprint")} for case in cases]:
-        raise ValueError("BROKER_PYTHON_NATIVE_IDENTITY_CONFLICT")
+        raise ValueError("BROKER_NATIVE_IDENTITY_CONFLICT")
 
     subprocess.run(
         [
