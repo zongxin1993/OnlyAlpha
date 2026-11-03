@@ -34,7 +34,7 @@ def test_fee_rejects_io_and_reverse_authority_edges(tmp_path: Path, code: str) -
         check.validate_fee_sources(tmp_path)
 
 
-def test_shared_fee_values_consume_actual_python_authorities() -> None:
+def test_fee_corpus_preserves_cumulative_and_per_fill_literals() -> None:
     from scripts.fee_reference_check import cases
 
     values = cases()
