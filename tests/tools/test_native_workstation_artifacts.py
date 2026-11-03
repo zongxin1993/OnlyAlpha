@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from scripts import native_workstation_build, release_inputs
 from scripts.dev_verification import CUT_METADATA, source_inputs
 from scripts.native_workstation_build import verify_artifacts, web_environment
+from tests.tools.test_runtime_artifacts import composition as composition
 
 
 def _artifact(root: Path) -> dict[str, str]:
@@ -92,6 +94,54 @@ def test_shipping_assets_build_with_explicit_cookie_session_inputs() -> None:
         {"PATH": "/tools", "VITE_ONLYALPHA_LOCAL_SESSION": "false", "VITE_TOKEN": "unbound", "NODE_ENV": "development"}
     )
     assert environment == {"PATH": "/tools", "VITE_ONLYALPHA_LOCAL_SESSION": "true", "NODE_ENV": "production"}
+
+
+def test_default_native_build_does_not_install_or_start_agent(composition, monkeypatch, tmp_path: Path) -> None:
+    from scripts import build_agent_service
+    from scripts.embed_build_provenance import build_provenance_bytes, write_build_provenance
+
+    root, original = composition
+    (root / "pyproject.toml").write_text('[project]\nversion = "0.12.0"\n')
+    schema = root / "database/postgres/migrations"
+    schema.mkdir(parents=True)
+    (schema / "0001_schema.sql").write_text("SELECT 1;\n")
+    write_build_provenance(root, root / "src/onlyalpha/_build_provenance.json", build_provenance_bytes(root, "1" * 40))
+    inputs = source_inputs(root)
+    (root / CUT_METADATA).write_text(json.dumps({"operation_id": "test", "inputs": inputs}))
+    monkeypatch.setattr(native_workstation_build, "ROOT", root)
+    monkeypatch.setenv("ONLYALPHA_DEV_VERIFICATION_OPERATION_ID", "test")
+    monkeypatch.setattr(native_workstation_build, "native_executable", lambda: original / "bin/onlyalpha-backend")
+
+    def install_algorithms(wheels: Path, destination: Path) -> str:
+        destination.mkdir()
+        (destination / "algorithm-installation.json").write_text("{}")
+        return "b" * 64
+
+    def forbidden_agent_install(*args, **kwargs):
+        raise AssertionError("ordinary workstation build requires the paused Agent")
+
+    actual_run = subprocess.run
+
+    def run(command, **kwargs):
+        if command[:3] == ["npm", "run", "build"]:
+            assert kwargs["cwd"] == root / "packages/frontend"
+            destination = Path(command[command.index("--outDir") + 1])
+            destination.mkdir()
+            (destination / "index.html").write_text("<html>Shipping UI</html>")
+            return subprocess.CompletedProcess(command, 0)
+        return actual_run(command, **kwargs)
+
+    monkeypatch.setattr(native_workstation_build, "install", install_algorithms)
+    monkeypatch.setattr(build_agent_service, "install", forbidden_agent_install)
+    monkeypatch.setattr(native_workstation_build.subprocess, "run", run)
+    destination = tmp_path / "workstation"
+    manifest = native_workstation_build.build(destination)
+    assert "agent" not in manifest
+    assert not (destination / "agent").exists()
+    assert (destination / "bin/onlyalpha-backend").read_bytes() == (original / "bin/onlyalpha-backend").read_bytes()
+    assert manifest["default_pair"]["backend_version"] == "0.12.0"
+    assert manifest["default_pair"]["frontend_version"] == "0.13.0"
+    assert verify_artifacts(destination, inputs, "0.12.0", frontend_version="0.13.0") == manifest
 
 
 def test_native_build_checks_selected_inputs_before_creating_any_artifact(tmp_path: Path, monkeypatch) -> None:
