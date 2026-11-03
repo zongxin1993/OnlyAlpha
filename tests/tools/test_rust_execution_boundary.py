@@ -43,9 +43,3 @@ def test_execution_sources_reject_side_effects_and_reverse_edges(tmp_path: Path)
             validate_execution_sources(tmp_path)
     source.write_text("use onlyalpha_order::Manager;")
     validate_execution_sources(tmp_path)
-
-
-def test_execution_domain_inputs_are_bound_to_the_actual_generator() -> None:
-    from scripts.execution_reference_check import check_fixture
-
-    check_fixture()

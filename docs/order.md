@@ -171,8 +171,7 @@ admission, durable transaction, retained-history and product gates are implement
 
 Python reference audit found request-ID-only duplicate checks, direct entity pending-cancel behavior differing from the durable
 reducer, identity sets without payload equality, and incremental restore into an existing receiver. Rust follows current canonical
-requirements instead of copying those defects. Common valid financial/status trajectories are compared with actual Python Manager
-and fresh restoration using independently expected vectors. Corrected/unsupported reference paths are tested separately; comparison
+requirements instead of copying those defects. Common valid financial/status trajectories and fresh restoration are checked against independently expected vectors by the native owner. The literal output checker no longer imports the Python Manager. The native Order fixture test independently derives the retained request and complete fee/funding records and checks their exact regeneration. Corrected/unsupported reference paths are tested separately; comparison
 does not certify complete implementation or persisted identity equivalence.
 
 

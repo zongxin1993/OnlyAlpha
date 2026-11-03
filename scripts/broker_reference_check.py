@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from importlib import import_module
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -36,18 +36,7 @@ from onlyalpha.execution.fill_identity import (  # noqa: E402
 from onlyalpha.execution.terminal_identity import only_capture_execution_terminal_authority  # noqa: E402
 
 
-def domain_fixture() -> dict[str, Any]:
-    from scripts.order_reference_check import domain_fixture as order_fixture
-
-    request = cast(dict[str, Any], order_fixture()["request"])
-    request["account_id"] = {"schema_version": 1, "value": "account"}
-    return {"request": request}
-
-
 def check_fixture() -> None:
-    actual = json.loads((ROOT / "test-data/broker/domain-inputs.json").read_text())
-    if actual != domain_fixture():
-        raise ValueError("BROKER_DOMAIN_FIXTURE_DRIFT")
     if json.loads((ROOT / "test-data/broker/virtual-v2.json").read_text()) != virtual_corpus():
         raise ValueError("BROKER_VIRTUAL_FIXTURE_DRIFT")
 

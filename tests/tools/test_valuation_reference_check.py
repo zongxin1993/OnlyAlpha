@@ -46,5 +46,5 @@ def test_canonical_lane_refuses_an_empty_native_contract_test(monkeypatch: pytes
         return subprocess.CompletedProcess(command, 0, stdout="running 0 tests\n", stderr="")
 
     monkeypatch.setattr("scripts.rust_kernel_check.subprocess.run", empty)
-    with pytest.raises(ValueError, match="VALUATION_ORDER_CONTRACT_OUTPUT"):
+    with pytest.raises(ValueError, match="ORDER_FIXTURE_OUTPUT"):
         rust_kernel_check.check_valuation_reference(ROOT, {}, "aarch64-unknown-linux-gnu")

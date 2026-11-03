@@ -1110,6 +1110,13 @@ _EXECUTION_SOURCE_TESTS = (
     "valuation_ledger_view_tests.rs",
 )
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/onlyalpha-kernel/order/tests/fixtures.rs": {
+        "../../../../test-data/order/domain-inputs.json": "test-data/order/domain-inputs.json",
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/broker/domain-inputs.json": "test-data/broker/domain-inputs.json",
+        "../../../../test-data/margin/common-v1.json": "test-data/margin/common-v1.json",
+        "../../../../test-data/position/valuation-order-contract.json": "test-data/position/valuation-order-contract.json",
+    },
     "packages/backend/src/persistence/market_data/physical.rs": {
         "../../../../../database/clickhouse/migrations/0001_market_data_foundation.sql": "database/clickhouse/migrations/0001_market_data_foundation.sql",
         "../../../../../database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql": "database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql",
@@ -1939,13 +1946,45 @@ def _check_component_reference(
         if len(rows) != 1:
             raise ValueError(f"{module.upper()}_NATIVE_COMPARISON_OUTPUT_MISSING")
         compare(json.loads(rows[0]))
-        print(f"{module.upper()}_PYTHON_NATIVE_COMMON_VECTORS_PASS", flush=True)
+        print(f"{module.upper()}_NATIVE_REFERENCE_VECTORS_PASS", flush=True)
+
+
+def check_order_fixture_contracts(root: Path, env: dict[str, str], target: str, profile: list[str]) -> None:
+    result = subprocess.run(
+        [
+            "cargo",
+            "test",
+            "-p",
+            "onlyalpha-order",
+            "--test",
+            "fixtures",
+            "--frozen",
+            "--offline",
+            "--target",
+            target,
+            "-j1",
+            *profile,
+            "--",
+            "--exact",
+            "frozen_order_fee_fixtures_match_native_owners",
+            "--nocapture",
+            "--test-threads=1",
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    if result.stdout.count("NATIVE_ORDER_FIXTURES: PASS") != 1:
+        raise ValueError("ORDER_FIXTURE_OUTPUT")
 
 
 def check_order_reference(root: Path, env: dict[str, str], target: str) -> None:
-    from scripts.order_reference_check import check_fixture, compare_native_outputs
+    from scripts.order_reference_check import compare_native_outputs
 
-    check_fixture()
+    for profile in ([], ["--release"]):
+        check_order_fixture_contracts(root, env, target, profile)
     _check_component_reference(root, env, target, "order", compare_native_outputs)
 
 
@@ -2209,34 +2248,7 @@ def check_valuation_reference(root: Path, env: dict[str, str], target: str) -> N
 
     data = (root / "test-data/position/valuation-v1.jsonl").read_text()
     for profile in ([], ["--release"]):
-        contract = subprocess.run(
-            [
-                "cargo",
-                "test",
-                "-p",
-                "onlyalpha-execution",
-                "--test",
-                "valuation",
-                "--frozen",
-                "--offline",
-                "--target",
-                target,
-                "-j1",
-                *profile,
-                "--",
-                "--exact",
-                "native_order_fee_contract_matches_frozen_valuation_fixture",
-                "--nocapture",
-                "--test-threads=1",
-            ],
-            cwd=root,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        if contract.stdout.count("VALUATION_ORDER_CONTRACT: PASS") != 1:
-            raise ValueError("VALUATION_ORDER_CONTRACT_OUTPUT")
+        check_order_fixture_contracts(root, env, target, profile)
         subprocess.run(
             [
                 "cargo",
@@ -2294,9 +2306,8 @@ def check_margin_reference(root: Path, env: dict[str, str], target: str) -> None
 
 
 def check_execution_reference(root: Path, env: dict[str, str], target: str) -> None:
-    from scripts.execution_reference_check import check_fixture, compare_native_outputs
+    from scripts.execution_reference_check import compare_native_outputs
 
-    check_fixture()
     for profile in ([], ["--release"]):
         result = subprocess.run(
             [

@@ -18,41 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def fee_contracts() -> dict[str, Any]:
-    from onlyalpha.domain.execution import OnlyOrderRequest
-    from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
-    from onlyalpha.domain.time import OnlyTimestamp
-    from scripts.order_reference_check import _manager, _request
-    from tests.order.fee_contract import only_test_zero_fee_contract
-
-    manager = _manager()
-    result = {}
-    for ordinal, at in ((1, 1), (2, 4), (3, 7)):
-        request: dict[str, Any] = _request(f"request-{ordinal}").to_dict()
-        if ordinal == 3:
-            request["side"] = request["execution_intent"]["side"] = "SELL"
-            request["execution_intent"]["position_effect"] = "CLOSE"
-            request["price"]["value"] = "12.00"
-        order = manager.create_order(
-            OnlyOrderRequest.from_dict(request), OnlyClusterId("cluster"), OnlyAccountId("account"), OnlyTimestamp(at)
-        )
-        if ordinal > 1:
-            result[str(ordinal)] = dict(
-                zip(
-                    ("binding", "estimate", "funding"),
-                    (part.to_dict() for part in only_test_zero_fee_contract(order.snapshot, OnlyTimestamp(at))),
-                    strict=True,
-                )
-            )
-    return result
-
-
-def check_fixture(root: Path = ROOT) -> None:
-    fixture = json.loads((root / "test-data/margin/common-v1.json").read_text())
-    if fixture["fee_contracts"] != fee_contracts():
-        raise ValueError("MARGIN_FEE_CONTRACT_FIXTURE_DRIFT")
-
-
 def cases(root: Path = ROOT) -> list[dict[str, Any]]:
     fixture = json.loads((root / "test-data/margin/common-v1.json").read_text())
     result = []
@@ -125,7 +90,6 @@ def python_reference(case: dict[str, Any]) -> list[list[str]]:
 
 
 def compare_native(root: Path, executable: Path) -> None:
-    check_fixture(root)
 
     def invoke(frame: dict[str, Any]) -> dict[str, Any]:
         response = subprocess.run(

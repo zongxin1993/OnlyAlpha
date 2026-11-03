@@ -33,47 +33,6 @@ EXPECTED = [
 ]
 
 
-def domain_fixture() -> dict[str, object]:
-    import copy
-    from typing import Any, cast
-
-    from onlyalpha.domain.execution import OnlyOrderRequest
-    from onlyalpha.domain.identifiers import OnlyAccountId, OnlyClusterId
-    from onlyalpha.domain.time import OnlyTimestamp
-    from scripts.order_reference_check import _manager, _request
-    from scripts.order_reference_check import domain_fixture as order_fixture
-    from tests.order.fee_contract import only_test_zero_fee_contract
-
-    fixture = order_fixture()
-    manager = _manager()
-    manager.create_order(_request(), OnlyClusterId("cluster"), OnlyAccountId("account"), OnlyTimestamp(1))
-    request = copy.deepcopy(cast(dict[str, Any], fixture["request"]))
-    request["request_id"]["value"] = "request-2"
-    request["side"] = "SELL"
-    request["execution_intent"]["side"] = "SELL"
-    request["execution_intent"]["position_effect"] = "CLOSE"
-    request["price"]["value"] = "12.00"
-    close = manager.create_order(
-        OnlyOrderRequest.from_dict(request), OnlyClusterId("cluster"), OnlyAccountId("account"), OnlyTimestamp(5)
-    )
-    fixture["second_fee_contract"] = dict(
-        zip(
-            ("binding", "estimate", "funding"),
-            (part.to_dict() for part in only_test_zero_fee_contract(close.snapshot, OnlyTimestamp(5))),
-            strict=True,
-        )
-    )
-    return fixture
-
-
-def check_fixture() -> None:
-    import json
-
-    expected = json.dumps(domain_fixture(), sort_keys=True, separators=(",", ":")) + "\n"
-    if (ROOT / "test-data/execution/domain-inputs.json").read_text() != expected:
-        raise ValueError("EXECUTION_DOMAIN_INPUT_FIXTURE_DRIFT")
-
-
 def reference_outputs() -> list[dict[str, str]]:
     env, context, _ = _harness.only_test_generic_t0_long_close_context(
         open_quantity="400", close_quantity="400", fill_quantity="100", fill_price="12.00"
@@ -116,14 +75,6 @@ def compare_native_outputs(native: list[dict[str, str]]) -> None:
 
 
 if __name__ == "__main__":
-    import json
-
-    if sys.argv[1:] == ["--write-fixture"]:
-        (ROOT / "test-data/execution/domain-inputs.json").write_text(
-            json.dumps(domain_fixture(), sort_keys=True, separators=(",", ":")) + "\n"
-        )
-    elif sys.argv[1:]:
-        raise SystemExit("only --write-fixture is supported")
-    else:
-        check_fixture()
-        print(reference_outputs())
+    if sys.argv[1:]:
+        raise SystemExit("fixture generation retired; use the canonical native Order fixture test")
+    print(reference_outputs())

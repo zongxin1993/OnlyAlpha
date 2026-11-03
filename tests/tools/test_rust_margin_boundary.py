@@ -47,8 +47,7 @@ def test_margin_isolated_closure_contains_only_its_declared_domain(tmp_path: Pat
 
 
 def test_margin_common_reference_matches_independent_money_expectations() -> None:
-    from scripts.margin_reference_check import EXPECTED, cases, check_fixture, python_reference
+    from scripts.margin_reference_check import EXPECTED, cases, python_reference
 
-    check_fixture()
     for case in cases():
         assert python_reference(case) == EXPECTED
