@@ -20,8 +20,8 @@ from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategySt
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
 from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord
 from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
-from tests.support.frozen_strategy import call, pair
-from tests.support.postgres_link import CommitAckCut, wait_for_database_lock_barrier, wait_no_advisory_locks
+from packages.backend.tests.transport.frozen_strategy_fixture import call, pair
+from packages.backend.tests.postgres_link import CommitAckCut, wait_for_database_lock_barrier, wait_no_advisory_locks
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NAMESPACE = "11111111-1111-4111-8111-111111111111"

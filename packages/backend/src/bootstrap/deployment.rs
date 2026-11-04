@@ -1,4 +1,4 @@
-//! Existing deployment namespace compatibility, never Research semantic identity.
+//! Deployment binding and compatibility, never Research semantic identity.
 use crate::security::protected_files::{FilePolicy, ReadError, read_file, read_file_at};
 use std::{ffi::OsStr, fmt, os::fd::AsFd, path::Path};
 use zeroize::Zeroizing;
@@ -88,6 +88,15 @@ pub(crate) async fn verify_binding_in_transaction(
     tx: &tokio_postgres::Transaction<'_>,
     local: &SemanticStoreId,
 ) -> Result<(), Error> {
+    if read_binding(tx).await? != *local {
+        return Err(Error::Mismatch);
+    }
+    Ok(())
+}
+
+pub(super) async fn read_binding(
+    tx: &tokio_postgres::Transaction<'_>,
+) -> Result<SemanticStoreId, Error> {
     crate::persistence::postgres::bounds(tx)
         .await
         .map_err(|_| Error::Unavailable)?;
@@ -104,11 +113,7 @@ pub(crate) async fn verify_binding_in_transaction(
     let value = rows[0]
         .try_get::<_, String>(1)
         .map_err(|_| Error::Corrupt)?;
-    let expected = SemanticStoreId::new(&value)?;
-    if expected != *local {
-        return Err(Error::Mismatch);
-    }
-    Ok(())
+    SemanticStoreId::new(&value)
 }
 
 /// Snapshot existing nonsecret namespace metadata without creating deployment state.

@@ -12,7 +12,7 @@ import pytest
 
 from onlyalpha.kernel.host import OnlyKernelAuthorityAlreadyHeld
 from onlyalpha.persistence.postgres.kernel_authority import OnlyPostgresKernelAuthorityGuard
-from tests.support.postgres_link import wait_no_advisory_locks
+from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 

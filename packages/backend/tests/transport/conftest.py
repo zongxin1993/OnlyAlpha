@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.research.postgres.conftest import postgres_dsn
+from packages.backend.tests.postgres_fixtures import postgres_dsn
 
 __all__ = ["postgres_dsn"]
 

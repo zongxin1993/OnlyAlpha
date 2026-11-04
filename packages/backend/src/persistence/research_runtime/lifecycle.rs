@@ -1,6 +1,6 @@
 //! Mutations of the original Generation journal, sharing its lock and replay.
 //! The hosting Product owner authenticates Human commands; this is no API proxy.
-use super::{History, INVALID, LIMIT, Result, RuntimeInputHold, UNAVAILABLE, hash};
+use super::{History, INVALID, INVENTORY_LOCK_BUSY, LIMIT, Result, RuntimeInputHold, UNAVAILABLE, hash};
 use crate::application::command::CommandId;
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use rustix::fs;
@@ -22,7 +22,22 @@ impl Registry {
     /// Observations of unreleased original work, not admission or permission.
     /// Tuple fields are work ID, exact Generation, and the original owner reason.
     pub(crate) fn unreleased_work_bindings(root: &Path) -> Result<Vec<(String, String, String)>> {
-        let mut held = RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
+        Self::try_unreleased_work_bindings(root)?.ok_or(UNAVAILABLE)
+    }
+
+    /// Optional background scan. None is lock contention and carries no inventory evidence.
+    pub(crate) fn try_unreleased_work_bindings(
+        root: &Path,
+    ) -> Result<Option<Vec<(String, String, String)>>> {
+        let mut held = match RuntimeInputHold::acquire_with_contention(
+            root,
+            fs::FlockOperation::NonBlockingLockShared,
+            INVENTORY_LOCK_BUSY,
+        ) {
+            Ok(held) => held,
+            Err(INVENTORY_LOCK_BUSY) => return Ok(None),
+            Err(error) => return Err(error),
+        };
         let history = held.replay()?;
         let mut bindings = Vec::new();
         for (work, (generation, active, original)) in &history.bindings {
@@ -33,7 +48,7 @@ impl Registry {
             }
         }
         held.verify()?;
-        Ok(bindings)
+        Ok(Some(bindings))
     }
     /// Read the exact original work occurrence and release status under the
     /// existing shared lock. These values cannot admit or reopen work.

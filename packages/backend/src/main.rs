@@ -104,9 +104,13 @@ async fn main() {
 /// this command needs no Web, algorithms or market-data services. NoTls is used
 /// only when the operator's DSN explicitly selects Disable; Prefer/Require are
 /// rejected rather than downgraded. All errors are credential-safe codes.
-async fn namespace_operator_session()
--> Result<onlyalpha_backend::persistence::authority_session::AuthoritySession, String> {
-    use onlyalpha_backend::persistence::authority_session::AuthoritySession;
+async fn operator_postgres() -> Result<
+    (
+        tokio_postgres::Client,
+        tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+    ),
+    String,
+> {
     let dsn = zeroize::Zeroizing::new(required("ONLYALPHA_POSTGRES_DSN").map_err(str::to_owned)?);
     let mut pg: tokio_postgres::Config = dsn
         .as_str()
@@ -122,7 +126,14 @@ async fn namespace_operator_session()
             .await
             .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?
             .map_err(|_| "POSTGRES_UNAVAILABLE".to_owned())?;
-    AuthoritySession::acquire(client, tokio::spawn(connection))
+    Ok((client, tokio::spawn(connection)))
+}
+
+async fn namespace_operator_session()
+-> Result<onlyalpha_backend::persistence::authority_session::AuthoritySession, String> {
+    use onlyalpha_backend::persistence::authority_session::AuthoritySession;
+    let (client, connection) = operator_postgres().await?;
+    AuthoritySession::acquire(client, connection)
         .await
         .map_err(|e| e.code().to_owned())
 }
@@ -218,6 +229,49 @@ fn backtest_evidence_initialization_reply(
 
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [command, schema] = args.as_slice()
+        && command == "--migrate-postgres-schema"
+    {
+        let schema = onlyalpha_backend::bootstrap::configuration::load_schema_history(
+            std::path::Path::new(schema),
+            8 * 1024 * 1024,
+        )
+        .map_err(|error| error.code().to_owned())?;
+        let (mut client, connection) = operator_postgres().await?;
+        let result = schema.migrate(&mut client).await;
+        drop(client);
+        let closed = connection.await;
+        let applied = result.map_err(|error| error.code().to_owned())?;
+        if !matches!(closed, Ok(Ok(()))) {
+            return Err("POSTGRES_MIGRATION_OUTCOME_UNKNOWN".into());
+        }
+        println!("{}", serde_json::json!({"applied": applied}));
+        return Ok(());
+    }
+    if let [command, root, schema] = args.as_slice()
+        && command == "--initialize-research-deployment"
+    {
+        let schema = onlyalpha_backend::bootstrap::configuration::load_schema_history(
+            std::path::Path::new(schema),
+            8 * 1024 * 1024,
+        )
+        .map_err(|error| error.code().to_owned())?;
+        let mut session = namespace_operator_session().await?;
+        let result = onlyalpha_backend::bootstrap::research_namespace::initialize_deployment(
+            std::path::Path::new(root),
+            &schema,
+            &mut session,
+        )
+        .await;
+        let closed = session.close().await;
+        let id = result.map_err(str::to_owned)?;
+        closed.map_err(|_| "RESEARCH_DEPLOYMENT_BINDING_OUTCOME_UNKNOWN".to_owned())?;
+        println!(
+            "{}",
+            serde_json::json!({"schema_version": 1, "semantic_store_id": id.value()})
+        );
+        return Ok(());
+    }
     if let [command, root, schema] = args.as_slice()
         && command == "--initialize-fresh-backtest-evidence"
     {

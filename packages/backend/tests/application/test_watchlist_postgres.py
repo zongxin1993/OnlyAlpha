@@ -29,7 +29,7 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority as Commands
 from onlyalpha.persistence.postgres.watchlist_store import OnlyPostgresWatchlistStore
 from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
-from tests.support.postgres_link import CommitAckCut, wait_for_database_lock_barrier
+from packages.backend.tests.postgres_link import CommitAckCut, wait_for_database_lock_barrier
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NOW = datetime(2026, 8, 27, tzinfo=UTC)

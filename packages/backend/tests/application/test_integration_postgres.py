@@ -263,7 +263,7 @@ def test_repeatable_read_keeps_head_draft_bindings_and_history_in_one_snapshot(
 ) -> None:
     from psycopg.rows import dict_row
 
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     ident = populate(integration_db)
     expected = expected_snapshot(integration_db, ident)

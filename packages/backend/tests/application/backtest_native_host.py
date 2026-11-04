@@ -116,7 +116,7 @@ def observe_until(http: Any, path: str, terminal: set[str], allowed: set[str]) -
 def qualification(
     binary: Path, dsn: str, root: Path, common: dict[str, Any], frozen: dict[str, Any], output: Path
 ) -> dict[str, Any]:
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     value = {
         **common,
@@ -202,8 +202,10 @@ def exercise_native_backtest_host(
         assert external["klines"][0][0] == 1735861200000  # Jan 2 23:40 UTC
         assert external["klines"][-1][0] == 1735905540000  # Jan 3 11:59 UTC
         (output / "controlled-prior-market-input.json").write_text(json.dumps(source))
-        # Infrastructure roots only; this creates no Dataset, READY or target Run.
-        (data / "backtest/evidence").mkdir(parents=True, mode=0o700)
+        # The owning empty Evidence/Registry operators ran before this case's
+        # first business command. Startup must consume those original owners.
+        assert (data / "backtest/evidence/.source-cut.lock").is_file()
+        assert (data / "backtest/evidence/sha256").is_dir()
         (data / "secrets").mkdir(mode=0o700)
         key = data / "secrets/dev-master-key"
         key.write_bytes(os.urandom(32))
@@ -236,10 +238,9 @@ def exercise_native_backtest_host(
         with original_host(executable, configuration, output) as http:
             preparation, future = str(uuid4()), str(uuid4())
             payload = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "profile": "BTC_SPOT_NEXT_OPEN_BACKTEST_V1",
-                "research_run_id": common["run_id"],
-                **pins,
+                "origin": {"kind": "FROZEN_STRATEGY", **pins},
                 "source": {**source["source"], "instrument_id": "BTCUSDT.BINANCE"},
                 "release_manifest_fingerprint": hashlib.sha256(
                     (Path(common["algorithm_root"]).parent / "manifest.json").read_bytes()
@@ -302,6 +303,7 @@ def exercise_native_backtest_host(
             assert result["trades"][1]["time_ns"] == "1735862520000000000"  # 00:02 next open
             assert Decimal(result["baseline"]["final_equity"]) == Decimal("9998.7998")
             trace = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/replay-trace.json")
+            assert trace["schema_version"] == 2 and trace["kind"] == "RUNTIME_ENCODED_REPLAY_TRACE"
             assert trace["binding"]["schema_version"] == 2 and trace["binding"]["work_id"] == run
             bars = [value["bar"] for value in trace["inputs"]["records"]]
             assert len(bars) == 740
@@ -315,9 +317,10 @@ def exercise_native_backtest_host(
             assert all(instant(bar["bar_start"]) < datetime(2025, 1, 3, 12, tzinfo=UTC) for bar in bars)
             assert all(instant(bar["ts_event"]) < datetime(2025, 1, 5, tzinfo=UTC) for bar in bars)
             evidence = request(http, f"/api/v2/backtest/runs/{run}/evidence")
-            assert evidence["manifest"]["schema_version"] == 2
+            assert evidence["manifest"]["schema_version"] == 3
             assert evidence["manifest"]["backtest_run_id"] == run
             runtime = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/runtime.json")
+            assert runtime["schema_version"] == 2 and runtime["contract"] == "ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V2"
             assert runtime["executor_manifest"]["artifact_sha256"] == selected_sha
             journal = data / "backtest/runtime" / run / "runtime.sqlite3"
             before = (journal.stat().st_ino, hashlib.sha256(journal.read_bytes()).hexdigest())

@@ -63,7 +63,7 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 
 ## Task 1: 让实际算法安装包摆脱根 `src/` SDK 源码
 
-**Files:** Modify `scripts/build_algorithm_sdk.py`、`scripts/release_sources.py`、`scripts/verify.py`、`pyproject.toml`、`deploy/Dockerfile.dev` 及其直接消费者；将 builder 的 `SDK` 清单中当前文件逐一迁入 `packages/backend/python/algorithms/sdk/onlyalpha/`，必要最小 package 初始文件也归该边界。Test `tests/tools/test_chart_algorithm_closure.py`、`test_trading_algorithm_session.py`、`test_trading_algorithm_transport.py`、`test_release_sources.py`；新增工具自身安装测试 `tests/tools/test_algorithm_sdk_installation.py`。
+**Files:** Modify `scripts/build_algorithm_sdk.py`、`scripts/release_sources.py`、`scripts/verify.py`、`pyproject.toml`、`deploy/Dockerfile.dev` 及其直接消费者；将 builder 的 `SDK` 清单中当前文件逐一迁入 `packages/backend/python/algorithms/sdk/onlyalpha/`，必要最小 package 初始文件也归该边界。Test `packages/backend/tests/transport/test_chart_algorithm_closure.py`、`test_trading_algorithm_session.py`、`test_trading_algorithm_transport.py`、`test_release_sources.py`；新增工具自身安装测试 `tests/tools/test_algorithm_sdk_installation.py`。
 
 **Interfaces:** 保留 `build(output: Path) -> list[Path]`、`install(output: Path, destination: Path) -> str` 及现有 `onlyalpha.algorithm` / 数学 SDK imports、worker 模块入口、协议/安装 manifest 语义。源码位置变更必须改变相关构建输入记录；不伪造旧 artifact digest。
 
@@ -71,7 +71,7 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 2. 先写 `test_sdk_wheel_build_uses_only_owning_algorithm_sources` 和 `test_installed_sdk_ignores_ambient_legacy_backend`：在只包含已声明算法构建资源的临时 source bundle 中调用实际 `build/install`；bundle 不含根 `src/`；实际安装以 `-B -I` 执行并拒绝从故意污染的 `PYTHONPATH` 加载旧业务模块。初始实现应因 builder 读取旧路径而失败；保留真实十四类指标、私有因子、交易/研究 framed transport 与 checkpoint 数值断言。
 3. 用移动而非复制建立 SDK 单一维护源码。builder 仍构建现有内部 wheel，不新增产品发行线。为剩余 legacy Python 消费者保留正常打包途径：根旧 wheel 在退役期间通过显式 Hatch `force-include` 包含迁出的相同 SDK 叶文件，旧包自身初始文件保留到其消费者退出；验证环境将 root `onlyalpha` 改为非 editable 安装。不得修改 `sys.path`、动态导入旧源码或新增 namespace shim。Shipping 最小 wheel 仍只含算法 SDK，不包含旧后端。
 4. 同批更新 SDK source bundle、frozen-input 哈希、根旧 wheel 与最小 wheel 的实际构建测试，证明两种安装闭包引用的是同一份 SDK 维护源码；旧 root wheel 仅服务尚未退役的 legacy 测试/消费者，不成为新的长期维护接口。已有 legacy 消费者路径测试随实际 source owner 更新，不能跳过。
-5. 验证命令：`python3 scripts/dev_verification.py run -- python -m pytest -q tests/tools/test_algorithm_sdk_installation.py tests/tools/test_chart_algorithm_closure.py tests/tools/test_trading_algorithm_session.py tests/tools/test_trading_algorithm_transport.py tests/tools/test_release_sources.py`。再执行上述实际改动 Python 文件的 Ruff check、format --check、mypy 和对应构建输入测试。预期真实安装执行与禁止业务 imports 断言通过，无 editable/ambient 回填。审阅后形成一个可运行的完整 SDK 提取交付。
+5. 验证命令：`python3 scripts/dev_verification.py run -- python -m pytest -q tests/tools/test_algorithm_sdk_installation.py packages/backend/tests/transport/test_chart_algorithm_closure.py packages/backend/tests/transport/test_trading_algorithm_session.py packages/backend/tests/transport/test_trading_algorithm_transport.py tests/tools/test_release_sources.py`。再执行上述实际改动 Python 文件的 Ruff check、format --check、mypy 和对应构建输入测试。预期真实安装执行与禁止业务 imports 断言通过，无 editable/ambient 回填。审阅后形成一个可运行的完整 SDK 提取交付。
 
 ## Task 2: 普通工作站的构建与启动解除 Agent 强制依赖
 

@@ -165,15 +165,19 @@ fn pnl_never_relabels_currency_or_treats_flat_as_short() {
         OnlyInstrumentKind::Equity,
     )
     .unwrap();
+    let failure = OnlyPnLCalculator::unrealized(
+        &cross,
+        OnlyPositionDirection::Long,
+        &quantity,
+        &entry,
+        &current,
+    )
+    .unwrap_err();
+    assert!(failure.is_validation());
     assert!(
-        OnlyPnLCalculator::unrealized(
-            &cross,
-            OnlyPositionDirection::Long,
-            &quantity,
-            &entry,
-            &current
-        )
-        .is_err()
+        failure
+            .to_string()
+            .contains("requires an explicit conversion model")
     );
     let instrument = OnlyInstrument::new(spec(), OnlyInstrumentKind::Equity).unwrap();
     assert!(

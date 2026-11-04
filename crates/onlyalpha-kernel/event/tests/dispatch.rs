@@ -56,7 +56,7 @@ fn serial_snapshot_membership_and_new_publications_have_fixed_order() {
         event(2, OnlyEventPriority::High),
     ])
     .unwrap();
-    bus.drain().unwrap();
+    assert_eq!(bus.drain().unwrap(), 3u32.into());
     assert_eq!(*output.borrow(), ["a1", "b1", "a2", "c2", "a3", "c3"]);
 }
 #[test]

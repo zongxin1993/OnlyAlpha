@@ -1,12 +1,15 @@
-//! Read-only admission against the existing ordered SQL-byte migration authority.
+//! Admission and explicit operator migration against one ordered SQL-byte history.
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt};
-use tokio_postgres::{Client, IsolationLevel};
+use tokio_postgres::{Client, IsolationLevel, Transaction};
+
+const MIGRATION_LOCK_ID: i64 = 591_487_210_081;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Integrity,
     Unavailable,
     ServerMajorUnsupported,
+    OutcomeUnknown,
 }
 impl Error {
     pub fn code(self) -> &'static str {
@@ -14,6 +17,7 @@ impl Error {
             Self::Integrity => "POSTGRES_MIGRATION_INTEGRITY_ERROR",
             Self::Unavailable => "RESEARCH_RUN_STORE_UNAVAILABLE",
             Self::ServerMajorUnsupported => "POSTGRES_SERVER_MAJOR_UNSUPPORTED",
+            Self::OutcomeUnknown => "POSTGRES_MIGRATION_OUTCOME_UNKNOWN",
         }
     }
 }
@@ -47,8 +51,14 @@ impl Verdict {
 /// Immutable expected history derived from exact canonical SQL bytes, not a second manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SchemaHistory {
-    expected: BTreeMap<String, String>,
+    expected: BTreeMap<String, Migration>,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Migration {
+    checksum: String,
+    sql: String,
+}
+
 impl SchemaHistory {
     pub fn from_sql(sources: Vec<(String, Vec<u8>)>, max_work: usize) -> Result<Self, Error> {
         if sources.is_empty() {
@@ -66,14 +76,15 @@ impl SchemaHistory {
             if id.len() > 512 || sql.len() > 32768 {
                 return Err(Error::Unavailable);
             }
-            if !migration_id(&id) || std::str::from_utf8(&sql).is_err() {
+            if !migration_id(&id) {
                 return Err(Error::Integrity);
             }
-            let hash = Sha256::digest(&sql)
+            let checksum = Sha256::digest(&sql)
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
-            if expected.insert(id, hash).is_some() {
+            let sql = String::from_utf8(sql).map_err(|_| Error::Integrity)?;
+            if expected.insert(id, Migration { checksum, sql }).is_some() {
                 return Err(Error::Integrity);
             }
         }
@@ -82,11 +93,6 @@ impl SchemaHistory {
     /// The node owns its connection and finite row budget. Neither this reader nor
     /// its status initializes, migrates, repairs or selects a deployment.
     pub async fn inspect(&self, client: &mut Client, max_rows: usize) -> Result<Verdict, Error> {
-        if max_rows == 0 {
-            return Err(Error::Unavailable);
-        }
-        let limit = i64::try_from(max_rows.checked_add(1).ok_or(Error::Unavailable)?)
-            .map_err(|_| Error::Unavailable)?;
         let tx = client
             .build_transaction()
             .isolation_level(IsolationLevel::RepeatableRead)
@@ -96,6 +102,86 @@ impl SchemaHistory {
             .map_err(|_| Error::Unavailable)?;
         crate::persistence::postgres::bounds(&tx)
             .await
+            .map_err(|_| Error::Unavailable)?;
+        let (verdict, _) = self.inspect_transaction(&tx, max_rows).await?;
+        tx.commit().await.map_err(|_| Error::Unavailable)?;
+        Ok(verdict)
+    }
+
+    /// The explicit operator owns this connection. Lock and history inspection
+    /// use READ COMMITTED so a waiter sees the prior operator's committed ledger.
+    pub async fn migrate(&self, client: &mut Client) -> Result<Vec<String>, Error> {
+        let tx = client
+            .build_transaction()
+            .isolation_level(IsolationLevel::ReadCommitted)
+            .start()
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        tx.batch_execute("SET LOCAL search_path = pg_catalog, pg_temp")
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        crate::persistence::postgres::bounds(&tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        // Implicit pg_catalog lookup precedes public, which remains the CREATE target.
+        tx.batch_execute("SET LOCAL search_path = public, pg_temp")
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        tx.query_one(
+            "SELECT pg_catalog.pg_advisory_xact_lock($1)",
+            &[&MIGRATION_LOCK_ID],
+        )
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        let max_rows = self
+            .expected
+            .len()
+            .checked_add(1)
+            .ok_or(Error::Unavailable)?;
+        let (verdict, applied) = self.inspect_transaction(&tx, max_rows).await?;
+        match verdict {
+            Verdict::Compatible | Verdict::LedgerMissing | Verdict::Behind => {}
+            _ => return Err(Error::Integrity),
+        }
+        let mut pending = Vec::new();
+        for (id, migration) in self.expected.iter().skip(applied) {
+            // Pass exact SQL as data. The server's atomic procedural context
+            // rejects transaction control inside a migration file.
+            tx.query_one(
+                "SELECT pg_catalog.set_config('onlyalpha.migration_sql', $1, true)",
+                &[&migration.sql],
+            )
+            .await
+            .map_err(migration_error)?;
+            tx.batch_execute(
+                "DO $$ BEGIN EXECUTE pg_catalog.current_setting('onlyalpha.migration_sql'); END $$",
+            )
+            .await
+            .map_err(migration_error)?;
+            tx.execute(
+                "INSERT INTO public.onlyalpha_schema_migration (migration_id, checksum_sha256) VALUES ($1, $2)",
+                &[id, &migration.checksum],
+            ).await.map_err(migration_error)?;
+            pending.push(id.clone());
+        }
+        if !pending.is_empty()
+            && self.inspect_transaction(&tx, max_rows).await?.0 != Verdict::Compatible
+        {
+            return Err(Error::Integrity);
+        }
+        tx.commit().await.map_err(|_| Error::OutcomeUnknown)?;
+        Ok(pending)
+    }
+
+    async fn inspect_transaction(
+        &self,
+        tx: &Transaction<'_>,
+        max_rows: usize,
+    ) -> Result<(Verdict, usize), Error> {
+        if max_rows == 0 {
+            return Err(Error::Unavailable);
+        }
+        let limit = i64::try_from(max_rows.checked_add(1).ok_or(Error::Unavailable)?)
             .map_err(|_| Error::Unavailable)?;
         let version: String = tx
             .query_one(
@@ -117,8 +203,7 @@ impl SchemaHistory {
             .try_get(0)
             .map_err(|_| Error::Unavailable)?;
         if !exists {
-            tx.commit().await.map_err(|_| Error::Unavailable)?;
-            return Ok(Verdict::LedgerMissing);
+            return Ok((Verdict::LedgerMissing, 0));
         }
         // Presence and data name the same canonical relation irrespective of search_path.
         // Original field lengths distinguish corrupt proof from an operational byte limit.
@@ -146,10 +231,9 @@ impl SchemaHistory {
         }
         let verdict = if applied.keys().any(|id| !self.expected.contains_key(id)) {
             Verdict::Ahead
-        } else if applied
-            .iter()
-            .any(|(id, hash)| self.expected.get(id) != Some(hash))
-        {
+        } else if applied.iter().any(|(id, hash)| {
+            self.expected.get(id).map(|migration| &migration.checksum) != Some(hash)
+        }) {
             Verdict::ChecksumMismatch
         } else if !applied.keys().eq(self.expected.keys().take(applied.len())) {
             Verdict::HistoryDiverged
@@ -158,10 +242,22 @@ impl SchemaHistory {
         } else {
             Verdict::Compatible
         };
-        tx.commit().await.map_err(|_| Error::Unavailable)?;
-        Ok(verdict)
+        Ok((verdict, applied.len()))
     }
 }
+
+fn migration_error(error: tokio_postgres::Error) -> Error {
+    use tokio_postgres::error::SqlState;
+    match error.code() {
+        Some(code)
+            if *code != SqlState::QUERY_CANCELED && *code != SqlState::LOCK_NOT_AVAILABLE =>
+        {
+            Error::Integrity
+        }
+        _ => Error::Unavailable,
+    }
+}
+
 fn migration_id(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() >= 5

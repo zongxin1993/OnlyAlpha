@@ -19,7 +19,7 @@ from onlyalpha.strategy.qualification import (
     OnlyQualificationPolicyRevision,
 )
 from onlyalpha.strategy.qualification_store import OnlyQualificationPolicyStore
-from tests.support.frozen_strategy import call
+from packages.backend.tests.transport.frozen_strategy_fixture import call
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NAMESPACE = "11111111-1111-4111-8111-111111111111"
@@ -264,7 +264,7 @@ def test_input_work_exhaustion_precedes_all_publication(integration_http_probe: 
 def test_initial_pending_cancel_revokes_session_without_publication(
     integration_http_probe: Path, postgres_dsn: str, research: Path
 ) -> None:
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     result = admit(integration_http_probe, research, [policy()], cancel_admission=True)
     assert result["cancelled"] is True and result["session_error"] == "PRODUCT_KERNEL_AUTHORITY_LOST", result
@@ -332,7 +332,7 @@ def test_lost_final_guard_response_preserves_published_history_for_fresh_process
     import struct
     import subprocess
 
-    from tests.support.postgres_link import CommitAckCut
+    from packages.backend.tests.postgres_link import CommitAckCut
 
     class FinalProofCut(CommitAckCut):
         def __init__(self, dsn: str) -> None:

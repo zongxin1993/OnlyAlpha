@@ -21,8 +21,8 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
-
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+
 from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
     ROOT,
     _build_market_probe,
@@ -97,7 +97,7 @@ def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
 
 @pytest.fixture(scope="session")
 def strategy_evidence_owner_binary() -> Path:
-    return _build_strategy_evidence_owner_binary()
+    return _build_strategy_evidence_owner_binary(release=True)
 
 
 def owner(binary: Path, dsn: str, root: Path, phase: str, request: dict[str, Any]) -> dict[str, Any]:
@@ -375,7 +375,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     tmp_path: Path,
     mode: str,
 ) -> None:
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     command = str(uuid4())
     digest = bytearray(
@@ -385,6 +385,17 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     run_id = str(UUID(bytes=bytes(digest)))
     semantic = tmp_path / "use_test_strategy_semantic"
     semantic.mkdir(mode=0o700)
+    provisioned = None
+    if mode == "backtest-native":
+        # Fresh Infrastructure must precede all factor/strategy/Research work.
+        provisioned = probe(
+            native_environment_case["executable"],
+            database,
+            "strategy-evidence-provision",
+            semantic_root=str(semantic),
+            backtest_infrastructure=True,
+        )
+        assert "error" not in provisioned, provisioned
     case = strategy_preparation_case(
         native_environment_case,
         market_probe,
@@ -394,6 +405,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         work_id=run_id,
         runtime_root=semantic / "runtime" if mode == "backtest-native" else None,
         first_bar_start=datetime(2025, 1, 2, 11, 39, tzinfo=UTC),
+        fresh_runtime=mode != "backtest-native",
     )
     from onlyalpha.domain.time import OnlyTimestamp
 
@@ -402,7 +414,8 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         expected_first + minute * 60_000_000_000 for minute in range(740)
     ]
     executable, arguments = case["selected"], case["arguments"]
-    provisioned = probe(executable, database, "strategy-evidence-provision", semantic_root=str(semantic))
+    if provisioned is None:
+        provisioned = probe(executable, database, "strategy-evidence-provision", semantic_root=str(semantic))
     assert "error" not in provisioned, provisioned
     research = semantic / "research"
     arguments.update(

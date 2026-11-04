@@ -1,1 +1,0 @@
-"""Research Sweep contract tests."""

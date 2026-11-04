@@ -1,1 +1,0 @@
-"""Pure execution reducer tests."""

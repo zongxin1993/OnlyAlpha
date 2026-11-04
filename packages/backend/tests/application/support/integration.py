@@ -21,7 +21,7 @@ from onlyalpha.application.integration_configuration import (
 )
 from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandKind
 from onlyalpha.persistence.postgres.integration_product_store import OnlyPostgresIntegrationProductStore
-from tests.support.integration_configuration import integration_descriptor as _descriptor
+from packages.backend.tests.application.support.integration_configuration_fixture import integration_descriptor as _descriptor
 
 _TABLES = (
     "integration",

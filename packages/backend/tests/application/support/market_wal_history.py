@@ -17,7 +17,7 @@ from onlyalpha.data.evidence import OnlyRawProviderObservation
 from onlyalpha.market_data.durable.codec import only_encode_record_bundle
 from onlyalpha.market_data.durable.ingress import OnlyMarketDataIngress
 from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
-from tests.market_data_durable.conftest import BAR_CONSTRUCTION, BASE, SOURCE, bar_update
+from packages.backend.tests.application.support.market_data_fixture import BAR_CONSTRUCTION, BASE, SOURCE, bar_update
 
 
 def generate() -> dict[str, object]:

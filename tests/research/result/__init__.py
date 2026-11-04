@@ -1,1 +1,0 @@
-"""Research Result tests."""

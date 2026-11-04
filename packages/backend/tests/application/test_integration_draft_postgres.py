@@ -234,7 +234,7 @@ def test_admission_only_draft_command_is_unknown_and_does_not_repeat_work(
 def test_actual_draft_commit_ack_loss_recovers_original_command_once(
     native_probe: Path, integration_db: str, monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
-    from tests.support.postgres_link import CommitAckCut
+    from packages.backend.tests.postgres_link import CommitAckCut
 
     request = create_request()
     assert "error" not in call(native_probe, request)
@@ -261,7 +261,7 @@ def test_same_version_writers_at_actual_frontier_lock_have_one_success(
 ) -> None:
     import subprocess
 
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request = create_request()
     assert "error" not in call(native_probe, request)

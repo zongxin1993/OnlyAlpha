@@ -246,7 +246,3 @@ volumes:
     # Ordinary dev starts only against an existing store. The runner selects the
     # external reference to prevent Compose volume reconciliation/recreation.
     external: ${ONLYALPHA_DEV_EXISTING_USER_DATA:-false}
-  agent-state:
-    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-agent-state
-  agent-locks:
-    name: ${ONLYALPHA_COMPOSE_NAMESPACE:-onlyalpha-dev}-agent-locks

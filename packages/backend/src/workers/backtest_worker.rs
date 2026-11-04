@@ -56,7 +56,7 @@ impl Service {
             if let Err(code)=closed {status.send_replace(Status::Uncertain(code));return Err(code);}
             match result {
                 Ok(())=>{status.send_replace(Status::Stopped);},
-                Err(code)=>{let uncertain=matches!(status.borrow().clone(),Status::Uncertain(_));if uncertain{status.send_replace(Status::Uncertain(code));}else{status.send_replace(Status::Unavailable(code));}},
+                Err(code)=>{eprintln!("BACKTEST_WORKER_EXIT code={code}");let uncertain=matches!(status.borrow().clone(),Status::Uncertain(_));if uncertain{status.send_replace(Status::Uncertain(code));}else{status.send_replace(Status::Unavailable(code));}},
             }
             // The operational outcome remains visible above; this Ok proves
             // physical task/child/connection drain only, never semantic success.
@@ -104,7 +104,8 @@ async fn serve(connection:&mut Option<ResearchConnection>,writer:&SharedAuthorit
             if !connection.as_ref().is_some_and(ResearchConnection::active){return Err(UNAVAILABLE);}
         }
         if wake.stopped(){return Ok(());}
-        cleanup_terminal(connection,writer,config,wake,status,clock,&namespace).await?;
+        cleanup_terminal(connection,writer,config,wake,status,clock,&namespace).await
+            .inspect_err(|code|eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=terminal-cleanup code={code}"))?;
         status.send_replace(Status::Idle);
     }Ok(())
 }
@@ -256,7 +257,11 @@ async fn terminal(connection:&mut Option<ResearchConnection>,writer:&SharedAutho
 async fn cleanup_terminal(connection:&mut Option<ResearchConnection>,writer:&SharedAuthority,config:&Configuration,wake:&Wake,
     status:&watch::Sender<Status>,clock:&(impl Fn()->std::result::Result<OnlyUtcDateTime,PreparationError>+Send+Sync),namespace:&SemanticStoreId)->Result<()> {
     let root=config.runtime_root.clone();
-    let bindings=tokio::task::spawn_blocking(move || Registry::unreleased_work_bindings(&root)).await.map_err(|_|UNKNOWN)??;
+    let Some(bindings)=tokio::task::spawn_blocking(move || Registry::try_unreleased_work_bindings(&root)).await.map_err(|_|UNKNOWN)?
+        .inspect_err(|code|eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=registry-inventory code={code}"))? else {
+        eprintln!("BACKTEST_WORKER_SCAN_DEFERRED phase=registry-inventory code=RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY");
+        return Ok(());
+    };
     if bindings.len()>10000{return Err("BACKTEST_RECOVERY_INVENTORY_BUDGET_EXCEEDED");}
     for (work,generation,owner) in bindings {
         if wake.stopped(){return Ok(());}

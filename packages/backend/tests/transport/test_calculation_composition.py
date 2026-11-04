@@ -15,7 +15,7 @@ from onlyalpha.fee.broker_contract import OnlyBrokerFeeContractRegistry
 from onlyalpha.market.product import OnlyMarketProductFactoryRegistry
 from onlyalpha.plugin.discovery import OnlyPluginDiscoveryReport, only_discover_plugins
 from onlyalpha.quant_assets.catalog import OnlyQuantAssetCatalogGeneration, only_discover_quant_asset_providers
-from tests.support import calculation_reference_composition as composition
+from packages.backend.tests.transport import calculation_reference_composition as composition
 
 
 def configure() -> composition.OnlyProductCalculationComposition:

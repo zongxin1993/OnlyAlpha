@@ -140,7 +140,7 @@ def test_actual_draft_row_lock_spans_provider_validation_and_same_candidate_comm
 
     import psycopg
 
-    from tests.support.postgres_link import CommitAckCut, wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import CommitAckCut, wait_for_database_lock_barrier
 
     request = command(native_probe, action)
     process = subprocess.Popen(

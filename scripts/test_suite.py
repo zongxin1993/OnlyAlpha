@@ -254,6 +254,7 @@ LANES = {
             "tests/persistence",
             "tests/architecture/test_postgres_operational_authority.py",
             "packages/backend/tests/transport/test_native_integration_queries.py",
+            "packages/backend/tests/transport/test_native_frozen_strategy.py",
             "packages/backend/tests/application",
             "tests/tools/test_chart_study_query_fixture.py",
         ),

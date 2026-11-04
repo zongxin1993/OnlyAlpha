@@ -252,6 +252,23 @@ binding are separate startup proofs; neither alone grants node readiness or comm
 permission. Application startup must bind this snapshot to its immutable deployment
 source and compose the remaining owning readiness checks.
 
+The explicit contained operator command `--migrate-postgres-schema <absolute-sql-directory>`
+uses the same protected source and ledger checks. It takes advisory lock `591487210081`
+before reading the ledger and applies the verified pending suffix and its checksums in one
+transaction. The server executes each file inside an atomic procedural context, which
+rejects attempts to end the outer transaction. The final ledger must match the selected
+source before commit. A lost commit acknowledgement reports
+`POSTGRES_MIGRATION_OUTCOME_UNKNOWN`. The command requires an explicitly non-TLS
+contained PostgreSQL connection and is separate from application startup.
+
+`--initialize-research-deployment <absolute-user-data-root> <absolute-sql-directory>`
+requires the same compatible schema and holds the Product mutation session. It binds the
+verified local Research namespace to the existing PostgreSQL singleton. An equal pair is
+idempotent. An interrupted filesystem publication can complete the same identity after
+directory synchronization. Mismatched bindings and invalid local namespaces fail closed.
+A lost commit or session-close acknowledgement reports
+`RESEARCH_DEPLOYMENT_BINDING_OUTCOME_UNKNOWN`.
+
 
 ## Integration Type Product metadata
 
@@ -491,6 +508,24 @@ Source consistency grants no implementation, Freeze, physical publication,
 Runtime or Node READY authority. Strategy source validation must still resolve
 its own universe, market contract, implementation and signal-role relationships;
 executable materialization must separately verify actual installed descriptors.
+
+
+## Native Strategy Research report documents
+
+`ONLYALPHA_STRATEGY_RESEARCH_REPORT_V1` retains its original metadata canonicalization and
+`artifact_content_fingerprint` preimage. Its complete joined observation uses a private 64 MiB
+traversal-work budget, with separate 8 MiB limits on both raw and canonical encoded document bytes.
+These limits apply to the unsigned signature input and final signed report; the bounded work budget
+does not promise that every document below the byte limit can be processed. The report's case-witness
+fingerprint uses the same codec. Existing Frozen inventory and shared document allowances remain distinct.
+
+Publication uses the existing descriptor-relative atomic single-manifest bundle publisher with an 8 MiB
+byte budget. Exact readback, cold loading and source-candidate reads use the same report codec, exact
+file membership and physical witnesses through the original final source cuts. An immutable conflict
+may preserve a fully verified semantic winner's original audit bytes. I/O or fsync unavailability cannot
+become publication success merely because a directory is visible. Resource exhaustion reports unavailable;
+invalid or noncanonical bytes and incorrect signatures remain corruption. The columnar aggregate budget
+continues to bound its own data independently.
 
 
 ## Strategy source consistency and executable materialization

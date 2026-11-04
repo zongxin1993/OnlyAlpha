@@ -73,6 +73,39 @@ def selected_artifact(root: Path, directory: Path, digest: str) -> dict[str, Any
     return verify_artifacts(directory, source_inputs(root), backend, frontend_version=frontend, manifest_sha256=digest)
 
 
+def research_deployment_id(backend: Path, command: list[str], dsn: str) -> str:
+    result = subprocess.run(
+        [str(backend), *command],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    def unique(fields: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = dict(fields)
+        if len(value) != len(fields):
+            raise ValueError("RESEARCH_DEPLOYMENT_NATIVE_RESPONSE_INVALID")
+        return value
+
+    if len(result.stdout) > 32768:
+        raise ValueError("RESEARCH_DEPLOYMENT_NATIVE_RESPONSE_INVALID")
+    payload = json.loads(result.stdout, object_pairs_hook=unique)
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "semantic_store_id"}
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or not isinstance(payload["semantic_store_id"], str)
+    ):
+        raise ValueError("RESEARCH_DEPLOYMENT_NATIVE_RESPONSE_INVALID")
+    identity = uuid.UUID(payload["semantic_store_id"])
+    if identity.version != 4 or str(identity) != payload["semantic_store_id"]:
+        raise ValueError("RESEARCH_DEPLOYMENT_NATIVE_RESPONSE_INVALID")
+    return str(identity)
+
+
 def initialize_backtest_evidence(backend: Path, resources: Path, data: Path, dsn: str, namespace: str) -> None:
     """Explicit empty Infrastructure owner, before any business acceptance."""
     result = subprocess.run(
@@ -464,6 +497,18 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
                             if not minute_first <= lower < upper <= minute_end or lower % 60000 or upper % 60000:
                                 raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
                             response = [row for row in minute_rows if lower <= row[0] < upper][:1000]
+                        elif interval == ["1m"]:
+                            # The Frozen technical consumer supplies its original
+                            # two-fill vector. It is distinct from the Web vector.
+                            retained = fixture["klines"]
+                            if (
+                                not minute_first <= lower < upper <= minute_end
+                                or lower % 60000
+                                or upper % 60000
+                                or [row[0] for row in retained] != list(range(minute_first, minute_end, 60000))
+                            ):
+                                raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
+                            response = [row for row in retained if lower <= row[0] < upper][:1000]
                         elif interval == ["15m"]:
                             if lower % stride_ms or upper % stride_ms or lower >= upper:
                                 raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
@@ -740,10 +785,6 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     assert_test_database(dsn)
-    with psycopg.connect(dsn, autocommit=True) as connection:
-        connection.execute("DROP SCHEMA public CASCADE")
-        connection.execute("CREATE SCHEMA public")
-    subprocess.run([sys.executable, "-m", "scripts.database", "migrate"], cwd=ROOT, check=True)
     data = output / "user-data"
     for relative in ("secrets",):
         (data / relative).mkdir(parents=True, mode=0o700)
@@ -774,22 +815,29 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     )
     (output / "algorithm-artifact.sha256").write_text(artifact + "\n")
     executable = resources / "bin/onlyalpha-backend"
-    # Infrastructure provisioning uses the same selected native owner as deployment.
-    # This establishes no Factor, Study, Runtime Generation, Dataset or Research Run.
-    from psycopg.conninfo import make_conninfo
-
-    from scripts.database import _extend_manual_backtest, _extend_strategy_research, _initialize_deployment
-
-    deployment_id = _initialize_deployment(dsn, data, executable)
     if conninfo_to_dict(dsn).get("sslmode") not in (None, "disable"):
         raise ValueError("NATIVE_E2E_CONTAINED_POSTGRES_TRANSPORT_REQUIRED")
+    operator_dsn = make_conninfo(dsn, sslmode="disable")
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute("DROP SCHEMA public CASCADE")
+        connection.execute("CREATE SCHEMA public")
+    subprocess.run(
+        [str(executable), "--migrate-postgres-schema", str(resources / "schema")],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": operator_dsn},
+        check=True,
+        timeout=120,
+    )
+    # Infrastructure provisioning uses the same selected native owner as deployment.
+    # This establishes no Factor, Study, Runtime Generation, Dataset or Research Run.
+    deployment_id = research_deployment_id(
+        executable, ["--initialize-research-deployment", str(data), str(resources / "schema")], operator_dsn
+    )
+    for command in ("--extend-strategy-research-namespace", "--extend-manual-backtest-namespace"):
+        if research_deployment_id(executable, [command, str(data)], operator_dsn) != deployment_id:
+            raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     if args.backtest_market_input:
-        initialize_runtime_registry(executable, resources, data, make_conninfo(dsn, sslmode="disable"))
-        initialize_backtest_evidence(executable, resources, data, make_conninfo(dsn, sslmode="disable"), deployment_id)
-    if _extend_strategy_research(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
-        raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
-    if _extend_manual_backtest(make_conninfo(dsn, sslmode="disable"), data, executable) != deployment_id:
-        raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
+        initialize_runtime_registry(executable, resources, data, operator_dsn)
+        initialize_backtest_evidence(executable, resources, data, operator_dsn, deployment_id)
     # Retained metadata is a separate precondition; authoring tests create their
     # own Assets and Revisions exclusively through the normal Shipping UI.
     revision, current = seed_private_metadata("private.factor.native_metadata")

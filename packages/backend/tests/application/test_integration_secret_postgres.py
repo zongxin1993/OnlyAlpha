@@ -84,7 +84,7 @@ def test_pending_command_keeps_unknown_and_never_creates_or_rotates_a_slot(nativ
 def test_actual_commit_ack_cut_never_repeats_a_secret_effect(
     native_probe: Path, secret_db: str, monkeypatch: pytest.MonkeyPatch, rotate: bool
 ) -> None:
-    from tests.support.postgres_link import CommitAckCut
+    from packages.backend.tests.postgres_link import CommitAckCut
 
     request = create_request()
     call(native_probe, request)
@@ -232,7 +232,7 @@ def test_same_draft_version_contenders_have_one_new_slot_and_one_stale_command(
     import json
     import subprocess
 
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request = create_request()
     call(native_probe, request)

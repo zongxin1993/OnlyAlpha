@@ -1,10 +1,10 @@
 //! Guarded technical DB probe. It is never a business API or a Shipping UI.
 #[path = "research_execution_probe.rs"]
 mod research_execution_probe;
-#[path = "strategy_input_probe.rs"]
-mod strategy_input_probe;
 #[path = "strategy_evidence_probe.rs"]
 mod strategy_evidence_probe;
+#[path = "strategy_input_probe.rs"]
+mod strategy_input_probe;
 use onlyalpha_backend::persistence::market_data::*;
 use onlyalpha_backend::persistence::market_data_wal::Wal;
 use serde_json::{Value, json};
@@ -53,16 +53,20 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     )
     .await?;
     if op == "strategy-worker-phase" {
-        return strategy_evidence_probe::worker(session,v).await;
+        return strategy_evidence_probe::worker(session, v).await;
     }
     if op == "strategy-evidence-provision" {
-        return strategy_evidence_probe::provision(&mut session,v).await;
+        let value = strategy_evidence_probe::provision(&mut session, v).await?;
+        // Infrastructure publication is confirmed only after its original
+        // Authority session positively closes. Drop cannot report success.
+        session.close().await?;
+        return Ok(value);
     }
     if op == "strategy-evidence-phase" {
-        return strategy_evidence_probe::phase(&mut session,v).await;
+        return strategy_evidence_probe::phase(&mut session, v).await;
     }
     if op == "strategy-submission-outcome" {
-        return strategy_input_probe::strategy_submission_probe::outcome(&mut session,v).await;
+        return strategy_input_probe::strategy_submission_probe::outcome(&mut session, v).await;
     }
     let bytes = v["max_bytes"].as_u64().unwrap_or(32 * 1024 * 1024) as usize;
     let catalog = Catalog::new(session.client_mut().await?, 10_000, bytes)?;
@@ -206,7 +210,10 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                 .await?;
             json!({"manifest":r.coverage.map(|m|m.to_record()),"revision":r.revision.as_ref().map(SealedRevision::revision),"seal":r.revision.map(|r|r.seal())})
         }
-        "dataset-materialize" | "dataset-admit" | "dataset-research" | "dataset-strategy-prepare" => {
+        "dataset-materialize"
+        | "dataset-admit"
+        | "dataset-research"
+        | "dataset-strategy-prepare" => {
             if op == "dataset-research"
                 && v["phase"] == "execute"
                 && v["mode"] == "node-authority-loss"
@@ -232,11 +239,23 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                     &v["definition"],
                     text(v, "id")?,
                     Scope::from_record(&v["scope"])?,
-                    if op == "dataset-strategy-prepare" { 8192 } else if op == "dataset-research" { 512 } else { 100 },
+                    if op == "dataset-strategy-prepare" {
+                        8192
+                    } else if op == "dataset-research" {
+                        512
+                    } else {
+                        100
+                    },
                 )?;
             let datasets = onlyalpha_backend::persistence::research_dataset::Store::open(
                 Path::new(text(v, "dataset_root")?),
-                if op == "dataset-strategy-prepare" { 8192 } else if op == "dataset-research" { 512 } else { 100 },
+                if op == "dataset-strategy-prepare" {
+                    8192
+                } else if op == "dataset-research" {
+                    512
+                } else {
+                    100
+                },
                 8 * 1024 * 1024,
             )?;
             let result = plan
@@ -430,11 +449,16 @@ async fn retained_source_prerequisite(
     const START_MS: i64 = 1_767_225_600_000;
     const STRIDE_MS: i64 = 900_000;
     // Controlled current-slice input; the original retained browser profile is unchanged.
-    let next_open=match v.get("fixture_profile") {
-        None=>false,Some(Value::String(profile)) if profile=="BTC_SPOT_NEXT_OPEN_2025_V1"=>true,
-        _=>return Err("unknown controlled input profile".into()),
+    let next_open = match v.get("fixture_profile") {
+        None => false,
+        Some(Value::String(profile)) if profile == "BTC_SPOT_NEXT_OPEN_2025_V1" => true,
+        _ => return Err("unknown controlled input profile".into()),
     };
-    let (start_ms,stride_ms,row_count,minutes)=if next_open {(1_735_861_200_000i64,60_000i64,740i64,1u16)}else{(START_MS,STRIDE_MS,575i64,15u16)};
+    let (start_ms, stride_ms, row_count, minutes) = if next_open {
+        (1_735_861_200_000i64, 60_000i64, 740i64, 1u16)
+    } else {
+        (START_MS, STRIDE_MS, 575i64, 15u16)
+    };
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()
@@ -551,8 +575,8 @@ async fn retained_source_prerequisite(
             .as_str()
             .ok_or("missing source API version")?
     );
-    let semantic =
-        OnlyBarSemantic::fixed_duration(u32::from(minutes).into(), None).map_err(|_| "invalid bar semantic")?;
+    let semantic = OnlyBarSemantic::fixed_duration(u32::from(minutes).into(), None)
+        .map_err(|_| "invalid bar semantic")?;
     let plan = OnlyConstructionResolutionPlan::resolve(
         semantic.clone(),
         resource.capabilities(),
@@ -567,14 +591,16 @@ async fn retained_source_prerequisite(
     let construction = OnlyConstructionIdentity::new(plan, &version, None, None, None)?;
     let provider_instrument = json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING",
         "filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.000001","minQty":"0.000001"}]});
-    let provider_instrument=if next_open {
+    let provider_instrument = if next_open {
         json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","isSpotTradingAllowed":true,
             "orderTypes":["LIMIT","MARKET"],"baseAssetPrecision":8,"quoteAssetPrecision":8,"baseCommissionPrecision":8,"quoteCommissionPrecision":8,
             "filters":[{"filterType":"PRICE_FILTER","minPrice":"0.01000000","maxPrice":"1000000.00000000","tickSize":"0.01000000"},
                 {"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"},
                 {"filterType":"MARKET_LOT_SIZE","minQty":"0.00000000","maxQty":"100.00000000","stepSize":"0.00000000"},
                 {"filterType":"NOTIONAL","minNotional":"5.00000000","applyMinToMarket":true,"maxNotional":"9000000.00000000","applyMaxToMarket":false,"avgPriceMins":5}]})
-    }else{provider_instrument};
+    } else {
+        provider_instrument
+    };
     let instrument = spot_normalize::instrument(&provider_instrument)?;
     let rows = (0..row_count)
         .map(|i| {
@@ -582,15 +608,41 @@ async fn retained_source_prerequisite(
             let price = 10000 + (i / 13) * 3 + (i * 7) % 11;
             let close = price + i % 5 - 2;
             let volume = 10 + i % 9;
-            let (price,close,volume)=if next_open {
-                (match i{0..=20=>100000,21=>100100,22=>99800,_=>99700},
-                    match i{0..=19=>100000,20=>100200,21=>99900,22..=738=>99700,_=>100000},2)
-            }else{(price,close,volume)};
+            let (price, close, volume) = if next_open {
+                (
+                    match i {
+                        0..=20 => 100000,
+                        21 => 100100,
+                        22 => 99800,
+                        _ => 99700,
+                    },
+                    match i {
+                        0..=19 => 100000,
+                        20 => 100200,
+                        21 => 99900,
+                        22..=738 => 99700,
+                        _ => 100000,
+                    },
+                    2,
+                )
+            } else {
+                (price, close, volume)
+            };
             json!([
                 start,
                 price.to_string(),
-                (if next_open{price.max(close)+1}else{price+4}).to_string(),
-                (if next_open{price.min(close)-1}else{price-4}).to_string(),
+                (if next_open {
+                    price.max(close) + 1
+                } else {
+                    price + 4
+                })
+                .to_string(),
+                (if next_open {
+                    price.min(close) - 1
+                } else {
+                    price - 4
+                })
+                .to_string(),
                 close.to_string(),
                 volume.to_string(),
                 start + stride_ms - 1,

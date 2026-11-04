@@ -37,7 +37,7 @@ from packages.backend.tests.application.test_strategy_research_evidence import (
 from scripts.build_algorithm_sdk import install
 from scripts.dev_verification import source_inputs
 from scripts.embed_build_provenance import resolve_build_provenance_bytes
-from tests.support.postgres_link import wait_no_advisory_locks
+from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(600)]
 AT = "2026-11-02T00:00:00Z"
@@ -46,7 +46,7 @@ AT = "2026-11-02T00:00:00Z"
 @pytest.fixture(scope="session")
 def manual_validation_owner_binary() -> Path:
     # Align the actual producer with Shipping's optimized profile. The original
-    # evidence-owner fixture keeps dev; all sealed-image checks stay unchanged.
+    # evidence-owner fixture also uses release; sealed-image checks stay unchanged.
     return _build_strategy_evidence_owner_binary(release=True)
 
 

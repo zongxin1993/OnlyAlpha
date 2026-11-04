@@ -182,6 +182,47 @@ pub(crate) async fn lost_original_guard(connection:ResearchConnection,writer:Sha
 }
 
 #[tokio::test]
+async fn registry_contention_does_not_fail_the_terminal_cleanup_scan() {
+    let parent = std::env::temp_dir().canonicalize().unwrap().join(uuid4().unwrap());
+    std::fs::create_dir(&parent).unwrap();
+    let configuration = Configuration {
+        backtest_root: parent.join("backtest"),
+        research_root: parent.join("research"),
+        runtime_root: parent.join("runtime"),
+        algorithms_root: parent.join("algorithms"),
+        native_version: env!("CARGO_PKG_VERSION").into(),
+    };
+    let exclusive = Registry::initialize_fresh(&configuration.runtime_root).unwrap();
+    assert_eq!(Registry::unreleased_work_bindings(&configuration.runtime_root), Err("RESEARCH_RUNTIME_UNAVAILABLE"));
+    assert_eq!(Registry::try_unreleased_work_bindings(&configuration.runtime_root), Ok(None));
+    let wake = Wake(Arc::new(Admission {
+        state: AtomicU8::new(0),
+        changed: Notify::new(),
+    }));
+    let (status, _) = watch::channel(Status::Idle);
+    let writer = Arc::new(tokio::sync::Mutex::new(None));
+    let namespace = SemanticStoreId::new(&uuid4().unwrap()).unwrap();
+    let clock = || panic!("empty cleanup must not release or create work");
+    // Hold the exact writer guard across the real cleanup scan, then release
+    // that guard explicitly. Neither scan is ordered by a timer.
+    let blocked = cleanup_terminal(&mut None, &writer, &configuration, &wake, &status, &clock, &namespace).await;
+    drop(exclusive);
+    assert_eq!(Registry::try_unreleased_work_bindings(&configuration.runtime_root), Ok(Some(Vec::new())));
+    let released = cleanup_terminal(&mut None, &writer, &configuration, &wake, &status, &clock, &namespace).await;
+    use std::os::unix::fs::PermissionsExt;
+    let lock = configuration.runtime_root.join(".generation-authority.lock");
+    std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let corrupt = cleanup_terminal(&mut None, &writer, &configuration, &wake, &status, &clock, &namespace).await;
+    std::fs::remove_file(lock).unwrap();
+    let missing = cleanup_terminal(&mut None, &writer, &configuration, &wake, &status, &clock, &namespace).await;
+    std::fs::remove_dir_all(&parent).unwrap();
+    assert_eq!(corrupt, Err("RESEARCH_RUNTIME_PROOF_INVALID"));
+    assert_eq!(missing, Err("RESEARCH_RUNTIME_UNAVAILABLE"));
+    assert_eq!(released, Ok(()));
+    assert_eq!(blocked, Ok(()));
+}
+
+#[tokio::test]
 async fn stopped_admission_never_polls_a_new_restore_or_revives_on_wake() {
     let wake=Wake(Arc::new(Admission{state:std::sync::atomic::AtomicU8::new(0),changed:Notify::new()}));
     wake.stop();assert!(!wake.notify());let entered=AtomicBool::new(false);

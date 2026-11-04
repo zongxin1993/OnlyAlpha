@@ -172,7 +172,7 @@ def test_stale_or_noop_lifecycle_never_reserves_command(
 def test_concurrent_create_at_observed_database_lock_keeps_one_owner(
     native_probe: Path, integration_db: str, same_command: bool
 ) -> None:
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request = create_request()
     contender = dict(request) if same_command else dict(request, command_id=str(uuid4()))
@@ -238,7 +238,7 @@ def test_concurrent_create_at_observed_database_lock_keeps_one_owner(
 def test_actual_commit_ack_loss_keeps_uncertainty_then_recovers_one_exact_effect(
     native_probe: Path, integration_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.support.postgres_link import CommitAckCut
+    from packages.backend.tests.postgres_link import CommitAckCut
 
     request = create_request()
     with CommitAckCut(integration_db) as fault:

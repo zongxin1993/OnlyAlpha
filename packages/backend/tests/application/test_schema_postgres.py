@@ -1,25 +1,104 @@
-"""Native canonical migration history startup admission, not migration or UI acceptance."""
+"""Native PostgreSQL migration and read-only schema admission checks."""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.conninfo import make_conninfo
 
-from onlyalpha.persistence.postgres.migration import DEFAULT_MIGRATION_ROOT, OnlyPostgresMigrationAuthority
-
-from .support.integration import call
+from scripts.native_http_contract import native_executable
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
+DEFAULT_MIGRATION_ROOT = Path(__file__).resolve().parents[4] / "database/postgres/migrations"
+
+
+@pytest.fixture(scope="session")
+def migration_backend() -> Path:
+    return native_executable()
+
+
+def migrate(backend: Path, dsn: str, root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(backend), "--migrate-postgres-schema", str(root)],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(dsn, sslmode="disable")},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+
 @pytest.fixture
-def schema_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+def schema_db(postgres_dsn: str, migration_backend: Path) -> str:
+    result = migrate(migration_backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"applied": [item[0] for item in request()["migrations"]]}
     return postgres_dsn
+
+
+def test_schema_migration_is_idempotent_and_refuses_changed_bytes(migration_backend: Path, schema_db: str) -> None:
+    before = facts(schema_db)
+    result = migrate(migration_backend, schema_db, DEFAULT_MIGRATION_ROOT)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"applied": []}
+    with psycopg.connect(schema_db) as connection:
+        connection.execute(
+            "UPDATE public.onlyalpha_schema_migration SET checksum_sha256 = %s WHERE migration_id = %s",
+            (hashlib.sha256(b"changed bytes").hexdigest(), before[0][0]),
+        )
+    tampered = facts(schema_db)
+    result = migrate(migration_backend, schema_db, DEFAULT_MIGRATION_ROOT)
+    assert result.returncode == 1
+    assert result.stderr.strip() == "POSTGRES_MIGRATION_INTEGRITY_ERROR"
+    assert facts(schema_db) == tampered
+
+
+def test_schema_migration_respects_existing_operator_lock(migration_backend: Path, postgres_dsn: str) -> None:
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute("SELECT pg_catalog.pg_advisory_lock(591487210081::bigint)")
+        blocked = migrate(migration_backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
+        assert blocked.returncode == 1
+        assert blocked.stderr.strip() == "RESEARCH_RUN_STORE_UNAVAILABLE"
+        assert connection.execute("SELECT to_regclass('public.onlyalpha_schema_migration')").fetchone() == (None,)
+        assert connection.execute("SELECT pg_catalog.pg_advisory_unlock(591487210081::bigint)").fetchone() == (True,)
+    result = migrate(migration_backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"applied": [item[0] for item in request()["migrations"]]}
+
+
+@pytest.mark.parametrize("failure", ["SELECT 1 / 0;", "COMMIT;"])
+def test_schema_migration_rolls_back_all_pending_files(
+    migration_backend: Path, postgres_dsn: str, tmp_path: Path, failure: str
+) -> None:
+    root = tmp_path / "migrations"
+    root.mkdir(mode=0o700)
+    (root / "0001_ledger.sql").write_text(
+        "CREATE TABLE onlyalpha_schema_migration(migration_id text PRIMARY KEY, checksum_sha256 text NOT NULL);"
+    )
+    (root / "0002_invalid.sql").write_text(f"CREATE TABLE should_rollback(id integer); {failure}")
+    result = migrate(migration_backend, postgres_dsn, root)
+    assert result.returncode == 1
+    assert result.stderr.strip() == "POSTGRES_MIGRATION_INTEGRITY_ERROR"
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute(
+            "SELECT to_regclass('public.onlyalpha_schema_migration'), to_regclass('public.should_rollback')"
+        ).fetchone() == (None, None)
+
+
+def call(probe: Path, request: dict[str, Any]) -> dict[str, Any]:
+    result = subprocess.run([str(probe)], input=json.dumps(request), text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    return cast(dict[str, Any], json.loads(result.stdout))
 
 
 def request(**changes: Any) -> dict[str, Any]:
@@ -248,3 +327,86 @@ def test_wrong_checksum_length_is_corrupt_proof(native_probe: Path, schema_db: s
     before = facts(schema_db)
     assert call(native_probe, request()) == {"error": "POSTGRES_MIGRATION_INTEGRITY_ERROR"}
     assert facts(schema_db) == before
+
+
+def test_native_research_deployment_binds_exact_namespace(
+    migration_backend: Path, schema_db: str, tmp_path: Path
+) -> None:
+    def initialize(root: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(migration_backend), "--initialize-research-deployment", str(root), str(DEFAULT_MIGRATION_ROOT)],
+            env={**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(schema_db, sslmode="disable")},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+
+    root = tmp_path / "deployment"
+    root.mkdir(mode=0o700)
+    with psycopg.connect(schema_db) as connection:
+        connection.execute("SELECT pg_catalog.pg_advisory_lock(1329199301, 5)")
+        busy = initialize(root)
+        assert busy.returncode == 1 and busy.stderr.strip() == "PRODUCT_KERNEL_AUTHORITY_ALREADY_HELD"
+        assert not (root / "research").exists()
+        assert connection.execute("SELECT pg_catalog.pg_advisory_unlock(1329199301, 5)").fetchone() == (True,)
+
+    first = initialize(root)
+    assert first.returncode == 0, first.stderr
+    identity = json.loads(first.stdout)["semantic_store_id"]
+    assert json.loads((root / "research/.onlyalpha-semantic-store.json").read_text()) == {
+        "schema_version": 1,
+        "store_id": identity,
+    }
+    again = initialize(root)
+    assert again.returncode == 0, again.stderr
+    assert json.loads(again.stdout) == {"schema_version": 1, "semantic_store_id": identity}
+
+    other = tmp_path / "other-deployment"
+    other.mkdir(mode=0o700)
+    subprocess.run(
+        [str(migration_backend), "--initialize-fresh-research-namespace", str(other)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    foreign = initialize(other)
+    assert foreign.returncode == 1 and foreign.stderr.strip() == "SEMANTIC_STORE_IDENTITY_MISMATCH"
+    with psycopg.connect(schema_db) as connection:
+        assert connection.execute(
+            "SELECT semantic_store_id::text FROM public.research_deployment_semantic_store_binding"
+        ).fetchall() == [(identity,)]
+
+
+def test_native_research_deployment_resumes_published_identity(
+    migration_backend: Path, schema_db: str, tmp_path: Path
+) -> None:
+    root = tmp_path / "deployment"
+    root.mkdir(mode=0o700)
+    published = subprocess.run(
+        [str(migration_backend), "--initialize-fresh-research-namespace", str(root)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    identity = json.loads(published.stdout)["semantic_store_id"]
+    metadata = root / "research/.onlyalpha-semantic-store.json"
+    before = metadata.read_bytes()
+    inode = metadata.stat().st_ino
+    resumed = subprocess.run(
+        [str(migration_backend), "--initialize-research-deployment", str(root), str(DEFAULT_MIGRATION_ROOT)],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(schema_db, sslmode="disable")},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert resumed.returncode == 0, resumed.stderr
+    assert json.loads(resumed.stdout) == {"schema_version": 1, "semantic_store_id": identity}
+    assert metadata.read_bytes() == before and metadata.stat().st_ino == inode
+    with psycopg.connect(schema_db) as connection:
+        assert connection.execute(
+            "SELECT semantic_store_id::text FROM public.research_deployment_semantic_store_binding"
+        ).fetchall() == [(identity,)]

@@ -67,6 +67,7 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
         matches = {name for name, (directory, _) in packages.items() if Path(path).is_relative_to(directory)}
         if matches and not (
             path.endswith(".rs")
+            or path == "packages/backend/tests/transport/frozen_strategy_fixture.py"
             or Path(path).name == "Cargo.toml"
             or any(path in resources.values() for resources in _INFRASTRUCTURE_RESOURCES.values())
         ):
@@ -80,8 +81,6 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
                     matches.update(name for name, (member, _) in packages.items() if Path(owner).is_relative_to(member))
         if path.startswith("contracts/gateway/"):
             matches.add("onlyalpha-gateway-protocol")
-        if path == "tests/support/frozen_strategy.py":
-            matches.update(("onlyalpha-backend", "onlyalpha-backend"))
         if not matches:
             raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: {path}; supply reviewed --package selections explicitly")
         owners.update(matches)

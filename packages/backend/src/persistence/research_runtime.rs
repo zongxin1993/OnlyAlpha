@@ -15,6 +15,7 @@ use std::{
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_RUNTIME_PROOF_INVALID";
 const UNAVAILABLE: &str = "RESEARCH_RUNTIME_UNAVAILABLE";
+const INVENTORY_LOCK_BUSY: &str = "RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY";
 const LIMIT: usize = 8 * 1024 * 1024;
 fn digest(v: &Value, field: &str) -> Result<String> {
     let mut v = v.clone();
@@ -303,6 +304,13 @@ impl RuntimeInputHold {
         Ok(hold)
     }
     fn acquire(root: &Path, operation: fs::FlockOperation) -> Result<Self> {
+        Self::acquire_with_contention(root, operation, UNAVAILABLE)
+    }
+    fn acquire_with_contention(
+        root: &Path,
+        operation: fs::FlockOperation,
+        contention: &'static str,
+    ) -> Result<Self> {
         let fd = protected::open_directory(root).map_err(|_| UNAVAILABLE)?;
         let lock = fs::openat(
             &fd,
@@ -319,7 +327,13 @@ impl RuntimeInputHold {
         {
             return Err(INVALID);
         }
-        fs::flock(&lock, operation).map_err(|_| UNAVAILABLE)?;
+        fs::flock(&lock, operation).map_err(|error| {
+            if error == rustix::io::Errno::WOULDBLOCK {
+                contention
+            } else {
+                UNAVAILABLE
+            }
+        })?;
         Ok(Self {
             root_path: root.into(),
             root: fd,

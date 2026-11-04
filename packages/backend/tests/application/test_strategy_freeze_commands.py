@@ -136,7 +136,7 @@ def run_freeze_owner(freeze_database: tuple[str, Path, dict[str, Any]]) -> Calla
         )
         assert result.returncode == (86 if expect_crash else 0), result.stdout + result.stderr
         if expect_crash:
-            from tests.support.postgres_link import wait_no_advisory_locks
+            from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
             pid = re.search(r"FREEZE_TEST_BACKEND_PID ([0-9]+)", result.stdout)
             assert pid is not None, result.stdout

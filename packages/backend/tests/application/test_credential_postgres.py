@@ -136,7 +136,7 @@ def test_two_current_generation_writers_have_one_rotation_and_one_stale_conflict
     import json
     import subprocess
 
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     metadata = call(native_probe, create())["metadata"]
     children = [

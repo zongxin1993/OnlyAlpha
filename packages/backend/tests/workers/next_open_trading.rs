@@ -309,7 +309,30 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
         .unwrap_err();
     assert_eq!(error.0, "CONTROLLED_AFTER_OPEN");
     drop(run);
-    assert!(root.join("runtime.sqlite3").is_file());
+    let retained = journal_cut(&root);
+    let journal = root.join("runtime.sqlite3");
+    assert!(journal.is_file());
+    let hidden_journal = root.with_extension("withheld.sqlite3");
+    std::fs::rename(&journal, &hidden_journal)?;
+    let without_journal = journal_cut(&root);
+    let resume = || -> Result<NativeRun> {
+        let (spec, input, participants, _) = composition(&case, installation.clone(), &artifact)?;
+        Ok(RunLoop::open(&root, spec, input, participants)?)
+    };
+    assert!(resume().is_err(), "a paused Run with a missing journal cannot resume");
+    assert_eq!(journal_cut(&root), without_journal);
+    std::fs::rename(hidden_journal, journal)?;
+    let hidden_root = root.with_extension("withheld");
+    std::fs::rename(&root, &hidden_root)?;
+    assert!(resume().is_err(), "a missing paused Run directory cannot resume");
+    assert!(!root.exists());
+    std::fs::create_dir(&root)?;
+    assert!(resume().is_err(), "an empty directory cannot replace a paused Run");
+    assert!(journal_cut(&root).is_empty());
+    std::fs::remove_dir(&root)?;
+    std::fs::rename(hidden_root, &root)?;
+    assert_eq!(journal_cut(&root), retained);
+
     let (spec, input, participants, prepared) = composition(&case, installation, &artifact)?;
     let readonly_spec = spec.clone();
     let readonly_inputs = input.clone();
@@ -637,7 +660,7 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     let before = journal_cut(&root);
     let snapshot = onlyalpha_backtest::TerminalSnapshot::read(
         &root,
-        readonly_spec,
+        readonly_spec.clone(),
         &readonly_inputs,
         terminal_policy,
     )?;
@@ -680,7 +703,24 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     assert_eq!(runtime.state()?, final_state);
     drop(runtime);
     storage_measurements(&root, &final_trace)?;
-    std::fs::remove_dir_all(root)?;
+    let original = journal_cut(&root);
+    let moved_root = root.with_extension("moved-reader");
+    std::fs::rename(&root, &moved_root)?;
+    let moved = onlyalpha_backtest::TerminalSnapshot::read(
+        &moved_root,
+        readonly_spec,
+        &readonly_inputs,
+        terminal_policy,
+    )?;
+    moved.verify_cut()?;
+    moved.verify_encoded_trace(&final_trace)?;
+    assert_eq!(moved.proof(), &final_proof);
+    assert_eq!(moved.result(), &final_proof["execution_result"]);
+    assert_eq!(moved.state(), &final_state);
+    assert_eq!(journal_cut(&moved_root), original);
+    assert!(!root.exists(), "historical reads must not restore the old path");
+    drop(moved);
+    std::fs::remove_dir_all(moved_root)?;
     Ok(())
 }
 

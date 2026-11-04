@@ -1,1 +1,0 @@
-"""Research Job contract tests."""

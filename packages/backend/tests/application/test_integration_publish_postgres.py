@@ -272,7 +272,7 @@ def test_pending_admission_never_repeats_secret_or_revision_effect(
 def test_actual_commit_ack_cut_keeps_one_effect_and_old_receipt(
     native_probe: Path, integration_db: str, monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
-    from tests.support.postgres_link import CommitAckCut
+    from packages.backend.tests.postgres_link import CommitAckCut
 
     request, _ = configured(native_probe, integration_db)
     command = clear(request) if action == "clear" else publish(request)
@@ -296,7 +296,7 @@ def test_same_version_contenders_at_frontier_have_one_committed_effect(
 ) -> None:
     import subprocess
 
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request, _ = configured(native_probe, integration_db)
     commands = [publish(request), clear(request) if action == "clear" else publish(request)]
@@ -424,7 +424,7 @@ def test_current_credential_share_lock_is_held_through_publication_commit(
 
     from onlyalpha.persistence.postgres.config import OnlyPostgresOperationalConnectionOptions
     from onlyalpha.persistence.postgres.credentials import OnlyPostgresCredentialAuthority
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request, _ = configured(native_probe, integration_db)
     if reuse:

@@ -136,11 +136,9 @@ fn valid_boundary_dates_do_not_require_unrepresentable_neighbors() {
     input.weekend_days = vec![];
     let calendar = OnlyTradingCalendar::new(input).unwrap();
     for timestamp in ["0001-01-01T10:00:00Z", "9999-12-31T10:00:00Z"] {
-        assert!(
-            calendar
-                .session_at(timestamp.parse().unwrap())
-                .unwrap()
-                .is_some()
+        assert_eq!(
+            calendar.session_at(timestamp.parse().unwrap()).unwrap(),
+            calendar.sessions().first()
         );
     }
 }

@@ -23,7 +23,7 @@ from onlyalpha.persistence.postgres.integration_store import (
     OnlyPostgresIntegrationStore,
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from tests.support.integration_configuration import integration_descriptor
+from packages.backend.tests.application.support.integration_configuration_fixture import integration_descriptor
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NOW = datetime(2026, 9, 20, 0, 0, 0, 123400, tzinfo=UTC)
@@ -410,7 +410,7 @@ def test_native_http_absence_resource_semantics(integration_http_probe: Path, qu
 def test_native_http_list_keeps_one_snapshot_during_concurrent_draft_removal(
     integration_http_probe: Path, query_db: str
 ) -> None:
-    from tests.support.postgres_link import wait_for_database_lock_barrier
+    from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     ident, _ = historical(query_db)
     with psycopg.connect(query_db) as writer:

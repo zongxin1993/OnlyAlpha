@@ -11,7 +11,7 @@ import psycopg
 import pytest
 
 from onlyalpha.persistence.postgres.migration import DEFAULT_MIGRATION_ROOT, OnlyPostgresMigrationAuthority
-from tests.support.postgres_link import CommitAckCut
+from packages.backend.tests.postgres_link import CommitAckCut
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NAMESPACE = "11111111-1111-4111-8111-111111111111"

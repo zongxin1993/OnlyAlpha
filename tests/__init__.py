@@ -1,1 +1,0 @@
-"""OnlyAlpha test support package."""

@@ -24,7 +24,7 @@ from onlyalpha.application.product_command_receipt import (
 )
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
-from tests.support.postgres_link import CommitAckCut
+from packages.backend.tests.postgres_link import CommitAckCut
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 ID = "00000000-0000-4000-8000-000000000501"

@@ -22,7 +22,7 @@ def exercise_backtest_preparation_queue(
     report: dict[str, Any],
     evidence_paths: list[Path],
 ) -> None:
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     # The user may select another explicit legal Integration. This is a queue
     # choice, not an executed producer, acquired market fact or Source grant.

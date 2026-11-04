@@ -47,7 +47,7 @@ from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarke
 from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from scripts.native_http_contract import native_executable
 from scripts.native_web_e2e import clickhouse_namespace
-from tests.market_data_durable.conftest import bar_update, reference_update, trade_update
+from packages.backend.tests.application.support.market_data_fixture import bar_update, reference_update, trade_update
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(120)]
 AT = datetime(2026, 10, 22, tzinfo=UTC)
@@ -1444,7 +1444,7 @@ def native_research_case(
     tmp_path_factory: pytest.TempPathFactory,
     native_research_algorithm_bundle: tuple[Path, Path, str],
 ) -> Iterator[dict[str, Any]]:
-    from tests.research.postgres.conftest import reset_postgres_test_namespace
+    from packages.backend.tests.postgres_fixtures import reset_postgres_test_namespace
 
     # The four stages share one guarded namespace, Command and Run. No stage
     # resets storage or silently executes an earlier missing stage.
@@ -1869,6 +1869,7 @@ def strategy_preparation_case(
     runtime_root: Path | None = None,
     first_bar_start: datetime | None = None,
     manual_only: bool = False,
+    fresh_runtime: bool = True,
 ) -> dict[str, Any]:
     from uuid import uuid4
 
@@ -1894,7 +1895,7 @@ def strategy_preparation_case(
                         "release_root": str(release),
                         "runtime_root": str(runtime),
                         "algorithm_artifact": artifact,
-                        "fresh": True,
+                        "fresh": fresh_runtime,
                         "bind_work": work_id,
                         "activation_command": str(uuid4()),
                         "at": "2026-11-01T01:00:00Z",
@@ -2411,7 +2412,7 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
     else:
         actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
         assert "error" not in actual, actual
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     wait_no_advisory_locks(postgres_dsn, actual["backend_pid"])
     with psycopg.connect(postgres_dsn) as conn:

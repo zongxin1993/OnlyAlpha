@@ -199,6 +199,78 @@ pub fn initialize_fresh(user_data: &Path) -> Result<SemanticStoreId> {
     }
     Ok(id)
 }
+/// Explicit infrastructure provisioning under the original Product mutation guard.
+pub async fn initialize_deployment(
+    user_data: &Path,
+    schema: &crate::persistence::schema::SchemaHistory,
+    session: &mut AuthoritySession,
+) -> Result<SemanticStoreId> {
+    use crate::persistence::schema::Verdict;
+
+    let parent = Directory::open(user_data)?;
+    let client = session.client_mut().await.map_err(|error| error.code())?;
+    if schema
+        .inspect(client, 1024)
+        .await
+        .map_err(|error| error.code())?
+        != Verdict::Compatible
+    {
+        return Err("POSTGRES_SCHEMA_INCOMPATIBLE");
+    }
+    let tx = client.transaction().await.map_err(|_| UNAVAILABLE)?;
+    AuthoritySession::verify_transaction(&tx)
+        .await
+        .map_err(|error| error.code())?;
+    let bound = match deployment::read_binding(&tx).await {
+        Ok(id) => Some(id),
+        Err(deployment::Error::BindingMissing) => None,
+        Err(error) => return Err(error.code()),
+    };
+    let id = match bound {
+        Some(id) => {
+            if open_existing(user_data)? != id {
+                return Err(deployment::Error::Mismatch.code());
+            }
+            id
+        }
+        None => {
+            let id = match fs::statat(&parent.fd, "research", fs::AtFlags::SYMLINK_NOFOLLOW) {
+                Err(rustix::io::Errno::NOENT) => initialize_fresh(user_data)?,
+                Ok(_) => {
+                    // Resume the same valid published identity after a crash
+                    // between filesystem publication and PostgreSQL binding.
+                    let id = open_existing(user_data)?;
+                    fs::fsync(&parent.fd).map_err(|_| "RESEARCH_NAMESPACE_OUTCOME_UNKNOWN")?;
+                    id
+                }
+                Err(_) => return Err(UNAVAILABLE),
+            };
+            tx.execute(
+                "INSERT INTO public.research_deployment_semantic_store_binding (singleton, semantic_store_id)
+                 VALUES (TRUE, $1::pg_catalog.text::pg_catalog.uuid) ON CONFLICT (singleton) DO NOTHING",
+                &[&id.value()],
+            )
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+            id
+        }
+    };
+    deployment::verify_binding_in_transaction(&tx, &id)
+        .await
+        .map_err(|error| error.code())?;
+    parent.verify()?;
+    if open_existing(user_data)? != id {
+        return Err(deployment::Error::Mismatch.code());
+    }
+    AuthoritySession::verify_transaction(&tx)
+        .await
+        .map_err(|error| error.code())?;
+    tx.commit()
+        .await
+        .map_err(|_| "RESEARCH_DEPLOYMENT_BINDING_OUTCOME_UNKNOWN")?;
+    Ok(id)
+}
+
 /// Read existing deployment structure only. It does not certify empty history or issue cuts.
 pub fn open_existing(user_data: &Path) -> Result<SemanticStoreId> {
     validate_configuration()?;

@@ -16,7 +16,7 @@ import psycopg
 def exercise_qualification_product(
     binary: Path, dsn: str, root: Path, common: dict[str, Any], frozen: dict[str, Any]
 ) -> None:
-    from tests.support.postgres_link import wait_no_advisory_locks
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     request = {
         **common,

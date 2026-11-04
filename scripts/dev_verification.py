@@ -80,15 +80,20 @@ def environment_inputs(root: Path) -> dict[str, str]:
         )
     ]
     result = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
-    # The retiring umbrella wheel is non-editable: include data/stubs and
-    # force-included migrations as well as Python, not just dependency metadata.
+    # The tool image installs immutable algorithm wheels from these source trees.
     result.update(
         (name, digest)
         for name, digest in source_inputs(root).items()
-        if name.startswith(
-            ("src/onlyalpha/", "packages/backend/python/algorithms/sdk/onlyalpha/", "database/postgres/migrations/")
+        if name == "scripts/build_algorithm_sdk.py"
+        or name.startswith(
+            (
+                "packages/backend/python/algorithms/",
+                "packages/backend/python/gateway_protocol/src/",
+                "plugs/onlyalpha-plugin-indicators/src/",
+                "plugs/onlyalpha-plugin-operators/src/",
+                "plugs/onlyalpha-plugin-targets/src/",
+            )
         )
-        and name not in {"src/onlyalpha/_build_provenance.json", "src/onlyalpha/_build_provenance.sha256"}
     )
     return result
 

@@ -270,8 +270,8 @@ async fn cleanup_terminal_bindings(
     clock: &(impl Fn() -> Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
 ) -> Result<(), PreparationError> {
     let root = config.runtime_root.clone();
-    let bindings = tokio::task::spawn_blocking(move || crate::persistence::research_runtime::Registry::unreleased_work_bindings(&root))
-        .await.map_err(|_| PreparationError::from(UNKNOWN))??;
+    let Some(bindings) = tokio::task::spawn_blocking(move || crate::persistence::research_runtime::Registry::try_unreleased_work_bindings(&root))
+        .await.map_err(|_| PreparationError::from(UNKNOWN))?? else { return Ok(()); };
     if bindings.len() > 10000 { return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED".into()); }
     for (work, generation, reason) in bindings {
         if wake.stopped() { return Ok(()); }
