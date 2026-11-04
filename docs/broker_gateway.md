@@ -33,7 +33,7 @@ UNKNOWN。外部身份冲突必须 fail closed。
 
 ### Isolated Rust common protocol
 
-`crates/onlyalpha-kernel/broker` is the ADR 0139 library boundary for normalized observations,
+`crates/broker` is the ADR 0139 library boundary for normalized observations,
 explicit ports, durable command evidence and receipt-bound reconciliation. Its owning journal
 and Runtime read ports are authority boundaries, not self-authenticating JSON/hash claims.
 The design is in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`.

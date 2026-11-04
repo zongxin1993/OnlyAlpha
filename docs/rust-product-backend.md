@@ -66,7 +66,7 @@ not Rust migration. Eligible Agent orchestration/model/literature code is legiti
 
 The paragraphs below describe existing source locations for navigation until their atomic migration, not target independent packages.
 
-`crates/onlyalpha-metadata-json/` owns the shared pure metadata identity codec. `crates/onlyalpha-integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
+`crates/metadata-json/` owns the shared pure metadata identity codec. `crates/integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
 
 `packages/backend/src/application/` owns transport-neutral Product Commands/Queries and composition;
 `persistence/` owns Product PostgreSQL/ClickHouse adapters; `security/` owns credentials and ingress policy;

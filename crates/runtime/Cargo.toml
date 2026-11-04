@@ -1,0 +1,22 @@
+[package]
+name = "onlyalpha-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+[lib]
+path = "src/lib.rs"
+[lints]
+workspace = true
+[dependencies]
+onlyalpha-execution = { path = "../execution" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+zstd = { version = "=0.13.3", default-features = false }
+[dev-dependencies]
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+onlyalpha-domain = { path = "../domain" }
+onlyalpha-risk = { path = "../risk" }

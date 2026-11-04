@@ -13,22 +13,22 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
-onlyalpha-backtest = { path = "../../crates/onlyalpha-backtest" }
-onlyalpha-account = { path = "../../crates/onlyalpha-kernel/account" }
+onlyalpha-backtest = { path = "../../crates/backtest" }
+onlyalpha-account = { path = "../../crates/account" }
 arrow-array = { version = "=59.3.2", default-features = false }
 arrow-schema = { version = "=59.3.2", default-features = false }
 parquet = { version = "=59.3.2", default-features = false, features = ["arrow", "zstd", "crc"] }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
-onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
-onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
-onlyalpha-market-data-pipeline = { path = "../../crates/onlyalpha-kernel/market_data/pipeline" }
-onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
-onlyalpha-calculation-bridge = { path = "../../crates/onlyalpha-calculation-bridge" }
+onlyalpha-domain = { path = "../../crates/domain" }
+onlyalpha-market-data-construction = { path = "../../crates/market-data-construction" }
+onlyalpha-market-data = { path = "../../crates/market-data" }
+onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
+onlyalpha-calculation-bridge = { path = "../../crates/calculation-bridge" }
 onlyalpha-plugin-binance = { path = "../../plugs/onlyalpha-plugin-binance" }
 onlyalpha-plugin-tushare = { path = "../../plugs/onlyalpha-plugin-tushare" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
-onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
+onlyalpha-integration-contract = { path = "../../crates/integration-contract" }
 tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }
 # Maintained URI grammar and safe descriptor-relative filesystem operations.
 http = { version = "=1.5.0", default-features = false, features = ["std"] }
@@ -54,17 +54,17 @@ httparse = { version = "=1.10.1", default-features = false, features = ["std"] }
 # One code-first route/DTO declaration drives actual serving and pure OpenAPI export.
 utoipa = { version = "=6.0.0", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "=0.3.0", default-features = false }
-onlyalpha-calculation = { path = "../../crates/onlyalpha-kernel/calculation" }
+onlyalpha-calculation = { path = "../../crates/calculation" }
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 base64 = { version = "=0.23.1", default-features = false, features = ["alloc"] }
 aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 hkdf = { version = "=0.13.0", default-features = false }
 hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
-onlyalpha-strategy = { path = "../../crates/onlyalpha-kernel/strategy" }
+onlyalpha-strategy = { path = "../../crates/strategy" }
 
 [dev-dependencies]
-onlyalpha-runtime-persistence = { path = "../../crates/onlyalpha-runtime-persistence" }
-onlyalpha-clock = { path = "../../crates/onlyalpha-kernel/clock" }
+onlyalpha-runtime = { path = "../../crates/runtime" }
+onlyalpha-clock = { path = "../../crates/clock" }
 hyper = { version = "=1.12.0", default-features = false, features = ["http1", "client"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["test-util"] }
 

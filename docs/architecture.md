@@ -182,14 +182,14 @@ Result 和 Artifact final verification；失败或取消留下的 upstream facts
 
 The owner-approved long-term implementation target is a Rust Trading Kernel with Python-oriented indicators/factors and language-appropriate market plugins, as defined in [ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md). Initial Rust construction targets Linux in the existing single dev Compose environment. Current Python implementation remains implementation truth until each corresponding slice is migrated and validated. Temporary Python/Rust comparison never creates a second official writer; final retirement preserves exact historical artifacts and durable facts. The [migration work program](rust-kernel-migration-work-program.md) defines construction order, not completion or latency certification.
 
-Canonical Rust modules live under `crates/onlyalpha-kernel/`. The current `core/` contains only Predicate semantics and targets `predicates/` / `onlyalpha-predicates` under ADR 0142; it is not the whole Kernel.
+Canonical Rust libraries occupy direct directories under `crates/` under ADR 0149. `crates/predicates/` owns Predicate semantics.
 It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
 [Boolean Predicate corpus](predicate-semantics.md) and [integer reference/literal comparison vectors](integer-predicate-semantics.md), the [Boolean/string equality corpus](scalar-equality-semantics.md) and [finite Decimal reference/literal comparisons](decimal-predicate-semantics.md); its presence does not select it for an active Runtime or create another writer.
 Build/validation setup is described in [Linux Rust development](rust-kernel-development.md).
 
 ADR 0139 section 1.2 defines module-oriented migration: audit Python first, then implement complete corresponding Rust functional
 modules with independent library build/test and mechanically enforced dependency direction. The canonical Domain library belongs
-under `crates/onlyalpha-kernel/domain/`; Kernel consumers may depend on Domain, while Domain cannot depend on orchestration, Runtime,
+under `crates/domain/`; Kernel consumers may depend on Domain, while Domain cannot depend on orchestration, Runtime,
 Infrastructure adapters or concrete plugins. Internal primitive steps are not whole-module completion or Runtime admission.
 
 
@@ -587,7 +587,7 @@ Runtime Command boundary，必须具有 authorization、stable request identity�
 
 ## 17. Plugin Boundaries
 
-长期维护的 canonical Kernel 位于 `crates/onlyalpha-kernel/`，只依赖声明的下层公共 Contract，不导入具体插件。
+长期维护的 canonical Kernel 按职责放在 `crates/` 的一级库目录中，只依赖声明的下层公共 Contract，不导入具体插件。
 根目录 `src/onlyalpha/` 是冻结并最终删除的 Python 迁移存量，不再接收新增实现或功能；执行规则见 AGENTS.md §3.6，
 目标归属见 [Repository architecture](repository-product-architecture.md#root-python-source-retirement)。插件依赖方向固定为：
 

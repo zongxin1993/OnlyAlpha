@@ -9,7 +9,7 @@ use onlyalpha_domain::{
     market::OnlyBar,
     time::{OnlyTimeZone, OnlyTimestamp},
 };
-use onlyalpha_market_data_pipeline::{construction::*, delivery::*, state::*, *};
+use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
 use onlyalpha_strategy::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, error::Error, path::Path, sync::Arc, time::Duration};

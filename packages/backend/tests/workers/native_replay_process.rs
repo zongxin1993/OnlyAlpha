@@ -89,7 +89,7 @@ fn process_writer() -> Result<()> {
     let (spec, inputs, trading) = setup(|_| {})?;
     if matches!(mode.as_str(), "REFUSE" | "REFUSE_RELATION") {
         if mode == "REFUSE_RELATION" {
-            let runtime = onlyalpha_runtime_persistence::Runtime::open(
+            let runtime = onlyalpha_runtime::Runtime::open(
                 root,
                 spec.configuration.clone(),
                 &spec.kernel_artifact,

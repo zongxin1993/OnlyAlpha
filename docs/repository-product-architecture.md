@@ -1,6 +1,6 @@
 # Repository and product architecture
 
-This is the target architecture derived from the Constitution, [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) and [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md).
+This is the target architecture derived from the Constitution, [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md), [ADR 0149](adr/0149-flat-rust-library-layout.md) and [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md).
 It defines ownership, not implementation progress. Existing paths in development maps describe current source until their
 atomic migration; this document does not claim that target paths or release guards already exist.
 
@@ -8,19 +8,13 @@ atomic migration; this document does not claim that target paths or release guar
 
 ```text
 Cargo.toml / Cargo.lock                 one root workspace and development lock
-crates/
-  onlyalpha-kernel/                     grouping directory, no additional crate
-    domain/  predicates/  clock/  event/  calculation/  strategy/
-    market_data/                       grouping directory, no additional crate
-      state/  construction/  delivery/  pipeline/
-    order/  position/  account/  strategy_ledger/  risk/
-    fee/  settlement/  margin/  broker/  execution/
-  onlyalpha-integration-contract/
-  onlyalpha-metadata-json/
-  onlyalpha-gateway-protocol/
-  onlyalpha-runtime-persistence/
-  onlyalpha-calculation-bridge/
-  onlyalpha-backtest/
+crates/                                 one directory per reusable Rust library
+  domain/  predicates/  clock/  event/  calculation/  strategy/
+  market-data/                          pipeline, state and delivery
+  market-data-construction/             independent construction rules
+  order/  position/  account/  strategy-ledger/  risk/
+  fee/  settlement/  margin/  broker/  execution/
+  integration-contract/  metadata-json/  calculation-bridge/  runtime/  backtest/
 packages/
   backend/
     Cargo.toml
@@ -49,10 +43,11 @@ contracts/                             canonical versioned Product and cross-bou
 deploy/  scripts/                       deployment and engineering tools
 ```
 
-The twenty Kernel crates retain their current functional and isolation boundaries. The six other libraries belong outside
-Kernel; SQLite, Python process/transport and Provider dependencies do not become canonical trading semantics. Directory names
-are not independent deployments. Do not add empty future modules, per-file crates, nested workspaces or a forwarding facade.
-`predicates/` owns package `onlyalpha-predicates`; it replaces former `core/` / `onlyalpha-kernel`, not the entire Kernel.
+Each library directory uses its responsibility name, with a Cargo package name prefixed by `onlyalpha-` and Rust source in
+`src/`. Kernel membership follows semantic ownership and dependency direction. SQLite, Python process/transport and
+Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
+deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
+
 Backend owns package/binary `onlyalpha-backend`; frontend owns package `onlyalpha-frontend`; the target Agent distribution
 is `onlyalpha-agent` in `packages/agent`. Actual package creation/version selection is deferred to its migration phase. Release metadata placement is in
 [release versioning](release-versioning.md). This is target naming, not an assertion of current manifests.
@@ -81,12 +76,12 @@ subject to their original contracts. AGENTS.md §3.6 governs execution and accep
 |---|---|
 | Domain | Canonical values; no Runtime, backend, DB, network or concrete plugin dependency |
 | Predicates, Clock, Event, Calculation, Strategy | Retain their owning semantic contracts and explicit lower-layer dependency closures |
-| Market Data State/Construction/Delivery/Pipeline | Preserve construction/value reuse without forcing plugin/Strategy consumers to import Pipeline or process code |
+| Market Data and Market Data Construction | Preserve construction/value reuse without forcing plugin/Strategy consumers to import Pipeline or process code |
 | Order/Position/Account/Ledger/Risk/Fee/Settlement/Margin/Broker | Separate component owners; no direct mutation of another owner's private state |
 | Execution | Pure planning and ordered commit/recovery coordination through owning ports; no concrete persistence/venue driver |
-| Integration/metadata/protocol libraries | Shared SPI, exact normalization/fingerprints and generated bindings; never depend on Product business |
-| Runtime persistence | Concrete Trading store/replay implementation outside Kernel; not Product PostgreSQL ownership |
-| Calculation bridge | Algorithm protocol/client and reusable Calculation/Strategy adapters; consumes an explicitly supplied process/transport boundary |
+| Integration and metadata libraries | Shared SPI, exact normalization/fingerprints; never depend on Product business |
+| Runtime | Concrete Trading store/replay implementation outside Kernel; not Product PostgreSQL ownership |
+| Calculation bridge | Rust Gateway bindings, algorithm client and reusable Calculation/Strategy adapters; consumes an explicitly supplied process/transport boundary |
 | Backtest | Immutable-input replay/run-loop using the same Kernel; no Product admission, user authorization or task queue ownership |
 | Plugins | Concrete external rules and algorithms through public contracts; no backend-internal dependency |
 
@@ -137,9 +132,9 @@ This maps the original package responsibilities, not automatic whole-directory m
 | `web-console` | `packages/frontend` |
 | `http-server` | backend transport/security/bootstrap and program entry |
 | `product-runtime` | backend Application, Product persistence and execution composition modules |
-| `integration-contract`, `metadata-json` | corresponding `crates/onlyalpha-*` libraries |
-| `gateway-protocol` | Rust library, canonical protocol source in `contracts/`, Python bindings in backend resources |
-| `runtime-persistence` | reusable non-Kernel Runtime persistence library |
+| `integration-contract`, `metadata-json` | `crates/integration-contract/` and `crates/metadata-json/` |
+| `gateway-protocol` | Rust bindings in `crates/calculation-bridge/src/protocol/`, canonical definitions in `contracts/gateway/`, Python bindings in backend resources |
+| `runtime-persistence` | reusable non-Kernel `crates/runtime/` library |
 | `backtest-driver` | reusable `onlyalpha-backtest`; admission/task/process entry belongs in backend |
 | `calculation-worker` | reusable `onlyalpha-calculation-bridge`; native supervision in backend; minimal Python code in backend resources |
 | `authoring-execution-worker` | backend authoring execution/worker modules; remaining Python business must migrate before retirement |

@@ -130,7 +130,7 @@ Allocation 的 `cumulative_open_price_quantity` 决定所属 Cluster Close 的 r
 
 ## Rust component ownership and recovery boundary
 
-`crates/onlyalpha-kernel/position/` is one independently buildable Domain-only library, with internal model, manager, reservation, reconciliation and recovery responsibilities. It is not an admitted Runtime participant and does not replace Python readers or durable economic projections. See the [component design](superpowers/specs/2026-10-19-rust-position-design.md).
+`crates/position/` is one independently buildable Domain-only library, with internal model, manager, reservation, reconciliation and recovery responsibilities. It is not an admitted Runtime participant and does not replace Python readers or durable economic projections. See the [component design](superpowers/specs/2026-10-19-rust-position-design.md).
 
 Its closed schema1 commands bind exact engine/runtime/account/gateway/generation, command/cause, explicit time, instrument and Cluster/Order/source identities. The owner applies account Position and Allocation together from one candidate, enforcing quantity, settlement and exact cumulative-cost conservation. A Cluster Close releases its own Allocation cost exactly once and supplies the same realized PnL to account and attribution; finally rounded averages never reconstruct cost. Raw fee inputs are already determined fees, not a new fee calculator or Fee Authority. Orders remain the terminal-Fill authority; explicit `terminal_fill` governs retained versus released reservation remainder.
 

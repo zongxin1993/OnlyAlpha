@@ -11,7 +11,7 @@ import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "crates/onlyalpha-kernel/domain/src/unicode_data.rs"
+TARGET = ROOT / "crates/domain/src/unicode_data.rs"
 
 
 def render() -> str:

@@ -7,11 +7,9 @@ and AGENTS.md impact-aware validation. No Rust implementation or QMT removal is 
 
 ## Repository alignment and mandatory Python cleanup
 
-[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) and the
-[repository work program](repository-migration-work-program.md) own the target placement/release sequence. Retain twenty Kernel
-crates, rename current `core/` to `predicates/` and package `onlyalpha-kernel` to `onlyalpha-predicates`; other libraries leave
-`packages/`, while backend business/worker roles converge inside the backend product package. Existing paths in responsibility
-maps below describe current source, not a requirement to preserve obsolete package boundaries.
+[ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) governs release boundaries.
+[ADR 0149](adr/0149-flat-rust-library-layout.md) and the [repository architecture](repository-product-architecture.md)
+define the current crate layout. Backend business and worker roles converge inside the backend product package.
 
 For every selected complete module, assess removal of its Python implementation and actual runtime/SDK/build/test consumers.
 Once the Rust replacement and affected semantic, admission, Product, failure/recovery and applicable history gates pass,
@@ -29,7 +27,7 @@ Trading Kernel. ADR 0141 separately selects the Rust backend target; neither pro
    application orchestration and Infrastructure. A Python package may contain more than one responsibility.
 2. Record the Python/Rust module correspondence in its owning design/development document. Reuse existing semantic Contracts and
    `test-data/` vectors; do not create per-language specifications or a second progress/acceptance registry.
-3. Retain needed Python reference paths until eligible retirement; use `crates/onlyalpha-kernel/` functional modules with the ADR 0142 Predicate rename. Align names,
+3. Retain needed Python reference paths until eligible retirement; use the responsibility-based crate layout in ADR 0149. Align names,
    responsibilities and dependency direction only where the module exists. Preserve component/plugin placement for other roles.
 4. Reuse sound paths; restructure only for a demonstrated boundary need in the selected slice. If paths change, update direct
    consumers, exact implementation manifests/fingerprints, tests and build inputs together; preserve historical exact artifacts.
@@ -50,7 +48,7 @@ moving existing files solely to make the map visually symmetric.
 
 ## Complete Domain module construction
 
-Begin the module-oriented migration with `src/onlyalpha/domain/` and `crates/onlyalpha-kernel/domain/` under ADR 0139 section 1.2.
+Begin the module-oriented migration with `src/onlyalpha/domain/` and `crates/domain/` under ADR 0139 section 1.2.
 The selected unit covers the complete Domain public surface, not only a convenient set of identifiers or scalar primitives.
 
 1. Audit all Python Domain areas and nearest consumers against their owning Contracts. Enumerate base serialization/errors,
@@ -77,7 +75,7 @@ Apply the owning [Clock Contract](clock.md), ADR 0008 and the [owner-approved Ru
 Audit Python `core.clock` and its direct checkpoint/Timer-service consumers before implementation. Keep Python production paths
 as reference implementations; classify defects against independent expectations, without requiring structural cleanup.
 
-**Modification map:** independent `crates/onlyalpha-kernel/clock/` library, pure scheduler/model/snapshot and virtual/capability
+**Modification map:** independent `crates/clock/` library, pure scheduler/model/snapshot and virtual/capability
 modules, native sampled-time mechanics and one Linux OS driver. Update the exact Cargo/dependency/version graph, source guards,
 shared Clock vectors and package-selected/isolated build closures atomically. No Runtime activation or history conversion follows.
 
@@ -173,7 +171,7 @@ module's correctness/recovery gates.
 ## R2 — Linux toolchain plus the first canonical Rust module
 
 **Modification map:** introduce a root `Cargo.toml` workspace, committed `Cargo.lock`, `rust-toolchain.toml` and a narrowly scoped
-`crates/onlyalpha-kernel/predicates/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
+`crates/predicates/` only with the selected real R1 consumer. Extend `deploy/Dockerfile.dev`,
 `deploy/docker-compose.dev.yml`'s existing fixed dev services, and the canonical verification selectors as needed; do not add a
 second Compose file/project or install dependencies from the network during a test.
 
@@ -290,8 +288,7 @@ The next unit starts only after its true prerequisites hold; publishing this wor
 
 ### Market Data State source navigation
 
-The audited bounded State responsibility uses `crates/onlyalpha-kernel/market_data/state/` (`onlyalpha-market-data-state`),
-with a sole local Domain edge. It covers atomic closed-Bar updates, immutable Runtime/Cluster queries and strict component
+The audited bounded State responsibility uses `crates/market-data/src/state/` and consumes Domain. It covers atomic closed-Bar updates, immutable Runtime/Cluster queries and strict component
 checkpoint replacement. Construction, Pipeline/Dispatcher orchestration, calculation readiness and durable historical storage
 remain separate. See the [owning Contract](market_data_pipeline.md#rust-state-library-boundary) and
 [responsibility map](rust-kernel-development.md#market-data-state-responsibility-map). This library construction does not change
@@ -299,7 +296,7 @@ the official Python participant, authorize activation/migration or record module
 
 ### Market Data Construction source navigation
 
-The bounded Construction responsibility lives in `crates/onlyalpha-kernel/market_data/construction/`, with Domain as its
+The bounded Construction responsibility lives in `crates/market-data-construction/`, with Domain as its
 only local dependency. It includes exact construction values, graph compilation, pure executor SPI, TIME_BAR@1 and an atomic
 Runtime-local owner. See the [owning Contract](market_data_pipeline.md#rust-construction-library-boundary) and
 [responsibility map](rust-kernel-development.md#market-data-construction-responsibility-map). This library work does not
@@ -308,8 +305,7 @@ remain separately scoped integration work.
 
 ### MarketData organization and Delivery source navigation
 
-One business directory `crates/onlyalpha-kernel/market_data/` contains the independently buildable State, Construction and
-Delivery responsibilities. Delivery implements subscription identity/primary/freshness and deterministic scoped planning with
+State and Delivery live in `crates/market-data/`. Construction has its own library at `crates/market-data-construction/`. Delivery implements subscription identity/primary/freshness and deterministic scoped planning with
 active-registration watermarks and component recovery. Python callback execution and calculation readiness are not moved into
 this planner. See the [owning Contract](market_data_pipeline.md#rust-delivery-planning-boundary). Later Pipeline composition
 must preserve ADR0009 actual execution guarantees and validate its real calculation/lifecycle dependencies before activation.
@@ -317,7 +313,7 @@ must preserve ADR0009 actual execution guarantees and validate its real calculat
 
 ### Calculation source navigation
 
-`crates/onlyalpha-kernel/calculation/` groups the pure Definition/parameter, DAG/compatibility and exact registry foundation in one
+`crates/calculation/` groups the pure Definition/parameter, DAG/compatibility and exact registry foundation in one
 independently buildable library. It does not move concrete indicators/factors out of Python or replace Core Predicate arithmetic.
 Its versioned Definition3 identity correction is not Python Definition2 wire/hash admission. The next integration dependencies
 remain exact calculation/plugin execution, scoped state/readiness, then MarketData/Cluster composition. Consult the
@@ -338,7 +334,7 @@ per-timeframe expectations, admitted input/generation and durable recovery oblig
 
 ### Strategy decision source navigation
 
-`crates/onlyalpha-kernel/strategy/` owns the bounded pure decision component; the managed Python calculation worker supplies actual
+`crates/strategy/` owns the bounded pure decision component; the managed Python calculation worker supplies actual
 registered algorithms and the technical MarketData coordinator. See the [owning boundary](strategy.md#rust-decision-component-boundary).
 Revision2 component identity is explicitly separate from official Revision1/Freeze admission. Subsequent activation must evolve the
 owning public contract and all consumers atomically, prove exact retained artifacts/history, and preserve R3-R8 gates. Order intent,
@@ -347,7 +343,7 @@ Risk/Portfolio, Broker effects and LIVE permissions are not inferred from a comp
 
 ### Order source navigation
 
-`crates/onlyalpha-kernel/order/` groups component lifecycle, exact receipt/identity handling and fresh recovery in one independent
+`crates/order/` groups component lifecycle, exact receipt/identity handling and fresh recovery in one independent
 library. See the [owning boundary](order.md#rust-component-canonical-lifecycle-and-recovery) and
 [design](superpowers/specs/2026-10-19-rust-order-design.md). Subsequent Position/Allocation, Account/Ledger, Risk and execution-transaction
 work must preserve owning authorities and ordered economic effects. An isolated Order transition is not durable execution closure,
@@ -355,23 +351,23 @@ formal Runtime activation, successful submission or evidence of absent venue eff
 
 ### Position source navigation
 
-The isolated Position component resides in `crates/onlyalpha-kernel/position/`. Its one candidate commit covers account/attribution conservation and sell-hold ownership. See [Position](position.md#rust-component-ownership-and-recovery-boundary). Account cash, Strategy Ledger, Risk and durable execution/reconciliation orchestration remain separately owned; R3-R8 activation/history gates are unchanged.
+The isolated Position component resides in `crates/position/`. Its one candidate commit covers account/attribution conservation and sell-hold ownership. See [Position](position.md#rust-component-ownership-and-recovery-boundary). Account cash, Strategy Ledger, Risk and durable execution/reconciliation orchestration remain separately owned; R3-R8 activation/history gates are unchanged.
 
 ### Account source navigation
 
-The isolated Account component is `crates/onlyalpha-kernel/account/`; [Account](account.md#rust-component-ownership-and-recovery-boundary) owns its scope and reference deviations. Strategy Ledger, Risk, fee accrual and durable execution orchestration retain distinct owners. Later integration consumes typed immutable inputs rather than calling another Manager's internal state; R3–R8 activation/history gates remain unchanged.
+The isolated Account component is `crates/account/`; [Account](account.md#rust-component-ownership-and-recovery-boundary) owns its scope and reference deviations. Strategy Ledger, Risk, fee accrual and durable execution orchestration retain distinct owners. Later integration consumes typed immutable inputs rather than calling another Manager's internal state; R3–R8 activation/history gates remain unchanged.
 
 ### Strategy Ledger source navigation
 
-The isolated virtual-account library resides in `crates/onlyalpha-kernel/strategy_ledger/`. Its [owning contract](strategy_ledger.md#rust-component-ownership-and-recovery-boundary) separates Cluster attribution from consolidated Account and Position cost authority. Risk and durable Execution transaction/reconciliation composition consume normalized immutable inputs in later admission work; R3–R8 activation/history gates remain unchanged.
+The isolated virtual-account library resides in `crates/strategy-ledger/`. Its [owning contract](strategy_ledger.md#rust-component-ownership-and-recovery-boundary) separates Cluster attribution from consolidated Account and Position cost authority. Risk and durable Execution transaction/reconciliation composition consume normalized immutable inputs in later admission work; R3–R8 activation/history gates remain unchanged.
 
 ### Risk source navigation
 
-`crates/onlyalpha-kernel/risk/` owns bounded risk decisions, explicit profiles and scoped risk exposure lifecycle, depending only on Domain. See [Risk](risk.md#rust-component-ownership-and-recovery-boundary). Subsequent Execution composition must preserve exact Order/Request/Trade relationships, resolve net capacity versus same-owner holds explicitly, authenticate source admissions and commit Account/Position/Ledger/Risk effects atomically with durable replay/reconciliation. An ACCEPT or isolated checkpoint is not official Runtime, submission, upgrade or LIVE admission; existing R3-R8 gates remain unchanged.
+`crates/risk/` owns bounded risk decisions, explicit profiles and scoped risk exposure lifecycle, depending only on Domain. See [Risk](risk.md#rust-component-ownership-and-recovery-boundary). Subsequent Execution composition must preserve exact Order/Request/Trade relationships, resolve net capacity versus same-owner holds explicitly, authenticate source admissions and commit Account/Position/Ledger/Risk effects atomically with durable replay/reconciliation. An ACCEPT or isolated checkpoint is not official Runtime, submission, upgrade or LIVE admission; existing R3-R8 gates remain unchanged.
 
 ### Execution source navigation
 
-`crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
+`crates/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
 
 
 Broker common semantics are specified in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`:
@@ -383,7 +379,7 @@ Runtime activation and shipping Web behavior remain separate gates under the exi
 
 ## Rust Fee component boundary
 
-`crates/onlyalpha-kernel/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
+`crates/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
 
 Execution consumes Fee applications and freezes the Fee checkpoint in Execution metadata schema5 within the existing ordered commit. Its explicit admitted cumulative-target port remains subject to owning Runtime source authentication; an integrity digest does not prove producer authority. Aggregate targets do not manufacture detailed component evidence. Fee adjustment outputs are immutable instructions; they do not themselves write Account/Strategy Ledger state or authorize trading. Official full fee-reconciliation transaction admission remains an R3–R8 Runtime integration gate.
 
@@ -391,7 +387,7 @@ The Python formula/rounding/accrual/reconciliation responsibilities are audited 
 
 ## Rust Settlement responsibility and admission boundary
 
-`crates/onlyalpha-kernel/settlement/` is the Domain-only cash-security Settlement library. Python `settlement/{models,identity,authority,facts}.py` supplies the classified model/schedule/initial-owner/due reference; `settlement/planner.py` transaction composition stays in Execution. Source Calendar and compiled policy remain explicit Plugin/adapter inputs. Six distinct booking/availability/withdrawal/legal dates use the existing versioned Domain Calendar and exact trading-day advances, with bounded coverage/search and no UTC-midnight inference. Instruction identity binds full owner, economic, policy/calendar and Position/Allocation lifecycle inputs. Direct snapshots never grant authoring authority.
+`crates/settlement/` is the Domain-only cash-security Settlement library. Python `settlement/{models,identity,authority,facts}.py` supplies the classified model/schedule/initial-owner/due reference; `settlement/planner.py` transaction composition stays in Execution. Source Calendar and compiled policy remain explicit Plugin/adapter inputs. Six distinct booking/availability/withdrawal/legal dates use the existing versioned Domain Calendar and exact trading-day advances, with bounded coverage/search and no UTC-midnight inference. Instruction identity binds full owner, economic, policy/calendar and Position/Allocation lifecycle inputs. Direct snapshots never grant authoring authority.
 
 Resource admission reserves worst-case canonical Fill slots before submission from exact Order quantity and Instrument quantum. Existing records plus all remaining quanta cannot increase on a valid positive Fill. Orders are replayed by their immutable admission ordinal, installing preceding frozen instruction histories before later resource admissions. Capacity remains at most 512 instruction slots, with a 32 MiB checkpoint bound; individual inputs, records and receipts are bounded so all six pending transitions retain space. New-risk admission can fail closed without discarding observed in-budget facts or suppressing maturity.
 

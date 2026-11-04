@@ -6,7 +6,7 @@
 
 ## Rust decision component boundary
 
-`crates/onlyalpha-kernel/strategy/` 是可独立构建的纯语义库，依赖 Domain、Calculation 与既有 MarketData Construction 值模型。
+`crates/strategy/` 是可独立构建的纯语义库，依赖 Domain、Calculation 与既有 MarketData Construction 值模型。
 它使用显式 Revision2 / Definition3 component contract；当前正式 Python Revision1 / Freeze reader 和 Runtime admission 保持原 Authority。
 component constructor、fingerprint 和技术比较不会生成正式 Freeze、equivalence evidence 或 LIVE 权限；不提供旧历史转换、别名或 fallback。
 

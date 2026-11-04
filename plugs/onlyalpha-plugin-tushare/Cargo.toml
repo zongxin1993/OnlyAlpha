@@ -6,10 +6,10 @@ rust-version.workspace = true
 publish.workspace = true
 build = false
 [lib]
-path = "rust/lib.rs"
+path = "src/lib.rs"
 [lints]
 workspace = true
 [dependencies]
-onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
-onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
+onlyalpha-integration-contract = { path = "../../crates/integration-contract" }
+onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }

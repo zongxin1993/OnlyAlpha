@@ -129,7 +129,7 @@ Broker Update 经 Runtime inbound queue 到达。重复 update ID 幂等，迟�
 
 ## Rust component: canonical lifecycle and recovery
 
-`crates/onlyalpha-kernel/order/` is an independently buildable pure Order component, consuming only Domain financial DTOs and
+`crates/order/` is an independently buildable pure Order component, consuming only Domain financial DTOs and
 already-admitted exact arithmetic/JSON/hash dependencies. Official Python Runtime and durable transaction ownership remain active;
 this component cannot dispatch a Broker command, approve Risk, reserve cash/positions, publish official economic facts or activate
 Rust Runtime work. It provides no public control endpoint or legacy Python checkpoint reader.

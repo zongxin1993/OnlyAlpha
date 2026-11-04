@@ -28,7 +28,7 @@ def validate_index(domain: Path, dataset: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    domain = ROOT / "crates/onlyalpha-kernel/domain"
+    domain = ROOT / "crates/domain"
     root = domain / "resources/tzdata/2026.3"
     dataset = json.loads((root / "dataset.json").read_text())
     validate_index(domain, dataset)

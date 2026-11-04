@@ -17,7 +17,7 @@ Keep one repository and root Cargo workspace; independent versions do not requir
 | Agent | Target `packages/agent/pyproject.toml`; its installation closure has one matching lock authority | `agent-vX.Y.Z` |
 | Concrete plugin distribution | Its own package metadata; multi-language projections of one distribution derive from one selected authority | unambiguous `plugin-<name>-v<distribution-version>` |
 
-The selected reusable library set comprises the twenty Kernel crates and the six non-Kernel libraries in the architecture.
+The selected reusable library set comprises the reusable Rust crates in the repository architecture under ADR 0149.
 Do not inherit the library version into backend or plugin manifests. The four main lines are libraries, backend, frontend
 and agent; plugin distributions remain additional existing units.
 Agent is a product, not a per-worker release. Internal Python executor/SDK wheels derive their

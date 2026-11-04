@@ -2,7 +2,7 @@
 
 ## Ownership and public boundary
 
-Runtime Ledger Reconciliation is a read-only logical module in `crates/onlyalpha-kernel/execution/src/reconciliation.rs`. It checks the existing single Account against every configured Fixed Capital Cluster Ledger. Account remains the consolidated cash/equity owner, Position owns cost and Allocation, each Ledger owns Cluster attribution, Fee owns application economics, and Store/Ready owns committed visibility. No new crate, durable writer, accounting correction, provider policy or automatic balancing is introduced.
+Runtime Ledger Reconciliation is a read-only logical module in `crates/execution/src/reconciliation.rs`. It checks the existing single Account against every configured Fixed Capital Cluster Ledger. Account remains the consolidated cash/equity owner, Position owns cost and Allocation, each Ledger owns Cluster attribution, Fee owns application economics, and Store/Ready owns committed visibility. No new crate, durable writer, accounting correction, provider policy or automatic balancing is introduced.
 
 `Components::reconcile<S: Store>(&self, store: &S) -> Result<LedgerReconciliation, Error>` is the public owning query. The caller cannot submit raw snapshots, a hand-selected subset of Clusters or authored derived results. `LedgerReconciliation` has private fields and only detached `record()` and canonical `encode()` reads; no public derived-result constructor/decoder/writer exists. Its semantic identity is `RUNTIME_LEDGER_RECONCILIATION@1`. A changed reconciliation meaning requires an explicit semantic change; release numbers do not substitute for Kernel artifact identity.
 

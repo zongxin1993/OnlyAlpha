@@ -15,7 +15,7 @@ valuation。
 
 ## Rust Margin responsibility and consumer boundary
 
-`crates/onlyalpha-kernel/margin/` owns immutable collateral reservations, exact RESERVE/OCCUPY/RELEASE_RESERVED/RELEASE_OCCUPIED, directional quantity conservation, initial/maintenance state and complete deterministic replay. It depends only on Domain and already-admitted numeric/serialization/digest crates. Market `OnlyMarginModel` rate compilation remains outside this library; Python `margin/{models,manager,order_port}.py` maps to native reservation/Manager and the Execution consumer, rather than a copied provider factory.
+`crates/margin/` owns immutable collateral reservations, exact RESERVE/OCCUPY/RELEASE_RESERVED/RELEASE_OCCUPIED, directional quantity conservation, initial/maintenance state and complete deterministic replay. It depends only on Domain and already-admitted numeric/serialization/digest crates. Market `OnlyMarginModel` rate compilation remains outside this library; Python `margin/{models,manager,order_port}.py` maps to native reservation/Manager and the Execution consumer, rather than a copied provider factory.
 
 Scopes bind full Engine/Runtime/Account/Gateway/Generation/kind/Cluster/Revision/Instrument/Request and immutable mode/isolation/position side. A release names its opening reservation and actual closing Order/Trade; another order's unfilled reservation is never a close source. Partial release allocates integer minor units with HALF_EVEN and consumes the exact final remainder. Explicit zero occupancy increments may follow front-loaded compiled requirements; absent inputs never imply zero.
 

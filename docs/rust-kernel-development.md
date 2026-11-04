@@ -1,8 +1,8 @@
 # Linux Rust Kernel development
 
-> Organization follows [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md): twenty Kernel crates, including `predicates/` / `onlyalpha-predicates`, and reusable non-Kernel libraries under `crates/`. Product assembly and minimal Python resources follow the [repository work program](repository-migration-work-program.md). Each eligible migrated module includes Python source/consumer retirement; independent vectors and required historical artifacts remain.
+> Organization follows [ADR 0149](adr/0149-flat-rust-library-layout.md). Product assembly and minimal Python resources follow the [repository work program](repository-migration-work-program.md). Each eligible migrated module includes Python source/consumer retirement; independent vectors and required historical artifacts remain.
 
-The library in `crates/onlyalpha-kernel/predicates/` implements the six stateless Boolean/terminal primitives in
+The library in `crates/predicates/` implements the six stateless Boolean/terminal primitives in
 [Predicate semantics](predicate-semantics.md), the six reference plus six fixed-literal [integer comparisons](integer-predicate-semantics.md), eight [Boolean/string equality types](scalar-equality-semantics.md), and six reference plus six fixed-literal [finite Decimal comparisons](decimal-predicate-semantics.md). It owns no Runtime selection, official state, persistence, Broker access or effects.
 Python remains the admitted implementation; building this library grants no execution or LIVE permission. Managed comparison and
 historical artifact retention remain governed by ADR 0139 and ADR 0117. The private local diagnostic process frame is defined in [Predicate comparison](predicate-comparison.md). No FFI, cross-node transport, plugin worker or async runtime is introduced.
@@ -18,13 +18,13 @@ repository root. They identify source owners and consumers, not a second semanti
 
 | Responsibility | Python location | Rust location / boundary |
 | --- | --- | --- |
-| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/onlyalpha-kernel/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
+| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
-| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/onlyalpha-kernel/predicates/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
+| Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/predicates/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
 | Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
-| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/onlyalpha-kernel/predicates/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
+| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/predicates/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
-| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/onlyalpha-kernel/predicates/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
+| Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/predicates/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
 
 The owning Contracts are [Boolean/terminal semantics](predicate-semantics.md), [integer reference/literal semantics](integer-predicate-semantics.md),
 [Boolean/string equality semantics](scalar-equality-semantics.md) and [isolated comparison](predicate-comparison.md). A matching
@@ -168,11 +168,10 @@ wheel is rewritten, no schema fallback is added, and no deployment of mixed read
 
 ## Kernel source organization
 
-`crates/onlyalpha-kernel/` is the organizational umbrella for the Trading Kernel's Rust libraries, not another Cargo package.
-The root Cargo workspace selects independent members inside it. The following is an existing source-map excerpt, not the complete target tree (see [target architecture](repository-product-architecture.md)):
+Each Kernel library is a direct member of the root Cargo workspace. See the [full source map](repository-product-architecture.md).
 
 ```text
-crates/onlyalpha-kernel/
+crates/
 ├── domain/  # package onlyalpha-domain: canonical Domain types and pure operations
 ├── predicates/    # package onlyalpha-predicates: Predicate semantic library
 ├── clock/   # package onlyalpha-clock: mutable Clock/Timer mechanics
@@ -180,8 +179,7 @@ crates/onlyalpha-kernel/
 ```
 
 Each member owns its `Cargo.toml`, `src/lib.rs` and tests. Thus `src/onlyalpha/domain/identifiers.py` corresponds to
-`crates/onlyalpha-kernel/domain/src/identifiers.rs`. The directory expresses the Kernel/Domain containment relationship;
-the crate boundary retains independent builds and dependency enforcement. Public package/import names are unchanged.
+`crates/domain/src/identifiers.rs`. The crate boundary retains independent builds and dependency enforcement.
 The allowed dependency direction is Core → Domain, never Domain → Core, Runtime, Application or concrete plugins.
 
 Place further Domain responsibilities inside `domain/`. Use subdirectories when a responsibility actually needs multiple source
@@ -249,7 +247,7 @@ Jiff's `jiff-core` and RustCrypto's digest/block-buffer/crypto-common/hybrid-arr
 nodes also contain build scripts; locked presence does not imply execution. Optional log/defmt, non-pointer-atomic target helpers
 and jiff-static/proc-macro dependencies remain part of Cargo's legitimate complete lock graph. Keep all applicable license notices.
 Rust keeps upstream timezone resources separate from `src/` under
-`crates/onlyalpha-kernel/domain/resources/tzdata/2026.3/`, including their licenses and `dataset.json` checksums.
+`crates/domain/resources/tzdata/2026.3/`, including their licenses and `dataset.json` checksums.
 The resources remain inside the Domain crate so its isolated build includes the complete input closure.
 `scripts/domain_timezone_data.py --check` compares every byte and the Rust lookup index with the pinned Python package.
 These copies contain the same upstream rules, not independent timezone authorities.
@@ -261,7 +259,7 @@ system/upstream updates. Historical artifact identity and upgrade requirements c
 
 ## Clock build and dependency boundary
 
-`crates/onlyalpha-kernel/clock/` owns package `onlyalpha-clock`. Its local dependency is Domain. Its only direct registry dependency
+`crates/clock/` owns package `onlyalpha-clock`. Its local dependency is Domain. Its only direct registry dependency
 is `num-bigint = 0.4.8` (`default-features = false`, `std`), already present in the reviewed Domain registry closure. This direct
 edge introduces no new registry package/checksum, scheduler library or async runtime. Native synchronization/time/thread facilities
 use Rust std; the fixed toolchain and existing registry-closure digest remain authoritative build inputs.
@@ -290,7 +288,7 @@ See the [owning Event Contract](event.md) and [selected design](superpowers/spec
 
 ## Market Data State responsibility map
 
-The Kernel umbrella's `market_data/state/` is package `onlyalpha-market-data-state`. Python `market_data/cache.py` corresponds
+The State module lives in `crates/market-data/src/state/`. Python `market_data/cache.py` corresponds
 to `state.rs`; immutable snapshot queries and restriction correspond to `snapshot.rs`; strict current records correspond to
 `record.rs`. This is a responsibility map, not a one-file/class translation: Pipeline/Construction/Dispatcher orchestration,
 Indicator/Factor state and durable market history retain their owning boundaries. `model.rs` defines only scope/config/errors.
@@ -305,7 +303,7 @@ from a library build.
 
 ## Market Data Construction responsibility map
 
-`market_data/construction/` (`onlyalpha-market-data-construction`) separates model/record, resolution, compiler, executor,
+`crates/market-data-construction/` (`onlyalpha-market-data-construction`) separates model/record, resolution, compiler, executor,
 TIME_BAR and manager responsibilities. Python reference locations are `market_data/resolution.py` and
 `market_data/aggregation/{compiler,base,time_bar,manager}.py`; this is a responsibility map, not a file/class translation.
 Subscriptions' delivery/primary selection, completed-boundary product queries, Pipeline/State/calculation/Runtime integration
@@ -321,14 +319,11 @@ and TIME_BAR schema1 do not activate the library in the official Python Runtime.
 
 ## MarketData business organization and delivery
 
-`crates/onlyalpha-kernel/market_data/` groups State, Construction and Delivery under one business boundary. Subcrates exist
-for actual independent build/dependency isolation, not one crate per class. State/Construction retain package names/current
-records and depend only on Domain; Delivery depends only on these libraries and Domain. No facade, nested workspace, empty
-Pipeline placeholder or new deployment is needed. The dev environment fingerprints Cargo manifests recursively so deeper
-module dependencies cannot bypass rebuild admission.
+State and Delivery are modules of `crates/market-data/`. Construction remains independent in
+`crates/market-data-construction/` for Strategy and plugin consumers. Source guards enforce lower-layer dependency direction.
 
-Python `market_data/subscriptions.py` and the planning part of `dispatcher.py` correspond to `market_data/delivery/`.
-Subscription/model and non-Clone owner/record concerns stay internal to one Delivery crate; callback execution, calculation
+Python `market_data/subscriptions.py` and the planning part of `dispatcher.py` correspond to `crates/market-data/src/delivery/`.
+Subscription/model and non-Clone owner/record concerns stay internal to the Delivery module; callback execution, calculation
 barriers and Pipeline coordination remain separate. Explicit IDs, pure scoped plans, bounded active cursors and atomic
 configuration-bound recovery replace implicit UUID generation, unbounded handled-slice history and permissive readers.
 Shared common routing vectors use real Python Pipeline/Dispatcher behavior and Rust State/Delivery APIs; they do not certify
@@ -338,7 +333,7 @@ whole-module parity, readiness or official Runtime admission. See the [owning Co
 ## Calculation responsibility map
 
 Python `calculation/{definition,graph,compatibility,registry}.py` is the semantic reference for the independently buildable
-`crates/onlyalpha-kernel/calculation/` library. Record/parameter/definition/graph/registry concerns are private files within one
+`crates/calculation/` library. Record/parameter/definition/graph/registry concerns are private files within one
 crate; provider-specific calculations remain plugins. Existing Core Predicate implementations remain in Core, with no duplicated
 arithmetic or transport here. Calculation has no local dependency edge and cannot access Runtime, MarketData, Cluster or plugins.
 
@@ -389,7 +384,7 @@ proof, not historical migration, durable service restart/upgrade or official Run
 
 ### Composed MarketData preparation
 
-The `market_data/pipeline` crate depends on Domain, Calculation, State, Construction and Delivery; none depends back on Pipeline.
+The pipeline in `crates/market-data/` composes State and Delivery and depends on Domain, Calculation and Construction.
 It owns deterministic preparation ordering and composed component recovery, not another copy of lower-level semantics. The
 managed calculation worker implements its port in Infrastructure, keeping interpreter/process/deadline/timing effects outside
 Kernel. Explicit `NoCalculations` is a declared program, not automatic fallback. The public Construction/State/Delivery reexports
@@ -412,7 +407,7 @@ See the [owning Strategy boundary](strategy.md#rust-decision-component-boundary)
 
 ## Order responsibility map
 
-`crates/onlyalpha-kernel/order/` reuses Domain Request/Fill/Snapshot, owns deterministic component lifecycle, receipt identities,
+`crates/order/` reuses Domain Request/Fill/Snapshot, owns deterministic component lifecycle, receipt identities,
 submission uncertainty and complete fresh restoration. Its source dependencies never point to Strategy, Risk, Position, Account,
 Broker or Infrastructure. Owning Contract: [Order](order.md#rust-component-canonical-lifecycle-and-recovery). Actual broker submission,
 durable cross-authority transaction and economic projection remain separate; no component outcome confers Runtime admission.
@@ -431,11 +426,11 @@ durable cross-authority transaction and economic projection remain separate; no 
 
 ## Risk responsibility map
 
-`crates/onlyalpha-kernel/risk/` groups pure models, immutable evidence/decision pipeline, scoped manager/query, risk exposure reservation/control lifecycle and candidate recovery in one Domain-only crate. The audited Python reference is `onlyalpha.risk` plus Execution's actual reservation reducer. Source guards, isolated dependency closure and common native/Python vectors are part of the Rust canonical lane. See [Risk owning boundary](risk.md#rust-component-ownership-and-recovery-boundary); Risk holds never become Account cash or Position/Allocation authority. Future Execution composition supplies admitted owning views and one durable transaction; independent libraries do not establish that closure.
+`crates/risk/` groups pure models, immutable evidence/decision pipeline, scoped manager/query, risk exposure reservation/control lifecycle and candidate recovery in one Domain-only crate. The audited Python reference is `onlyalpha.risk` plus Execution's actual reservation reducer. Source guards, isolated dependency closure and common native/Python vectors are part of the Rust canonical lane. See [Risk owning boundary](risk.md#rust-component-ownership-and-recovery-boundary); Risk holds never become Account cash or Position/Allocation authority. Future Execution composition supplies admitted owning views and one durable transaction; independent libraries do not establish that closure.
 
 ### Execution source navigation
 
-`crates/onlyalpha-kernel/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
+`crates/execution/` owns bounded pure execution planning and ordered commit/recovery coordination using the isolated Order/Position/Account/Strategy Ledger/Risk libraries. Its [owning boundary](execution.md#rust-component-execution-boundary) retains one durable Store authority, exact frozen projections, admission-only resource budgets, mandatory economic evidence and at-least-once Events. Library construction does not activate a Runtime, certify a deployment upgrade or replace R3–R8 admission/history gates.
 
 
 Broker's standalone source closure contains Domain only. Execution has a test-only Broker edge
@@ -447,7 +442,7 @@ Runtime persistence or provider implementations. No current Python Broker path i
 
 ## Rust Fee component boundary
 
-`crates/onlyalpha-kernel/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
+`crates/fee/` is the Domain-only semantic library for exact scoped rule binding, assessment/estimation, per-component accrual/application, typed queries, external evidence lineage, forward adjustments and Fee risk blockers. Concrete schedules/basis translation remain plugin inputs. The schema1 component IR uses explicit day ordinals, UTC nanosecond instants, exact source snapshots and bounded Decimal inputs; it does not decode or replace the official Python Fee wire/history format. Fixed rules retain their exact binding when current schedules expire; effective families require one matching scoped version. Decimal spelling and registry order do not create new semantic identities.
 
 Execution consumes Fee applications and freezes the Fee checkpoint in Execution metadata schema5 within the existing ordered commit. Its explicit admitted cumulative-target port remains subject to owning Runtime source authentication; an integrity digest does not prove producer authority. Aggregate targets do not manufacture detailed component evidence. Fee adjustment outputs are immutable instructions; they do not themselves write Account/Strategy Ledger state or authorize trading. Official full fee-reconciliation transaction admission remains an R3–R8 Runtime integration gate.
 
@@ -455,7 +450,7 @@ The Python formula/rounding/accrual/reconciliation responsibilities are audited 
 
 ## Rust Settlement responsibility and admission boundary
 
-`crates/onlyalpha-kernel/settlement/` is the Domain-only cash-security Settlement library. Python `settlement/{models,identity,authority,facts}.py` supplies the classified model/schedule/initial-owner/due reference; `settlement/planner.py` transaction composition stays in Execution. Source Calendar and compiled policy remain explicit Plugin/adapter inputs. Six distinct booking/availability/withdrawal/legal dates use the existing versioned Domain Calendar and exact trading-day advances, with bounded coverage/search and no UTC-midnight inference. Instruction identity binds full owner, economic, policy/calendar and Position/Allocation lifecycle inputs. Direct snapshots never grant authoring authority.
+`crates/settlement/` is the Domain-only cash-security Settlement library. Python `settlement/{models,identity,authority,facts}.py` supplies the classified model/schedule/initial-owner/due reference; `settlement/planner.py` transaction composition stays in Execution. Source Calendar and compiled policy remain explicit Plugin/adapter inputs. Six distinct booking/availability/withdrawal/legal dates use the existing versioned Domain Calendar and exact trading-day advances, with bounded coverage/search and no UTC-midnight inference. Instruction identity binds full owner, economic, policy/calendar and Position/Allocation lifecycle inputs. Direct snapshots never grant authoring authority.
 
 Resource admission reserves worst-case canonical Fill slots before submission from exact Order quantity and Instrument quantum. Existing records plus all remaining quanta cannot increase on a valid positive Fill. Orders are replayed by their immutable admission ordinal, installing preceding frozen instruction histories before later resource admissions. Capacity remains at most 512 instruction slots, with a 32 MiB checkpoint bound; individual inputs, records and receipts are bounded so all six pending transitions retain space. New-risk admission can fail closed without discarding observed in-budget facts or suppressing maturity.
 
@@ -485,7 +480,7 @@ Python `account/performance.py` is the classified reference for Account-owned ti
 
 ### Native persistence Infrastructure dependency closure
 
-The independently buildable `crates/onlyalpha-runtime-persistence/` consumes Execution from outside Kernel. The canonical Rust lane also builds/tests its complete isolated dependency closure in debug/release. Its [owning contract](rust-runtime-persistence.md) defines native persistence and process recovery without formal R5 activation.
+The independently buildable `crates/runtime/` consumes Execution from outside Kernel. The canonical Rust lane also builds/tests its complete isolated dependency closure in debug/release. Its [owning contract](rust-runtime-persistence.md) defines native persistence and process recovery without formal R5 activation.
 
 The component pins `rusqlite=0.40.2` with only `bundled` and no default features; SQLite is a required persistence driver rather than Kernel logic. The lock includes `libsqlite3-sys=0.38.2`, the SQLite C amalgamation and C build tooling (`cc`, `find-msvc-tools`, `shlex`, `pkg-config`, `vcpkg`), plus fallible iterators and hash-map support. These are an explicit extension to the earlier pure-Rust dependency inventory above. `libsqlite3-sys` builds bundled C with the dev compiler; no loadable extension, runtime SQL compilation/download, binding generation or alternate system SQLite selection is enabled. Rust's standard `File::try_lock` supplies the lease without a lock crate. Direct features, full registry graph/checksums and build inputs remain bound by the canonical dependency guard; changes require renewed review. Upstream MIT/Apache license notices and SQLite public-domain provenance remain with their archives.
 

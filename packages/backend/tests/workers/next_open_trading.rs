@@ -13,7 +13,7 @@ use onlyalpha_domain::{
     numeric::OnlyDecimal,
     time::{OnlyTimestamp, OnlyUtcDateTime},
 };
-use onlyalpha_market_data_pipeline::{construction::*, delivery::*, state::*, *};
+use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
 use onlyalpha_plugin_binance::{spot_simulation::SpotRuleSnapshot, spot_source::spot_calendar};
 use onlyalpha_strategy::{Executor, Program};
 use serde_json::{Value, json};
@@ -684,7 +684,7 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     assert_eq!(journal_cut(&root), before);
     drop(snapshot);
     // Read the same SQLite-owned end boundary without creating a second replay or book.
-    let runtime = onlyalpha_runtime_persistence::Runtime::open(
+    let runtime = onlyalpha_runtime::Runtime::open(
         &root,
         durable_configuration,
         &durable_artifact,

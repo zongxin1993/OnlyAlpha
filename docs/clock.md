@@ -85,7 +85,7 @@ Research Job / Plan 定义，可以复用纯时间原语，但不得为满足 Tr
 
 ## 10. Rust module and capability boundary
 
-Rust Clock is an independent `crates/onlyalpha-kernel/clock/` library (package `onlyalpha-clock`), with Clock -> Domain as its
+Rust Clock is an independent `crates/clock/` library (package `onlyalpha-clock`), with Clock -> Domain as its
 sole local dependency. Domain retains immutable time/interval semantics. The existing `core/` Predicate crate is a separate
 responsibility. Source/dependency-closure builds and explicit guards reject reverse imports and hidden inputs.
 

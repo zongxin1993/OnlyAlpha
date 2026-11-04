@@ -66,7 +66,7 @@ Outbox 保持 at-least-once。EventBus 自身不感知 Runtime 或 recovery，�
 
 ## Rust Event responsibility and migration boundary
 
-The Rust `onlyalpha-event` library lives in `crates/onlyalpha-kernel/event/` and depends locally only on Domain. It owns
+The Rust `onlyalpha-event` library lives in `crates/event/` and depends locally only on Domain. It owns
 immutable envelopes/records and synchronous bounded observation, not Runtime Router/Gate/Outbox, transaction identity creation,
 Broker inbound processing or business state transitions. Python remains the admitted Runtime implementation until separate gates.
 The [Rust Event design](superpowers/specs/2026-10-18-rust-event-design.md) defines the selected construction.

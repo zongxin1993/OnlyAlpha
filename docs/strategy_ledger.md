@@ -95,7 +95,7 @@ Strategy Ledger 不重算 Close PnL，只消费 attributed delta。各 Ledger �
 
 ## Rust component ownership and recovery boundary
 
-`crates/onlyalpha-kernel/strategy_ledger/` is one independently buildable virtual-account library with Domain as its only local dependency. One Manager binds exact Engine/Runtime/Account/Generation/currency and explicitly configured Cluster capital whose sum equals Account initial cash. Config, commands and checkpoints are closed schema1 values. Runtime remains Python; this library does not activate another formal writer.
+`crates/strategy-ledger/` is one independently buildable virtual-account library with Domain as its only local dependency. One Manager binds exact Engine/Runtime/Account/Generation/currency and explicitly configured Cluster capital whose sum equals Account initial cash. Config, commands and checkpoints are closed schema1 values. Runtime remains Python; this library does not activate another formal writer.
 
 Rust validates normalized Allocation before/after, exact attributed cost and realized deltas, per-Cluster ownership and valuation completeness. It never reconstructs cost from average price or uses consolidated Account cost. Marks/multipliers and Runtime calendar day/ordinal are explicit inputs. Trade/fee/order/reservation aliases bind full normalized payloads and exact Cluster. Rejections/conflicts cannot mutate accepted state. A candidate updates economics, cash/fee entries, holds and global equity occurrence together.
 

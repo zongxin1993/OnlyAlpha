@@ -10,6 +10,8 @@
 
 > ADR 0141 extends the owner-approved target to Rust Product/backend services while retaining isolated Python Factor/Indicator execution. Its explicit scope supersedes the backend-wide-rewrite rejection below; all constitutional and retirement safeguards remain.
 
+> [ADR 0149](0149-flat-rust-library-layout.md) supersedes the Rust library placement and selected crate boundaries below.
+
 ## Context
 
 The owner selects Rust as the long-term implementation of stable Trading Kernel semantics, after the corresponding canonical

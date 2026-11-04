@@ -1,7 +1,7 @@
 # ADR 0140 — Deterministic Domain and cross-language representation
 
 - Status: Accepted (owner decisions, 2026-10-17)
-- Scope: Python `src/onlyalpha/domain/` and Rust `crates/onlyalpha-kernel/domain/`
+- Scope: Python `src/onlyalpha/domain/` and Rust `crates/domain/`
 - Refines: ADR 0005, ADR 0006 and ADR 0139; subject to the Constitution
 
 ## Decision

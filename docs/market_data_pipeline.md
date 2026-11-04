@@ -59,7 +59,7 @@ Manager fail-stop，且在有效 constructed Bar 进入 Cache/dispatch 前失败
 
 ### Rust Construction library boundary
 
-`crates/onlyalpha-kernel/market_data/construction/` is package `onlyalpha-market-data-construction`; its only local edge is
+`crates/market-data-construction/` is package `onlyalpha-market-data-construction`; its only local edge is
 Domain. It owns typed recipe/requirement/capability/resolution/lineage values, stable construction graphs and compiled lane
 identities, exact-version pure executor registration, session-aware TIME_BAR@1, shared registrations and component recovery.
 Market-specific calendars arrive as immutable Domain inputs; provider discovery, Source continuity/grants, dispatch,
@@ -103,7 +103,7 @@ checkpoint duplicate collapse and permissive readers are not Rust requirements. 
 
 ### Rust composed preparation boundary
 
-`market_data/pipeline` composes the existing Construction, State, Delivery and Calculation owners. The program binds exact
+`crates/market-data/` composes the existing Construction, State, Delivery and Calculation owners. The program binds exact
 Source/calendar/executor artifacts, Generation, scoped calculation bindings and a pure preparation consumer artifact. One BarType
 has one Source owner; native and derived ownership cannot overlap. Inputs carry exact root/Source sequence and explicit logical time.
 Closed Bar roots advance strictly; Trade roots can share event time under increasing sequence and can yield no closed Bar.
@@ -137,12 +137,11 @@ A downstream Strategy cut must match this Pipeline-owned acknowledgment, not an 
 
 ### Rust Delivery planning boundary
 
-MarketData is one business directory, `crates/onlyalpha-kernel/market_data/`, containing independently buildable `state/`,
-`construction/`, `delivery/` and the composed `pipeline/` subcrates. Existing State/Construction package names and records retain their meanings.
-Delivery adds no umbrella facade or deployment unit. Delivery depends on Domain, State and Construction; neither lower
-subcrate depends on Delivery. Pure dependency/source guards and extracted builds enforce this direction.
+State and Delivery are modules in `crates/market-data/`. Construction is a separate library at
+`crates/market-data-construction/`. Delivery consumes Domain, State and Construction. Source guards check this direction,
+and isolated builds verify that Construction remains usable without the pipeline.
 
-`onlyalpha-market-data-delivery` owns explicit subscription values, active Cluster registrations, immutable scoped delivery
+The Delivery module owns explicit subscription values, active Cluster registrations, immutable scoped delivery
 plans and one last-planned timestamp per active registration. It does not own Construction registration, State mutation,
 calculation readiness, Source/Generation admission or actual Cluster/Strategy execution. Inputs are exact Engine/Runtime-
 scoped immutable State snapshots. Only an updated primary triggers planning. Plans sort by Cluster ID, restrict views to
@@ -177,7 +176,7 @@ not Rust expected behavior. See the [Delivery design](superpowers/specs/2026-10-
 
 ### Rust State library boundary
 
-`crates/onlyalpha-kernel/market_data/state/` owns bounded closed-Bar state and immutable scoped queries, with Domain as its
+`crates/market-data/src/state/` owns bounded closed-Bar state and immutable scoped queries, with Domain as its
 only local dependency. A non-Clone Runtime owner accepts explicit Engine/Runtime IDs, positive per-type history_limit
 (default 1024), closed unrevised end-time Bars, primary type, logical initialization time and quality flags. A complete batch
 and its snapshot validate before one replacement; failures never commit a prefix. Versions are lifetime arbitrary-precision

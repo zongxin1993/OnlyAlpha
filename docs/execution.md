@@ -38,7 +38,7 @@ product tests 证明；Live 仍是未来目标。See ADR 0053 and ADR 0068.
 
 ## Rust component execution boundary
 
-`crates/onlyalpha-kernel/execution/` composes the isolated Order, Position, Account, Strategy Ledger and Risk libraries through public immutable inputs and their canonical checkpoint/restore readers. Domain is the only additional local dependency. This library is not an activated Runtime participant, second production persistence store or LIVE permission.
+`crates/execution/` composes the isolated Order, Position, Account, Strategy Ledger and Risk libraries through public immutable inputs and their canonical checkpoint/restore readers. Domain is the only additional local dependency. This library is not an activated Runtime participant, second production persistence store or LIVE permission.
 
 The bounded shape is single-currency Generic T0 Cash LIMIT or MARKET BUY OPEN / SELL CLOSE LONG NETTING, including admission, explicit submission outcome, external acceptance, pending cancellation, partial/full fills and terminal cancellation/rejection/expiry/failure. Explicit scoped plugin fee cumulative targets produce incremental cash charges/rebates; settlement requires a proved Generic T0 cash/settled-quantity instruction. No missing fee, market permission or settlement is interpreted as zero/available. Position remains the single attributed close-cost authority, including fractional proportional cost and the final all-remainder rule. Non-cash cost/PnL preserves exact admitted precision; currency settlement amounts retain their owning money precision.
 

@@ -7,7 +7,7 @@ use onlyalpha_domain::{
     base::OnlyDomainModel, calendar::OnlyTradingCalendar, identifiers::OnlyInstrumentId,
     market::OnlyBarType,
 };
-use onlyalpha_market_data_pipeline::{construction::*, delivery::*, state::*, *};
+use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
 use onlyalpha_strategy::*;
 use serde_json::{Value, json};
 use std::{

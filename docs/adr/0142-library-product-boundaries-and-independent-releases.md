@@ -12,6 +12,8 @@
 > placement statements below are historical decisions superseded only in that scope; canonical Rust business, semantic identity,
 > permission and Research/Evidence requirements remain. The new decision is documentation, not implementation evidence.
 
+> [ADR 0149](0149-flat-rust-library-layout.md) supersedes the Rust library placement and selected crate boundaries below.
+
 ## Decision and rationale
 
 Keep one repository and one root Cargo workspace. `crates/` contains reusable Rust libraries; `packages/backend/` and

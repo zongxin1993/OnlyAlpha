@@ -11,9 +11,9 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
 COPY packages/backend/ ./packages/backend/
 COPY plugs/onlyalpha-plugin-binance/Cargo.toml ./plugs/onlyalpha-plugin-binance/Cargo.toml
-COPY plugs/onlyalpha-plugin-binance/rust/ ./plugs/onlyalpha-plugin-binance/rust/
+COPY plugs/onlyalpha-plugin-binance/src/*.rs ./plugs/onlyalpha-plugin-binance/src/
 COPY plugs/onlyalpha-plugin-tushare/Cargo.toml ./plugs/onlyalpha-plugin-tushare/Cargo.toml
-COPY plugs/onlyalpha-plugin-tushare/rust/ ./plugs/onlyalpha-plugin-tushare/rust/
+COPY plugs/onlyalpha-plugin-tushare/src/*.rs ./plugs/onlyalpha-plugin-tushare/src/
 
 FROM rust-manifests AS rust-dependency-resolution
 RUN CARGO_NET_RETRY=0 cargo update --workspace

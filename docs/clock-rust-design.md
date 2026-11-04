@@ -9,7 +9,7 @@ Implement the complete Clock/Timer responsibility as a native Rust library. Audi
 and correct defects in Rust without requiring a structural Python rewrite. Python remains the admitted Runtime implementation until
 explicit activation gates pass; its code is a comparison reference, never the source of expected correctness by itself.
 
-Recommended organization under `crates/onlyalpha-kernel/`:
+Recommended organization under `crates/`:
 
 - `domain/`: immutable absolute time, UTC values and intervals; no mutable scheduling, OS clock, threads or Runtime.
 - `clock/`: independent package `onlyalpha-clock`; pure scheduler state, virtual advancement and a separate Linux native driver.

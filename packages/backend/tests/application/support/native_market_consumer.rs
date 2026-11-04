@@ -1,10 +1,10 @@
 //! Frozen technical consumer of the exact installed Source and Product owners.
 #![cfg(test)]
-#[path = "../plugs/onlyalpha-plugin-binance/rust/spot_normalize.rs"]
+#[path = "../plugs/onlyalpha-plugin-binance/src/spot_normalize.rs"]
 mod spot_normalize;
-#[path = "../plugs/onlyalpha-plugin-binance/rust/spot_rest.rs"]
+#[path = "../plugs/onlyalpha-plugin-binance/src/spot_rest.rs"]
 mod spot_rest;
-#[path = "../plugs/onlyalpha-plugin-binance/rust/spot_source.rs"]
+#[path = "../plugs/onlyalpha-plugin-binance/src/spot_source.rs"]
 mod spot_source;
 use futures_util::{SinkExt, StreamExt};
 use onlyalpha_backend::application::chart::ChartQuery;

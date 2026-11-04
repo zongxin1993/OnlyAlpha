@@ -912,7 +912,7 @@ READ PROJECT_CONSTITUTION.md
 
 Any concrete implementation loaded through the OnlyAlpha Plugin SPI MUST live under
 `plugs/onlyalpha-plugin-<NAME>/`. Stable canonical semantics and reusable public libraries belong under `crates/`;
-Kernel libraries use the `crates/onlyalpha-kernel/` grouping, including `predicates/` rather than former `core/`.
+Each Rust library has a direct responsibility-named directory under `crates/` under ADR 0149. Rust library and plugin source lives in its package-local `src/`.
 Product units are `packages/backend`, `packages/frontend` and `packages/agent`, under ADRs 0142/0146.
 Backend business and lifecycle are Rust. Existing Python `src/onlyalpha/` and legacy worker/manager package paths are
 migration observations, not authorization to add implementations there or create another product per worker.

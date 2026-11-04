@@ -7,7 +7,7 @@ use crate::{application::{backtest_run::VerifiedRun,private_strategy::exact,rese
 use onlyalpha_backtest::{RunLoop,RunSpec,Trading};
 use onlyalpha_calculation::product::Graph;
 use onlyalpha_calculation_bridge::{Cancellation,ChartInstallation,ProcessState,StrategyPreparation};
-use onlyalpha_market_data_pipeline::{construction::*,delivery::*,state::*,*};
+use onlyalpha_market_data::{construction::*,delivery::*,state::*,*};
 use onlyalpha_plugin_binance::spot_source::spot_calendar;
 use onlyalpha_strategy::{Executor,NodeFailure,Scope};
 use rustix::fs;

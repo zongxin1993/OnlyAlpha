@@ -6,21 +6,21 @@ rust-version.workspace = true
 publish.workspace = true
 build = false
 [lib]
-path = "rust/lib.rs"
+path = "src/lib.rs"
 [lints]
 workspace = true
 [dependencies]
-onlyalpha-fee = { path = "../../crates/onlyalpha-kernel/fee" }
-onlyalpha-domain = { path = "../../crates/onlyalpha-kernel/domain" }
+onlyalpha-fee = { path = "../../crates/fee" }
+onlyalpha-domain = { path = "../../crates/domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
-onlyalpha-integration-contract = { path = "../../crates/onlyalpha-integration-contract" }
-onlyalpha-metadata-json = { path = "../../crates/onlyalpha-metadata-json" }
+onlyalpha-integration-contract = { path = "../../crates/integration-contract" }
+onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }
 http = { version = "=1.5.0", default-features = false, features = ["std"] }
 
 # Public market REST: maintained TLS/HTTP, no redirects/proxy/retry or defaults.
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
-onlyalpha-market-data-construction = { path = "../../crates/onlyalpha-kernel/market_data/construction" }
+onlyalpha-market-data-construction = { path = "../../crates/market-data-construction" }
 sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
