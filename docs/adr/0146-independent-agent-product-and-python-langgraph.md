@@ -1,6 +1,7 @@
 # ADR 0146: Independent Agent product and Python LangGraph
 
-- Status: Accepted
+- Status: Superseded by [ADR 0150](0150-product-layout-and-programmable-quant-assets.md) (2026-11-04)
+- Historical decision. The independent Agent package, service and release line were canceled. Agent uses the formal OnlyAlpha API.
 - Date: 2026-10-28
 - Decision maker: repository owner, approving the independent Agent package, split API interaction, and exact workflow-version continuation, then requesting documentation only.
 - Constitution Impact: NO

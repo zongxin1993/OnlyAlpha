@@ -6,7 +6,6 @@ import {
     Card,
     Descriptions,
     Empty,
-    Select,
     Space,
     Spin,
     Statistic,
@@ -21,8 +20,6 @@ import "./backtest.css";
 type Run = Awaited<ReturnType<typeof api.loadRun>>;
 type Preparation = Awaited<ReturnType<typeof api.loadPreparation>>;
 type Result = Awaited<ReturnType<typeof api.loadResult>>;
-type Models = Awaited<ReturnType<typeof api.loadModels>>["items"];
-type Interpretation = Awaited<ReturnType<typeof api.interpretResult>>;
 const completed = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const blocked = new Set(["BLOCKED", "UNKNOWN", "INPUT_PENDING"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -105,10 +102,6 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
         [run, setRun] = useState<Run | null>(null);
     const [preparation, setPreparation] = useState<Preparation | null>(null),
         [result, setResult] = useState<Result | null>(null);
-    const [models, setModels] = useState<Models>([]),
-        [model, setModel] = useState<string | undefined>();
-    const [interpretation, setInterpretation] = useState<Interpretation | null>(null),
-        [analysisProblem, setAnalysisProblem] = useState("");
     const [problem, setProblem] = useState(""),
         [busy, setBusy] = useState<string | null>(null),
         [loading, setLoading] = useState(inventory || runRoute || preparationRoute);
@@ -174,31 +167,6 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
             }
         };
         void read();
-        if (runRoute) {
-            void api
-                .loadModels()
-                .then((value) => {
-                    if (isCurrent()) {
-                        setModels(value.items);
-                        setModel(value.items.length === 1 ? value.items[0]?.revision : undefined);
-                    }
-                })
-                .catch(() => {
-                    if (isCurrent())
-                        setAnalysisProblem("模型暂时无法加载，请在设置中查看模型配置。");
-                });
-            void api
-                .loadInterpretation(id)
-                .then((value) => {
-                    if (isCurrent()) setInterpretation(value);
-                })
-                .catch(() => {
-                    if (isCurrent())
-                        setAnalysisProblem(
-                            "原解读暂时无法读取，已保留记录。请重新查看，系统不会自动再次调用模型。"
-                        );
-                });
-        }
         return () => {
             current = false;
             if (timer !== undefined) clearTimeout(timer);
@@ -619,79 +587,6 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                                 }
                             ]}
                         />
-                    </Card>
-                    <Card title="结果解读" size="small">
-                        {interpretation ? (
-                            <>
-                                <Typography.Paragraph className="backtest-interpretation">
-                                    {interpretation.message}
-                                </Typography.Paragraph>
-                                {interpretation.provenance && (
-                                    <Typography.Text type="secondary">
-                                        {interpretation.provenance.model.name} ·{" "}
-                                        {interpretation.provenance.model.model_id} ·{" "}
-                                        {interpretation.provenance.model.model_version}
-                                    </Typography.Text>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <Typography.Paragraph type="secondary">
-                                    使用已配置的模型分析本次结果。模型解读不能代替统计验证，也不会更改策略。
-                                </Typography.Paragraph>
-                                {analysisProblem && (
-                                    <Alert type="warning" title={analysisProblem} />
-                                )}
-                                <Space wrap>
-                                    <Select
-                                        aria-label="解读模型"
-                                        placeholder="选择模型"
-                                        value={model}
-                                        onChange={setModel}
-                                        disabled={busy !== null}
-                                        options={models.map((value) => ({
-                                            value: value.revision,
-                                            label: value.name
-                                        }))}
-                                    />
-                                    <Button
-                                        aria-label={
-                                            busy === "interpret" ? "正在解读" : "解读本次结果"
-                                        }
-                                        aria-busy={busy === "interpret"}
-                                        disabled={
-                                            model === undefined ||
-                                            busy !== null ||
-                                            result.state !== "COMPLETED"
-                                        }
-                                        loading={busy === "interpret"}
-                                        onClick={() => {
-                                            if (model === undefined) return;
-                                            const selected = epoch.current;
-                                            setBusy("interpret");
-                                            setAnalysisProblem("");
-                                            void api
-                                                .interpretResult(result, model)
-                                                .then((value) => {
-                                                    if (epoch.current === selected)
-                                                        setInterpretation(value);
-                                                })
-                                                .catch(() => {
-                                                    if (epoch.current === selected)
-                                                        setAnalysisProblem(
-                                                            "解读结果暂未取得，请重新查看原记录。系统不会自动再次调用模型。"
-                                                        );
-                                                })
-                                                .finally(() => {
-                                                    if (epoch.current === selected) setBusy(null);
-                                                });
-                                        }}
-                                    >
-                                        {busy === "interpret" ? "正在解读" : "解读本次结果"}
-                                    </Button>
-                                </Space>
-                            </>
-                        )}
                     </Card>
                     <Descriptions
                         size="small"

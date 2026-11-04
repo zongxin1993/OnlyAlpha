@@ -597,6 +597,20 @@ impl Runtime {
         }
         Ok(())
     }
+    /// Fork the current Ready head only if the same actual Execution rows
+    /// substantiate the caller's expected Replay prefix.
+    pub fn fork_ready_at_replay_refs(
+        &self,
+        expected: &[ReplayEntryRef],
+    ) -> Result<(Components, Vec<Record>), Error> {
+        self.require_healthy()?;
+        self.store.fork_ready(&self.components, |records| {
+            if self.store.replay_refs_from_source(records)? != expected {
+                return Err(bad("SOURCE_CHANGED"));
+            }
+            Ok(())
+        })
+    }
     /// One pending-event observation bound to the exact expected Replay prefix.
     /// Data only; delivery and acknowledgement retain their own actual source checks.
     pub fn pending_events_at_replay_refs(

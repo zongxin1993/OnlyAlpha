@@ -59,8 +59,8 @@ OnlyAlpha Research / Backtest / SIM / LIVE authorities
 
 ### Interface research and presentation discipline
 
-AGENTS.md §3.3.2 governs every new or changed user-facing interface. Before implementation, inspect actual relevant quantitative /
-financial product screens, official screenshots or interaction demonstrations. Use references matched to the task: TradingView for
+AGENTS.md §3.2 requires interface research for new workflows or material changes to navigation, information hierarchy or key actions.
+Inspect relevant product screens, official screenshots or interaction demonstrations before implementation. Use references matched to the task: TradingView for
 chart/watchlist interaction, QuantConnect for research/backtest organization, and the owner's selected conversation reference for
 chat research. Reuse applicable prior research. Record sources, observed layout and actions, information hierarchy, adopted/rejected
 patterns and their OnlyAlpha application in the active task context; do not create another progress or acceptance report. If visual
@@ -77,19 +77,20 @@ preserve relevant source/sample conditions, costs and limits, permission scope, 
 OnlyAlpha authorities retain exact identity and provenance; presentation simplification changes no safety or correctness semantics.
 
 Validate hierarchy, readable typography, spacing, alignment, scrolling, narrow screens, keyboard/focus and natural copy in the real
-Shipping Web flow. A rendered component or a green test suite alone cannot establish usability.
+official Web flow. A rendered component or a green test suite alone cannot establish usability.
 
 ### Reuse mature components and confirm feature choices
 
-AGENTS.md §3.4.1 requires active web research and owner confirmation before selecting or implementing each new feature.
+AGENTS.md §3.1 requires research and owner confirmation for new technology choices or material changes to cost, security or permissions.
+Within approved scope, established components, standard-library features and approved choices can be reused directly.
 Evaluate existing project components first, then mature third-party UI components and established projects / platform tools for
 generic capabilities such as user management, authentication, release version management and deployment. Do not rebuild their
 internals when they already meet the current need. Native / standard-library capabilities remain preferred where sufficient.
 
 Bring a sourced comparison and a concrete recommendation to the owner: requirement coverage, boundary fit, maintenance maturity,
 license, security/privacy, stack compatibility, integration and ongoing cost, and the minimum OnlyAlpha-specific work. UI research
-also inspects actual screens under §3.3.2. Research is bounded to the feature and its real impact; unavailable sources are a gap,
-not a completed selection. Previously approved scope/choices need no repeat approval; new features and material selection changes
+also inspects actual screens under AGENTS.md §3.2. Research is bounded to the feature and its real impact; unavailable sources are a gap,
+not a completed selection. Previously approved scope/choices need no repeat approval; new technology choices and material selection changes
 need explicit confirmation before implementation, dependency installation or service introduction. Custom implementation requires
 evidence that existing capabilities and mature alternatives cannot satisfy the necessary requirements, and owner confirmation.
 
@@ -346,12 +347,11 @@ operator intent
 
 Risk-specific backend tests remain required when the slice changes correctness-sensitive behavior.
 
-### 8.1 One business acceptance surface: Shipping Web UI
+### 8.1 Acceptance through the official Web interface
 
-`AGENTS.md` §3.3.1 owns the mandatory acceptance rule. All business product testing,
-verification and acceptance use the normal Shipping Web UI workflow, exactly as an
-ordinary operator uses it. The browser is the **only user-action entry point for
-business acceptance**, not the only engineering test layer and not a new Authority.
+AGENTS.md §4 requires the official Web interface for human product workflows. Agent clients exercise the formal versioned API.
+Kernel, API and infrastructure checks supply their own technical evidence. When a change affects a human workflow, exercise
+the affected steps through the official Web interface.
 
 Start at the normal product entry, use discoverable navigation and controls, enter
 the same user inputs, and observe the same visible results, errors and recovery.

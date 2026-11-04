@@ -1,21 +1,13 @@
 # 测试规范
 
-P8.3 使用 `python scripts/dev_verification.py run -- python scripts/test_suite.py research-command` 验证 submission/idempotency/cancellation/read projection、HTTP 与
-architecture boundary；`research-postgres` 串行使用真实 PostgreSQL 验证 migration、唯一约束竞争、CAS、重启与 backup/restore。
-OpenAPI/TypeScript drift 继续由 Web static gate 验证。
+[AGENTS.md 第 4 节](../AGENTS.md#4-测试与验收)规定当前测试要求。Web 整体测试归属 `packages/frontend`，
+OpenAPI 整体功能测试归属 `packages/backend`，Rust 库的功能测试随库组织。
 
-本地正式验证统一通过 `deploy/run-tests.sh` 进入唯一 `deploy/docker-compose.dev.yml` 的 `test` profile。Runner 为每次执行创建
-隔离 namespace、构建当前工作树、注入正式测试连接配置、保留 `test-results/`，并在退出时删除容器、网络和卷。宿主机只要求
-Docker，不承担 Python/uv、localhost socket、PostgreSQL 或 ClickHouse 测试环境。不得新增第二套 Compose topology 或 DSN：
+不依赖外部服务的 Rust 库功能测试及静态检查可以直接在宿主机执行。Web、OpenAPI 整体测试和依赖数据库或运行中应用的验证
+使用唯一 `onlyalpha-dev` Compose 项目及隔离测试数据。通用入口为 `python3 scripts/dev_verification.py run -- <验证命令>`，
+在前端目录执行时加 `--web`。具体场景和命令以当前源码与配置为准。外部环境的专项验证单独记录。
 
-```bash
-python scripts/dev_verification.py run -- python scripts/test_suite.py database-acceptance
-python scripts/dev_verification.py run -- python -m pytest -q tests/application/test_market_data_product.py
-python scripts/dev_verification.py run -- python scripts/verify.py run
-```
-
-允许用宿主 `.venv` 做快速、非正式 inner-loop 定位，但不得把宿主环境失败或通过当作正式验收。真实 Provider、公网、
-真实 Broker Account 等 external lane 是例外，仍在其受控目标环境执行并单独报告。
+以下保留迁移期原有测试分类与命令，供定位存量测试。运行前核实入口和测试归属，按实际影响选择。
 
 ## 正式测试分层与统一入口
 

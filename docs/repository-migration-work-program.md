@@ -1,7 +1,7 @@
 # Repository, release and Python retirement work program
 
 This is the construction sequence for [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md),
-[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) and
+[ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) and
 [the owning architecture](repository-product-architecture.md), not an execution authorization, task checklist, progress ledger
 or second acceptance Authority. Use AGENTS.md for each in-context Task Contract and risk/impact selection. This document-only
 design does not move/delete code, release artifacts, reset data or activate execution. Constitution Impact: NO.
@@ -115,8 +115,7 @@ Do not create empty directories or future APIs to fill the target tree.
 [Conversational Factor Research](conversational-factor-research.md). Use the existing Private Factor authoring, forms and private
 catalog/display consumers as foundations. Their actual current completion is established from source/tests/UI evidence, not this
 work program. The ordering below refines phase 7's next Product slice and the Agent work program's earlier automatic-search-first
-MVP. ADR 0146 now refines phases 1–6 with the Agent release unit and the extraction below; no implementation is authorized
-through this documentation task.
+MVP. Agent clients use the formal API under ADR 0150.
 
 ### Stage one: human-led single Research
 
@@ -165,74 +164,11 @@ at each step, or broaden the work to unrelated tools. This plan records construc
 
 ## Independent Agent product migration
 
-[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) and
-[Agent service architecture](agent-service-architecture.md) refine C2 placement and the release-unit plan. The goal is a real
-independent Agent, not a directory move or a second research engine. Phases are task-sized dependencies, not completion claims.
-A1–A4 preserve/rehome the existing C2 user goal; A5 is C3, with exact execution prerequisites; C4 follows its existing scope.
-No new code, package, database, dependency installation, data reset, deployment or publication is authorized by this plan.
-
-| Phase | Minimum deliverable and dependency | Required acceptance / stopping boundary |
-|---|---|---|
-| A1 — Freeze actual closure and release boundary | Re-read current C2, Agent/Python callers, APIs/security, model credentials, release/build/lock consumers; freeze exact protocol/ownership/gap and independent Agent artifact selection. Add real manifest/build consumers only with a coherent runnable slice, never an empty package just to satisfy tooling. | One version metadata authority for Agent and `agent` selection in existing release consumers when implemented; no unrelated bump; exact frozen source/lock/environment inputs; deny missing/incompatible artifacts. Model/workflow configuration is separate from package/Factor identity. Classify current implementation vs target and eligible Python/Rust deletion; Constitution and bounded boundary review. No runtime migration is claimed from metadata alone. |
-| A2 — Independent Agent C2 service | Python LangGraph service with its own identity/storage/migrations/model settings/secrets and API; immutable model/tool occurrences, Agent budget and checkpoint/session binding. Same authorized dev topology, separate installation closure. Keep the serving old path until an explicit coherent UI cutover; no active owner split. | Model setup, clarification and history are normal discoverable Shipping UI actions when exposed. Two-service subject/audience/ownership/origin checks; Agent cannot read backend tables/secrets or impersonate Human. Refresh/restart does not repeat calls/reset budget. Recorded-result reuse and unresolved UNKNOWN are distinct. Exact old workflow continues after upgrade; missing artifact/reader pauses without switching graph or backend fallback. Required independent review and targeted tests. No Research or Generation activation. |
-| A3 — Backend proposal/acceptance seam | Reuse existing Authoring/global Command identity and retain the minimum validated immutable proposal snapshot with exact Agent origin. Scope Agent staging/query rights separately from Human confirm rights. No code/source admission is bypassed by registration. | Tampered/foreign/stale snapshots and code/formula mismatch rejected; concurrent manual edits protected; repeated registration/confirmation reconciles original identities. Lost acknowledgement/backend effect ahead of Agent checkpoint cannot produce a second effect. Backend displays/confirms staged input without Agent availability. No direct DB imports, distributed coordinator or parallel Factor store. |
-| A4 — Atomic Shipping C2 cutover | Route chat/model settings/orchestration to Agent API and exact Factor confirmation directly to backend API. Both clients share a coherent user sign-in experience with separate intended audiences. Pin the Agent connection for pending operations; explicitly withdraw old registered input before sending an edited idea. Disable superseded C2 model/chat writer path at cutover; retain canonical backend authoring/validation. | Real Web: configure model → clarify → readable preview → direct backend Human confirmation → reload/restart. Verify independent outages, cross-user access denial, Agent attempt to confirm denied, stale tab, delayed response and UNKNOWN recovery. Formula/contracts/fingerprints/display labels unchanged; no mandatory raw JSON/IDs. Advanced forms remain usable. No Research/Generation; no dual active model configuration or legacy fallback. Normal UI can inspect exact pending/blocked state. |
-| A5 — C3 one-run Research | Agent suggests real supported conditions; backend-registered proposal and separate direct Human Research authorization; complete only the necessary Rust admission/immutable-input/execution/statistics/report closure. | Real Shipping UI runs exactly one Research after both confirmations. Actual authoritative metrics and limitations, not chart/model results; edits invalidate appropriate approvals. Agent outage does not stop backend execution/observation/cancellation. Backend outage blocks formal progression; recovery reconciles original Command/task. Pin Dataset, Factor/source, model/workflow and relevant policies; retain failure/attempt/holdout/name facts. |
-| A6 — Consumer and retirement closure | At each preceding phase remove already-eligible superseded code/imports/packaging/tests; this final step verifies no missed active consumers. Split old Python orchestration from backend-owned Search/Research/permission facts and migrate each at its actual owner. | Useful independent identity, fault, access and recovery assertions survive in the correct owner. No runtime/build/discovery consumer of removed Rust C2 hosting or old Python implementation; no permanent dual writer, proxy or compatibility shim. Retain legitimate Python Agent/algorithms/SDK and still-required callers until replacement gates pass. Removed routes/config readers cannot be reached through another entry. No speculative repository-wide cleanup. |
-
-A5 proceeds through these dependency-sized deliveries, without treating a foundation as Product closure:
-
-1. Implement the internal Rust time-series Statistics executor and mandatory dependent uncertainty
-   under [ADR 0147](adr/0147-time-series-association-and-dependent-uncertainty.md). Prove numeric/rank,
-   paired stationary resampling, family-adjusted intervals, exact input identities and unavailable
-   states with independent vectors and bounded review. Do not repurpose cross-sectional IC V1.
-2. Close confirmed Factor → exact Revision/executable graph/admission and immutable Dataset binding,
-   including forecast/split boundaries, warmup and recorded source proofs; migrate the actual Python
-   consumer boundary and useful assertions, preserving exact execution/generation semantics.
-   [Factor input preparation](research-factor-input-preparation.md) first pins the exact content and
-   original Graph identities and derives the explicitly authorized event window. It is not an executable
-   grant or a Snapshot; the materializer and admission must prove their owning relations separately.
-   Bind the actual native Research input runtime and its tested exact Core through the existing
-   Artifact/Generation Authority, and verify installed semantic SDK resources without importing
-   Python business modules. This compatibility proof does not supply the separate Human/Run grant.
-3. Implement the minimum Rust one-run Command/claim/execution/cancel/recovery and immutable Evidence/
-   report chain. Missing receipt/proof is UNKNOWN or corruption, not certified absence/new identity.
-   Freeze and enforce comparison membership, trial lineage and protected-sample access at the owner.
-4. Extend Agent recommendations and Shipping Web's separate Human Research confirmation and report.
-   Real UI acceptance must exercise a supported run with uncertainty plus missing/insufficient data,
-   stale proposals, outage, restart, acknowledgement loss and cancellation races. No full-repository
-   validation or unrelated tooling is required; remove only Python whose real consumers have retired.
-
-The prospective confirmation/staging and service-auth contracts are frozen in each owning implementation task before mutation;
-this document selects no endpoint strings, token format, parser dependency, framework version or fake implementation. Use existing
-public contract export/versioning and release/build/verification entry points; extend only necessary consumers, not a new tools
-project, IAM platform or arbitrary historical version matrix. Backend Search/Research budgets and Agent call/tool budgets remain
-separate, with consumption derived at their owning durable facts.
-
-Selected default delivery verifies frontend/backend, frontend/agent and agent/backend combinations. Existing Agent sessions pin
-workflow implementation/environment/checkpoint support; new releases change new-session defaults only. Prove active-session
-ownership/fencing and that unavailable original versions cause visible pause with intact budget/outcomes. An explicit linked new
-session with new confirmations/mandate is not silent migration of the old one.
-
-Old disposable development C2 conversations/model settings are not a compatibility target. Reinitialize only explicitly confirmed
-project-owned resources under AGENTS.md when an implementation requires it; never delete only one half of a coupled database/file/
-key namespace or reset dev business state in tests/startup. New-model restart/integrity and retained exact facts still require proof.
-
-After the single human-led C3/C4 path, stage two adds an explicit mandate and one justified search method at a time. RD-Agent-style
-feedback and later QuantaAlpha trajectory methods are references, not installed execution authorities. AlphaGen RL and DEAP GP
-are different methods; Optuna is not a drop-in replacement for ADR 0122's finite deterministic search. Any such integration must
-freeze its actual algorithm/randomness/feedback/budget contract and use backend Research/Evidence, never a second PASS path.
-Do not build all methods, broad literature infrastructure, Backtest or SIM before the selected product flow needs them.
-
-Verification is strictly impact-aware: changed docs/contracts and direct references for A1 design; changed service/API/storage/
-release consumers and real Shipping UI for executable slices. Preserve guards, determinism and bounded independent review.
-Use the unique formal `onlyalpha-dev` entry and isolated test namespaces. No full-repository tests, extra tooling, automatic
-publication/deployment or new business scope are implied by a phase number. Stop when that phase's required behavior and real
-impact checks pass; do not silently proceed to the next phase without the corresponding authorized task.
+The independent Agent migration was canceled by [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md). Agent clients use the formal OnlyAlpha API.
 
 ## Root `src/` freeze and exit order
 
-The owner decision of 2026-10-29 freezes root `src/`, including uncommitted additions. Follow AGENTS.md §3.6 and the
+The owner decision of 2026-10-29 freezes root `src/`, including uncommitted additions. Follow AGENTS.md §2 and the
 [owning architecture](repository-product-architecture.md#root-python-source-retirement): no new files/implementations/functionality
 there; minimum retirement rewiring and deletion only. Backend capabilities and fixes go directly to Rust. Python Agent, isolated
 algorithms/minimum SDK and suitable tools keep only their already-authorized responsibilities outside root `src/`.

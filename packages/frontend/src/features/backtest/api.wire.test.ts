@@ -2,8 +2,8 @@
 // serializer. These are schema/recovery checks, never executable READY grants.
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
-import type * as FactorChatApi from "../factorChat/api";
-import { request } from "../factorChat/api";
+import type * as ProductRequestApi from "../../api/productRequest";
+import { request } from "../../api/productRequest";
 import {
     creationSchema,
     loadCreationContext,
@@ -13,8 +13,8 @@ import {
 } from "./api";
 import wire from "./fixtures/preparation-wire-v2.json";
 
-vi.mock("../factorChat/api", async (original) => ({
-    ...(await original<typeof FactorChatApi>()),
+vi.mock("../../api/productRequest", async (original) => ({
+    ...(await original<typeof ProductRequestApi>()),
     request: vi.fn()
 }));
 

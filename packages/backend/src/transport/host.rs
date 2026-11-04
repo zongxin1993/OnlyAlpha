@@ -69,8 +69,6 @@ pub struct Host {
     pub(crate) metadata: Router,
     pub(crate) assets: Router,
     pub(crate) issuer: Mutex<Issuer>,
-    pub(crate) proposal_fence: Mutex<Issuer>,
-    pub(crate) agent_browser: Option<crate::security::agent_browser::Issuer>,
     pub(crate) revoker: OnceLock<SourceRevoker>,
     pub(crate) ready: AtomicBool,
     pub(crate) socket_slots: Arc<tokio::sync::Semaphore>,
@@ -354,22 +352,6 @@ impl Host {
                 Err(Failure::unavailable("PRODUCT_NODE_NOT_READY"))
             };
         }
-        if request
-            .extensions()
-            .get::<crate::security::proposal_access::Presented>()
-            .is_some()
-        {
-            let deadline = request
-                .extensions()
-                .get::<RequestDeadline>()
-                .ok_or(Failure::unavailable("REQUEST_DEADLINE_UNAVAILABLE"))?
-                .0;
-            return if path.starts_with("/api/v2/factor-stud") {
-                self.factor_studies(request, None, deadline).await
-            } else {
-                self.factor_proposals(request, None, deadline).await
-            };
-        }
         let human = request
             .extensions()
             .get::<human_access::Session>()
@@ -409,12 +391,6 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
-        if path.starts_with("/api/v2/backtest/runs/")&&path.ends_with("/analysis-context") {
-            return self.backtest_analysis_context(request,human,deadline).await;
-        }
-        if path == "/api/v2/agent-browser-access" || path == "/api/v2/agent-connection" {
-            return self.agent_browser(request, human).await;
-        }
         if path == "/api/v2/strategy-workflows" || path.starts_with("/api/v2/strategy-workflows/") {
             return self.strategy_workflows(request,&human,deadline).await;
         }
@@ -429,7 +405,7 @@ impl Host {
             return self.strategy_creation_context(request,&human,deadline).await;
         }
         if path.starts_with("/api/v2/factor-proposal") {
-            return self.factor_proposals(request, Some(human), deadline).await;
+            return self.factor_proposals(request, human, deadline).await;
         }
         if path.starts_with("/api/v2/factor-study-preparation") || path.starts_with("/api/v2/research/strategy-preparations") || path.starts_with("/api/v2/backtest/preparations") {
             return self
@@ -446,7 +422,7 @@ impl Host {
             return self.backtest_product(request, human, deadline).await;
         }
         if path.starts_with("/api/v2/factor-stud") {
-            return self.factor_studies(request, Some(human), deadline).await;
+            return self.factor_studies(request, human, deadline).await;
         }
         if path.starts_with("/api/v2/research/runs/") {
             return self.factor_research_run(request, human, deadline).await;

@@ -24,7 +24,7 @@ use crate::{
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use onlyalpha_data_source_binance::spot_rest::PublicRest;
 use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
-use std::os::fd::AsFd;
+use std::{io::Write as _, os::fd::AsFd};
 const BAR: u64 = 60_000_000_000;
 const START: &str = "2025-01-03T00:00:00Z";
 const END: &str = "2025-01-03T12:00:00Z";
@@ -785,13 +785,19 @@ impl Host {
             o.request.backtest()?.origin,
             BacktestOrigin::ManualStrategy { .. }
         ) {
-            let config = &self.research_preparation_config;
-            let store =
-                crate::persistence::strategy_validation::Store::open(&config.research_root)?
-                    .with_runtime_root(&config.runtime_root)?;
-            let mut reader = self.reader.lock().await;
-            let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
-            let validation = store.read_verified(client, o.command.value()).await?;
+            let validation = if let Some(original) =
+                proof.manual_validation_for_preparation(o.command.value())
+            {
+                original
+            } else {
+                let config = &self.research_preparation_config;
+                let store =
+                    crate::persistence::strategy_validation::Store::open(&config.research_root)?
+                        .with_runtime_root(&config.runtime_root)?;
+                let mut reader = self.reader.lock().await;
+                let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
+                Arc::new(store.read_verified(client, o.command.value()).await?)
+            };
             if validation.source_revision().fingerprint() != proof.strategy_fingerprint()
                 || o.outputs["ready"]["validation_fingerprint"] != validation.fingerprint()
             {
@@ -890,18 +896,8 @@ impl Host {
         let validation = self
             .verify_manual_validation(o, &admission, &materialized)
             .await?;
-        let inputs = backtest_run::Inputs::new(
-            &prepared,
-            &admission,
-            &mut runtime,
-            &materialized,
-            &datasets,
-            o,
-            validation.as_deref(),
-        )?;
         if prepared.record() != ready["preparation"]
             || prepared.inputs().record() != ready["input_sources"]
-            || inputs.specification().record() != &ready["specification"]
         {
             return Err(INVALID.into());
         }
@@ -1324,6 +1320,7 @@ impl Host {
         human: human_access::Session,
         expected: &str,
     ) -> Result<Value> {
+        let started = Instant::now();
         let request = Self::backtest_create_request(&o)?;
         let namespace = namespace(&self.research_preparation_config)?;
         let source = o.source()?;
@@ -1345,6 +1342,11 @@ impl Host {
             &o,
             owners.validation.as_deref(),
         )?;
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "BACKTEST_SUBMISSION_PHASE phase=inputs-verified elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         let run = {
             let mut writer = self.writer.lock().await;
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
@@ -1359,6 +1361,11 @@ impl Host {
                 )
                 .await?
         };
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "BACKTEST_SUBMISSION_PHASE phase=run-accepted elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         self.wake_backtest_after_commit();
         Ok(json!({"run_id":run.run_id()}))
     }

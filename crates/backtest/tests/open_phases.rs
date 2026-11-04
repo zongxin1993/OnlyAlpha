@@ -940,6 +940,33 @@ fn execution_ready_callback_source_corruption_is_not_hidden_by_an_operation_cut(
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
+fn zero_plan_step_refuses_execution_history_changed_after_prepare() {
+    let root = root("operation-cut-zero-plan-execution");
+    let mut run = RunLoop::create(&root, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+    assert!(run.step().unwrap());
+    assert!(run.step().unwrap());
+    assert_eq!(run.deliver(|_| Ok(())).unwrap(), 1);
+    let result = run.step_observed(&mut |phase, index, _| {
+        assert_ne!(phase, "EXECUTION_READY");
+        if phase == "PREPARED" {
+            assert_eq!(index, 3);
+            let db = rusqlite::Connection::open(root.join("runtime.sqlite3")).unwrap();
+            assert_eq!(
+                db.execute("UPDATE records SET ready=0,delivered=0 WHERE sequence=1", [])
+                    .unwrap(),
+                1
+            );
+        }
+        Ok(())
+    });
+    assert!(result.is_err());
+    assert_eq!(operation_cut_rows(&root)[2].3, 0);
+    assert!(run.progress().is_err());
+    drop(run);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completed_operation_cannot_supply_a_source_proof_to_a_later_public_call() {
     let root = root("operation-cut-next-public");
     let mut run = RunLoop::create(&root, spec(), inputs(), Phases::new()).unwrap();

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { registry } from "../../api/privateAssets/client";
-import { request } from "../factorChat/api";
+import { request } from "../../api/productRequest";
 import { preparationSchema } from "../backtest/api";
 import { draftSchema, saveAuthoredDefinition } from "./api";
 export { loadWorkflow, loadWorkflows, pendingManualDefinition } from "./api";

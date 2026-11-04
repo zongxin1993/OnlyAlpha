@@ -1,6 +1,6 @@
 # Repository and product architecture
 
-This is the target architecture derived from the Constitution, [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md), [ADR 0149](adr/0149-flat-rust-library-layout.md) and [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md).
+This is the target architecture derived from the Constitution, [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) and [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md), and retains the flat Rust layout from [ADR 0149](adr/0149-flat-rust-library-layout.md).
 It defines ownership, not implementation progress. Existing paths in development maps describe current source until their
 atomic migration; this document does not claim that target paths or release guards already exist.
 
@@ -15,6 +15,7 @@ crates/                                 one directory per reusable Rust library
   order/  position/  account/  strategy-ledger/  risk/
   fee/  settlement/  margin/  broker/  execution/
   integration-contract/  metadata-json/  calculation-bridge/  runtime/  backtest/
+  operators/  indicators/              pure Rust libraries (target placement)
 packages/
   backend/
     Cargo.toml
@@ -33,12 +34,8 @@ packages/
       gateway_protocol/                generated bindings and infrastructure client constituent
     examples/                          technical conformance/diagnostics, not Product activation
     tests/
-  frontend/                            Shipping Web UI; Agent chat and direct backend confirmation clients
-  agent/                               independent Python LangGraph service
-    pyproject.toml                     Agent distribution/version authority
-    src/onlyalpha_agent/               orchestration, model/literature adapters, API and owning storage
-    tests/
-plugs/                                 concrete Provider/Market/Broker/algorithm plugins
+  frontend/                            official Web UI
+plugs/                                 market rules, brokers, data sources (Rust preferred, Python second)
 contracts/                             canonical versioned Product and cross-boundary protocols
 deploy/  scripts/                       deployment and engineering tools
 ```
@@ -48,9 +45,9 @@ Each library directory uses its responsibility name, with a Cargo package name p
 Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
 deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
 
-Backend owns package/binary `onlyalpha-backend`; frontend owns package `onlyalpha-frontend`; the target Agent distribution
-is `onlyalpha-agent` in `packages/agent`. Actual package creation/version selection is deferred to its migration phase. Release metadata placement is in
-[release versioning](release-versioning.md). This is target naming, not an assertion of current manifests.
+Backend owns package/binary `onlyalpha-backend`. Frontend owns package `onlyalpha-frontend`.
+These are the two runtime projects under `packages/`. Agent clients use the formal API. Quantitative asset authoring
+and ownership follow [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md). Release metadata is documented in [release versioning](release-versioning.md).
 
 ## Root Python source retirement
 
@@ -64,11 +61,11 @@ obsolete Python implementation, exports, dependencies, entry points and build/de
 Python business hidden behind an SDK, worker, plugin or forwarding facade does not satisfy the target. Still-required consumers
 must migrate before deletion; they do not justify expanding legacy implementations.
 
-The independently owned Agent and permitted isolated algorithms/minimum authoring SDK may remain Python under their existing
+Permitted isolated algorithms and the minimum authoring SDK may remain Python under their existing
 Product/plugin/tool boundaries. Their source must reside in the appropriate `packages/`, `plugs/` or `scripts/`, never back in root
 `src/`. This creates no extra release line and does not transfer backend Authority or recovery into Python. Completion requires
 root `src/` absent and no active runtime/install/test/build/deploy/discovery dependency on that tree. Exact archived artifacts remain
-subject to their original contracts. AGENTS.md §3.6 governs execution and acceptance; this section owns target placement.
+subject to their original contracts. AGENTS.md §2 governs execution and acceptance; this section owns target placement.
 
 ## Library and module boundaries
 
@@ -92,9 +89,9 @@ contract. Do not extract generic reservation, checkpoint, recovery or worker-man
 Backend's `transport` calls Application Commands/Queries; it does not bypass them to mutate DB/Kernel state. Product persistence
 implements owning business storage without exposing databases as cross-node integration APIs. `execution` assembles library
 ports; `workers` coordinates existing Run/Attempt/Generation authorities rather than creating another status or binding store.
-Bootstrap owns configuration and construction, not business decisions. Agent is a separately versioned API consumer and owns
-its chat/model/workflow provenance, not backend business facts. See [Agent service architecture](agent-service-architecture.md). Reusable libraries never import backend modules. Internal library targets for binary reuse are not separate
-release units or external Product-control APIs.
+Bootstrap owns configuration and construction. Agent clients use the formal API, and client-side provenance does not grant
+backend authority. Reusable libraries never import backend modules. Internal library targets for binary reuse do not create
+separate release units or external control APIs.
 
 ## Processes and lifecycle
 
@@ -104,7 +101,7 @@ commands do not provide business operations around the Shipping UI/API. Deployme
 backend supervises its admitted workers/algorithm children without competing supervisors or duplicate Authority.
 
 API/control remains responsive during bounded execution load. Execution workers claim only work admitted to their exact
-implementation/Generation. Agent runs as its own supervised service, on the same or an authenticated remote host. Backend does not own its supervisor.
+implementation/Generation. Agent clients use the formal versioned API.
 Backend Python runs as an explicitly managed algorithm child; process isolation alone is not authentication, authorization or a security sandbox.
 Native process spawning/supervision belongs in backend; the reusable bridge accepts the supplied channel/lifecycle port.
 Checkpoint candidate reconstruction uses an explicit caller-supplied connector, not a hidden interpreter or spawn policy
@@ -118,8 +115,7 @@ On crash, recover from existing durable facts/leases/reconciliation. Preserve ca
 reduction; no blind retry, second order identity or inferred success. Deterministic fault tests cover API restart, worker
 termination, child failures and interrupted durable boundaries. Role/permission checks precede claim and execution.
 
-All backend roles and backend base Python resources ship under one backend version; Agent and its isolated Python environment
-ship under their own version. Old backend/worker artifacts can remain for already-bound
+All backend roles and backend base Python resources ship under one backend version. Old backend/worker artifacts can remain for already-bound
 work; new activation/rollback changes only new-work selection under ADR 0117. Version equality is not permission to claim work,
 and a process restart is not a valid handover protocol. Keep required historical artifacts, readers, facts and keys.
 
@@ -139,7 +135,6 @@ This maps the original package responsibilities, not automatic whole-directory m
 | `calculation-worker` | reusable `onlyalpha-calculation-bridge`; native supervision in backend; minimal Python code in backend resources |
 | `authoring-execution-worker` | backend authoring execution/worker modules; remaining Python business must migrate before retirement |
 | `runtime-generation-manager` | backend Generation modules, preserving the sole existing ledger/binding Authority |
-| `agent-orchestrator` | `packages/agent` only for orchestration/model/tool provenance; backend-owned Search/Research/security stays with its Rust owner; audit consumers before deletion |
 
 Moving Python business into `backend/python` is not Rust migration. A retained interim implementation must be explicitly
 classified in task context and follow the existing official-writer binding. No general compatibility re-export is added.
@@ -154,11 +149,11 @@ must agree. Do not resolve latest packages on startup or use the host venv/node_
 Algorithm plugins and materialized immutable private Revisions enter exact isolated environments through existing artifact,
 Catalog and Runtime Generation contracts. Changing a private Factor need not rebuild backend. Changing bundled executor/SDK
 content requires a backend release. Python algorithm children cannot own backend Product stores, Commands, trading state or
-Generation selection. The independent Python Agent owns only its declared Agent storage/API, never backend business tables or execution authority.
+Generation selection.
 
-The library set, backend, frontend and agent release independently; plugins have their own distribution versions. Build inputs bind
+The library set, backend and frontend release independently; plugins have their own distribution versions. Build inputs bind
 exact library/plugin content, locks, toolchain, features, target and relevant non-secret configuration. Frontend/backend
-compatibility, frontend/agent compatibility and agent/backend compatibility require API-contract evidence for declared
+compatibility requires API-contract evidence for declared
 combinations, not matching version numbers. See
 [release versioning](release-versioning.md) for metadata, tags and refusal rules.
 

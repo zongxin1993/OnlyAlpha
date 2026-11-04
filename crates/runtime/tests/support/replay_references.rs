@@ -852,6 +852,21 @@ fn replay_dictionary_memos_never_replace_a_missing_foreign_or_legally_resealed_a
 }
 
 #[test]
+fn replay_bound_fork_checks_the_expected_prefix_from_one_actual_execution_scan() {
+    let (runtime, root, expected) = execution_reference_head();
+    let original = runtime.records().unwrap();
+    reset_actual_source_rows();
+    let (_, records) = runtime.fork_ready_at_replay_refs(&expected).unwrap();
+    assert_eq!(records, original);
+    assert_eq!(crate::store::SOURCE_RAW_ROWS.with(std::cell::Cell::get), 1);
+    assert!(runtime.fork_ready_at_replay_refs(&[]).is_err());
+    let db = rusqlite::Connection::open(root.0.join("runtime.sqlite3")).unwrap();
+    db.execute("UPDATE records SET ready=0,delivered=0 WHERE sequence=1", [])
+        .unwrap();
+    assert!(runtime.fork_ready_at_replay_refs(&expected).is_err());
+}
+
+#[test]
 fn replay_bound_pending_events_observe_one_complete_actual_cut_without_writing_flags() {
     let (mut runtime, root, expected) = execution_reference_head();
     let original = runtime.pending_events().unwrap();

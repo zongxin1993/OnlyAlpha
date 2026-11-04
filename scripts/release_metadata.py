@@ -89,7 +89,7 @@ def validate_inventory(base: dict[str, str], candidate: dict[str, str]) -> bool:
     """ADR 0146's sole inventory introduction, not a publication or arbitrary inventory override.
 
     The initial 0.1.0 establishes the line. Later version transitions use normal
-    explicit selections. Removal, other additions and other initial versions fail closed.
+    explicit selections. The approved Agent retirement removes its active release line.
     """
     if base.keys() == candidate.keys():
         return False
@@ -99,4 +99,6 @@ def validate_inventory(base: dict[str, str], candidate: dict[str, str]) -> bool:
         and candidate["agent"] == "0.1.0"
     ):
         return True
+    if base.keys() - candidate.keys() == {"agent"} and not candidate.keys() - base.keys():
+        return False
     raise VersionSyncError("release-unit inventory changed; explicit inventory migration is required")

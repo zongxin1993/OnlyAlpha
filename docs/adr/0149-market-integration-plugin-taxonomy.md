@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+The Indicator and Operator placement and distribution provisions are superseded by
+[ADR 0150](0150-product-layout-and-programmable-quant-assets.md). The market, broker and data source taxonomy remains in effect.
+
 Date: 2026-11-04
 
 ## Decision

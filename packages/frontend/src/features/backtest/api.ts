@@ -1,9 +1,8 @@
 // Product commands remain backend-owned. Local records retain only the original
 // Human request; they confer no Freeze, Qualification, Runtime or Run authority.
 import { z } from "zod";
-import { request, ChatRequestError } from "../factorChat/api";
+import { request, ProductRequestError } from "../../api/productRequest";
 import { marketDataSourceListSchema } from "../../api/marketData/model";
-export { loadModels, interpretResult, loadInterpretation } from "./analysis";
 
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const uuid = z
@@ -652,7 +651,7 @@ export async function confirmBacktest(input: BacktestPreparation): Promise<Confi
                 run_id: actual.run_id
             };
         if (
-            error instanceof ChatRequestError &&
+            error instanceof ProductRequestError &&
             error.message === "BACKTEST_SERVICE_UNAVAILABLE" &&
             actual.backtest_outcome === "NOT_SUBMITTED" &&
             actual.run_id === null

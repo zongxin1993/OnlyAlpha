@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Link, MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BacktestPage } from "./BacktestPage";
 import * as api from "./api";
@@ -18,10 +18,7 @@ vi.mock("./api", async (original) => ({
     confirmBacktest: vi.fn(),
     cancelBacktest: vi.fn(),
     cancelPreparation: vi.fn(),
-    resumePreparation: vi.fn(),
-    loadModels: vi.fn(),
-    interpretResult: vi.fn(),
-    loadInterpretation: vi.fn()
+    resumePreparation: vi.fn()
 }));
 vi.mock("echarts", () => ({
     init: () => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() })
@@ -143,25 +140,9 @@ beforeEach(() => {
     sessionStorage.clear();
     vi.mocked(api.pendingPreparation).mockReturnValue(null);
     vi.mocked(api.loadRuns).mockResolvedValue({ schema_version: 1, items: [] });
-    vi.mocked(api.loadModels).mockResolvedValue({
-        items: [
-            {
-                id: "12345678-1234-4234-8234-123456789ab2",
-                owner: "local-developer",
-                base_url: "http://127.0.0.1:58080/v1",
-                credential_generation: "12345678-1234-4234-8234-123456789ab3",
-                parent: null,
-                revision: sha,
-                name: "聊天模型",
-                model_id: "current-model",
-                model_version: "v1"
-            }
-        ]
-    });
     vi.mocked(api.loadPreparation).mockResolvedValue(ready);
     vi.mocked(api.loadRun).mockResolvedValue(status);
     vi.mocked(api.loadResult).mockResolvedValue(result);
-    vi.mocked(api.loadInterpretation).mockResolvedValue(null);
 });
 
 describe("Shipping backtest workflow", () => {
@@ -282,13 +263,13 @@ describe("Shipping backtest workflow", () => {
             if (originalAccepted) expect(api.loadCreationContext).toHaveBeenCalledTimes(1);
             expect(api.prepareBacktest).toHaveBeenLastCalledWith(context, ready.source);
             expect(api.confirmBacktest).not.toHaveBeenCalled();
-            expect(api.loadModels).not.toHaveBeenCalled();
         }
     );
     it("loads the original result after refresh and presents metrics and causal trades", async () => {
         page(`/backtest/runs/${run}`);
         expect(await screen.findByText("回测结果")).toBeVisible();
         expect(screen.getByText("9994.60119940")).toBeVisible();
+        expect(screen.queryByRole("button", { name: "解读本次结果" })).not.toBeInTheDocument();
         expect(screen.getByText("1.99900060")).toBeVisible();
         expect(screen.getByText("买入")).toBeVisible();
         expect(
@@ -302,108 +283,7 @@ describe("Shipping backtest workflow", () => {
         expect(api.prepareBacktest).not.toHaveBeenCalled();
         expect(api.confirmBacktest).not.toHaveBeenCalled();
     });
-    it("requests interpretation only after an explicit action and binds the current model and exact result", async () => {
-        let finish!: (value: { message: string }) => void;
-        vi.mocked(api.interpretResult).mockReturnValue(
-            new Promise((resolve) => {
-                finish = resolve;
-            })
-        );
-        page(`/backtest/runs/${run}`);
-        await screen.findByText("回测结果");
-        expect(api.interpretResult).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole("button", { name: "解读本次结果" }));
-        await waitFor(() => {
-            expect(api.interpretResult).toHaveBeenCalledWith(result, sha);
-        });
-        expect(screen.getByRole("button", { name: "正在解读" })).toBeDisabled();
-        await act(() =>
-            Promise.resolve().then(() => {
-                finish({ message: "这段样本出现亏损，不能据此判断长期表现。" });
-            })
-        );
-        expect(await screen.findByText("这段样本出现亏损，不能据此判断长期表现。")).toBeVisible();
-    });
 });
-
-it.each(["pending", "failed"] as const)(
-    "does not reuse another result's model selection while current model metadata is %s",
-    async (metadataState) => {
-        const otherRun = "12345678-1234-4234-8234-123456789ab9";
-        const originalModels = {
-            items: [
-                {
-                    id: "12345678-1234-4234-8234-123456789ab2",
-                    owner: "local-developer",
-                    base_url: "http://127.0.0.1:58080/v1",
-                    credential_generation: "12345678-1234-4234-8234-123456789ab3",
-                    parent: null,
-                    revision: sha,
-                    name: "聊天模型",
-                    model_id: "current-model",
-                    model_version: "v1"
-                }
-            ]
-        };
-        let rejectModels!: (reason: Error) => void;
-        const delayedModels = new Promise<Awaited<ReturnType<typeof api.loadModels>>>(
-            (_, reject) => {
-                rejectModels = reject;
-            }
-        );
-        vi.mocked(api.loadModels)
-            .mockResolvedValueOnce(originalModels)
-            .mockReturnValueOnce(delayedModels);
-        vi.mocked(api.loadRun).mockImplementation((runId) =>
-            Promise.resolve({ ...status, run_id: runId })
-        );
-        vi.mocked(api.loadResult).mockImplementation((runId) =>
-            Promise.resolve({
-                ...result,
-                run_id: runId,
-                metrics: {
-                    ...result.metrics,
-                    final_equity: runId === otherRun ? "9988.00" : result.metrics.final_equity
-                }
-            })
-        );
-        render(
-            <MemoryRouter initialEntries={[`/backtest/runs/${run}`]}>
-                <Link to={`/backtest/runs/${otherRun}`}>查看另一回测</Link>
-                <BacktestPage />
-            </MemoryRouter>
-        );
-        await screen.findByText("回测结果");
-        await waitFor(() => {
-            expect(screen.getByRole("button", { name: "解读本次结果" })).toBeEnabled();
-        });
-        fireEvent.click(screen.getByRole("link", { name: "查看另一回测" }));
-        await screen.findByText("9988.00");
-        try {
-            if (metadataState === "failed") {
-                await act(() =>
-                    Promise.resolve().then(() => {
-                        rejectModels(new Error("controlled current model metadata unavailable"));
-                    })
-                );
-                expect(
-                    await screen.findByText("模型暂时无法加载，请在设置中查看模型配置。")
-                ).toBeVisible();
-            }
-            expect(screen.getByRole("button", { name: "解读本次结果" })).toBeDisabled();
-            expect(api.interpretResult).not.toHaveBeenCalled();
-            expect(api.loadRun).toHaveBeenLastCalledWith(otherRun);
-            expect(api.loadResult).toHaveBeenLastCalledWith(otherRun);
-        } finally {
-            if (metadataState === "pending")
-                await act(() =>
-                    Promise.resolve().then(() => {
-                        rejectModels(new Error("controlled model request settled at test cleanup"));
-                    })
-                );
-        }
-    }
-);
 
 it("reloads an unknown original start as unconfirmed and only observes its accepted original Run", async () => {
     vi.mocked(api.loadPreparation).mockResolvedValue({
@@ -466,7 +346,6 @@ it.each([
         expect(api.loadResult).not.toHaveBeenCalled();
         expect(api.prepareBacktest).not.toHaveBeenCalled();
         expect(api.confirmBacktest).not.toHaveBeenCalled();
-        expect(api.interpretResult).not.toHaveBeenCalled();
     }
 );
 it("displays the original verified historical result while its worker is stopped", async () => {
@@ -484,7 +363,6 @@ it("displays the original verified historical result while its worker is stopped
     expect(api.loadResult).toHaveBeenLastCalledWith(run);
     expect(api.prepareBacktest).not.toHaveBeenCalled();
     expect(api.confirmBacktest).not.toHaveBeenCalled();
-    expect(api.interpretResult).not.toHaveBeenCalled();
 });
 
 it("presents net profit and the original ending equity as distinct financial results", async () => {
@@ -496,7 +374,6 @@ it("presents net profit and the original ending equity as distinct financial res
     expect(api.loadResult).toHaveBeenCalledWith(run);
     expect(api.prepareBacktest).not.toHaveBeenCalled();
     expect(api.confirmBacktest).not.toHaveBeenCalled();
-    expect(api.interpretResult).not.toHaveBeenCalled();
 });
 
 it("separately displays realized and remaining-position profit in USDT without adding headline metrics", async () => {
@@ -534,7 +411,6 @@ it("does not display a result bound to another Strategy even when its Run ID is 
     expect(screen.queryByText("回测结果")).not.toBeInTheDocument();
     expect(api.prepareBacktest).not.toHaveBeenCalled();
     expect(api.confirmBacktest).not.toHaveBeenCalled();
-    expect(api.interpretResult).not.toHaveBeenCalled();
 });
 
 it.each([false, true])(
@@ -565,7 +441,6 @@ it.each([false, true])(
         expect(observe).toHaveBeenCalledOnce();
         expect(api.prepareBacktest).not.toHaveBeenCalled();
         expect(api.confirmBacktest).not.toHaveBeenCalled();
-        expect(api.interpretResult).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole("button", { name: "重新查看" }));
         if (withRun) await screen.findByText("回测结果");
         else await screen.findByRole("button", { name: "开始回测" });

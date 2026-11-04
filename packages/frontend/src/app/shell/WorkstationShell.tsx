@@ -10,8 +10,6 @@ export interface WorkspaceShellSlots {
     railHost: HTMLElement | null;
 }
 const products = [
-    { to: "/", label: "工作台", icon: "results" },
-    { to: "/factor-research", label: "因子研究", icon: "research" },
     { to: "/research/new", label: "研究 · 未实现", icon: "research" },
     { to: "/data/inputs", label: "数据 · 未实现", icon: "data" },
     { to: "/strategies", label: "策略", icon: "library" },
@@ -41,25 +39,23 @@ export function WorkstationShell() {
             </div>
             <aside className="global-workspace-rail" aria-label="功能导航">
                 <nav className="product-rail" aria-label="产品导航">
-                    {products.slice(0, 2).map((product) => (
-                        <Tooltip key={product.to} title={product.label} placement="left">
-                            <NavLink
-                                aria-label={product.label}
-                                to={product.to}
-                                end={product.to === "/"}
-                                className={({ isActive }) =>
-                                    isActive ? "primary-nav-link active" : "primary-nav-link"
-                                }
-                            >
-                                <WorkspaceIcon name={product.to === "/" ? "candles" : "research"} />
-                            </NavLink>
-                        </Tooltip>
-                    ))}
+                    <Tooltip title="工作台" placement="left">
+                        <NavLink
+                            aria-label="工作台"
+                            to="/"
+                            end
+                            className={({ isActive }) =>
+                                isActive ? "primary-nav-link active" : "primary-nav-link"
+                            }
+                        >
+                            <WorkspaceIcon name="candles" />
+                        </NavLink>
+                    </Tooltip>
                     <Dropdown
                         trigger={["click"]}
                         placement="bottomLeft"
                         menu={{
-                            items: products.slice(2).map((product) => ({
+                            items: products.map((product) => ({
                                 key: product.to,
                                 label: product.label,
                                 icon: <WorkspaceIcon name={product.icon} />
@@ -82,7 +78,7 @@ export function WorkstationShell() {
                             className="rail-button"
                             aria-label="全局设置"
                             onClick={() => {
-                                openSettings(location.pathname === "/" ? "chart" : "models");
+                                openSettings(location.pathname === "/" ? "chart" : "sources");
                             }}
                         >
                             <WorkspaceIcon name="settings" />

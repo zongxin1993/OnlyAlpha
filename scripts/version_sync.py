@@ -545,7 +545,7 @@ def validate_transitions(
     from scripts.release_metadata import validate_inventory
 
     introduced = validate_inventory(dict(base), dict(candidate))
-    changed = {unit for unit in base if base[unit] != candidate[unit]}
+    changed = {unit for unit in base.keys() & candidate.keys() if base[unit] != candidate[unit]}
     if changed != selections.keys():
         raise VersionSyncError(
             f"selected units must equal changed units: changed={sorted(changed)}, selected={sorted(selections)}"
@@ -605,7 +605,11 @@ def main() -> int:
             base, candidate = read_git_release_transition(
                 args.base_ref if args.command == "check-transition" else "HEAD^"
             )
-            actual = {unit: [base[unit], candidate[unit]] for unit in base if base[unit] != candidate[unit]}
+            actual = {
+                unit: [base[unit], candidate[unit]]
+                for unit in base.keys() & candidate.keys()
+                if base[unit] != candidate[unit]
+            }
             write_release_notice("Actual release transitions: " + json.dumps(actual, sort_keys=True), args.summary_file)
             if args.command == "report-merge" and args.notice_only:
                 return 0

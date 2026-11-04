@@ -588,7 +588,7 @@ Runtime Command boundary，必须具有 authorization、stable request identity�
 ## 17. Plugin Boundaries
 
 长期维护的 canonical Kernel 按职责放在 `crates/` 的一级库目录中，只依赖声明的下层公共 Contract，不导入具体插件。
-根目录 `src/onlyalpha/` 是冻结并最终删除的 Python 迁移存量，不再接收新增实现或功能；执行规则见 AGENTS.md §3.6，
+根目录 `src/onlyalpha/` 是冻结并最终删除的 Python 迁移存量，不再接收新增实现或功能；执行规则见 AGENTS.md §2，
 目标归属见 [Repository architecture](repository-product-architecture.md#root-python-source-retirement)。插件依赖方向固定为：
 
 ```text

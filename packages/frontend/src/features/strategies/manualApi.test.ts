@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
-import type * as ChatApi from "../factorChat/api";
-import { request } from "../factorChat/api";
+import type * as ProductRequestApi from "../../api/productRequest";
+import { request } from "../../api/productRequest";
 import * as authoring from "./api";
 import { loadFactors, loadManualContext, saveManualDefinition } from "./manualApi";
-vi.mock("../factorChat/api", async (original) => ({
-    ...(await original<typeof ChatApi>()),
+vi.mock("../../api/productRequest", async (original) => ({
+    ...(await original<typeof ProductRequestApi>()),
     request: vi.fn()
 }));
 vi.mock("./api", async (original) => ({

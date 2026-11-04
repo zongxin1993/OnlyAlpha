@@ -40,10 +40,6 @@
 .backtest-page .ant-select {
     min-width: 180px;
 }
-.backtest-interpretation {
-    white-space: pre-wrap;
-    line-height: 1.8;
-}
 @media (max-width: 720px) {
     .backtest-page {
         padding: 16px;

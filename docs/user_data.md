@@ -21,7 +21,7 @@ Docker 使用 canonical `deploy/docker-compose.dev.yml` 的 `user-data` 数据�
 
 普通启动、停机重启、工程升级、重建镜像和替换容器均保留数据。开发阶段可独立选择“清空 dev 数据并重新初始化”，
 但必须明确本次范围，协调数据库、文件、密钥和 namespace，解决未决工作；不能只删目录再自动重绑已有数据库。
-正式部署不继承开发清空许可，删除须有人工授权、配对备份、恢复验证与保留策略。准则 Authority 见 `AGENTS.md` §6.1–6.2。
+正式部署不继承开发清空许可，删除须有人工授权、配对备份、恢复验证与保留策略。准则 Authority 见 `AGENTS.md` §4.1–4.2。
 
 升级/重启验证必须读取和使用既有历史，而非初始化空库。迁移、exact identity、immutable history、引用完整性与恢复能力
 属于 correctness，不是要保留的旧版本兼容处理。fresh reader/process restart 测试不等同于真实数据库服务重启或部署升级。

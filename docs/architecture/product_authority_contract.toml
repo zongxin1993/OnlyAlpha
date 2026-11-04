@@ -622,12 +622,6 @@ actor = "A04"
 pattern = "packages/backend/src/onlyalpha_http_server/health.py"
 actor = "A04"
 [[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/agent_gateway.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/agent_provider_runtime.py"
-actor = "A04"
-[[actor_paths]]
 pattern = "packages/backend/src/onlyalpha_http_server/private_assets.py"
 actor = "A04"
 [[actor_paths]]
@@ -686,9 +680,6 @@ pattern = "src/onlyalpha/runtime/live/*.py"
 actor = "A09"
 [[actor_paths]]
 pattern = "scripts/database.py"
-actor = "A10"
-[[actor_paths]]
-pattern = "scripts/bootstrap.py"
 actor = "A10"
 [[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/migration.py"
@@ -861,9 +852,6 @@ actor = "A25"
 [[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/integration_runtime_composition.py"
 actor = "A25"
-[[actor_paths]]
-pattern = "scripts/agent_provider_bootstrap.py"
-actor = "A24"
 [[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
@@ -1119,7 +1107,7 @@ approved_paths = ["src/onlyalpha/application/strategy_authority.py"]
 id = "K05"
 capability = "C11"
 symbol = "onlyalpha.persistence.postgres.migration.OnlyPostgresMigrationAuthority"
-approved_paths = ["scripts/bootstrap.py", "scripts/database.py"]
+approved_paths = ["scripts/database.py"]
 [[constructors]]
 id = "K06"
 capability = "C02"
@@ -1204,12 +1192,12 @@ approved_paths = []
 id = "K22"
 capability = "C31"
 symbol = "onlyalpha.application.integration_probe.OnlyIntegrationProbeService"
-approved_paths = ["scripts/agent_provider_bootstrap.py"]
+approved_paths = []
 [[constructors]]
 id = "K23"
 capability = "C31"
 symbol = "onlyalpha.persistence.postgres.integration_probe_store.OnlyPostgresIntegrationProbeStore"
-approved_paths = ["src/onlyalpha/persistence/postgres/integration_runtime_composition.py", "scripts/agent_provider_bootstrap.py"]
+approved_paths = ["src/onlyalpha/persistence/postgres/integration_runtime_composition.py"]
 
 [[bindings]]
 capability = "C32"

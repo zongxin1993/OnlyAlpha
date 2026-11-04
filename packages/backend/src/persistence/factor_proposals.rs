@@ -127,50 +127,6 @@ impl<'a> Proposals<'a> {
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
-    pub async fn grant_state(
-        &mut self,
-        config: &crate::security::agent_browser::Connection,
-        owner: &str,
-        at: &str,
-    ) -> Result<String> {
-        let tx = self.client.transaction().await.map_err(db)?;
-        bounds(&tx).await.map_err(db)?;
-        if tx
-            .query_opt(
-                "SELECT 1 FROM factor_proposal_grant WHERE grant_id=$1::text::uuid",
-                &[&config.grant_id],
-            )
-            .await
-            .map_err(db)?
-            .is_none()
-        {
-            return Ok("ABSENT".into());
-        }
-        let (_, g) = load_grant(&tx, &config.grant_id).await?;
-        if g["owner"] != owner
-            || g["input"]["service_subject"] != config.service_subject
-            || g["input"]["credential_sha256"] != config.credential_sha256
-        {
-            return Err("FACTOR_PROPOSAL_CORRUPT");
-        }
-        let revoked = tx
-            .query_opt(
-                "SELECT 1 FROM factor_proposal_revocation WHERE grant_id=$1::text::uuid",
-                &[&config.grant_id],
-            )
-            .await
-            .map_err(db)?
-            .is_some();
-        let state = if revoked {
-            "REVOKED"
-        } else if a::datetime(text(&g["input"], "expires_at")?)? <= a::datetime(at)? {
-            "EXPIRED"
-        } else {
-            "ACTIVE"
-        };
-        tx.commit().await.map_err(db)?;
-        Ok(state.into())
-    }
     pub async fn context(
         &mut self,
         credential: &Presented,

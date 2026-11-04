@@ -15,7 +15,7 @@
 - Constitution Impact: NO；Constitution 与 fingerprint 只读。
 - 保留 Python 因子、策略及指标算法；既有结构化 Strategy Definition 与 Rust canonical 交易语义不变，不新增任意 Python callback 驱动的第二套策略引擎。
 - 不在根 `src/` 新增文件、实现、函数或业务分支；只允许必要退役接线与删除。后端缺口直接落正确 Rust owner。
-- Agent 暂停开发；现有独立 `packages/agent` 及其数据不因暂停而删除。普通数据/策略/回测构建、启动和操作不强制依赖 Agent、模型或凭据。不建设外置 Agent 集成。
+- 当前产品清退旧 Orchestrator 与独立 Agent 的现行代码及运行接线。保留已有数据、精确历史构件和恢复所需的读取能力。普通数据、策略和回测构建、启动和操作无需 Agent、模型或凭据。Constitution 的长期 Agent 边界继续适用。
 - 本轮到现有普通回测为止；不新增 SIM/LIVE、市场、独立服务、第二套 Compose 或第三方依赖。新增能力/实质选型变更按 AGENTS.md §3.4.1 另行调研确认。
 - 不重写旧事实、已绑定 Generation、Strategy Revision、精确历史 artifacts 或历史身份；不 fallback、不选择 latest、不 blind retry UNKNOWN。
 - 本轮明确包含退役所需 quality-policy、test discovery、构建/安装/验证入口修改；这些修改是高风险基础设施工作，只替换退役对象的检查归属，不降低断言、阈值或质量要求。
@@ -75,13 +75,13 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 
 ## Task 2: 普通工作站的构建与启动解除 Agent 强制依赖
 
-**Files:** `scripts/native_workstation_build.py`、`runtime_artifacts.py`、`dev.py`、`dev_verification.py`、`runtime_build.py`、`deploy/Dockerfile.dev`、`deploy/docker-compose.dev.yml` 中真实强制依赖点；Test `tests/tools/test_native_workstation_artifacts.py`、`test_runtime_artifacts.py`、`test_dev.py`、`test_dev_native_startup.py`。不修改 `packages/agent` 的功能/数据模型或开发新 Agent 模式。
+**Files:** `scripts/native_workstation_build.py`、`runtime_artifacts.py`、`dev.py`、`dev_verification.py`、`runtime_build.py`、`deploy/Dockerfile.dev`、`deploy/docker-compose.dev.yml` 中真实强制依赖点；Test `tests/tools/test_native_workstation_artifacts.py`、`test_runtime_artifacts.py`、`test_dev.py`、`test_dev_native_startup.py`。现行 Agent 源码和专属构建、服务、Web 与 API 接线随清退移除。保留历史数据模型。
 
 **Interfaces:** 保留 `native_workstation_build.build(directory: Path, *, release_input_path=None, release_input_sha256=None, source_bundles_path=None) -> dict[str, Any]`，默认产物为 backend/frontend/算法资源。`runtime_artifacts` 已允许无 Agent 记录，优先复用；显式包含 Agent 的已支持 artifact 仍按原精确 contract 验证，不静默丢弃它。
 
 1. 写 `test_default_native_build_does_not_install_or_start_agent`：将 Agent 安装调用设为立即报错，标准 build 不应调用；独立 Agent 包目录暂不可用且无模型凭据时，标准 startup 参数和所需资源中不出现强制 Agent 项。保留现有含 Agent artifact 的 tamper/rejection 测试。
 2. 通过 canonical wrapper 运行对应新增测试，确认目前强制 `install_agent` 路径导致失败。
-3. 移除标准构建和启动中无条件 Agent 安装/监督依赖；优先使用已有可选资源语义，不新建配置平台。同步 Docker/输入选择及普通启动 attestation 的真实依赖，保留 backend 安全、namespace 和资源限制。已有 Agent 路由可按现有 unavailable 行为显示，不新增页面或删除聊天数据。
+3. 移除标准构建和启动中无条件 Agent 安装/监督依赖；优先使用已有可选资源语义，不新建配置平台。同步 Docker/输入选择及普通启动 attestation 的真实依赖，保留 backend 安全、namespace 和资源限制。移除现行 Agent 专属路由和交互入口。保留既有聊天数据及正式 Evidence 所需的历史读取。
 4. 运行受影响工具测试；构建实际不含 Agent 的工作站资源并验证 seal。确认标准 backend 仍正常进入 READY；这只是基础设施证据，业务操作留到 Task 9。
 5. 做 bounded review 后交付；不得以“Agent 暂停”为理由改写其工作流、预算或历史恢复。
 

@@ -258,6 +258,24 @@ fn canonical_path_boundaries_block_control_authorities_without_prefix_confusion(
     }
 }
 #[test]
+fn retired_proposal_bearer_cannot_authenticate_through_human_ingress() {
+    let access = Access::new(TOKEN).unwrap();
+    let path = format!("/api/v2/factor-proposals/{}", "a".repeat(64));
+    let token = format!(
+        "Bearer oa-proposal-v1.00000000-0000-4000-8000-000000000001.{}",
+        "a".repeat(64),
+    );
+    assert!(matches!(
+        access.admit(&request("GET", &path, &[("authorization", &token)])),
+        Err(Error::Unauthorized)
+    ));
+    assert!(matches!(
+        access.admit(&request("GET", &path, &[("cookie", &cookie())])),
+        Ok(Admission::Owner(_))
+    ));
+}
+
+#[test]
 fn invalid_credentials_cannot_become_default_configuration() {
     for credential in [
         "".to_owned(),

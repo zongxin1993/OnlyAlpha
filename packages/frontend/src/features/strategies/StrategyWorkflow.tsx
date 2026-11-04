@@ -24,12 +24,7 @@ type Preparation = Awaited<ReturnType<typeof api.loadPreparation>>;
 type Research = Awaited<ReturnType<typeof api.loadResearch>>;
 type Frozen = Awaited<ReturnType<typeof api.freezeStrategy>>;
 type Workflow = Awaited<ReturnType<typeof api.loadWorkflows>>["items"][number];
-type Action =
-    | "save"
-    | "freeze"
-    | "resume"
-    | "cancel-preparation"
-    | "cancel-research";
+type Action = "save" | "freeze" | "resume" | "cancel-preparation" | "cancel-research";
 const terminalPreparation = new Set(["READY", "BLOCKED", "CANCELLED"]);
 const terminalResearch = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 function description(error: unknown): string {
@@ -438,7 +433,6 @@ function ResearchStrategyWorkflow() {
             <main className="strategy-workflow" aria-label="策略记录">
                 <header className="strategy-workflow-header">
                     <Typography.Title level={2}>我的策略</Typography.Title>
-                    <Link to="/factor-research">从因子研究创建策略</Link>
                 </header>
                 {problem && (
                     <Alert
@@ -498,8 +492,8 @@ function ResearchStrategyWorkflow() {
     )
         return (
             <section className="strategy-workflow">
-                <Empty description="从已确认的因子和研究条件创建策略" />
-                <Link to="/factor-research">前往因子研究</Link>
+                <Empty description="新的策略研究暂未开放，已有记录仍可查看。" />
+                <Link to="/strategies">查看全部策略</Link>
             </section>
         );
     return (
@@ -511,7 +505,6 @@ function ResearchStrategyWorkflow() {
                         查看已有研究进度、报告和冻结记录，或继续普通回测。
                     </Typography.Paragraph>
                 </div>
-                <Link to="/factor-research">返回因子研究</Link>
             </header>
             <Link to="/strategies">查看全部策略</Link>
             <Alert
@@ -771,11 +764,7 @@ function ResearchStrategyWorkflow() {
                             <Alert
                                 type={ready ? "success" : "info"}
                                 showIcon
-                                title={
-                                    ready
-                                        ? "原研究准备已完成"
-                                        : preparationLabel(preparation)
-                                }
+                                title={ready ? "原研究准备已完成" : preparationLabel(preparation)}
                             />
                         )}
                     </Card>

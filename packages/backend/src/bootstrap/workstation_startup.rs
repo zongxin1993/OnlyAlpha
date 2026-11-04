@@ -348,8 +348,6 @@ impl Running {
         if *shutdown.borrow() {
             return Err(Failure::unavailable("NATIVE_STARTUP_INTERRUPTED"));
         }
-        let agent_browser = crate::security::agent_browser::Issuer::load(&config.user_data)
-            .map_err(Failure::unavailable)?;
         let database = Database::from(&config);
         let inputs = StorageInputs::load(
             StorageRoots::open(&config.user_data).map_err(|e| Failure::unavailable(e.code()))?,
@@ -571,7 +569,6 @@ impl Running {
                     native_version: env!("CARGO_PKG_VERSION").into(),
                 },
             research_preparation_running: std::sync::Mutex::new(std::collections::BTreeMap::new()),
-            agent_browser,
             inputs,
             database,
             writer_live,
@@ -595,7 +592,6 @@ impl Running {
             metadata,
             assets,
             issuer: Mutex::new(issuer),
-            proposal_fence: Mutex::new(crate::transport::host::issue(Vec::new())?),
             revoker: OnceLock::new(),
             ready: AtomicBool::new(false),
             socket_slots: Arc::new(tokio::sync::Semaphore::new(8)),

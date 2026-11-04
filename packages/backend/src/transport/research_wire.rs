@@ -634,14 +634,6 @@ pub struct QualificationPolicyListView {pub schema_version:u8,pub policies:Vec<Q
 pub struct StrategyQualifiedView {pub schema_version:u8,pub strategy_fingerprint:String,pub stage:String,
     pub source_revision:Value,pub freeze_relations:Vec<Value>,pub promotion_records:Vec<Value>,pub qualification_commands:Vec<QualificationCommandView>}
 
-/// Signed read-only analysis data. The assertion is neither API identity nor a
-/// Backend, Research, Backtest or LIVE permission.
-#[derive(Deserialize,Serialize,ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct BacktestAnalysisContextView {
-    pub schema_version:u8,pub run_id:String,pub assertion:String,pub expires_at:u64,
-}
-
 /// Read-only verified absence of an original Backtest preparation Command.
 /// This is an observation, not a refusal, revocation or accepted operation.
 #[derive(Deserialize,Serialize,ToSchema)]

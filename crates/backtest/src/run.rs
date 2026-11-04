@@ -98,7 +98,12 @@ impl Candidate {
         })
     }
     fn from_runtime_head(runtime: &Runtime, configuration: Value) -> Result<Self, Error> {
-        let (components, records) = runtime.fork_ready()?;
+        Self::from_ready_head(runtime.fork_ready()?, configuration)
+    }
+    fn from_ready_head(
+        (components, records): (Components, Vec<Record>),
+        configuration: Value,
+    ) -> Result<Self, Error> {
         if components.configuration() != &configuration {
             return Err(err("EXECUTION_CONTEXT"));
         }
@@ -189,7 +194,7 @@ impl DerivedStep {
 
 // Historical rederivation never substitutes the current official head, even for an empty suffix.
 enum DeriveSource {
-    RuntimeHead,
+    RuntimeHead(Option<(Components, Vec<Record>)>),
     HistoricalPrefix(usize),
 }
 
@@ -340,8 +345,11 @@ impl<P: Participants> RunLoop<P> {
         source: DeriveSource,
     ) -> Result<DerivedStep, Error> {
         let mut candidate = match source {
-            DeriveSource::RuntimeHead => {
+            DeriveSource::RuntimeHead(None) => {
                 Candidate::from_runtime_head(&self.runtime, self.spec.configuration.clone())?
+            }
+            DeriveSource::RuntimeHead(Some(head)) => {
+                Candidate::from_ready_head(head, self.spec.configuration.clone())?
             }
             DeriveSource::HistoricalPrefix(start) => {
                 let records = self.runtime.records()?;
@@ -492,7 +500,13 @@ impl<P: Participants> RunLoop<P> {
         let start = step["execution_start"]
             .as_u64()
             .ok_or_else(|| err("PREFIX"))?;
-        let records = self.runtime.records()?;
+        // The completion owner still verifies the current Execution and Replay
+        // sources on both sides of Ready. Read the records here only to match plans.
+        let records = if derived.plans.is_empty() {
+            Vec::new()
+        } else {
+            self.runtime.records()?
+        };
         // Consume and release each original plan after matching or installing
         // it; no typed state is retained in the RunLoop or durable journal.
         for (index, plan) in derived.plans.drain(..).enumerate() {
@@ -554,7 +568,7 @@ impl<P: Participants> RunLoop<P> {
     }
     fn transition(&mut self, kind: &str, outcome: Value) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, None)
+        self.transition_after_check(kind, outcome, None, None)
     }
     fn transition_observed(
         &mut self,
@@ -563,15 +577,16 @@ impl<P: Participants> RunLoop<P> {
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, Some(observer))
+        self.transition_after_check(kind, outcome, Some(observer), None)
     }
-    // Only an entry point that has just called check() may enter here. There
-    // is no observer or public call between that check and this continuation.
+    // The entry point has just verified the actual prefix. No observer or
+    // public call runs between that verification and this continuation.
     fn transition_after_check(
         &mut self,
         kind: &str,
         outcome: Value,
         mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+        head: Option<(Components, Vec<Record>)>,
     ) -> Result<(), Error> {
         if kind == "TERMINATE"
             && outcome["status"] == "COMPLETED"
@@ -580,7 +595,7 @@ impl<P: Participants> RunLoop<P> {
             return Err(err("EVENT_DRAIN_REQUIRED"));
         }
         self.healthy = false;
-        let derived = self.derive(kind, &outcome, DeriveSource::RuntimeHead)?;
+        let derived = self.derive(kind, &outcome, DeriveSource::RuntimeHead(head))?;
         let step = &derived.record;
         if let Some(observer) = observer.as_mut() {
             observer(
@@ -615,18 +630,22 @@ impl<P: Participants> RunLoop<P> {
         &mut self,
         observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
     ) -> Result<bool, Error> {
-        self.check()?;
         if self.state["input_cancelled"] == true
             || self.state["cursor"] == self.inputs.records().len() as u64
         {
+            self.check()?;
             return Ok(false);
         }
+        if !self.healthy {
+            return Err(err("RECOVERY_REQUIRED"));
+        }
+        let head = self.runtime.fork_ready_at_replay_refs(&self.steps)?;
         let kind = if self.binding["schema_version"] == 2 && self.state["phase"] == "OPEN" {
             "OPEN"
         } else {
             "BAR"
         };
-        self.transition_after_check(kind, Value::Null, observer)?;
+        self.transition_after_check(kind, Value::Null, observer, Some(head))?;
         Ok(true)
     }
     pub fn run(&mut self) -> Result<(), Error> {

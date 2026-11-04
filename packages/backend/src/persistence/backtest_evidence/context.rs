@@ -207,6 +207,11 @@ pub(crate) async fn read_context(
             text(admission, "qualification_decision_fingerprint")?,
         )
         .await?;
+    let original_validation = decision
+        .manual_evidence()
+        .map(|evidence| evidence.validation())
+        .filter(|proof| proof.preparation_command_id() == operation.command.value())
+        .cloned();
     let history = strategy_promotion::read_verified_history_in_transaction(
         &tx,
         namespace,
@@ -225,12 +230,16 @@ pub(crate) async fn read_context(
     }
     let validation = match &input.origin {
         BacktestOrigin::ManualStrategy { .. } => {
-            let store = Validations::open(research_root)?.with_runtime_root(runtime_root)?;
-            let proof = Arc::new(
-                store
-                    .read_verified_in_transaction(&tx, operation.command.value())
-                    .await?,
-            );
+            let proof = if let Some(original) = original_validation {
+                original
+            } else {
+                let store = Validations::open(research_root)?.with_runtime_root(runtime_root)?;
+                Arc::new(
+                    store
+                        .read_verified_in_transaction(&tx, operation.command.value())
+                        .await?,
+                )
+            };
             proof.require_backtest_inputs(&operation, history.source_revision(), &dataset)?;
             proof.verify_in_transaction(&tx, namespace).await?;
             Some(proof)

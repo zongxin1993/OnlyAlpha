@@ -19,7 +19,6 @@ mod host_private_factors;
 mod host_private_strategies;
 mod host_strategy_context;
 
-pub mod host_agent_browser;
 pub mod host_factor_proposals;
 pub mod host_factor_research;
 pub(crate) mod host_factor_studies;
@@ -34,6 +33,5 @@ pub(crate) mod host_backtest;
 
 mod host_qualification;
 
-mod host_backtest_analysis;
 
 mod host_manual_backtest_context;

@@ -9,7 +9,7 @@ use crate::{
 };
 pub(crate) use super::backtest_service::Configuration;
 use onlyalpha_domain::time::OnlyUtcDateTime;
-use std::{sync::{Arc,atomic::{AtomicU8,Ordering}},time::Duration};
+use std::{io::Write as _,sync::{Arc,atomic::{AtomicU8,Ordering}},time::Duration};
 use tokio::{sync::{Notify,watch},task::JoinHandle};
 const UNAVAILABLE:&str="BACKTEST_SERVICE_UNAVAILABLE";
 const UNKNOWN:&str="BACKTEST_SERVICE_OUTCOME_UNKNOWN";
@@ -140,7 +140,13 @@ async fn run_one(connection:&mut Option<ResearchConnection>,writer:&SharedAuthor
     let mut job=tokio::task::spawn_blocking(move || {
         let result=handle.block_on(async {
             let started=std::time::Instant::now();
-            let phase=|name:&str|eprintln!("BACKTEST_JOB_PHASE phase={name} elapsed_ms={}",started.elapsed().as_millis());
+            let phase = |name: &str| {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "BACKTEST_JOB_PHASE phase={name} elapsed_ms={}",
+                    started.elapsed().as_millis()
+                );
+            };
             phase("history-open");
             let client=original.client_mut().await.map_err(|_|JobFailure::Known(UNAVAILABLE))?;
             let context=backtest_evidence::read_context(client,selected.namespace(),&configuration.research_root,&configuration.runtime_root,selected.run_id(),Some(selected.owner())).await.map_err(JobFailure::Known)?;
@@ -155,7 +161,9 @@ async fn run_one(connection:&mut Option<ResearchConnection>,writer:&SharedAuthor
             match backtest_service::produce(work,mode,&child).map_err(JobFailure::Native)? {
                 Produced::Paused(paused)=>{paused.verify_cut().map_err(JobFailure::Known)?;drop(paused);Ok(CompletedJob::Paused)},
                 Produced::Terminal(joined)=>{
+                    phase("result-observed");
                     let proof=store.commit(joined).map_err(JobFailure::Known)?;
+                    phase("evidence-published");
                     #[cfg(test)] tests::blocking_phase(selected.run_id(),"after_publish");
                     Ok(CompletedJob::Published(proof))
                 },

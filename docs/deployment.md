@@ -4,7 +4,7 @@ This document describes how the OnlyAlpha dev stack is deployed through the sing
 authorized Docker Compose topology and how the independently deployed Agent node is
 configured. It is the canonical deployment reference for `deploy/docker-compose.dev.yml`.
 
-Per `AGENTS.md` §6, `deploy/docker-compose.dev.yml` is the **only** authorized OnlyAlpha
+Per `AGENTS.md` §4.1, `deploy/docker-compose.dev.yml` is the **only** authorized OnlyAlpha
 Compose topology. New deployment capability extends this file; a second OnlyAlpha-owned
 Compose file requires explicit owner approval plus a governance/architecture update.
 
@@ -30,7 +30,7 @@ the source tree. API and Workers must use the same initialized semantic namespac
 paired with their configured database. Custom runtime directories must stay outside
 the source/build inventory. Do not create another uv environment for this storage.
 Docker instead mounts the independent `user-data` volume at `/var/lib/onlyalpha`.
-See [user_data](user_data.md) for contents and `AGENTS.md` §6.2 for the governing rule.
+See [user_data](user_data.md) for contents and `AGENTS.md` §4.2 for the governing rule.
 
 ## Ordinary Shipping Web/API startup
 
@@ -128,7 +128,7 @@ Success follows layout readback, directory fsync, repeated deployment checks and
 
 ## Formal verification resource policy
 
-`AGENTS.md` §6.1 owns the local verification/debugging rules: use the single
+`AGENTS.md` §4.1 owns the local verification/debugging rules: use the single
 `onlyalpha-dev` project and this topology, with one reusable collection of fixed
 role-based dev image tags. Services using the same build target share an image;
 do not create projects or image tags per commit, worktree, task or validation run.
@@ -244,7 +244,7 @@ acceptance for those old local contents. Identify and reset the database/file/ke
 coherently; never clear only user-data and rebind an uncleared database. Ordinary startup does not
 implicitly reset data, and each verification run does not automatically recreate the environment.
 Keep the fixed dev image set and unrelated projects; never use `down -v` or a global prune.
-`AGENTS.md` §6.1 owns this policy.
+`AGENTS.md` §4.1 owns this policy.
 The native dev service has a 60-second outer stop grace: Source close alone may use its
 10-second default before recorder, exact storage drain and retained owners finish. This
 operational grace changes no inner deadline and certifies no cleanup; an exceeded grace,
@@ -260,7 +260,7 @@ does not apply there. Keep process-restart evidence distinct from real service/d
 Active development maintains the current canonical contract, not old-version compatibility
 shims or parallel historical schema/DTO behavior. Atomically update current consumers;
 retain required exact identity, immutable history, replay/recovery and integrity. See
-ADR 0130 and `AGENTS.md` §7; no unrelated compatibility-code sweep is authorized here.
+ADR 0130 and `AGENTS.md` §5; no unrelated compatibility-code sweep is authorized here.
 
 ## Topology overview
 

@@ -3,9 +3,9 @@
 Organization and release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md),
 [repository architecture](repository-product-architecture.md) and [work program](repository-migration-work-program.md) select
 backend business/worker modules, frontend and reusable versioned libraries;
-[ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md) adds the independent Python LangGraph Agent product. The capability dependency order below remains; source navigation is not migration status.
+[ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) defines Agent as a formal API client. The capability dependency order below remains; source navigation is not migration status.
 
-ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicator execution. The Constitution and existing owning Contracts define semantics. A library build does not admit a Product writer or certify a migrated Web flow.
+ADR 0141 selects Rust services/business logic and isolated Python authoring execution as refined by ADR 0150. The Constitution and existing owning Contracts define semantics. A library build does not admit a Product writer or certify a migrated Web flow.
 
 ## Dependency map
 
@@ -13,7 +13,7 @@ ADR 0141 selects Rust services/business logic and isolated Python Factor/Indicat
 2. **Product ingress and node lifecycle:** native HTTP/WebSocket service, owner authentication, Source grants/revocation, local-session security, existing versioned wire Contracts, configuration, health, shutdown and recovery. A reverse proxy to Python does not satisfy this boundary.
 3. **Integration and market inputs:** Integration types/Drafts/secrets/revisions/lifecycle/probes and native provider adapters; immutable acquisition, physical proofs, history/range/latest/quote reads, live continuity and stream backpressure. Preserve the normal configure-source and chart journeys.
 4. **Workspace and calculations:** owning watchlist revisions/global receipts, chart catalog/readiness and transient chart studies. Native orchestration consumes bounded isolated Python algorithm workers; DISPLAY_ONLY remains distinct from Research Evidence.
-5. **Research and private assets:** DB-native Factor authoring and stable Python API validation, Calculation catalog/Definition resolution, immutable Dataset, Research Run/Attempt fencing/cancel/recovery, outputs/statistics/artifacts, Qualification and Search/Agent API clients. Backend Python workers own algorithms only; Rust owns formal admission, scheduling, stores and publication. Independent Agent Python owns chat/model/workflow provenance through its own API, not backend business.
+5. **Research and private assets:** DB-native Factor authoring and stable Python API validation, Calculation catalog/Definition resolution, immutable Dataset, Research Run/Attempt fencing/cancel/recovery, outputs/statistics/artifacts, Qualification and Search/Agent API clients. Backend Python workers own algorithms only; Rust owns formal admission, scheduling, stores and publication. Agent clients use the formal versioned API.
 6. **Strategy and Runtime Generation:** exact frozen Strategy source/identity, promotion, artifacts/distributions, builds/installation, binding/draining/new-work activation, historical exact readers and worker lifecycle. Preserve ADR 0117 and existing Python-authored Factor assets.
 7. **Trading Product composition:** existing Rust Kernel/Replay Driver plus native Product Backtest admission/worker/reconciliation/result reads and SIM/LIVE continuous drivers. Preserve shared semantics, UNKNOWN, cancellation, risk reduction, durable history and explicit human LIVE authority.
 8. **Aggregate maintained Python backend retirement:** verify the whole remaining consumer closure after eligible per-capability removal. Each earlier capability already includes removal of its replaced Python implementation and current caller/build/deployment closure when its owning gates permit; do not postpone all cleanup to this last step. Extract only the minimal Python algorithm SDK/worker closure. Validate the whole existing Web workflow set without Python business services, then complete applicable migration/upgrade and milestone gates.
@@ -47,8 +47,7 @@ existence of native libraries. This sequencing does not reduce the permanent
 product goals.
 
 The serving executable and business orchestration are Rust. Within the backend, Python is admitted
-only in the exact isolated Factor/Indicator algorithm installation. The separately versioned Agent selected by ADR 0146 may
-use Python LangGraph and its own environment; this does not create a Python backend business fallback. Build,
+only in the exact isolated algorithm and authoring environment. Built-in Operators and Indicators are pure Rust. Build,
 validation and explicitly retained reference tooling are separate from the
 maintained runtime; they do not provide a Python service fallback. Historical
 facts, keys, original identities and owning readers remain required through
@@ -59,10 +58,8 @@ upgrades, without old-version execution or schema fallbacks.
 The target follows [repository architecture](repository-product-architecture.md): shared metadata/Integration contracts,
 protocol bindings, Trading persistence, algorithm bridge and backtest driver are reusable libraries under `crates/`.
 Product business and storage, HTTP/security/startup, Generation and backend worker composition are modules in `packages/backend`;
-Shipping Web is `packages/frontend`; independent Agent chat/model/research orchestration belongs in `packages/agent` under
-[Agent service architecture](agent-service-architecture.md). Preserve transport → Application → owning library/store direction inside the package.
-Backend Python contains only the minimal admitted algorithm runtime/SDK; moving old canonical business there or into Agent is
-not Rust migration. Eligible Agent orchestration/model/literature code is legitimate Python, with its own audited caller closure.
+The official Web interface is `packages/frontend`. Preserve transport → Application → owning library/store direction inside
+backend. Backend Python contains only the minimal admitted algorithm runtime and authoring SDK.
 
 The paragraphs below describe existing source locations for navigation until their atomic migration, not target independent packages.
 

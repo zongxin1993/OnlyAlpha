@@ -2,8 +2,8 @@
 // acceptance uses the Shipping Web UI against the canonical backend.
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
-import type * as FactorChatApi from "../factorChat/api";
-import { request, ChatRequestError, type Access } from "../factorChat/api";
+import type * as ProductRequestApi from "../../api/productRequest";
+import { request, ProductRequestError } from "../../api/productRequest";
 import {
     loadSources,
     loadCreationContext,
@@ -19,8 +19,8 @@ import {
     resumePreparation,
     isPreparationNotStarted
 } from "./api";
-vi.mock("../factorChat/api", async (original) => ({
-    ...(await original<typeof FactorChatApi>()),
+vi.mock("../../api/productRequest", async (original) => ({
+    ...(await original<typeof ProductRequestApi>()),
     request: vi.fn()
 }));
 const run = "00000000-0000-4000-8000-000000009402",
@@ -256,7 +256,7 @@ function server(call: Call): unknown {
     }
     if (call.path.endsWith("/submit")) {
         if (submitFailure === "unavailable")
-            throw new ChatRequestError("BACKTEST_SERVICE_UNAVAILABLE");
+            throw new ProductRequestError("BACKTEST_SERVICE_UNAVAILABLE");
         if (submitFailure === "transport") throw new Error("controlled transport loss");
         expect(call.command).toBe(futureId);
         expect(call.body).toEqual({
@@ -321,9 +321,8 @@ beforeEach(() => {
     replaceIntentBeforeRefusal = false;
     preparationQueryFailure = undefined;
     vi.mocked(request).mockImplementation(
-        <T>(path: string, schema: z.ZodType<T>, body?: object, command?: string, access?: Access) =>
+        <T>(path: string, schema: z.ZodType<T>, body?: object, command?: string) =>
             Promise.resolve().then(() => {
-                expect(access).toBeUndefined();
                 return schema.parse(server({ path, body, command }));
             })
     );
@@ -504,7 +503,7 @@ it.each(["origin", "source", "future", "reserved", "ready-proof"])(
 );
 it("a failed Start precheck sends nothing and explicit review preserves the original future command", async () => {
     const original = await prepareBacktest(creation, source);
-    preparationQueryFailure = new ChatRequestError("BACKTEST_READINESS_UNAVAILABLE");
+    preparationQueryFailure = new ProductRequestError("BACKTEST_READINESS_UNAVAILABLE");
     await expect(confirmBacktest(original)).rejects.toThrow();
     expect(posts("/submit")).toHaveLength(0);
     expect(
@@ -860,7 +859,7 @@ it.each([
         if (!isPreparationNotStarted(error)) throw new Error("expected correlated refusal");
         const key = Object.keys(sessionStorage)[0] ?? "";
         const retained = sessionStorage.getItem(key);
-        preparationQueryFailure = new ChatRequestError(code);
+        preparationQueryFailure = new ProductRequestError(code);
         const unknown: unknown = await error.reviewConditions().catch((value: unknown) => value);
         expect(isPreparationNotStarted(unknown)).toBe(false);
         expect(unknown).toHaveProperty("observe");

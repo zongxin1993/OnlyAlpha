@@ -189,7 +189,7 @@ impl<'a> Backtests<'a> {
             let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(db)?;
             Commands::lock_command(&tx,request.command_id()).await.map_err(|e|e.code())?;
             if let Some(run)=replay(&tx,self.namespace,request,&owner).await? {commit(tx).await?; return Ok(run);}
-            context.source()?; inputs.verify_cut()?;
+            context.source()?;
             inputs.verify_transaction(&tx,self.namespace).await?;
             if let Some((operation,expected))=preparation {
                 if !operation.request.is_backtest() || operation.request.future_command()!=request.command_id().value()
@@ -214,7 +214,7 @@ impl<'a> Backtests<'a> {
             if created.status!=(RunStatus{state:RunState::Queued,revision:0}) || created.run.specification_fingerprint()!=spec_fp || created.run.admission_resolution_fingerprint()!=resolution_fp || created.run.resolution()!=&resolution {return Err(MISMATCH);}
             verify_receipt(&tx,&receipt).await?;
             let verified=created.run;
-            inputs.verify_cut()?; context.source()?;
+            context.source()?;
             inputs.verify_transaction(&tx,self.namespace).await?;
             if let Some((operation,expected))=preparation {
                 crate::persistence::research_preparation::guard_submission(&tx,operation,expected).await?;

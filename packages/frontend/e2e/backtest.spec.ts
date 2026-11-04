@@ -56,6 +56,18 @@ test("normal backtest works without Agent and reopens the same run after restart
         };
     }
     await page.goto("/");
+    await page.getByRole("button", { name: "更多功能", exact: true }).click();
+    const productMenu = page.getByRole("menu");
+    await expect(productMenu.getByRole("menuitem", { name: "策略", exact: true })).toBeVisible();
+    await expect(productMenu.getByRole("menuitem", { name: "因子研究", exact: true })).toHaveCount(
+        0
+    );
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "全局设置", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "设置", exact: true });
+    await expect(settings.getByRole("tab", { name: "数据源", exact: true })).toBeVisible();
+    await expect(settings.getByRole("tab", { name: /模型|Agent/ })).toHaveCount(0);
+    await settings.getByRole("button", { name: "关闭设置", exact: true }).click();
     if (process.env.ONLYALPHA_BROWSER_RESTART_PHASE === "restored") {
         const previous = z
             .strictObject({ path: z.string(), metrics: z.string(), tables: z.array(z.string()) })

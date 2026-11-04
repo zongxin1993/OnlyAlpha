@@ -77,9 +77,6 @@ it("keeps one settings entry with an SVG icon and separates persistent navigatio
     expect(settings.querySelector("svg")).not.toBeNull();
     expect(settings.closest(".workspace-settings-anchor")).not.toBeNull();
     expect(screen.getAllByRole("button", { name: "全局设置" })).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "因子研究" })).toHaveAttribute(
-        "href",
-        "/factor-research"
-    );
+    expect(screen.queryByRole("link", { name: "因子研究" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "回测 · 未实现" })).not.toBeInTheDocument();
 });

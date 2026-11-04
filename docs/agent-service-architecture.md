@@ -1,5 +1,7 @@
 # Independent Agent service architecture
 
+> Historical architecture. The independent Agent service and release line were canceled by [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md). Current Agent clients use the formal OnlyAlpha API.
+
 Target architecture under the Project Constitution and [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md).
 This defines ownership and required behavior, not implementation status. Current source still includes backend-hosted C2;
 the [migration sequence](repository-migration-work-program.md#independent-agent-product-migration) governs its replacement.

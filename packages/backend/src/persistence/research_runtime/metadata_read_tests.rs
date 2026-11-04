@@ -5,6 +5,27 @@ use std::{
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
 };
 
+#[test]
+fn backtest_binding_scan_distinguishes_lock_contention_from_unavailable_storage() {
+    let fixture = Fixture::new();
+    let root = fixture.root.join("scan");
+    let writer = Registry::initialize_fresh(&root).unwrap();
+    assert_eq!(
+        Registry::try_unreleased_work_bindings(&root),
+        Ok(None)
+    );
+    assert_eq!(
+        Registry::unreleased_work_bindings(&root),
+        Err(UNAVAILABLE)
+    );
+    assert_eq!(
+        Registry::try_unreleased_work_bindings(&root.join("missing")),
+        Err(UNAVAILABLE)
+    );
+    drop(writer);
+    assert!(Registry::try_unreleased_work_bindings(&root).unwrap().unwrap().is_empty());
+}
+
 type BeforeFinalRead = Box<dyn FnOnce()>;
 std::thread_local! {
     pub(super) static SCANS: Cell<u64> = const { Cell::new(0) };

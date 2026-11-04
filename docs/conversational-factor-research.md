@@ -2,7 +2,7 @@
 
 > Target Architecture under the Project Constitution; decisions recorded by
 > [ADR 0145](adr/0145-conversational-factor-research-and-candidate-review.md) and
-> [ADR 0146](adr/0146-independent-agent-product-and-python-langgraph.md).
+> [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md).
 > This is an approved product direction, not evidence that the Rust Research or Agent path is implemented.
 > Construction order belongs to the [repository work program](repository-migration-work-program.md#conversational-factor-research-follow-up)
 > and [Agent work program](agent_factor_mining_work_program.md#14-deliberate-sequencing).
@@ -53,12 +53,11 @@ owns scientific metric definitions and values. [Qualification](adr/0118-evidence
 formal meets-policy decisions. New screening projections must reference or extend the appropriate existing contract, never create
 a competing `qualified` flag. Current qualification subjects/metrics are not silently broadened by this design.
 
-Human operations use Shipping Web → versioned Product API → owning Authority; Agent actions use the formal API. Chat transcripts,
+Human operations use official Web interface → versioned Product API → owning Authority; Agent actions use the formal API. Chat transcripts,
 model confidence and browser calculations are not acceptance, numeric or authorization authorities. Canonical backend business
-belongs in `packages/backend`; Python LangGraph chat/research orchestration belongs in independent `packages/agent`; UI belongs
-in `packages/frontend`. Reusable Rust libraries retain audited canonical roles. [Agent service architecture](agent-service-architecture.md)
-owns storage, authentication, workflow continuation and API separation. Frontend uses Agent for conversation and directly calls
-backend for exact Factor confirmation/Research authorization; no Agent service identity can impersonate Human consent.
+belongs in `packages/backend` and UI belongs in `packages/frontend`. Agent uses the formal API. The backend validates proposals
+and owns formal Factor confirmation and Research authorization. The placement and API of future conversational orchestration
+require a separate bounded design under ADR 0150.
 
 ## Conversation and visible information
 
@@ -82,7 +81,7 @@ silently making an old item the current draft. Refresh/restart restores conversa
 references. User-facing names lead; precise identities, source bindings and model/tool versions remain inspectable in details.
 No new fingerprint or identity algorithm is introduced for these presentation views. Default copy uses natural financial/quantitative
 language and exposes only information needed for the current step. Exact implementation identities, code and diagnostic records
-remain available on demand under AGENTS.md §3.3.2. Required consent, source/sample conditions and unconfirmed outcomes stay visible
+remain available on demand under AGENTS.md §3.2. Required consent, source/sample conditions and unconfirmed outcomes stay visible
 where they affect a decision. Existing sessions retain their bound model; a model picker must not silently substitute that binding.
 
 ## Two confirmations and amendment rules
@@ -131,7 +130,7 @@ Further autonomous iteration is outside stage one.
 ### Explicit environment and input preparation
 
 The owner additionally authorizes native Rust Runtime management for this slice. After the Agent presents the proposed
-conditions, Shipping Web exposes a separate **准备并启用研究环境** operation. Its preview includes the exact Factor, installed
+conditions, official Web interface exposes a separate **准备并启用研究环境** operation. Its preview includes the exact Factor, installed
 algorithm/runtime versions, current-to-target Generation change and bounded data/source/window to prepare. The user explicitly
 requests that preparation; it does not start Research, grant trading permission or stand in for the second Research confirmation.
 The subsequent confirmation authorizes one exact prepared Study. Changing its content or conditions invalidates the appropriate
@@ -341,32 +340,19 @@ lookbacks, budgets and any illustrative results are not accepted numerical defau
 
 Before each implementation slice, inspect current Rust/Python consumers and freeze the minimum complete module/API gap, capability,
 DTO/Command bindings and deterministic acceptance under the owning contracts. In particular, pin preview-to-code validation,
-execution sandbox/admission and Dataset preparation boundaries before code execution is added. ADR 0146 selects Python LangGraph
-for Agent orchestration, without selecting new endpoint names, wire schemas, scoring thresholds or arbitrary execution capability. A safe graph-only implementation cannot falsely claim to
-support arbitrary formulas; unsupported ideas must return an explicit capability gap.
+execution sandbox/admission and Dataset preparation boundaries before code execution is added. Unsupported ideas must return
+an explicit capability gap.
 
 The first product slice must include the minimum Rust Research and evidence consumers needed for a **real** vertical flow, not a
 mock report or the existing display-only chart study. It need not horizontally migrate every backend subsystem. Retire replaced
 Python only after consumer/admission/recovery closure, migrating useful independent assertions under ADR 0139. Keep legitimate
-Python algorithms/plugins. Verification follows AGENTS.md: modified modules and direct consumers only; real Shipping UI acceptance
+Python algorithms/plugins. Verification follows AGENTS.md: modified modules and direct consumers only; real official Web interface acceptance
 is required for the business flow. No full-repository test run, extra tooling project, release or deployment is implied.
 
-## C2 backend-hosted contract and selected extraction
+## Historical C2 implementation contract
 
-The following describes the backend-hosted C2 contract retained until its consumer-complete cutover; it is not the target
-placement after ADR 0146. [Independent Agent migration](repository-migration-work-program.md#independent-agent-product-migration)
-moves chat/model/profile/secrets and orchestration provenance to Agent, retains canonical preview validation/Authoring and
-Human acceptance in backend, and changes the Web clients together. A backend-registered immutable proposal binds what the
-user sees to the direct backend confirmation; neither Agent prose nor a chat request itself grants authority. Existing readable
-previews, advanced forms, fingerprint/display semantics and UNKNOWN protections below remain required. No historical dev-chat
-conversion or permanent old-route fallback is selected.
-
-### Canonical preview and the Shipping C2 boundary
-
-Shipping C2 uses independent Agent API v1 for model settings, bounded chat and interaction provenance, and the backend proposal
-API for immutable previews and direct Human confirmation (ADR 0146). The backend-hosted `/api/v2/factor-chats` and Integration-based
-chat-model writer/adapter are retired. The independent service is the only active model/chat owner for this page. Existing
-`/api/v2/agent` autonomous operations remain denied. No model credentials enter chat records or frontend persistence.
+The implementation described in this section predates ADR 0150. Independent Agent service endpoints and placement are historical.
+New work uses the formal OnlyAlpha API and preserves exact proposal binding, human authorization and recovery.
 
 The first supported candidate grammar is a bounded arithmetic tree over OHLCV, integer literals, and declared closed-bar delay/
 rolling-mean dependencies. Unsupported source/operations are rejected. The backend derives formula, input contracts and restricted

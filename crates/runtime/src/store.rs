@@ -937,17 +937,17 @@ impl SqliteStore {
     pub(crate) fn fork_ready(
         &self,
         current: &Components,
+        check: impl FnOnce(&[Record]) -> Result<(), Error>,
     ) -> Result<(Components, Vec<Record>), Error> {
         let records = self.read_records()?;
         if records.iter().any(|record| !record.ready()) {
             return Err(error("CHECKPOINT_UNREADY"));
         }
-        let view = Replay {
-            rows: records.clone(),
-        };
+        let view = Replay { rows: records };
+        // Execution reconciles the actual source before copying its Ready head.
         let isolated = current.fork_ready(&view)?;
-        isolated.reconcile(&view)?;
-        Ok((isolated, records))
+        check(&view.rows)?;
+        Ok((isolated, view.rows))
     }
     pub fn save_checkpoint(&mut self, c: &Components) -> Result<Value, Error> {
         let records = self.read_records()?;

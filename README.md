@@ -23,21 +23,18 @@ Correctness
 
 OnlyAlpha 使用一套 canonical Domain 与 Trading Kernel，不按市场复制 Engine、Runtime 或经济 Manager。
 
-已确认的目标包边界是 `packages/backend`、`packages/frontend` 与独立 Python LangGraph `packages/agent`，
-加上可复用 Rust lib 集合，形成四条主发布线。聊天/编排调用 Agent API；正式因子确认与 Research 授权直接提交 backend。
-详见 [ADR 0146](docs/adr/0146-independent-agent-product-and-python-langgraph.md) 和
-[Agent 架构](docs/agent-service-architecture.md)。这是迁移目标，不表示当前 C2 已从 backend 拆出。
+当前产品由 `packages/backend`、`packages/frontend` 和可复用 Rust 库构成。人工操作通过正式 Web 提交到 Product API。
+Agent 作为研究客户端使用 OnlyAlpha 的正式 API。工程目录、发行边界和因子与策略的目标契约见
+[ADR 0150](docs/adr/0150-product-layout-and-programmable-quant-assets.md)。
 
 ```text
-Human → Web ───────────────┐
-                          ├→ Versioned Product API → Stateful Kernel
-Agent / Automation ───────┘                            │
-                                                      ├→ Research Runtime
-                                                      ├→ Backtest Runtime
-                                                      ├→ SIM Runtime
-                                                      └→ LIVE Runtime
-                                                            ↓
-                                        Market Product / DataSource / Broker plugins
+Human → Web → Versioned Product API → Stateful Kernel
+                                             ├→ Research Runtime
+                                             ├→ Backtest Runtime
+                                             ├→ SIM Runtime
+                                             └→ LIVE Runtime
+                                                   ↓
+                               Market Product / DataSource / Broker plugins
 ```
 
 正式 Runtime vocabulary：

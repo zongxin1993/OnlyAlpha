@@ -100,7 +100,7 @@ impl Runtime {
     /// Independent preflight owners at the actual healthy Ready head, never a Store or dispatch capability.
     pub fn fork_ready(&self) -> Result<(Components, Vec<Record>), Error> {
         self.require_healthy()?;
-        self.store.fork_ready(&self.components)
+        self.store.fork_ready(&self.components, |_| Ok(()))
     }
     pub fn save_checkpoint(&mut self) -> Result<Value, Error> {
         self.ready()?;
