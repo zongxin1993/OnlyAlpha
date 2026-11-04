@@ -134,6 +134,7 @@ test("normal backtest works without Agent and reopens the same run after restart
     await page.getByRole("combobox", { name: "回测行情数据源", exact: true }).press("Enter");
     await page.getByRole("button", { name: "确认策略并准备回测", exact: true }).click();
     const start = page.getByRole("button", { name: "开始回测", exact: true });
+    const canStart = async () => (await start.isVisible()) && (await start.isEnabled());
     const readyDeadline = Date.now() + 120_000;
     const readUnavailable = page
         .getByRole("alert")
@@ -141,7 +142,7 @@ test("normal backtest works without Agent and reopens the same run after restart
     await expect
         .poll(
             async () => {
-                if (await start.isEnabled()) return true;
+                if (await canStart()) return true;
                 // Recovery only observes the same operation through the normal UI;
                 // preparation is never resubmitted and its original budget continues.
                 const observe = page.getByRole("button", { name: "重新查看", exact: true });
@@ -149,23 +150,53 @@ test("normal backtest works without Agent and reopens the same run after restart
                     const remaining = readyDeadline - Date.now();
                     if (remaining > 0) await observe.click({ timeout: remaining });
                 }
-                return start.isEnabled();
+                return canStart();
             },
             { timeout: 120_000 }
         )
         .toBe(true);
     expect(Date.now()).toBeLessThanOrEqual(readyDeadline);
     await page.screenshot({ path: testInfo.outputPath("backtest-ready.png"), fullPage: true });
+    const originalPreparation = new URL(page.url()).pathname;
     await start.focus();
     await expect(start).toBeFocused();
     await page.keyboard.press("Enter");
     const runDeadline = Date.now() + 120_000;
     const resultHeading = page.getByRole("heading", { name: "回测结果", exact: true });
     const observeStart = page.getByRole("button", { name: "查看任务进度", exact: true });
+    const unfinishedAction = page
+        .getByRole("alert")
+        .filter({ hasText: "本次操作暂未完成。已有记录仍然保留，请重新查看当前进度。" });
+    let startReview: "NONE" | "READING" | "CONFIRMED" = "NONE";
     await expect
         .poll(
             async () => {
                 if (await resultHeading.isVisible()) return true;
+                if (
+                    startReview === "NONE" &&
+                    (await unfinishedAction.isVisible()) &&
+                    (await canStart())
+                ) {
+                    expect(new URL(page.url()).pathname).toBe(originalPreparation);
+                    startReview = "READING";
+                    const remaining = runDeadline - Date.now();
+                    if (remaining > 0)
+                        await page
+                            .getByRole("button", { name: "重新查看", exact: true })
+                            .click({ timeout: remaining });
+                    return false;
+                }
+                if (startReview === "READING" && (await canStart())) {
+                    // One explicit recovery: a normal reread must show the same
+                    // original preparation READY again before another confirmation.
+                    expect(new URL(page.url()).pathname).toBe(originalPreparation);
+                    await expect(page.getByText("可以开始回测", { exact: true })).toBeVisible();
+                    startReview = "CONFIRMED";
+                    await start.focus();
+                    await expect(start).toBeFocused();
+                    await page.keyboard.press("Enter");
+                    return false;
+                }
                 // UNKNOWN is recovered by observing the original command through the
                 // normal UI. This action never sends a second submission.
                 if ((await observeStart.isVisible()) && (await observeStart.isEnabled())) {

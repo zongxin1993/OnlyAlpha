@@ -91,19 +91,64 @@ pub struct RuntimeInputHold {
 pub struct RuntimeEvidenceHold {
     retained: RuntimeInputHold,
 }
+/// Original retained history data only. No current eligibility or execution grant.
+pub(crate) struct BacktestHistoryMetadata {
+    pub(crate) binding: Value,
+    pub(crate) installed: Value,
+    pub(crate) executor: Value,
+}
 impl RuntimeEvidenceHold {
-    pub fn open(root: &Path, work: &str, owner: &str, generation: &str) -> Result<Self> {
-        if work.trim().is_empty() || work.len() > 512 || owner.trim().is_empty()
-            || owner.len() > 256 || !crate::is_sha256_hex(generation) {
+    pub(crate) fn backtest_metadata(&mut self, algorithm: &str) -> Result<BacktestHistoryMetadata> {
+        if !crate::is_sha256_hex(algorithm) {
             return Err(INVALID);
         }
-        let mut retained = RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
+        self.retained.verify()?;
+        let binding = self.backtest_binding_data()?;
+        let installed = self.installed_proof_data(algorithm)?;
+        let executor = self
+            .retained
+            .executor
+            .as_ref()
+            .ok_or("RESEARCH_EXECUTOR_UNAVAILABLE")?
+            .clone();
+        #[cfg(test)]
+        metadata_read_tests::before_final_read();
+        // Re-observe membership as well as all retained bytes. A second matching
+        // proof appearing during selection is corruption, not a new selection.
+        if self.installed_proof_data(algorithm)? != installed {
+            return Err(INVALID);
+        }
+        self.retained.verify()?;
+        Ok(BacktestHistoryMetadata {
+            binding,
+            installed,
+            executor,
+        })
+    }
+    pub fn open(root: &Path, work: &str, owner: &str, generation: &str) -> Result<Self> {
+        if work.trim().is_empty()
+            || work.len() > 512
+            || owner.trim().is_empty()
+            || owner.len() > 256
+            || !crate::is_sha256_hex(generation)
+        {
+            return Err(INVALID);
+        }
+        let mut retained =
+            RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
         let history = retained.replay()?;
-        let (original_generation, _, origin) = history.bindings.get(work)
+        let (original_generation, _, origin) = history
+            .bindings
+            .get(work)
             .ok_or("RESEARCH_RUNTIME_WORK_UNBOUND")?;
-        if original_generation != generation || origin["kind"] != "RuntimeWorkBound"
+        if original_generation != generation
+            || origin["kind"] != "RuntimeWorkBound"
             || origin["reason"] != owner
-            || !matches!(history.states.get(generation), Some(&"READY" | &"ACTIVE_FOR_NEW_WORK" | &"DRAINING" | &"RETIRED")) {
+            || !matches!(
+                history.states.get(generation),
+                Some(&"READY" | &"ACTIVE_FOR_NEW_WORK" | &"DRAINING" | &"RETIRED")
+            )
+        {
             return Err("RESEARCH_RUNTIME_WORK_MISMATCH");
         }
         retained.manifest = history.validated.get(generation).cloned().ok_or(INVALID)?;
@@ -111,71 +156,115 @@ impl RuntimeEvidenceHold {
         // Historical verification reads the archived Artifact1/2 manifests and
         // exact original wheel/ELF bytes. It never describes the currently loaded image.
         retained.verify_artifacts()?;
-        let private_factors = retained.manifest["private_factor_bindings"].as_array().ok_or(INVALID)?.clone();
+        let private_factors = retained.manifest["private_factor_bindings"]
+            .as_array()
+            .ok_or(INVALID)?
+            .clone();
         for binding in private_factors {
-            retained.private_factor(text(&binding,"runtime_artifact_fingerprint")?)?;
+            retained.private_factor(text(&binding, "runtime_artifact_fingerprint")?)?;
         }
         retained.verify()?;
         Ok(Self { retained })
     }
     /// Read-only original mathematical inputs. No InputHold, current image
     /// substitution, execution permission, or Research object is produced.
-    pub(crate) fn strategy_validation_inputs(&mut self,algorithm:&str)->Result<Value> {
-        let installed=self.installed_proof(algorithm)?;
-        let core=self.retained.core_artifact()?.clone();
-        let operator=self.retained.distribution_artifact("onlyalpha-plugin-operators")?;
-        let target=self.retained.distribution_artifact("onlyalpha-plugin-targets")?;
-        let bindings=self.retained.manifest["private_factor_bindings"].as_array().ok_or(INVALID)?.clone();
-        let mut factors=Vec::new();for binding in bindings {
-            let saved=self.retained.private_factor(text(&binding,"runtime_artifact_fingerprint")?)?;
+    pub(crate) fn strategy_validation_inputs(&mut self, algorithm: &str) -> Result<Value> {
+        let installed = self.installed_proof(algorithm)?;
+        let core = self.retained.core_artifact()?.clone();
+        let operator = self
+            .retained
+            .distribution_artifact("onlyalpha-plugin-operators")?;
+        let target = self
+            .retained
+            .distribution_artifact("onlyalpha-plugin-targets")?;
+        let bindings = self.retained.manifest["private_factor_bindings"]
+            .as_array()
+            .ok_or(INVALID)?
+            .clone();
+        let mut factors = Vec::new();
+        for binding in bindings {
+            let saved = self
+                .retained
+                .private_factor(text(&binding, "runtime_artifact_fingerprint")?)?;
             factors.push(serde_json::json!({"binding":binding,"archive":saved}));
         }
-        let execution=self.retained.execution_binding()?;self.retained.verify()?;
-        Ok(serde_json::json!({"installed_proof":installed,"execution_binding":execution,"core_artifact":core,
-            "operator_artifact":operator,"target_artifact":target,"private_factors":factors}))
+        let execution = self.retained.execution_binding()?;
+        self.retained.verify()?;
+        Ok(
+            serde_json::json!({"installed_proof":installed,"execution_binding":execution,"core_artifact":core,
+            "operator_artifact":operator,"target_artifact":target,"private_factors":factors}),
+        )
     }
     /// Exact original installed observation, independently of the current image
     /// or current SDK installation. This remains read-only history.
-    pub(crate) fn installed_proof(&mut self,algorithm_artifact:&str)->Result<Value> {
-        if !crate::is_sha256_hex(algorithm_artifact){return Err(INVALID);}
-        self.retained.verify()?;
-        let generation=sha(&self.retained.manifest,"runtime_generation_fingerprint")?;
-        let top=protected::open_directory_at(&self.retained.root,OsStr::new("runtime-generation-installed-proof")).map_err(|_|UNAVAILABLE)?;
-        let directory=protected::open_directory_at(&top,OsStr::new(&generation)).map_err(|_|UNAVAILABLE)?;
-        let mut remaining=32768;
-        let names=protected::directory_entries(&directory,&mut remaining).map_err(|_|UNAVAILABLE)?;
-        let mut selected=None;
-        for name in names {
-            let name=name.to_str().ok_or(INVALID)?;
-            let identity=name.strip_suffix(".json").filter(|s|crate::is_sha256_hex(s)).ok_or(INVALID)?;
-            let proof=self.retained.json(&format!("runtime-generation-installed-proof/{generation}/{name}"))?;
-            if digest(&proof,"installed_proof_fingerprint")?!=identity {return Err(INVALID);}
-            if proof["schema_version"]!=2 || proof["contract"]!="ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
-                || proof["runtime_generation_fingerprint"]!=generation {return Err(INVALID);}
-            if proof["algorithm_artifact"]!=algorithm_artifact {continue;}
-            if selected.replace(proof).is_some(){return Err(INVALID);}
+    pub(crate) fn installed_proof(&mut self, algorithm: &str) -> Result<Value> {
+        if !crate::is_sha256_hex(algorithm) {
+            return Err(INVALID);
         }
         self.retained.verify()?;
+        let selected = self.installed_proof_data(algorithm)?;
+        self.retained.verify()?;
+        Ok(selected)
+    }
+    fn installed_proof_data(&mut self, algorithm_artifact: &str) -> Result<Value> {
+        let generation = sha(&self.retained.manifest, "runtime_generation_fingerprint")?;
+        let top = protected::open_directory_at(
+            &self.retained.root,
+            OsStr::new("runtime-generation-installed-proof"),
+        )
+        .map_err(|_| UNAVAILABLE)?;
+        let directory =
+            protected::open_directory_at(&top, OsStr::new(&generation)).map_err(|_| UNAVAILABLE)?;
+        let mut remaining = 32768;
+        let names =
+            protected::directory_entries(&directory, &mut remaining).map_err(|_| UNAVAILABLE)?;
+        let mut selected = None;
+        for name in names {
+            let name = name.to_str().ok_or(INVALID)?;
+            let identity = name
+                .strip_suffix(".json")
+                .filter(|s| crate::is_sha256_hex(s))
+                .ok_or(INVALID)?;
+            let proof = self.retained.json(&format!(
+                "runtime-generation-installed-proof/{generation}/{name}"
+            ))?;
+            if digest(&proof, "installed_proof_fingerprint")? != identity {
+                return Err(INVALID);
+            }
+            if proof["schema_version"] != 2
+                || proof["contract"] != "ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
+                || proof["runtime_generation_fingerprint"] != generation
+            {
+                return Err(INVALID);
+            }
+            if proof["algorithm_artifact"] != algorithm_artifact {
+                continue;
+            }
+            if selected.replace(proof).is_some() {
+                return Err(INVALID);
+            }
+        }
         selected.ok_or("RESEARCH_INSTALLED_PROOF_UNAVAILABLE")
     }
-    /// Original archived capability/binding only. This is a read-only fact,
-    /// not an InputHold conversion, execution grant or current-image descriptor.
-    pub(crate) fn backtest_binding(&self)->Result<Value> {
-        self.retained.verify()?;
-        let executor=self.retained.executor.as_ref().ok_or(INVALID)?;
+    /// Pure fields of this retained immutable original; no source or execution grant.
+    /// A composing caller must retain its own complete actual pre/post cuts.
+    pub(crate) fn backtest_binding_data(&self) -> Result<Value> {
+        let executor = self.retained.executor.as_ref().ok_or(INVALID)?;
         if executor["schema_version"]!=2||executor["role"]!="BACKEND_RUNTIME"
             ||executor["execution_capabilities"].as_array().is_none_or(|caps|caps.iter().filter(|c|**c==serde_json::json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"})).count()!=1){return Err("BACKTEST_EXECUTOR_UNAVAILABLE");}
-        let mut binding=self.retained.execution_binding()?;binding["protocol"]=serde_json::json!("onlyalpha.backtest.executor/1");
-        self.retained.verify()?;Ok(binding)
+        let mut binding = self.retained.execution_binding()?;
+        binding["protocol"] = serde_json::json!("onlyalpha.backtest.executor/1");
+        Ok(binding)
     }
-    /// Actual retained Artifact1/2 body, without describing the current image.
-    pub(crate) fn executor_manifest(&self)->Result<&Value> {
-        self.retained.verify()?;
-        self.retained.executor.as_ref().ok_or("RESEARCH_EXECUTOR_UNAVAILABLE")
+    pub fn manifest(&self) -> &Value {
+        &self.retained.manifest
     }
-    pub fn manifest(&self) -> &Value { &self.retained.manifest }
-    pub fn binding(&self) -> &Value { &self.retained.binding }
-    pub fn verify(&self) -> Result<()> { self.retained.verify() }
+    pub fn binding(&self) -> &Value {
+        &self.retained.binding
+    }
+    pub fn verify(&self) -> Result<()> {
+        self.retained.verify()
+    }
 }
 
 struct History {
@@ -711,13 +800,19 @@ impl RuntimeInputHold {
     /// native image. A Research binding or an Artifact1 role cannot supply it.
     pub(crate) fn backtest_execution_binding(&mut self) -> Result<Value> {
         self.native_predicate_implementations()?;
-        let selected=self.executor.as_ref().ok_or("BACKTEST_EXECUTOR_UNAVAILABLE")?;
-        let capability=json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"});
-        if selected["execution_capabilities"].as_array().is_none_or(|rows|rows.iter().filter(|r|**r==capability).count()!=1) {
+        let selected = self
+            .executor
+            .as_ref()
+            .ok_or("BACKTEST_EXECUTOR_UNAVAILABLE")?;
+        let capability = json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"});
+        if selected["execution_capabilities"]
+            .as_array()
+            .is_none_or(|rows| rows.iter().filter(|r| **r == capability).count() != 1)
+        {
             return Err("BACKTEST_EXECUTOR_UNAVAILABLE");
         }
-        let mut binding=self.execution_binding()?;
-        binding["protocol"]=json!("onlyalpha.backtest.executor/1");
+        let mut binding = self.execution_binding()?;
+        binding["protocol"] = json!("onlyalpha.backtest.executor/1");
         self.verify()?;
         Ok(binding)
     }
@@ -830,6 +925,8 @@ impl RuntimeInputHold {
         &self.binding
     }
     pub fn verify(&self) -> Result<()> {
+        #[cfg(test)]
+        metadata_read_tests::SCANS.with(|count| count.set(count.get() + 1));
         let actual = protected::open_directory(&self.root_path).map_err(|_| UNAVAILABLE)?;
         let lock = fs::openat(
             &actual,
@@ -890,6 +987,8 @@ fn verify_bytes(root: &OwnedFd, path: &str, expected: &str, size: u64) -> Result
                 break;
             }
             total += n as u64;
+            #[cfg(test)]
+            metadata_read_tests::SCANNED_BYTES.with(|count| count.set(count.get() + n as u64));
             hash.update(&buffer[..n]);
         }
         if total != size
@@ -906,3 +1005,7 @@ fn verify_bytes(root: &OwnedFd, path: &str, expected: &str, size: u64) -> Result
     }
     Err(INVALID)
 }
+
+#[cfg(test)]
+#[path = "research_runtime/metadata_read_tests.rs"]
+mod metadata_read_tests;

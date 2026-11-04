@@ -502,6 +502,26 @@ it.each(["origin", "source", "future", "reserved", "ready-proof"])(
         expect(posts("/submit")).toHaveLength(0);
     }
 );
+it("a failed Start precheck sends nothing and explicit review preserves the original future command", async () => {
+    const original = await prepareBacktest(creation, source);
+    preparationQueryFailure = new ChatRequestError("BACKTEST_READINESS_UNAVAILABLE");
+    await expect(confirmBacktest(original)).rejects.toThrow();
+    expect(posts("/submit")).toHaveLength(0);
+    expect(
+        sessionStorage.getItem(`onlyalpha.backtest.submit.v2.${original.command_id}`)
+    ).toBeNull();
+    preparationQueryFailure = undefined;
+    const reviewed = await loadPreparation(original.command_id);
+    expect(reviewed).toEqual(original);
+    expect((await confirmBacktest(reviewed)).run_id).toBe(run);
+    expect(posts("/submit")).toHaveLength(1);
+    expect(posts("/submit")[0]?.command).toBe(original.backtest_command_id);
+    expect(
+        calls.filter(
+            (value) => value.body !== undefined && value.path === "/api/v2/backtest/preparations"
+        )
+    ).toHaveLength(1);
+});
 it("uses the original future command after a lost Start response and never submits twice", async () => {
     const prepared = await prepareBacktest(creation, source);
     lostSubmit = true;
