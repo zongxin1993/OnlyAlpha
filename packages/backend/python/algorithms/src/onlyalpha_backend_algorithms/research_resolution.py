@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import pyarrow as pa  # type: ignore[import-untyped]
 from onlyalpha_plugin_operators.registration import registrations as operators
-from onlyalpha_plugin_targets.registration import registrations as targets
+from onlyalpha_backend_algorithms.targets.registration import registrations as targets
 
 from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.definition import (

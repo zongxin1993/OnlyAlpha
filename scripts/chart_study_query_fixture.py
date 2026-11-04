@@ -47,13 +47,13 @@ def _clear(directory: Path) -> None:
 @functools.lru_cache(maxsize=1)
 def _produce() -> tuple[str, str]:
     import psycopg
-
     from onlyalpha.persistence.clickhouse import (
         OnlyClickHouseClient,
         OnlyClickHouseConfig,
         OnlyClickHouseMigrationAuthority,
         only_assert_clickhouse_test_database,
     )
+
     from scripts.database_guard import assert_test_database
     from scripts.dev_verification import CUT_METADATA, source_inputs
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
@@ -128,7 +128,7 @@ def _produce() -> tuple[str, str]:
                     }
                     value["features"] = sorted(set(previous.get("features", [])) | set(value.get("features", [])))
                 dependencies[name] = value
-            dependencies["onlyalpha-" + module.replace("_", "-")] = {
+            dependencies[data["package"]["name"]] = {
                 "path": os.path.relpath(manifest.parent / module_path(module), consumer)
             }
         (consumer / "Cargo.toml").write_text(

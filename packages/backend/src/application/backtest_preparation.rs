@@ -59,7 +59,7 @@ pub fn run_id(command:&CommandId)->String {
 }
 
 /// Pure exact input construction; neither this value nor a SourceRevision grants execution.
-pub(crate) fn build_prepared_next_open(source_revision:&onlyalpha_strategy::SourceRevision,materialized:&crate::application::research_dataset::MaterializedDataset,rules:onlyalpha_plugin_binance::spot_simulation::SpotRuleSnapshot,generation:&str)->std::result::Result<crate::workers::backtest::PreparedNextOpen,crate::application::research_admission::PreparationError> {
+pub(crate) fn build_prepared_next_open(source_revision:&onlyalpha_strategy::SourceRevision,materialized:&crate::application::research_dataset::MaterializedDataset,rules:onlyalpha_market_crypto::spot::SpotRuleSnapshot,generation:&str)->std::result::Result<crate::workers::backtest::PreparedNextOpen,crate::application::research_admission::PreparationError> {
     use crate::{application::factor_content::hash,workers::backtest::PreparedNextOpen};
     use onlyalpha_domain::{base::OnlyDomainModel,time::OnlyTimestamp};
     use serde_json::json;
@@ -94,13 +94,13 @@ pub(crate) fn build_prepared_next_open(source_revision:&onlyalpha_strategy::Sour
 /// historical reads. A parsed snapshot alone grants no venue or Run authority.
 pub(crate) fn retained_backtest_rules(
     value:&serde_json::Value,source:&Source,command:&CommandId,
-)->std::result::Result<onlyalpha_plugin_binance::spot_simulation::SpotRuleSnapshot,&'static str> {
+)->std::result::Result<onlyalpha_market_crypto::spot::SpotRuleSnapshot,&'static str> {
     const INVALID:&str="BACKTEST_RULE_OCCURRENCE_CORRUPT";
     if value.as_object().is_none_or(|m|m.len()!=8)||value["request"].as_object().is_none_or(|m|m.len()!=4){return Err(INVALID);}
     let body=value["body"].as_str().filter(|b|b.len()<=8*1024*1024).ok_or(INVALID)?;
     let digest=Sha256::digest(body.as_bytes()).iter().map(|b|format!("{b:02x}")).collect::<String>();
     let raw:serde_json::Value=serde_json::from_str(body).map_err(|_|INVALID)?;
-    let rules=onlyalpha_plugin_binance::spot_simulation::SpotRuleSnapshot::from_record(&value["snapshot"]).map_err(|_|INVALID)?;
+    let rules=onlyalpha_market_crypto::spot::SpotRuleSnapshot::from_record(&value["snapshot"]).map_err(|_|INVALID)?;
     if value["schema_version"]!=1||value["contract"]!="ONLYALPHA_BINANCE_PUBLIC_RULE_OCCURRENCE_V1"||value["body_sha256"]!=digest
         ||value["source"]!=serde_json::to_value(source).map_err(|_|INVALID)?||value["request"]["source_id"]!=source.source_id
         ||value["request"]["path"]!="/api/v3/exchangeInfo"||value["request"]["symbols"]!="[\"BTCUSDT\"]"

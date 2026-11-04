@@ -1,10 +1,10 @@
 //! Frozen technical consumer of the exact installed Source and Product owners.
 #![cfg(test)]
-#[path = "../plugs/onlyalpha-plugin-binance/src/spot_normalize.rs"]
+#[path = "../plugs/onlyalpha-data-source-binance/src/spot_normalize.rs"]
 mod spot_normalize;
-#[path = "../plugs/onlyalpha-plugin-binance/src/spot_rest.rs"]
+#[path = "../plugs/onlyalpha-data-source-binance/src/spot_rest.rs"]
 mod spot_rest;
-#[path = "../plugs/onlyalpha-plugin-binance/src/spot_source.rs"]
+#[path = "../plugs/onlyalpha-data-source-binance/src/spot_source.rs"]
 mod spot_source;
 use futures_util::{SinkExt, StreamExt};
 use onlyalpha_backend::application::chart::ChartQuery;
@@ -25,7 +25,7 @@ use onlyalpha_integration_contract::{
     IntegrationTypeId,
     source::{Clock, SourceError},
 };
-pub use onlyalpha_plugin_binance::spot_authoring;
+pub use onlyalpha_data_source_binance::spot_authoring;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

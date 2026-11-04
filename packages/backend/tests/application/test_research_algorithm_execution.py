@@ -253,7 +253,7 @@ def test_full_numeric_graph_observes_actual_vector_and_streaming_backends() -> N
 
 def test_zero_volume_graph_preserves_actual_math_and_forward_return_rejects_zero_price() -> None:
     from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
-    from onlyalpha_plugin_targets.registration import resolve_forward_return
+    from onlyalpha_backend_algorithms.targets.registration import resolve_forward_return
 
     from onlyalpha.calculation.definition import OnlyCalculationReference
 

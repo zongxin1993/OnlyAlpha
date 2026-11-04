@@ -126,7 +126,7 @@ def test_builder_installs_exact_distribution_fixture_in_clean_environment_and_is
         tmp_path / "manager-wheel",
     )
     operator_wheel = _build_wheel(
-        repository / "plugs/onlyalpha-plugin-operators",
+        repository / "packages/onlyalpha-operators",
         tmp_path / "operator-wheel",
     )
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")
@@ -437,7 +437,7 @@ def test_catalog_mismatch_never_produces_a_generation(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[3]
     core_wheel = _build_wheel(repository, tmp_path / "core-wheel")
     operator_wheel = _build_wheel(
-        repository / "plugs/onlyalpha-plugin-operators",
+        repository / "packages/onlyalpha-operators",
         tmp_path / "operator-wheel",
     )
     pyarrow_wheel = _installed_distribution_wheel("pyarrow", tmp_path / "support-wheel")

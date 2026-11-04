@@ -154,7 +154,7 @@ def test_installed_calculation_resolution_uses_exact_target_and_operator_resourc
         ],
         "core_artifact": selected("onlyalpha-*.whl"),
         "operator_artifact": selected("onlyalpha_plugin_operators-*.whl"),
-        "target_artifact": selected("onlyalpha_plugin_targets-*.whl"),
+        "target_artifact": selected("onlyalpha_backend_algorithms-*.whl"),
     }
     response = exchange(installation, artifact, request, "research_resolve")
     assert response.WhichOneof("outcome") == "result", response
@@ -226,7 +226,7 @@ def test_installed_strategy_preparation_retains_actual_target_capabilities_and_r
     assert legacy_record["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
     assert "target_calculations" not in legacy_record and "target_artifact_sha256" not in legacy_record
 
-    target = next(wheels.glob("onlyalpha_plugin_targets-*.whl"))
+    target = next(wheels.glob("onlyalpha_backend_algorithms-*.whl"))
     request = {
         **original,
         "contract": "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1",
@@ -330,7 +330,7 @@ def _actual_node_profile_request(wheels: Path) -> dict[str, Any]:
         "instances": calculations["instances"],
         "core_artifact": selected("onlyalpha-*.whl"),
         "operator_artifact": selected("onlyalpha_plugin_operators-*.whl"),
-        "target_artifact": selected("onlyalpha_plugin_targets-*.whl"),
+        "target_artifact": selected("onlyalpha_backend_algorithms-*.whl"),
     }
     nodes = []
     for record in calculations["nodes"]:

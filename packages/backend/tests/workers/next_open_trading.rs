@@ -14,7 +14,8 @@ use onlyalpha_domain::{
     time::{OnlyTimestamp, OnlyUtcDateTime},
 };
 use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
-use onlyalpha_plugin_binance::{spot_simulation::SpotRuleSnapshot, spot_source::spot_calendar};
+use onlyalpha_data_source_binance::spot_source::spot_calendar;
+use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
 use onlyalpha_strategy::{Executor, Program};
 use serde_json::{Value, json};
 use std::{error::Error, path::Path, sync::Arc};

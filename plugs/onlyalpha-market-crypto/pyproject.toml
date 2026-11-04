@@ -1,0 +1,29 @@
+[project]
+name = "onlyalpha-market-crypto"
+version = "0.11.1"
+description = "Crypto spot and derivatives market rules for OnlyAlpha"
+requires-python = ">=3.12,<3.13"
+dependencies = ["onlyalpha==0.11.1"]
+
+[project.entry-points."onlyalpha.market_products"]
+binance-usdm = "onlyalpha_market_crypto.derivatives.factory:OnlyBinanceUsdmMarketProductFactory"
+binance-spot = "onlyalpha_market_crypto.spot.factory:OnlyBinanceSpotMarketProductFactory"
+
+[project.entry-points."onlyalpha.backtest_market_product_resources"]
+binance-usdm-reference = "onlyalpha_market_crypto.derivatives.resource_provider:OnlyBinanceUsdmBacktestResourceProvider"
+binance-spot-reference = "onlyalpha_market_crypto.spot.resource_provider:OnlyBinanceSpotReferenceResourceProvider"
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onlyalpha_market_crypto"]
+
+[tool.uv.sources]
+onlyalpha = { workspace = true }
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/onlyalpha_market_crypto"]

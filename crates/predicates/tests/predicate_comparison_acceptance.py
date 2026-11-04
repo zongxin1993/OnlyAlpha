@@ -133,7 +133,7 @@ def main() -> None:
         )
         core = build_wheel(source, root / "core-wheel")
         manager = build_wheel(source / "packages/onlyalpha-runtime-generation-manager", root / "manager-wheel")
-        operator = build_wheel(source / "plugs/onlyalpha-plugin-operators", root / "operator-wheel")
+        operator = build_wheel(source / "packages/onlyalpha-operators", root / "operator-wheel")
         arrow = installed_distribution_wheel("pyarrow", root / "arrow-wheel")
         store = OnlyLocalImmutableArtifactStore(root / "artifacts")
         core_manifest = plain_artifact(

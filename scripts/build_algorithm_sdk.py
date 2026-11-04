@@ -55,7 +55,6 @@ INDICATORS = (
     "financial_semantics.py",
     "chart_factory.py",
 )
-TARGETS = ("registration.py", "research.py")
 OPERATORS = ("metadata.py", "registration.py", "semantics.py", "research.py", "trading.py")
 WORKER = (
     "chart_worker.py",
@@ -67,6 +66,9 @@ WORKER = (
     "trading_session.py",
     "trading_worker.py",
     "research_preparation.py",
+    "targets/__init__.py",
+    "targets/registration.py",
+    "targets/research.py",
     "sdk/__init__.py",
     "sdk/private_factor_execution.py",
     "sdk/private_factor_source.py",
@@ -75,7 +77,7 @@ WORKER = (
 
 def distribution_version(distribution: str) -> str:
     if distribution.startswith("onlyalpha-plugin-"):
-        path = ROOT / "plugs" / distribution / "pyproject.toml"
+        path = ROOT / "packages" / distribution.replace("onlyalpha-plugin-", "onlyalpha-") / "pyproject.toml"
         return str(tomllib.loads(path.read_text())["project"]["version"])
     path = ROOT / "packages/backend/Cargo.toml"
     return str(tomllib.loads(path.read_text())["package"]["version"])
@@ -96,6 +98,16 @@ def wheel(output: Path, distribution: str, sources: dict[str, bytes], dependenci
     sources[f"{info}/WHEEL"] = (
         b"Wheel-Version: 1.0\nGenerator: OnlyAlpha canonical algorithm builder\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
     )
+    if (
+        distribution == "onlyalpha-backend-algorithms"
+        and "onlyalpha_backend_algorithms/targets/registration.py" in sources
+    ):
+        manifest = ROOT / "packages/backend/python/algorithms/pyproject.toml"
+        entry_points = tomllib.loads(manifest.read_text())["project"]["entry-points"]
+        sources[f"{info}/entry_points.txt"] = "".join(
+            f"[{group}]\n" + "".join(f"{key} = {value}\n" for key, value in sorted(entries.items()))
+            for group, entries in sorted(entry_points.items())
+        ).encode()
     record = io.StringIO()
     writer = csv.writer(record, lineterminator="\n")
     for path, content in sorted(sources.items()):
@@ -125,25 +137,18 @@ def build(output: Path) -> list[Path]:
     }
     plugin = {
         "onlyalpha_plugin_indicators/" + name: (
-            ROOT / "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators" / name
+            ROOT / "packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators" / name
         ).read_bytes()
         for name in INDICATORS
     }
     plugin["onlyalpha_plugin_indicators/__init__.py"] = b'"""Installed pure Indicator algorithms."""\n'
     operators = {
         "onlyalpha_plugin_operators/" + name: (
-            ROOT / "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators" / name
+            ROOT / "packages/onlyalpha-operators/src/onlyalpha_plugin_operators" / name
         ).read_bytes()
         for name in OPERATORS
     }
     operators["onlyalpha_plugin_operators/__init__.py"] = b'"""Installed pure Operator algorithms."""\n'
-    targets = {
-        "onlyalpha_plugin_targets/" + name: (
-            ROOT / "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets" / name
-        ).read_bytes()
-        for name in TARGETS
-    }
-    targets["onlyalpha_plugin_targets/__init__.py"] = b'"""Installed pure Research Target algorithms."""\n'
     worker = {
         "onlyalpha_backend_algorithms/" + name: (
             ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms" / name
@@ -163,7 +168,6 @@ def build(output: Path) -> list[Path]:
         wheel(output, "onlyalpha", sdk, ()),
         wheel(output, "onlyalpha-plugin-indicators", plugin, ("onlyalpha", "pyarrow")),
         wheel(output, "onlyalpha-plugin-operators", operators, ("onlyalpha", "pyarrow")),
-        wheel(output, "onlyalpha-plugin-targets", targets, ("onlyalpha", "pyarrow")),
         wheel(
             output,
             "onlyalpha-backend-algorithms",

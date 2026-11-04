@@ -60,7 +60,7 @@ def resolve_calculations(payload: dict[str, Any], artifact: str) -> dict[str, ob
     operator = verify_distribution(
         payload["operator_artifact"], "onlyalpha_plugin_operators", "onlyalpha-plugin-operators"
     )
-    target = verify_distribution(payload["target_artifact"], "onlyalpha_plugin_targets", "onlyalpha-plugin-targets")
+    target = verify_distribution(payload["target_artifact"], "onlyalpha_backend_algorithms", "onlyalpha-backend-algorithms")
     return {
         **resolve_instances(payload["sources"], payload["instances"]),
         **core,

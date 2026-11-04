@@ -97,7 +97,7 @@ impl ResolvedCalculations {
         instances.extend_from_slice(target_instances);
         let core = runtime.core_artifact()?.clone();
         let operators = runtime.distribution_artifact("onlyalpha-plugin-operators")?;
-        let targets = runtime.distribution_artifact("onlyalpha-plugin-targets")?;
+        let targets = runtime.target_artifact()?;
         let request = json!({"schema_version":1,"contract":"ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1","sources":sources,"instances":instances,"core_artifact":core,"operator_artifact":operators,"target_artifact":targets});
         let generation = runtime.manifest()["runtime_generation_fingerprint"]
             .as_str()

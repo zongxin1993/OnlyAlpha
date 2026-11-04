@@ -93,19 +93,19 @@ artifacts.put_once(native_manifest, native_bytes)
 # CALCULATION artifact, not a Quant Asset Provider or executable certification.
 extra_calculations = []
 if "--strategy-targets" in sys.argv:
-    from onlyalpha_plugin_targets.registration import registrations as target_registrations
+    from onlyalpha_backend_algorithms.targets.registration import registrations as target_registrations
 
     target_bytes = b"controlled target bytes; no executable certification"
     if actual_algorithms:
-        target_bytes = next(algorithm_wheels.glob("onlyalpha_plugin_targets-*.whl")).read_bytes()
+        target_bytes = next(algorithm_wheels.glob("onlyalpha_backend_algorithms-*.whl")).read_bytes()
     target_manifest = OnlyDistributionArtifactManifest(
         OnlyDistributionArtifactRole.CALCULATION,
         OnlyArtifactSourceProvenanceAuthority.ONLYALPHA_GIT,
         "OnlyAlpha",
         "2" * 40,
-        "onlyalpha-plugin-targets",
+        "onlyalpha-backend-algorithms",
         "0.11.1",
-        "onlyalpha_plugin_targets-0.11.1-py3-none-any.whl",
+        "onlyalpha_backend_algorithms-0.11.1-py3-none-any.whl",
         hashlib.sha256(target_bytes).hexdigest(),
         len(target_bytes),
         core.fingerprint,

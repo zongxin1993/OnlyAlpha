@@ -142,7 +142,7 @@ impl Host {
                             &session,
                             &mut store,
                             Host::identity(snapshot, &reference)?,
-                            onlyalpha_plugin_binance::spot_source::spot_calendar().map_err(
+                            onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(
                                 |_| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"),
                             )?,
                             parsed["instrument_id"].as_str().ok_or_else(invalid)?,

@@ -3,7 +3,7 @@ name = "onlyalpha-backend-algorithms"
 version = "0.11.1"
 description = "Private backend algorithm executor build constituent"
 requires-python = ">=3.12.0, <3.13.0"
-dependencies = ["onlyalpha==0.11.1", "onlyalpha-plugin-indicators==0.11.1", "onlyalpha-plugin-operators==0.11.1", "onlyalpha-plugin-targets==0.11.1", "onlyalpha-gateway-protocol==0.11.1"]
+dependencies = ["onlyalpha==0.11.1", "onlyalpha-plugin-indicators==0.11.1", "onlyalpha-plugin-operators==0.11.1", "onlyalpha-gateway-protocol==0.11.1"]
 [build-system]
 requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"
@@ -14,4 +14,6 @@ onlyalpha = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-plugin-operators = { workspace = true }
-onlyalpha-plugin-targets = { workspace = true }
+
+[project.entry-points."onlyalpha.calculations"]
+official-targets = "onlyalpha_backend_algorithms.targets.registration:registrations"

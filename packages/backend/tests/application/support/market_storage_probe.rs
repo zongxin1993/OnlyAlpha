@@ -439,7 +439,7 @@ async fn retained_source_prerequisite(
         OnlyConstructionIdentity, OnlyConstructionRequirement, OnlyConstructionResolutionContext,
         OnlyConstructionResolutionPlan,
     };
-    use onlyalpha_plugin_binance::{spot_authoring, spot_normalize, spot_source::SpotFactory};
+    use onlyalpha_data_source_binance::{spot_authoring, spot_normalize, spot_source::SpotFactory};
     use sha2::{Digest, Sha256};
     use std::{os::unix::fs::DirBuilderExt, sync::Arc};
     const WORK: usize = 64 * 1024 * 1024;

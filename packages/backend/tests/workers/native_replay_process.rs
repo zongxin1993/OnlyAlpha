@@ -7,7 +7,7 @@ fn setup(
     mutate: impl FnOnce(&mut Value),
 ) -> Result<(RunSpec, Inputs, Trading<InstalledTradingNodes>)> {
     use onlyalpha_domain::value::OnlyQuantity;
-    use onlyalpha_plugin_binance::spot_simulation::SpotSimulationPolicy;
+    use onlyalpha_market_crypto::spot::SpotSimulationPolicy;
     let case = fixture()?;
     let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
     let installation = Arc::new(ChartInstallation::open(

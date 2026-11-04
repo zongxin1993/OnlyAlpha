@@ -53,7 +53,6 @@ dev = [
     "onlyalpha-test-factor-provider",
     "onlyalpha-plugin-operators",
     "onlyalpha-plugin-indicators",
-    "onlyalpha-plugin-targets",
     "onlyalpha-gateway-protocol",
     "onlyalpha-backend-algorithms",
     "onlyalpha-calculation-worker",
@@ -73,16 +72,15 @@ dev = [
 
 [tool.uv.workspace]
 members = [
-    "plugs/onlyalpha-plugin-broker-virtual",
+    "plugs/onlyalpha-broker-virtual",
     "plugs/onlyalpha-plugin-generic-t0-cash",
-    "plugs/onlyalpha-plugin-cn-ashare",
-    "plugs/onlyalpha-plugin-binance-spot",
-    "plugs/onlyalpha-plugin-binance-usdm",
-    "plugs/onlyalpha-plugin-tushare",
-    "plugs/onlyalpha-plugin-binance",
-    "plugs/onlyalpha-plugin-indicators",
-    "plugs/onlyalpha-plugin-operators",
-    "plugs/onlyalpha-plugin-targets",
+    "plugs/onlyalpha-market-cn-ashare",
+    "plugs/onlyalpha-market-crypto",
+    "plugs/onlyalpha-data-source-tushare",
+    "plugs/onlyalpha-data-source-binance",
+    "plugs/onlyalpha-broker-binance",
+    "packages/onlyalpha-indicators",
+    "packages/onlyalpha-operators",
     "packages/backend/python/gateway_protocol",
     "packages/backend/python/algorithms",
     "packages/onlyalpha-calculation-worker",
@@ -149,18 +147,18 @@ strict = true
 mypy_path = ["packages/backend/python/algorithms/sdk"]
 files = [
     "src/onlyalpha",
-    "plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",
-    "plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators",
-    "plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets",
+    "packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators",
+    "packages/onlyalpha-operators/src/onlyalpha_plugin_operators",
+    "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets",
     "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol",
     "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms",
     "packages/onlyalpha-calculation-worker/src/onlyalpha_calculation_worker",
     "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker",
     "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager",
     "packages/onlyalpha-agent-orchestrator/src/onlyalpha_agent_orchestrator",
-    "plugs/onlyalpha-plugin-binance-spot/src/onlyalpha_plugin_binance_spot",
-    "plugs/onlyalpha-plugin-binance-usdm/src/onlyalpha_plugin_binance_usdm",
-    "plugs/onlyalpha-plugin-binance/src/onlyalpha_plugin_binance",
+    "plugs/onlyalpha-market-crypto/src/onlyalpha_market_crypto/spot",
+    "plugs/onlyalpha-market-crypto/src/onlyalpha_market_crypto/derivatives",
+    "plugs/onlyalpha-data-source-binance/src/onlyalpha_plugin_binance",
 ]
 
 [[tool.mypy.overrides]]
@@ -172,7 +170,6 @@ onlyalpha-test-plugin = { path = "test-data/external_plugins/onlyalpha_test_plug
 onlyalpha-test-factor-provider = { path = "test-data/runtime_factor_provider", editable = true }
 onlyalpha-plugin-operators = { workspace = true }
 onlyalpha-plugin-indicators = { workspace = true }
-onlyalpha-plugin-targets = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-backend-algorithms = { workspace = true }
 onlyalpha-calculation-worker = { workspace = true }
@@ -180,23 +177,24 @@ onlyalpha-authoring-execution-worker = { workspace = true }
 onlyalpha-runtime-generation-manager = { workspace = true }
 onlyalpha-agent-orchestrator = { workspace = true }
 onlyalpha-agent = { workspace = true }
-onlyalpha-plugin-binance-spot = { workspace = true }
-onlyalpha-plugin-binance-usdm = { workspace = true }
-onlyalpha-plugin-binance = { workspace = true }
+onlyalpha-market-crypto = { workspace = true }
+onlyalpha-data-source-binance = { workspace = true }
+onlyalpha-broker-binance = { workspace = true }
 
 [tool.pytest.ini_options]
 consider_namespace_packages = true
 testpaths = [
     "scripts/tests",
-    "plugs/onlyalpha-plugin-broker-virtual/tests",
+    "plugs/onlyalpha-broker-virtual/tests",
     "plugs/onlyalpha-plugin-generic-t0-cash/tests",
-    "plugs/onlyalpha-plugin-cn-ashare/tests",
-    "plugs/onlyalpha-plugin-binance-spot/tests",
-    "plugs/onlyalpha-plugin-binance/tests",
-    "plugs/onlyalpha-plugin-tushare/tests",
-    "plugs/onlyalpha-plugin-indicators/tests",
-    "plugs/onlyalpha-plugin-operators/tests",
-    "plugs/onlyalpha-plugin-targets/tests",
+    "plugs/onlyalpha-market-cn-ashare/tests",
+    "plugs/onlyalpha-market-crypto/tests",
+    "plugs/onlyalpha-data-source-binance/tests",
+    "plugs/onlyalpha-broker-binance/tests",
+    "plugs/onlyalpha-data-source-tushare/tests",
+    "packages/onlyalpha-indicators/tests",
+    "packages/onlyalpha-operators/tests",
+    "packages/backend/python/algorithms/tests",
     "packages/backend/tests/transport",
     "packages/backend/python/gateway_protocol/tests",
     "packages/onlyalpha-calculation-worker/tests",
@@ -281,12 +279,13 @@ forbidden_modules = [
     "onlyalpha_plugin_tushare",
     "onlyalpha_plugin_cn_ashare",
     "onlyalpha_plugin_generic_t0_cash",
-    "onlyalpha_plugin_binance_spot",
+    "onlyalpha_market_crypto",
+    "onlyalpha_broker_binance",
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_operators",
+    "onlyalpha_backend_algorithms.targets",
     "onlyalpha_test_factor_provider",
-    "onlyalpha_plugin_targets",
 ]
 
 [tool.coverage.run]

@@ -53,9 +53,9 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 | 边界 | 当前文件与计划责任 |
 |---|---|
 | 最小算法 SDK | `scripts/build_algorithm_sdk.py::build/install`；从根 `src/onlyalpha` 抽取的 SDK 源码移到 `packages/backend/python/algorithms/sdk/onlyalpha/`。现有 worker 源码仍在该算法资源的 `src/onlyalpha_backend_algorithms/` |
-| Python 算法插件 | `plugs/onlyalpha-plugin-indicators`、`operators`、`targets`；只保留算法/描述/必要 authoring，不容纳后端业务 |
+| Python 算法插件 | `packages/onlyalpha-indicators`、`operators`、`targets`；只保留算法/描述/必要 authoring，不容纳后端业务 |
 | Kernel owner | `crates/onlyalpha-kernel/*`；按现有二十个 crate 和真实依赖划分能力，不按旧 Python 类/目录机械照搬 |
-| 数据/Provider | Rust `plugs/onlyalpha-plugin-binance/rust`、`plugs/onlyalpha-plugin-tushare/rust`、`packages/backend/src/application/market_data*`、`persistence/market_data*`、`market_data_wal.rs` |
+| 数据/Provider | Rust `plugs/onlyalpha-data-source-binance/rust`、`plugs/onlyalpha-data-source-tushare/rust`、`packages/backend/src/application/market_data*`、`persistence/market_data*`、`market_data_wal.rs` |
 | 资产/准备/回测 | backend 的 `application/private_factor*`、`private_strategy*`、`strategy_validation`、`frozen_strategy.rs`、Qualification/Promotion、`backtest_*`、对应 persistence、`workers/backtest*`/`trading_*` 与 `crates/onlyalpha-backtest` |
 | 工程/安全工具 | `scripts/database.py`、`compose_test.py`、`backtest_replay_check.py`、`*_reference_check.py`、`rust_kernel_check.py`、`verify.py`、`test_suite.py`；沿现有 owner 改接线，不新建通用迁移框架 |
 | 构建与发布输入 | `pyproject.toml`、`uv.lock`、`hatch_build.py`、`scripts/embed_build_provenance.py`、`runtime_build.py`、`runtime_artifacts.py`、`native_workstation_build.py`、`release_sources.py`、版本/发布消费者、`.github/workflows/ci.yml`、`deploy/Dockerfile.dev` |
@@ -99,7 +99,7 @@ Nautilus 的 [Bar execution](https://nautilustrader.io/docs/latest/concepts/back
 
 ## Task 4: 数据源、行情存储与 Python Provider 存量退役
 
-**Files:** 旧 `src/onlyalpha/data`、`collector`、`market_data`、对应 persistence；`plugs/onlyalpha-plugin-binance`、`tushare` 的旧 Python 分支/entry points 与 Rust owner；其余旧具体市场插件只处理真实消费者可安全退役的部分。直接 Rust owner 在 backend 的 `application/market_data*`、`persistence/market_data*`、`market_data_wal.rs` 与 Kernel Market Data crates。
+**Files:** 旧 `src/onlyalpha/data`、`collector`、`market_data`、对应 persistence；`plugs/onlyalpha-data-source-binance`、`tushare` 的旧 Python 分支/entry points 与 Rust owner；其余旧具体市场插件只处理真实消费者可安全退役的部分。直接 Rust owner 在 backend 的 `application/market_data*`、`persistence/market_data*`、`market_data_wal.rs` 与 Kernel Market Data crates。
 
 **Interfaces:** 复用当前正式数据源/查询/历史准备 API、canonical Source/Instrument/Fact identities、WAL publication/recovery 和 Dataset 封存读取接口。API 不改成 browser 计算/直连 Store；具体规则留 Plugin。
 

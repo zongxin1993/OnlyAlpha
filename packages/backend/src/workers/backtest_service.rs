@@ -8,7 +8,7 @@ use onlyalpha_backtest::{RunLoop,RunSpec,Trading};
 use onlyalpha_calculation::product::Graph;
 use onlyalpha_calculation_bridge::{Cancellation,ChartInstallation,ProcessState,StrategyPreparation};
 use onlyalpha_market_data::{construction::*,delivery::*,state::*,*};
-use onlyalpha_plugin_binance::spot_source::spot_calendar;
+use onlyalpha_data_source_binance::spot_source::spot_calendar;
 use onlyalpha_strategy::{Executor,NodeFailure,Scope};
 use rustix::fs;
 use serde_json::{Value,json};

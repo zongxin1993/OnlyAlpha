@@ -284,7 +284,7 @@ BINANCE_DEPENDENCIES = {
     "futures-util": {"default-features": False, "features": ["sink", "std"], "version": "=0.3.34"},
     "http": {"default-features": False, "features": ["std"], "version": "=1.5.0"},
     "onlyalpha-domain": {"path": "../../crates/domain"},
-    "onlyalpha-fee": {"path": "../../crates/fee"},
+    "onlyalpha-market-crypto": {"path": "../onlyalpha-market-crypto"},
     "onlyalpha-integration-contract": {"path": "../../crates/integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/market-data-construction"},
     "onlyalpha-metadata-json": {"path": "../../crates/metadata-json"},
@@ -300,6 +300,12 @@ BINANCE_DEPENDENCIES = {
     "tokio-tungstenite": {"default-features": False, "features": ["connect", "__rustls-tls"], "version": "=0.30.0"},
 }
 BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
+CRYPTO_MARKET_DEPENDENCIES = {
+    "bigdecimal": BINANCE_DEPENDENCIES["bigdecimal"],
+    "onlyalpha-domain": BINANCE_DEPENDENCIES["onlyalpha-domain"],
+    "onlyalpha-fee": {"path": "../../crates/fee"},
+    "serde_json": BINANCE_DEPENDENCIES["serde_json"],
+}
 
 
 BACKEND_DEPENDENCIES = {
@@ -327,8 +333,9 @@ BACKEND_DEPENDENCIES = {
     "onlyalpha-integration-contract": {"path": "../../crates/integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/market-data-construction"},
     "onlyalpha-metadata-json": {"path": "../../crates/metadata-json"},
-    "onlyalpha-plugin-binance": {"path": "../../plugs/onlyalpha-plugin-binance"},
-    "onlyalpha-plugin-tushare": {"path": "../../plugs/onlyalpha-plugin-tushare"},
+    "onlyalpha-data-source-binance": {"path": "../../plugs/onlyalpha-data-source-binance"},
+    "onlyalpha-market-crypto": {"path": "../../plugs/onlyalpha-market-crypto"},
+    "onlyalpha-data-source-tushare": {"path": "../../plugs/onlyalpha-data-source-tushare"},
     "onlyalpha-strategy": {"path": "../../crates/strategy"},
     "percent-encoding": {"default-features": False, "features": ["std"], "version": "=2.3.2"},
     "reqwest": {"default-features": False, "features": ["rustls"], "version": "=0.13.5"},
@@ -362,8 +369,9 @@ BACKEND_TEST_DEPENDENCIES = {
 
 def validate_workspace(root: Path) -> None:
     modules = {
-        "onlyalpha-plugin-binance": "plugs/onlyalpha-plugin-binance",
-        "onlyalpha-plugin-tushare": "plugs/onlyalpha-plugin-tushare",
+        "onlyalpha-data-source-binance": "plugs/onlyalpha-data-source-binance",
+        "onlyalpha-market-crypto": "plugs/onlyalpha-market-crypto",
+        "onlyalpha-data-source-tushare": "plugs/onlyalpha-data-source-tushare",
         "onlyalpha-domain": "crates/domain",
         "onlyalpha-calculation": "crates/calculation",
         "onlyalpha-calculation-bridge": "crates/calculation-bridge",
@@ -405,8 +413,9 @@ def validate_workspace(root: Path) -> None:
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     for name, dependencies, test_dependencies in (
-        ("onlyalpha-plugin-binance", BINANCE_DEPENDENCIES, BINANCE_TEST_DEPENDENCIES),
-        ("onlyalpha-plugin-tushare", SOURCE_AUTHORING_DEPENDENCIES, {}),
+        ("onlyalpha-data-source-binance", BINANCE_DEPENDENCIES, BINANCE_TEST_DEPENDENCIES),
+        ("onlyalpha-market-crypto", CRYPTO_MARKET_DEPENDENCIES, {}),
+        ("onlyalpha-data-source-tushare", SOURCE_AUTHORING_DEPENDENCIES, {}),
         ("onlyalpha-metadata-json", METADATA_JSON_DEPENDENCIES, {}),
         ("onlyalpha-integration-contract", INTEGRATION_CONTRACT_DEPENDENCIES, {}),
     ):
@@ -590,16 +599,23 @@ def validate_workspace(root: Path) -> None:
                         == (BACKEND_DEPENDENCIES if kind == "dependencies" else BACKEND_TEST_DEPENDENCIES).get(alias)
                     )
                     admitted = admitted or (
-                        name in {"onlyalpha-plugin-binance", "onlyalpha-plugin-tushare"}
+                        name in {"onlyalpha-data-source-binance", "onlyalpha-data-source-tushare"}
                         and section is manifest
                         and kind in {"dependencies", "dev-dependencies"}
                         and alias == dependency
                         and config
                         == (
                             (BINANCE_DEPENDENCIES if kind == "dependencies" else BINANCE_TEST_DEPENDENCIES)
-                            if name == "onlyalpha-plugin-binance"
+                            if name == "onlyalpha-data-source-binance"
                             else (SOURCE_AUTHORING_DEPENDENCIES if kind == "dependencies" else {})
                         ).get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-market-crypto"
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == CRYPTO_MARKET_DEPENDENCIES.get(alias)
                     )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -1287,8 +1303,8 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/runtime/src/references.rs": {
         "../tests/support/replay_references.rs": "crates/runtime/tests/support/replay_references.rs",
     },
-    "plugs/onlyalpha-plugin-binance/src/spot_source.rs": {
-        "spot_temporary.rs": "plugs/onlyalpha-plugin-binance/src/spot_temporary.rs",
+    "plugs/onlyalpha-data-source-binance/src/spot_source.rs": {
+        "spot_temporary.rs": "plugs/onlyalpha-data-source-binance/src/spot_temporary.rs",
     },
     "packages/backend/src/application/market_product/temporary.rs": {
         "temporary_tests.rs": "packages/backend/src/application/market_product/temporary_tests.rs",
@@ -1407,7 +1423,7 @@ def validate_infrastructure_sources(root: Path) -> None:
             ):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
-    for component in ("onlyalpha-plugin-binance", "onlyalpha-plugin-tushare"):
+    for component in ("onlyalpha-data-source-binance", "onlyalpha-data-source-tushare", "onlyalpha-market-crypto"):
         area = root / "plugs" / component
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (
@@ -1432,7 +1448,7 @@ def validate_infrastructure_sources(root: Path) -> None:
                 or re.search(
                     (
                         r"\b(?:SystemTime|UNIX_EPOCH|File|Command)\b|\bstd\s*::\s*(?:fs|process|env)\b|\buse\s+std\s*::\s*\{[^;]*\b(?:fs|process|env)\b"
-                        if component == "onlyalpha-plugin-binance"
+                        if component == "onlyalpha-data-source-binance"
                         and path
                         in {area / "src/spot_rest.rs", area / "src/spot_source.rs", area / "src/spot_temporary.rs"}
                         else _PURE_INPUT_PATTERN
@@ -1451,8 +1467,12 @@ _CORPUS_OWNERS = {
 
 
 def module_path(module: str) -> Path:
-    if module in {"plugin_binance", "plugin_tushare"}:
-        return Path("plugs") / ("onlyalpha-" + module.replace("_", "-"))
+    if module == "plugin_binance":
+        return Path("plugs/onlyalpha-data-source-binance")
+    if module == "plugin_tushare":
+        return Path("plugs/onlyalpha-data-source-tushare")
+    if module == "market_crypto":
+        return Path("plugs/onlyalpha-market-crypto")
     if module == "backend":
         return Path("packages/backend")
     return Path("crates") / module.replace("_", "-")
@@ -1462,7 +1482,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
     destination.mkdir(parents=True)
     for module in modules:
         relative = module_path(module)
-        if module in {"plugin_binance", "plugin_tushare"}:
+        if module in {"plugin_binance", "plugin_tushare", "market_crypto"}:
             area = destination / relative
             area.mkdir(parents=True)
             shutil.copyfile(root / relative / "Cargo.toml", area / "Cargo.toml")
@@ -1486,6 +1506,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "integration_contract",
             "plugin_binance",
             "plugin_tushare",
+            "market_crypto",
         }:
             if module == "market_data":
                 for corpus in _CORPUS_OWNERS:
@@ -1518,7 +1539,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
     shutil.copyfile(root / "rust-toolchain.toml", destination / "rust-toolchain.toml")
     chunks = (root / "Cargo.lock").read_text().split("\n[[package]]\n")
     packages = [tomllib.loads("[[package]]\n" + chunk)["package"][0] for chunk in chunks[1:]]
-    roots = {"onlyalpha-" + module.replace("_", "-") for module in modules}
+    roots = {tomllib.loads((root / member / "Cargo.toml").read_text())["package"]["name"] for member in members}
     selected = {index for index, package in enumerate(packages) if package["name"] in roots}
 
     def dependency_index(reference: str) -> int:
@@ -1644,7 +1665,15 @@ def isolated_plugin_binance(root: Path, destination: Path) -> Path:
     return _isolated_modules(
         root,
         destination,
-        ("domain", "fee", "market_data_construction", "metadata_json", "integration_contract", "plugin_binance"),
+        (
+            "domain",
+            "fee",
+            "market_data_construction",
+            "metadata_json",
+            "integration_contract",
+            "market_crypto",
+            "plugin_binance",
+        ),
     )
 
 
@@ -1688,6 +1717,7 @@ def isolated_backend(root: Path, destination: Path) -> Path:
             "margin",
             "plugin_binance",
             "plugin_tushare",
+            "market_crypto",
         ),
     )
 

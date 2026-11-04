@@ -9,7 +9,7 @@ use onlyalpha_domain::{
     time::{OnlyTimestamp, OnlyUtcDateTime},
     value::{OnlyPrice, OnlyQuantity},
 };
-use onlyalpha_plugin_binance::spot_simulation::{SpotRuleSnapshot, SpotSimulationPolicy};
+use onlyalpha_market_crypto::spot::{SpotRuleSnapshot, SpotSimulationPolicy};
 use onlyalpha_strategy::{NodePort, SourceRevision};
 use serde_json::{Value, json};
 const BAR_NS: u64 = 60_000_000_000;
@@ -289,7 +289,7 @@ pub(crate) mod tests {
         time::{OnlyTimestamp, OnlyUtcDateTime},
         value::OnlyQuantity,
     };
-    use onlyalpha_plugin_binance::spot_simulation::{SpotRuleSnapshot, SpotSimulationPolicy};
+    use onlyalpha_market_crypto::spot::{SpotRuleSnapshot, SpotSimulationPolicy};
     use onlyalpha_strategy::{SourceRevision, record_fingerprint};
     use serde_json::{Value, json};
     const BAR_NS: u64 = 60_000_000_000;

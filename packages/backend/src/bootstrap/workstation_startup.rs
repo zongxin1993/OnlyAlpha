@@ -373,11 +373,11 @@ impl Running {
         );
         let catalog = Arc::new(
             AuthoringCatalog::new(vec![
-                onlyalpha_plugin_binance::spot_authoring(WORK)
+                onlyalpha_data_source_binance::spot_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-                onlyalpha_plugin_binance::usdm_authoring(WORK)
+                onlyalpha_data_source_binance::usdm_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-                onlyalpha_plugin_tushare::daily_authoring(WORK)
+                onlyalpha_data_source_tushare::daily_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
             ])
             .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
@@ -388,7 +388,7 @@ impl Running {
             .map_err(|_| Failure::unavailable("NATIVE_ARTIFACT_UNAVAILABLE"))?;
         let bytes = read_bounded(&executable, FilePolicy::Executable, 128 * 1024 * 1024)
             .map_err(|_| Failure::unavailable("NATIVE_ARTIFACT_UNAVAILABLE"))?;
-        let factory = onlyalpha_plugin_binance::spot_source::SpotFactory::installed()
+        let factory = onlyalpha_data_source_binance::spot_source::SpotFactory::installed()
             .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?;
         let resolver = Resolver::new(
             vec![Installed::from_executable(Arc::new(factory), &bytes)?],

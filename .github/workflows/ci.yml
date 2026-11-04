@@ -54,10 +54,10 @@ jobs:
 
           expected = {
               "onlyalpha",
-              "onlyalpha-plugin-broker-virtual",
+              "onlyalpha-broker-virtual",
               "onlyalpha-plugin-generic-t0-cash",
-              "onlyalpha-plugin-cn-ashare",
-              "onlyalpha-plugin-tushare",
+              "onlyalpha-market-cn-ashare",
+              "onlyalpha-data-source-tushare",
           }
 
           failures: list[str] = []
@@ -126,7 +126,7 @@ jobs:
         run: uv run ruff format --check src tests examples
 
       - name: Mypy Core
-        run: uv run mypy src/onlyalpha plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators plugs/onlyalpha-plugin-targets/src/onlyalpha_plugin_targets
+        run: uv run mypy src/onlyalpha packages/onlyalpha-operators/src/onlyalpha_plugin_operators packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets
 
       - name: Run Core tests
         run: >-
@@ -159,13 +159,13 @@ jobs:
       - name: Synchronize workspace
         run: uv sync --frozen --all-packages --all-groups
       - name: Ruff lint Virtual Broker
-        run: uv run ruff check plugs/onlyalpha-plugin-broker-virtual
+        run: uv run ruff check plugs/onlyalpha-broker-virtual
       - name: Ruff format Virtual Broker
-        run: uv run ruff format --check plugs/onlyalpha-plugin-broker-virtual
+        run: uv run ruff format --check plugs/onlyalpha-broker-virtual
       - name: Mypy Virtual Broker
-        run: uv run mypy --config-file plugs/onlyalpha-plugin-broker-virtual/pyproject.toml plugs/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual
+        run: uv run mypy --config-file plugs/onlyalpha-broker-virtual/pyproject.toml plugs/onlyalpha-broker-virtual/src/onlyalpha_plugin_broker_virtual
       - name: Test Virtual Broker
-        run: uv run pytest plugs/onlyalpha-plugin-broker-virtual/tests -q
+        run: uv run pytest plugs/onlyalpha-broker-virtual/tests -q
 
   tushare:
     name: Tushare / ${{ matrix.os }}
@@ -198,24 +198,24 @@ jobs:
       - name: Ruff lint Tushare
         run: >-
           uv run ruff check
-          plugs/onlyalpha-plugin-tushare/src
-          plugs/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-data-source-tushare/src
+          plugs/onlyalpha-data-source-tushare/tests
 
       - name: Ruff format Tushare
         run: >-
           uv run ruff format --check
-          plugs/onlyalpha-plugin-tushare/src
-          plugs/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-data-source-tushare/src
+          plugs/onlyalpha-data-source-tushare/tests
 
       - name: Mypy Tushare
         run: >-
           uv run mypy
-          plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare
+          plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare
 
       - name: Run offline Tushare tests
         run: >-
           uv run pytest
-          plugs/onlyalpha-plugin-tushare/tests
+          plugs/onlyalpha-data-source-tushare/tests
           -q
           -m "not external
           and not requires_network
@@ -250,10 +250,10 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check plugs/onlyalpha-plugin-cn-ashare
-      - run: uv run ruff format --check plugs/onlyalpha-plugin-cn-ashare
-      - run: uv run mypy --config-file plugs/onlyalpha-plugin-cn-ashare/pyproject.toml plugs/onlyalpha-plugin-cn-ashare/src/onlyalpha_plugin_cn_ashare
-      - run: uv run pytest plugs/onlyalpha-plugin-cn-ashare/tests -q
+      - run: uv run ruff check plugs/onlyalpha-market-cn-ashare
+      - run: uv run ruff format --check plugs/onlyalpha-market-cn-ashare
+      - run: uv run mypy --config-file plugs/onlyalpha-market-cn-ashare/pyproject.toml plugs/onlyalpha-market-cn-ashare/src/onlyalpha_plugin_cn_ashare
+      - run: uv run pytest plugs/onlyalpha-market-cn-ashare/tests -q
 
   # ---------------------------------------------------------------------------
   # 产品级纵切面。

@@ -171,7 +171,7 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
                         }
                         value["features"] = sorted(set(prior.get("features", [])) | set(value.get("features", [])))
                     deps[key] = value
-                deps["onlyalpha-" + module.replace("_", "-")] = {
+                deps[data["package"]["name"]] = {
                     "path": os.path.relpath(root / module_path(module), consumer)
                 }
             (consumer / "Cargo.toml").write_text(

@@ -31,10 +31,10 @@ TEST_DISTRIBUTION_PATHS = (
 WEB_PACKAGE_PATH = Path("packages/frontend/package.json")
 WEB_LOCK_PATH = Path("packages/frontend/package-lock.json")
 QUANT_ASSET_VERSION_PROJECTIONS = {
-    Path("plugs/onlyalpha-plugin-operators/src/onlyalpha_plugin_operators/metadata.py"): re.compile(
+    Path("packages/onlyalpha-operators/src/onlyalpha_plugin_operators/metadata.py"): re.compile(
         r'(?m)^(?P<prefix>DISTRIBUTION_VERSION\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>[ \t]*)$'
     ),
-    Path("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators/provider.py"): re.compile(
+    Path("packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators/provider.py"): re.compile(
         r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
     ),
 }

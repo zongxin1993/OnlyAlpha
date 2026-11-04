@@ -25,7 +25,7 @@ from typing import Any, cast
 
 from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
-from onlyalpha_plugin_binance.common.private_http import (
+from onlyalpha_broker_binance.private_http import (
     OnlyBinanceCredentials,
     OnlyBinancePrivateHttpClient,
 )
@@ -36,10 +36,10 @@ from onlyalpha_plugin_binance.usdm import (
     OnlyBinanceUsdmReferenceCapture,
     only_normalize_binance_usdm_kline,
 )
-from onlyalpha_plugin_binance_spot import OnlyBinanceSpotMarketProductFactory, OnlyBinanceSpotReference
-from onlyalpha_plugin_binance_spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
-from onlyalpha_plugin_binance_usdm import OnlyBinanceUsdmMarketProductFactory, OnlyBinanceUsdmPublicMarketReference
-from onlyalpha_plugin_binance_usdm.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
+from onlyalpha_market_crypto.spot import OnlyBinanceSpotMarketProductFactory, OnlyBinanceSpotReference
+from onlyalpha_market_crypto.spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
+from onlyalpha_market_crypto.derivatives import OnlyBinanceUsdmMarketProductFactory, OnlyBinanceUsdmPublicMarketReference
+from onlyalpha_market_crypto.derivatives.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
 
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
 from onlyalpha.backtest import (

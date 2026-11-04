@@ -208,9 +208,9 @@ fn prepare_installed(
         release.wheel("onlyalpha-plugin-operators", &provider_version)?;
     let target_wheel = if with_targets {
         let version = installation
-            .installed_distribution_version("onlyalpha-plugin-targets")
+            .installed_distribution_version("onlyalpha-backend-algorithms")
             .map_err(|_| INVALID)?;
-        let (name, bytes) = release.wheel("onlyalpha-plugin-targets", &version)?;
+        let (name, bytes) = release.wheel("onlyalpha-backend-algorithms", &version)?;
         Some((version, name, bytes))
     } else {
         None
@@ -443,7 +443,7 @@ fn prepare_installed(
     if let Some((version, name, bytes)) = target_wheel {
         let mut target_artifact = distribution(
             "CALCULATION",
-            ("onlyalpha-plugin-targets", &version),
+            ("onlyalpha-backend-algorithms", &version),
             &name,
             &bytes,
             &provenance,

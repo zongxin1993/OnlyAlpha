@@ -33,7 +33,7 @@ from decimal import Decimal, ROUND_DOWN, getcontext
 from onlyalpha_backend_algorithms.chart_isolation import restrict
 from onlyalpha_backend_algorithms.trading_session import TradingGraphSession
 from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
-from onlyalpha_plugin_targets.registration import resolve_forward_return
+from onlyalpha_backend_algorithms.targets.registration import resolve_forward_return
 from onlyalpha.calculation.definition import OnlyCalculationReference
 p=json.loads(sys.stdin.read())
 assert restrict() == 'LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1'

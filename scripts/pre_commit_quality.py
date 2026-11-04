@@ -62,9 +62,9 @@ MYPY_SCOPES = (
     ),
     MypyScope(
         name="Tushare",
-        config_file=("plugs/onlyalpha-plugin-tushare/pyproject.toml"),
-        source_path=("plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare"),
-        trigger_paths=("plugs/onlyalpha-plugin-tushare",),
+        config_file=("plugs/onlyalpha-data-source-tushare/pyproject.toml"),
+        source_path=("plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare"),
+        trigger_paths=("plugs/onlyalpha-data-source-tushare",),
     ),
 )
 

@@ -234,7 +234,7 @@ def test_algorithm_plugin_wheel_keeps_its_own_version(tmp_path, monkeypatch):
     backend = source / "packages/backend/Cargo.toml"
     backend.parent.mkdir(parents=True)
     backend.write_text('[package]\nversion = "0.7.0"\n')
-    plugin = source / "plugs/onlyalpha-plugin-indicators/pyproject.toml"
+    plugin = source / "packages/onlyalpha-indicators/pyproject.toml"
     plugin.parent.mkdir(parents=True)
     plugin.write_text('[project]\nversion = "0.2.0"\n')
     monkeypatch.setattr(builder, "ROOT", source)
@@ -271,7 +271,7 @@ def test_managed_sdk_contains_source_execution_without_product_authoring(tmp_pat
         "onlyalpha/quant_assets/private_factor_provider_snapshot.py",
     }
     assert any(path.name.startswith("onlyalpha_plugin_operators-") for path in wheels)
-    assert any(path.name.startswith("onlyalpha_plugin_targets-") for path in wheels)
+    assert any(path.name.startswith("onlyalpha_backend_algorithms-") for path in wheels)
 
 
 def test_installed_research_source_resolution_is_not_execution(tmp_path: Path) -> None:

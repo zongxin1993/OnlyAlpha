@@ -13,6 +13,7 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
+onlyalpha-market-crypto = { path = "../../plugs/onlyalpha-market-crypto" }
 onlyalpha-backtest = { path = "../../crates/backtest" }
 onlyalpha-account = { path = "../../crates/account" }
 arrow-array = { version = "=59.3.2", default-features = false }
@@ -24,8 +25,8 @@ onlyalpha-market-data-construction = { path = "../../crates/market-data-construc
 onlyalpha-market-data = { path = "../../crates/market-data" }
 onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
 onlyalpha-calculation-bridge = { path = "../../crates/calculation-bridge" }
-onlyalpha-plugin-binance = { path = "../../plugs/onlyalpha-plugin-binance" }
-onlyalpha-plugin-tushare = { path = "../../plugs/onlyalpha-plugin-tushare" }
+onlyalpha-data-source-binance = { path = "../../plugs/onlyalpha-data-source-binance" }
+onlyalpha-data-source-tushare = { path = "../../plugs/onlyalpha-data-source-tushare" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
 onlyalpha-integration-contract = { path = "../../crates/integration-contract" }

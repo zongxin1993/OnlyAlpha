@@ -96,7 +96,7 @@ def prepare(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
 
 def prepare_strategy(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
     """Observe the actual installed Target library before entering confinement."""
-    from onlyalpha_plugin_targets.registration import registrations as target_registrations
+    from onlyalpha_backend_algorithms.targets.registration import registrations as target_registrations
 
     from onlyalpha_backend_algorithms.research_resolution import private_calculation_records
 
@@ -106,10 +106,10 @@ def prepare_strategy(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
         or type(payload["schema_version"]) is not int
         or payload["schema_version"] != 1
         or payload["contract"] != STRATEGY_CONTRACT
-        or payload["target_artifact"]["distribution_version"] != version("onlyalpha-plugin-targets")
+        or payload["target_artifact"]["distribution_version"] != version("onlyalpha-backend-algorithms")
     ):
         raise ValueError("RESEARCH_STRATEGY_PREPARATION_INPUT_INVALID")
-    target = verify_distribution(payload["target_artifact"], "onlyalpha_plugin_targets", "onlyalpha-plugin-targets")
+    target = verify_distribution(payload["target_artifact"], "onlyalpha_backend_algorithms", "onlyalpha-backend-algorithms")
     registrations = target_registrations()
     if not registrations or any(
         row.type_definition.kind.value != "TARGET"

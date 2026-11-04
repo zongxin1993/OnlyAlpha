@@ -590,7 +590,7 @@ impl Host {
         let r = revision.record();
         let d = Descriptor::from_json(r.type_descriptor_document.raw().get(), WORK)
             .map_err(|_| Failure::unavailable("INTEGRATION_REVISION_CORRUPT"))?;
-        onlyalpha_plugin_binance::spot_history_identity(&d, r.configuration_document.raw())
+        onlyalpha_data_source_binance::spot_history_identity(&d, r.configuration_document.raw())
             .map_err(|_| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"))
     }
     pub(crate) async fn resolve(
@@ -698,7 +698,7 @@ impl Host {
                         &session,
                         &mut store,
                         Self::identity(snapshot, &reference)?,
-                        onlyalpha_plugin_binance::spot_source::spot_calendar().map_err(|_| {
+                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(|_| {
                             Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE")
                         })?,
                         instrument,
@@ -796,7 +796,7 @@ impl Host {
                         &session,
                         &mut store,
                         Self::identity(snapshot, &reference)?,
-                        onlyalpha_plugin_binance::spot_source::spot_calendar().map_err(|_| {
+                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(|_| {
                             Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE")
                         })?,
                         &query,

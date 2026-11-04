@@ -1792,7 +1792,7 @@ def test_native_strategy_environment_retains_target_calculation_artifact_without
         json.loads((runtime / "artifacts" / digest[:2] / digest / "manifest.json").read_text())
         for digest in manifest.artifact_sha256s
     ]
-    targets = [m for m in artifacts if m["distribution_name"] == "onlyalpha-plugin-targets"]
+    targets = [m for m in artifacts if m["distribution_name"] == "onlyalpha-backend-algorithms"]
     assert len(targets) == 1
     target = targets[0]
     assert OnlyDistributionArtifactManifest.from_dict(target).to_dict() == target
@@ -1803,7 +1803,7 @@ def test_native_strategy_environment_retains_target_calculation_artifact_without
     assert target["implementations"]
     assert all(i["kind"] == "TARGET" and i["backend"] == "RESEARCH" for i in target["implementations"])
     assert all(i in first["manifest"]["implementations"] for i in target["implementations"])
-    wheel = next((root / "wheels").glob("onlyalpha_plugin_targets-*.whl"))
+    wheel = next((root / "wheels").glob("onlyalpha_backend_algorithms-*.whl"))
     assert target["artifact_sha256"] == hashlib.sha256(wheel.read_bytes()).hexdigest()
     retained = runtime / "artifacts" / target["artifact_sha256"][:2] / target["artifact_sha256"] / "artifact.whl"
     assert retained.read_bytes() == wheel.read_bytes()

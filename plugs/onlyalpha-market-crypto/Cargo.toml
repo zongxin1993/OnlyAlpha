@@ -1,0 +1,19 @@
+[package]
+name = "onlyalpha-market-crypto"
+version = "0.11.1"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+onlyalpha-domain = { path = "../../crates/domain" }
+onlyalpha-fee = { path = "../../crates/fee" }
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }

@@ -127,8 +127,8 @@ LANES = {
             "tests/plugin/test_entry_point_discovery.py",
             "tests/plugin/test_quant_asset_catalog.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
-            "plugs/onlyalpha-plugin-indicators/tests",
-            "plugs/onlyalpha-plugin-operators/tests",
+            "packages/onlyalpha-indicators/tests",
+            "packages/onlyalpha-operators/tests",
         ),
         "not external",
         "4",
@@ -149,7 +149,7 @@ LANES = {
             "tests/calculation",
             "tests/architecture/test_research_calculation_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
-            "plugs/onlyalpha-plugin-indicators/tests/test_research_characterization.py",
+            "packages/onlyalpha-indicators/tests/test_research_characterization.py",
         ),
         "not external",
         "4",
@@ -159,7 +159,7 @@ LANES = {
         (
             "tests/research/factor",
             "tests/quant_assets/test_private_factor_native_execution.py",
-            "plugs/onlyalpha-plugin-operators/tests",
+            "packages/onlyalpha-operators/tests",
             "tests/research/calculation/test_execution.py",
             (
                 "tests/research/calculation/test_execution_evidence.py"
@@ -176,7 +176,7 @@ LANES = {
     OnlyTestLane.RESEARCH_EVALUATION: Lane(
         (
             "tests/research/evaluation",
-            "plugs/onlyalpha-plugin-targets/tests",
+            "packages/backend/python/algorithms/tests",
             "tests/architecture/test_research_evaluation_boundaries.py",
             "tests/research/factor/test_indicator_identity_regression.py",
         ),
@@ -328,8 +328,8 @@ LANES = {
             "tests/cache",
             "tests/architecture/test_research_dataset_boundaries.py",
             "tests/architecture/test_historical_provider_boundaries.py",
-            "plugs/onlyalpha-plugin-tushare/tests/test_provider.py",
-            "plugs/onlyalpha-plugin-tushare/tests/test_historical.py",
+            "plugs/onlyalpha-data-source-tushare/tests/test_provider.py",
+            "plugs/onlyalpha-data-source-tushare/tests/test_historical.py",
         ),
         "not external",
         "4",
@@ -433,8 +433,8 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "run",
         "mypy",
         "--config-file",
-        "plugs/onlyalpha-plugin-broker-virtual/pyproject.toml",
-        "plugs/onlyalpha-plugin-broker-virtual/src/onlyalpha_plugin_broker_virtual",
+        "plugs/onlyalpha-broker-virtual/pyproject.toml",
+        "plugs/onlyalpha-broker-virtual/src/onlyalpha_plugin_broker_virtual",
     ),
     (
         "uv",
@@ -449,16 +449,16 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
         "run",
         "mypy",
         "--config-file",
-        "plugs/onlyalpha-plugin-cn-ashare/pyproject.toml",
-        "plugs/onlyalpha-plugin-cn-ashare/src/onlyalpha_plugin_cn_ashare",
+        "plugs/onlyalpha-market-cn-ashare/pyproject.toml",
+        "plugs/onlyalpha-market-cn-ashare/src/onlyalpha_plugin_cn_ashare",
     ),
     (
         "uv",
         "run",
         "mypy",
         "--config-file",
-        "plugs/onlyalpha-plugin-tushare/pyproject.toml",
-        "plugs/onlyalpha-plugin-tushare/src/onlyalpha_plugin_tushare",
+        "plugs/onlyalpha-data-source-tushare/pyproject.toml",
+        "plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare",
     ),
     ("uv", "run", "lint-imports"),
     ("uv", "run", "python", "scripts/version_sync.py", "check"),
@@ -639,7 +639,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_RESULT: ("src/onlyalpha/research/result",),
             OnlyTestLane.RESEARCH_EVALUATION: (
                 "src/onlyalpha/research/evaluation",
-                "onlyalpha_plugin_targets",
+                "onlyalpha_backend_algorithms.targets",
             ),
             OnlyTestLane.RESEARCH_SWEEP: ("src/onlyalpha/research/sweep",),
             OnlyTestLane.RESEARCH_FACTOR: (
@@ -649,7 +649,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             ),
             OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
-            OnlyTestLane.CALCULATION: ("plugs/onlyalpha-plugin-indicators/src/onlyalpha_plugin_indicators",),
+            OnlyTestLane.CALCULATION: ("packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators",),
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
             OnlyTestLane.RESEARCH_AGENT: ("src/onlyalpha/research/agent",),
         }.get(name, ("src/onlyalpha",))

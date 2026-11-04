@@ -1422,13 +1422,14 @@ dependencies = [
  "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",
+ "onlyalpha-data-source-binance",
+ "onlyalpha-data-source-tushare",
  "onlyalpha-domain",
  "onlyalpha-integration-contract",
+ "onlyalpha-market-crypto",
  "onlyalpha-market-data",
  "onlyalpha-market-data-construction",
  "onlyalpha-metadata-json",
- "onlyalpha-plugin-binance",
- "onlyalpha-plugin-tushare",
  "onlyalpha-runtime",
  "onlyalpha-strategy",
  "parquet",
@@ -1510,6 +1511,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-data-source-binance"
+version = "0.11.1"
+dependencies = [
+ "bigdecimal",
+ "flate2",
+ "futures-util",
+ "http",
+ "onlyalpha-domain",
+ "onlyalpha-integration-contract",
+ "onlyalpha-market-crypto",
+ "onlyalpha-market-data-construction",
+ "onlyalpha-metadata-json",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
+name = "onlyalpha-data-source-tushare"
+version = "0.11.1"
+dependencies = [
+ "onlyalpha-integration-contract",
+ "onlyalpha-metadata-json",
+ "serde_json",
+]
+
+[[package]]
 name = "onlyalpha-domain"
 version = "0.11.1"
 dependencies = [
@@ -1583,6 +1614,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-market-crypto"
+version = "0.11.1"
+dependencies = [
+ "bigdecimal",
+ "onlyalpha-domain",
+ "onlyalpha-fee",
+ "serde_json",
+]
+
+[[package]]
 name = "onlyalpha-market-data"
 version = "0.11.1"
 dependencies = [
@@ -1622,36 +1663,6 @@ dependencies = [
  "onlyalpha-domain",
  "serde_json",
  "sha2",
-]
-
-[[package]]
-name = "onlyalpha-plugin-binance"
-version = "0.11.1"
-dependencies = [
- "bigdecimal",
- "flate2",
- "futures-util",
- "http",
- "onlyalpha-domain",
- "onlyalpha-fee",
- "onlyalpha-integration-contract",
- "onlyalpha-market-data-construction",
- "onlyalpha-metadata-json",
- "reqwest",
- "rustls",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
-name = "onlyalpha-plugin-tushare"
-version = "0.11.1"
-dependencies = [
- "onlyalpha-integration-contract",
- "onlyalpha-metadata-json",
- "serde_json",
 ]
 
 [[package]]

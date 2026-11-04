@@ -220,3 +220,43 @@ fn metadata_mid_read_root_replacement_is_rejected_without_touching_the_original_
         "the original unmodified readonly history remains usable"
     );
 }
+
+#[test]
+fn target_selection_uses_the_held_generation_wheel_across_distribution_names() {
+    for distribution in ["onlyalpha-plugin-targets", "onlyalpha-backend-algorithms"] {
+        use sha2::{Digest, Sha256};
+
+        let mut fixture = Fixture::new();
+        let relative = "target/artifact.whl";
+        std::fs::create_dir(fixture.root.join("target")).unwrap();
+        let bytes = distribution.as_bytes();
+        let digest: String = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        write(&fixture.root.join(relative), bytes);
+        write(
+            &fixture.root.join("target/manifest.json"),
+            &serde_json::to_vec(&json!({
+                "distribution_name": distribution,
+                "distribution_version": "bound-version",
+                "implementations": [{
+                    "kind": "TARGET",
+                    "type_id": "onlyalpha.target.forward_return",
+                    "semantic_version": "1",
+                    "backend": "RESEARCH",
+                }],
+            }))
+            .unwrap(),
+        );
+        fixture.hold.retained.artifacts = vec![(relative.into(), digest.clone(), bytes.len() as u64)];
+
+        let selected = fixture.hold.retained.target_artifact().unwrap();
+        assert_eq!(selected["sha256"], digest);
+        assert_eq!(selected["path"], json!(fixture.root.join(relative)));
+        assert_eq!(selected["distribution_version"], "bound-version");
+
+        std::fs::write(fixture.root.join(relative), b"changed").unwrap();
+        assert!(fixture.hold.retained.target_artifact().is_err());
+    }
+}

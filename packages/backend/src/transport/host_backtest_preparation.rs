@@ -22,7 +22,8 @@ use crate::{
     workers::backtest::PreparedNextOpen,
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
-use onlyalpha_plugin_binance::{spot_rest::PublicRest, spot_simulation::SpotRuleSnapshot};
+use onlyalpha_data_source_binance::spot_rest::PublicRest;
+use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
 use std::os::fd::AsFd;
 const BAR: u64 = 60_000_000_000;
 const START: &str = "2025-01-03T00:00:00Z";

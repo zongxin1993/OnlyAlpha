@@ -47,7 +47,7 @@ def test_exact_installed_generation_resolves_after_retirement_without_current_re
     wheels = [
         build_wheel(repository, tmp_path / "core"),
         build_wheel(repository / "packages/onlyalpha-runtime-generation-manager", tmp_path / "manager"),
-        build_wheel(repository / "plugs/onlyalpha-plugin-indicators", tmp_path / "indicators"),
+        build_wheel(repository / "packages/onlyalpha-indicators", tmp_path / "indicators"),
         installed_distribution_wheel("pyarrow", tmp_path / "arrow"),
     ]
     core = plain_artifact(

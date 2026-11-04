@@ -16,16 +16,15 @@ members = [
     "onlyalpha-backend-algorithms",
     "onlyalpha-calculation-worker",
     "onlyalpha-gateway-protocol",
-    "onlyalpha-plugin-binance",
-    "onlyalpha-plugin-binance-spot",
-    "onlyalpha-plugin-binance-usdm",
-    "onlyalpha-plugin-broker-virtual",
-    "onlyalpha-plugin-cn-ashare",
+    "onlyalpha-data-source-binance",
+    "onlyalpha-broker-binance",
+    "onlyalpha-market-crypto",
+    "onlyalpha-broker-virtual",
+    "onlyalpha-market-cn-ashare",
     "onlyalpha-plugin-generic-t0-cash",
     "onlyalpha-plugin-indicators",
     "onlyalpha-plugin-operators",
-    "onlyalpha-plugin-targets",
-    "onlyalpha-plugin-tushare",
+    "onlyalpha-data-source-tushare",
     "onlyalpha-runtime-generation-manager",
 ]
 
@@ -1131,7 +1130,6 @@ dev = [
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators" },
-    { name = "onlyalpha-plugin-targets" },
     { name = "onlyalpha-runtime-generation-manager" },
     { name = "onlyalpha-test-factor-provider" },
     { name = "onlyalpha-test-plugin" },
@@ -1197,9 +1195,8 @@ dev = [
     { name = "onlyalpha-backend-algorithms", editable = "packages/backend/python/algorithms" },
     { name = "onlyalpha-calculation-worker", editable = "packages/onlyalpha-calculation-worker" },
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
-    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
-    { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
+    { name = "onlyalpha-plugin-indicators", editable = "packages/onlyalpha-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
     { name = "onlyalpha-runtime-generation-manager", editable = "packages/onlyalpha-runtime-generation-manager" },
     { name = "onlyalpha-test-factor-provider", editable = "test-data/runtime_factor_provider" },
     { name = "onlyalpha-test-plugin", editable = "test-data/external_plugins/onlyalpha_test_plugin" },
@@ -1287,16 +1284,14 @@ dependencies = [
     { name = "onlyalpha-gateway-protocol" },
     { name = "onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators" },
-    { name = "onlyalpha-plugin-targets" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
-    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
-    { name = "onlyalpha-plugin-targets", editable = "plugs/onlyalpha-plugin-targets" },
+    { name = "onlyalpha-plugin-indicators", editable = "packages/onlyalpha-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
 ]
 
 [[package]]
@@ -1306,7 +1301,7 @@ source = { editable = "packages/onlyalpha-calculation-worker" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-broker-virtual" },
+    { name = "onlyalpha-broker-virtual" },
     { name = "onlyalpha-plugin-generic-t0-cash" },
     { name = "onlyalpha-plugin-indicators" },
     { name = "onlyalpha-plugin-operators" },
@@ -1316,10 +1311,10 @@ dependencies = [
 requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-broker-virtual", editable = "plugs/onlyalpha-plugin-broker-virtual" },
+    { name = "onlyalpha-broker-virtual", editable = "plugs/onlyalpha-broker-virtual" },
     { name = "onlyalpha-plugin-generic-t0-cash", editable = "plugs/onlyalpha-plugin-generic-t0-cash" },
-    { name = "onlyalpha-plugin-indicators", editable = "plugs/onlyalpha-plugin-indicators" },
-    { name = "onlyalpha-plugin-operators", editable = "plugs/onlyalpha-plugin-operators" },
+    { name = "onlyalpha-plugin-indicators", editable = "packages/onlyalpha-indicators" },
+    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
 ]
 
 [[package]]
@@ -1338,28 +1333,26 @@ requires-dist = [
 ]
 
 [[package]]
-name = "onlyalpha-plugin-binance"
+name = "onlyalpha-data-source-binance"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-binance" }
+source = { editable = "plugs/onlyalpha-data-source-binance" }
 dependencies = [
     { name = "onlyalpha" },
-    { name = "onlyalpha-plugin-binance-spot" },
-    { name = "onlyalpha-plugin-binance-usdm" },
+    { name = "onlyalpha-market-crypto" },
     { name = "websocket-client" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-plugin-binance-spot", editable = "plugs/onlyalpha-plugin-binance-spot" },
-    { name = "onlyalpha-plugin-binance-usdm", editable = "plugs/onlyalpha-plugin-binance-usdm" },
+    { name = "onlyalpha-market-crypto", editable = "plugs/onlyalpha-market-crypto" },
     { name = "websocket-client", specifier = ">=1.8,<2" },
 ]
 
 [[package]]
-name = "onlyalpha-plugin-binance-spot"
+name = "onlyalpha-market-crypto"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-binance-spot" }
+source = { editable = "plugs/onlyalpha-market-crypto" }
 dependencies = [
     { name = "onlyalpha" },
 ]
@@ -1368,20 +1361,9 @@ dependencies = [
 requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
-name = "onlyalpha-plugin-binance-usdm"
+name = "onlyalpha-broker-virtual"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-binance-usdm" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[[package]]
-name = "onlyalpha-plugin-broker-virtual"
-version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-broker-virtual" }
+source = { editable = "plugs/onlyalpha-broker-virtual" }
 dependencies = [
     { name = "onlyalpha" },
 ]
@@ -1406,9 +1388,9 @@ dev = [
 ]
 
 [[package]]
-name = "onlyalpha-plugin-cn-ashare"
+name = "onlyalpha-market-cn-ashare"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-cn-ashare" }
+source = { editable = "plugs/onlyalpha-market-cn-ashare" }
 dependencies = [
     { name = "onlyalpha" },
 ]
@@ -1462,7 +1444,7 @@ dev = [
 [[package]]
 name = "onlyalpha-plugin-indicators"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-indicators" }
+source = { editable = "packages/onlyalpha-indicators" }
 dependencies = [
     { name = "onlyalpha" },
 ]
@@ -1487,7 +1469,7 @@ dev = [
 [[package]]
 name = "onlyalpha-plugin-operators"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-operators" }
+source = { editable = "packages/onlyalpha-operators" }
 dependencies = [
     { name = "onlyalpha" },
 ]
@@ -1496,23 +1478,12 @@ dependencies = [
 requires-dist = [{ name = "onlyalpha", editable = "." }]
 
 [[package]]
-name = "onlyalpha-plugin-targets"
+name = "onlyalpha-data-source-tushare"
 version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-targets" }
+source = { editable = "plugs/onlyalpha-data-source-tushare" }
 dependencies = [
     { name = "onlyalpha" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[[package]]
-name = "onlyalpha-plugin-tushare"
-version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-tushare" }
-dependencies = [
-    { name = "onlyalpha" },
-    { name = "onlyalpha-plugin-cn-ashare" },
+    { name = "onlyalpha-market-cn-ashare" },
     { name = "tushare" },
 ]
 
@@ -1527,7 +1498,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-plugin-cn-ashare", editable = "plugs/onlyalpha-plugin-cn-ashare" },
+    { name = "onlyalpha-market-cn-ashare", editable = "plugs/onlyalpha-market-cn-ashare" },
     { name = "tushare", specifier = ">=1.4.21,<2" },
 ]
 
@@ -2560,4 +2531,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ff/8d/0309daffea4fcac7981021dbf21cdb2e3427a9e76bafbcdbdf5392ff99a4/zstandard-0.25.0-cp312-cp312-win32.whl", hash = "sha256:23ebc8f17a03133b4426bcc04aabd68f8236eb78c3760f12783385171b0fd8bd", size = 436922, upload-time = "2025-09-14T22:17:24.398Z" },
     { url = "https://files.pythonhosted.org/packages/79/3b/fa54d9015f945330510cb5d0b0501e8253c127cca7ebe8ba46a965df18c5/zstandard-0.25.0-cp312-cp312-win_amd64.whl", hash = "sha256:ffef5a74088f1e09947aecf91011136665152e0b4b359c42be3373897fb39b01", size = 506276, upload-time = "2025-09-14T22:17:21.429Z" },
     { url = "https://files.pythonhosted.org/packages/ea/6b/8b51697e5319b1f9ac71087b0af9a40d8a6288ff8025c36486e0c12abcc4/zstandard-0.25.0-cp312-cp312-win_arm64.whl", hash = "sha256:181eb40e0b6a29b3cd2849f825e0fa34397f649170673d385f3598ae17cca2e9", size = 462679, upload-time = "2025-09-14T22:17:23.147Z" },
+]
+
+
+[[package]]
+name = "onlyalpha-broker-binance"
+version = "0.11.1"
+source = { editable = "plugs/onlyalpha-broker-binance" }
+dependencies = [
+    { name = "onlyalpha" },
+    { name = "websocket-client" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "onlyalpha", editable = "." },
+    { name = "websocket-client", specifier = ">=1.8,<2" },
 ]

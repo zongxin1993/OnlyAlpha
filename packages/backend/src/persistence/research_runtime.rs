@@ -175,9 +175,7 @@ impl RuntimeEvidenceHold {
         let operator = self
             .retained
             .distribution_artifact("onlyalpha-plugin-operators")?;
-        let target = self
-            .retained
-            .distribution_artifact("onlyalpha-plugin-targets")?;
+        let target = self.retained.target_artifact()?;
         let bindings = self.retained.manifest["private_factor_bindings"]
             .as_array()
             .ok_or(INVALID)?
@@ -777,13 +775,29 @@ impl RuntimeInputHold {
     /// Select only an already physically verified wheel of this held Generation.
     /// This does not discover an installed/current distribution or grant work.
     pub(crate) fn distribution_artifact(&mut self, distribution: &str) -> Result<Value> {
+        self.select_distribution_artifact(|manifest| manifest["distribution_name"] == distribution)
+    }
+    /// Resolve the exact Target implementation declared by this Generation.
+    pub(crate) fn target_artifact(&mut self) -> Result<Value> {
+        self.select_distribution_artifact(|manifest| {
+            manifest["implementations"].as_array().is_some_and(|implementations| {
+                implementations.iter().any(|implementation| {
+                    implementation["kind"] == "TARGET"
+                        && implementation["type_id"] == "onlyalpha.target.forward_return"
+                        && implementation["semantic_version"] == "1"
+                        && implementation["backend"] == "RESEARCH"
+                })
+            })
+        })
+    }
+    fn select_distribution_artifact(&mut self, matches: impl Fn(&Value) -> bool) -> Result<Value> {
         self.verify()?;
         let artifacts = self.artifacts.clone();
         let mut selected = None;
         for (path, digest, size) in artifacts {
             let parent = path.rsplit_once('/').ok_or(INVALID)?.0;
             let manifest = self.json(&format!("{parent}/manifest.json"))?;
-            if manifest["distribution_name"] != distribution {
+            if !matches(&manifest) {
                 continue;
             }
             if selected.is_some() || !path.ends_with(".whl") {
