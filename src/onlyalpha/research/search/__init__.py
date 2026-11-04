@@ -1,1 +1,0 @@
-"""Research search contracts."""

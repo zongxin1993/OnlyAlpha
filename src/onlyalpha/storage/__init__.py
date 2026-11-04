@@ -1,1 +1,0 @@
-"""OnlyAlpha storage interfaces."""
