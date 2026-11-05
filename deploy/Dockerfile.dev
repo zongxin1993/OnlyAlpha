@@ -85,7 +85,7 @@ RUN uv sync --frozen --no-dev --no-install-workspace --no-install-local --group 
     && python scripts/build_algorithm_sdk.py /tmp/onlyalpha-dev-algorithm-wheels \
     && uv pip install --offline --no-deps /tmp/onlyalpha-dev-algorithm-wheels/*.whl \
     && rm -r /tmp/onlyalpha-dev-algorithm-wheels
-RUN python -I -c 'import importlib.metadata as m, importlib.util as u; import onlyalpha_backend_algorithms.chart_worker; names = {d.metadata["Name"] for d in m.distributions()}; assert not names.intersection({"onlyalpha-test-plugin", "onlyalpha-test-factor-provider"}); assert u.find_spec("onlyalpha.persistence") is None'
+RUN python -I -c 'import importlib.metadata as m, importlib.util as u; import onlyalpha_backend_algorithms.research_worker; names = {d.metadata["Name"] for d in m.distributions()}; assert not names.intersection({"onlyalpha-test-plugin", "onlyalpha-test-factor-provider"}); assert u.find_spec("onlyalpha.persistence") is None'
 # Prepare the exact existing contract tool while builds have network access;
 # the isolated validation service executes only cached tools, offline.
 RUN python - <<'PY_CONTRACT_TOOLS'
@@ -210,7 +210,7 @@ from importlib.metadata import distribution, version
 from pathlib import Path
 
 import pyarrow
-import onlyalpha_backend_algorithms.chart_worker
+import onlyalpha_backend_algorithms.research_worker
 
 root = Path("/opt/onlyalpha/algorithms")
 manifest_bytes = (root / "algorithm-installation.json").read_bytes()
@@ -219,8 +219,12 @@ assert hashlib.sha256(manifest_bytes).hexdigest() == Path("/opt/onlyalpha/algori
 assert version("onlyalpha") == manifest["distribution_version"]
 for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
     assert importlib.util.find_spec(name) is None, name
-for name in ("onlyalpha", "onlyalpha-backend-algorithms", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+for name in ("onlyalpha", "onlyalpha-plugin-operators", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
+entries = distribution("onlyalpha-backend-algorithms").entry_points
+assert [(entry.group, entry.name, entry.value) for entry in entries] == [
+    ("onlyalpha.calculations", "official-targets", "onlyalpha_backend_algorithms.targets.registration:registrations")
+], entries
 for flag in ("--export-openapi", "--export-websocket"):
     result = subprocess.run(["/opt/onlyalpha/bin/onlyalpha-backend", flag], env={}, check=True, stdout=subprocess.PIPE, timeout=30)
     assert isinstance(json.loads(result.stdout), dict), flag

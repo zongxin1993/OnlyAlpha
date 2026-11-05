@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import http.server
 import json
@@ -250,7 +251,7 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 
 
 @contextmanager
-def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator[tuple[Path, dict[str, Any]]]:
+def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: bool = False) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Controlled external Binance input; never a Product/Authority substitute.
 
     The host runner owns the explicit official-hostname mapping. This process
@@ -261,6 +262,11 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
         "127.0.0.1", 443, type=socket.SOCK_STREAM
     ):
         raise RuntimeError("CONTROLLED_SOURCE_REQUIRES_UNPRIVILEGED_EXACT_LOOPBACK_MAPPING")
+    stream_host = "data-stream.binance.vision"
+    if chart_sma and socket.getaddrinfo(stream_host, 443, type=socket.SOCK_STREAM) != socket.getaddrinfo(
+        "127.0.0.1", 443, type=socket.SOCK_STREAM
+    ):
+        raise RuntimeError("CONTROLLED_SOURCE_STREAM_MAPPING_REQUIRED")
     fixture: dict[str, Any] = {}
     violations: list[str] = []
     guard = threading.Lock()
@@ -268,6 +274,10 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
     # Frozen external-input scope. Unrecorded bars return []; they do not prove
     # market absence and do not authorize the product to invent complete inputs.
     first_ms, exclusive_end_ms, stride_ms = 1767139200000, 1767744000000, 900000
+    now_ms = time.time_ns() // 1_000_000
+    chart_anchor = now_ms // stride_ms * stride_ms
+    chart_first = chart_anchor - 2400 * stride_ms
+    chart_end = chart_anchor + 2 * stride_ms
     # Explicit synthetic external facts for the approved 20 + 720 minute window.
     # No prepared Dataset, Strategy, Generation or Run is installed by this input.
     minute_first, minute_end = 1735861200000, 1735905600000
@@ -310,7 +320,9 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
         extensions = private / "leaf.ext"
         extensions.write_text(
             "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
-            "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:data-api.binance.vision\n"
+            "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:data-api.binance.vision"
+            + (",DNS:data-stream.binance.vision" if chart_sma else "")
+            + "\n"
         )
         commands = (
             [
@@ -378,14 +390,14 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
         tls.load_cert_chain(leaf, leaf_key)
 
         def accept_sni(connection: ssl.SSLSocket | ssl.SSLObject, name: str | None, _context: Any) -> None:
-            if name != hostname:
+            if name != hostname and not (chart_sma and name == stream_host):
                 record({"kind": "rejected_sni", "sni": name}, "CONTROLLED_SOURCE_UNEXPECTED_SNI")
                 raise ssl.SSLError("CONTROLLED_SOURCE_UNEXPECTED_SNI")
             connection.onlyalpha_sni = name  # type: ignore[union-attr]
 
         tls.set_servername_callback(accept_sni)
 
-        class ExternalInputServer(http.server.HTTPServer):
+        class ExternalInputServer(http.server.ThreadingHTTPServer if chart_sma else http.server.HTTPServer):
             def get_request(self) -> tuple[ssl.SSLSocket, Any]:
                 connection, address = super().get_request()
                 connection.settimeout(5)
@@ -402,10 +414,54 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
             def log_message(self, _format: str, *args: Any) -> None:
                 pass
 
+            def chart_stream(self, request: Any) -> None:
+                key = self.headers.get("Sec-WebSocket-Key")
+                if (
+                    request.path != "/ws/btcusdt@kline_15m"
+                    or request.query or request.netloc or request.scheme or request.fragment
+                    or self.headers.get_all("Host") != [stream_host]
+                    or self.headers.get("Upgrade", "").lower() != "websocket"
+                    or self.headers.get("Sec-WebSocket-Version") != "13"
+                    or key is None
+                ):
+                    self.send_error(400)
+                    return
+                accept = base64.b64encode(
+                    hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+                ).decode("ascii")
+                self.protocol_version = "HTTP/1.1"
+                self.send_response(101)
+                self.send_header("Upgrade", "websocket")
+                self.send_header("Connection", "Upgrade")
+                self.send_header("Sec-WebSocket-Accept", accept)
+                self.end_headers()
+                event_ms = time.time_ns() // 1_000_000
+                opened = event_ms // stride_ms * stride_ms
+                price = 90000 + (opened // stride_ms) % 100
+                payload = json.dumps(
+                    {"e": "kline", "E": event_ms, "s": "BTCUSDT", "k": {
+                        "s": "BTCUSDT", "i": "15m", "t": opened, "T": opened + stride_ms - 1,
+                        "o": str(price), "h": str(price + 1), "l": str(price - 1), "c": str(price),
+                        "v": "100", "q": str(price * 100), "n": 100, "V": "50", "Q": str(price * 50),
+                        "x": False,
+                    }},
+                    separators=(",", ":"),
+                ).encode()
+                self.wfile.write(b"\x81\x7e" + len(payload).to_bytes(2, "big") + payload)
+                self.wfile.flush()
+                record({"kind":"chart_stream","host":stream_host,"path":request.path,"status":101,
+                        "preview_start_ms":opened,"frame_sha256":hashlib.sha256(payload).hexdigest()})
+                self.close_connection = True
+                self.connection.settimeout(150)
+                self.rfile.read(2)
+
             def do_GET(self) -> None:
                 request = urlsplit(self.path)
                 query: dict[str, list[str]] = {}
                 sni = getattr(self.connection, "onlyalpha_sni", None)
+                if chart_sma and sni == stream_host:
+                    self.chart_stream(request)
+                    return
                 response: Any = None
                 error: str | None = None
                 try:
@@ -485,13 +541,23 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
                         if (
                             query["symbol"] != ["BTCUSDT"]
                             or interval not in (["15m"], ["1m"])
-                            or query["limit"] != ["1000"]
                         ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         start, end = query["startTime"][0], query["endTime"][0]
                         if not start.isascii() or not start.isdecimal() or not end.isascii() or not end.isdecimal():
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         lower, upper = int(start), int(end) + 1
+                        chart_range = chart_sma and interval == ["15m"] and chart_first <= lower < upper <= chart_end
+                        limit = query["limit"][0]
+                        if chart_range:
+                            if (
+                                not limit.isascii() or not limit.isdecimal() or len(limit) > 4
+                                or not 1 <= int(limit) <= 1000
+                                or upper - lower > int(limit) * stride_ms
+                            ):
+                                raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
+                        elif limit != "1000":
+                            raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         if backtest and interval == ["1m"]:
                             if not minute_first <= lower < upper <= minute_end or lower % 60000 or upper % 60000:
                                 raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
@@ -511,7 +577,16 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
                         elif interval == ["15m"]:
                             if lower % stride_ms or upper % stride_ms or lower >= upper:
                                 raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_RANGE")
-                            if first_ms <= lower < upper <= exclusive_end_ms:
+                            if chart_range:
+                                response = []
+                                for opened in range(lower, upper, stride_ms):
+                                    price = 90000 + (opened // stride_ms) % 100
+                                    response.append([
+                                        opened, str(price), str(price + 1), str(price - 1), str(price),
+                                        "100", opened + stride_ms - 1, str(price * 100), 100,
+                                        "50", str(price * 50), "0",
+                                    ])
+                            elif first_ms <= lower < upper <= exclusive_end_ms:
                                 response = [row for row in fixture["klines"] if lower <= row[0] < upper][:1000]
                             elif (
                                 backtest
@@ -586,6 +661,7 @@ def controlled_source_https(output: Path, *, backtest: bool = False) -> Iterator
                 "scope_start_ms": first_ms,
                 "scope_end_ms": exclusive_end_ms,
                 "backtest_minute_scope": [minute_first, minute_end] if backtest else None,
+                "sma_chart_scope": [chart_first, chart_end] if chart_sma else None,
                 "empty_chart_scope": [1735689600000, 1798761600000, 1000] if backtest else None,
             }
         )
@@ -658,6 +734,7 @@ def main() -> int:
         action="store_true",
         help="Declare synthetic one-minute Backtest input and absent recent chart history",
     )
+    parser.add_argument("--chart-sma-market-input", action="store_true")
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
     parser.add_argument(
         "--restart-check", action="store_true", help="Repeat selected browser checks after a fully drained Host restart"
@@ -667,6 +744,10 @@ def main() -> int:
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.chart_sma_market_input and (
+        args.backtest_market_input or not args.controlled_source_https or not args.retained_market_input
+    ):
+        raise ValueError("CHART_SMA_INPUT_REQUIRES_CONTROLLED_SOURCE")
     if args.backtest_market_input and not (args.controlled_source_https and args.retained_market_input):
         raise ValueError("BACKTEST_INPUT_REQUIRES_CONTROLLED_SOURCE")
     if args.controlled_source_https and not args.retained_market_input:
@@ -679,7 +760,7 @@ def main() -> int:
     output = ROOT / "test-results/native-web-e2e" / operation
     output.mkdir(parents=True)
     external: AbstractContextManager[tuple[Path, dict[str, Any]]] = (
-        controlled_source_https(output, backtest=args.backtest_market_input)
+        controlled_source_https(output, backtest=args.backtest_market_input, chart_sma=args.chart_sma_market_input)
         if args.controlled_source_https
         else nullcontext((Path("/etc/ssl/certs/ca-certificates.crt"), {}))
     )
@@ -741,9 +822,8 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     for command in ("--extend-strategy-research-namespace", "--extend-manual-backtest-namespace"):
         if research_deployment_id(executable, [command, str(data)], operator_dsn) != deployment_id:
             raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
-    if args.backtest_market_input:
-        initialize_runtime_registry(executable, resources, data, operator_dsn)
-        initialize_backtest_evidence(executable, resources, data, operator_dsn, deployment_id)
+    initialize_runtime_registry(executable, resources, data, operator_dsn)
+    initialize_backtest_evidence(executable, resources, data, operator_dsn, deployment_id)
     # Retained metadata is a separate precondition; authoring tests create their
     # own Assets and Revisions exclusively through the normal Shipping UI.
     revision, current = seed_private_metadata("private.factor.native_metadata")
@@ -876,6 +956,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                             **os.environ,
                             "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
                             "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                            "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
                             "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
                             "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
                             "ONLYALPHA_BROWSER_USER_DATA_ROOT": str(data),

@@ -7,13 +7,6 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from onlyalpha_backend_algorithms.targets.registration import (
-    FORWARD_RETURN,
-    OnlyOfficialTargetDefinitionResolver,
-    registrations,
-    resolve_forward_return,
-)
-
 from onlyalpha.calculation import (
     TARGET_VALUE_SEMANTIC_TYPE,
     OnlyCalculationBackendKind,
@@ -21,6 +14,12 @@ from onlyalpha.calculation import (
     OnlyCalculationReference,
     OnlyFactorKind,
     only_calculation_execution_shape,
+)
+from onlyalpha_backend_algorithms.targets.registration import (
+    FORWARD_RETURN,
+    OnlyOfficialTargetDefinitionResolver,
+    registrations,
+    resolve_forward_return,
 )
 
 

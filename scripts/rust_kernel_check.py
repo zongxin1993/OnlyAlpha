@@ -133,7 +133,7 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "66424b34114d3adcb2a5a508e06bcd1ee349defe406e336982fd2328e30f7866"
+REGISTRY_LOCK_SHA256 = "8cee94cd62e3e0c262e432065436b24cdb003a1cb00800aeb46f9e217cc797d3"
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -330,6 +330,7 @@ BACKEND_DEPENDENCIES = {
     "onlyalpha-calculation": {"path": "../../crates/calculation"},
     "onlyalpha-calculation-bridge": {"path": "../../crates/calculation-bridge"},
     "onlyalpha-domain": {"path": "../../crates/domain"},
+    "onlyalpha-indicators": {"path": "../../crates/indicators"},
     "onlyalpha-integration-contract": {"path": "../../crates/integration-contract"},
     "onlyalpha-market-data-construction": {"path": "../../crates/market-data-construction"},
     "onlyalpha-metadata-json": {"path": "../../crates/metadata-json"},
@@ -359,11 +360,27 @@ BACKEND_DEPENDENCIES = {
     "utoipa-axum": {"default-features": False, "version": "=0.3.0"},
     "zeroize": {"default-features": False, "features": ["alloc"], "version": "=1.9.1"},
 }
+BACKEND_LINUX_TARGET = 'cfg(target_os = "linux")'
+BACKEND_LINUX_DEPENDENCIES = {
+    "libc": {"default-features": False, "version": "=0.2.191"},
+    "seccompiler": {"default-features": False, "version": "=0.5.0"},
+}
 BACKEND_TEST_DEPENDENCIES = {
     "onlyalpha-clock": {"path": "../../crates/clock"},
     "onlyalpha-runtime": {"path": "../../crates/runtime"},
     "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
     "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
+}
+
+BUILTIN_CALCULATION_DEPENDENCIES = {
+    "onlyalpha-operators": {
+        "num-bigint": {"default-features": False, "features": ["std"], "version": "=0.4.8"},
+        "num-integer": {"default-features": False, "version": "=0.1.46"},
+    },
+}
+BUILTIN_CALCULATION_DEPENDENCIES["onlyalpha-indicators"] = {
+    **BUILTIN_CALCULATION_DEPENDENCIES["onlyalpha-operators"],
+    "onlyalpha-operators": {"path": "../operators"},
 }
 
 
@@ -374,6 +391,8 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-data-source-tushare": "plugs/onlyalpha-data-source-tushare",
         "onlyalpha-domain": "crates/domain",
         "onlyalpha-calculation": "crates/calculation",
+        "onlyalpha-operators": "crates/operators",
+        "onlyalpha-indicators": "crates/indicators",
         "onlyalpha-calculation-bridge": "crates/calculation-bridge",
         "onlyalpha-runtime": "crates/runtime",
         "onlyalpha-backtest": "crates/backtest",
@@ -418,6 +437,7 @@ def validate_workspace(root: Path) -> None:
         ("onlyalpha-data-source-tushare", SOURCE_AUTHORING_DEPENDENCIES, {}),
         ("onlyalpha-metadata-json", METADATA_JSON_DEPENDENCIES, {}),
         ("onlyalpha-integration-contract", INTEGRATION_CONTRACT_DEPENDENCIES, {}),
+        *((name, dependencies, {}) for name, dependencies in BUILTIN_CALCULATION_DEPENDENCIES.items()),
     ):
         manifest = tomllib.loads((root / modules[name] / "Cargo.toml").read_text())
         if registry and (
@@ -429,6 +449,7 @@ def validate_workspace(root: Path) -> None:
     backend = tomllib.loads((root / modules["onlyalpha-backend"] / "Cargo.toml").read_text())
     if registry and (
         backend.get("dependencies") != BACKEND_DEPENDENCIES
+        or backend.get("target") != {BACKEND_LINUX_TARGET: {"dependencies": BACKEND_LINUX_DEPENDENCIES}}
         or backend.get("dev-dependencies", {}) != BACKEND_TEST_DEPENDENCIES
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -488,6 +509,13 @@ def validate_workspace(root: Path) -> None:
                         and kind == "dependencies"
                         and alias == dependency
                         and config == CALCULATION_DEPENDENCIES.get(alias)
+                    )
+                    admitted = admitted or (
+                        name in BUILTIN_CALCULATION_DEPENDENCIES
+                        and section is manifest
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == BUILTIN_CALCULATION_DEPENDENCIES[name].get(alias)
                     )
                     admitted = admitted or (
                         name == "onlyalpha-calculation-bridge"
@@ -597,6 +625,13 @@ def validate_workspace(root: Path) -> None:
                         and alias == dependency
                         and config
                         == (BACKEND_DEPENDENCIES if kind == "dependencies" else BACKEND_TEST_DEPENDENCIES).get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-backend"
+                        and section is manifest.get("target", {}).get(BACKEND_LINUX_TARGET)
+                        and kind == "dependencies"
+                        and alias == dependency
+                        and config == BACKEND_LINUX_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
                         name in {"onlyalpha-data-source-binance", "onlyalpha-data-source-tushare"}
@@ -1191,10 +1226,6 @@ _INFRASTRUCTURE_RESOURCES = {
     "packages/backend/src/persistence/research_preparation.rs": {
         "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
     },
-    "packages/backend/src/application/chart/admission_tests.rs": {
-        "admission-vector.json": "packages/backend/src/application/chart/admission-vector.json",
-        "admission-definition.json": "packages/backend/src/application/chart/admission-definition.json",
-    },
     "packages/backend/src/application/market_product/temporary_tests.rs": {
         "../../../../../test-data/domain/instrument-records-v2.jsonl": "test-data/domain/instrument-records-v2.jsonl",
     },
@@ -1273,7 +1304,6 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "host_strategy_preparation.rs": "packages/backend/src/transport/host_strategy_preparation.rs",
     },
     "packages/backend/src/transport/routes.rs": {
-        "../../tests/transport/backtest_analysis.rs": "packages/backend/tests/transport/backtest_analysis.rs",
         "../../tests/transport/backtest_preparation_routes.rs": "packages/backend/tests/transport/backtest_preparation_routes.rs",
         "../../tests/transport/backtest_product.rs": "packages/backend/tests/transport/backtest_product.rs",
         "../../tests/transport/qualification_product.rs": "packages/backend/tests/transport/qualification_product.rs",
@@ -1314,6 +1344,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
+    "packages/backend/src/application/chart/native_indicators.rs",
     "packages/backend/tests/application/support/backtest_worker_assertions.rs",
     "packages/backend/src/persistence/backtest_evidence/store.rs",
     "packages/backend/src/persistence/research_runtime.rs",
@@ -1504,6 +1535,8 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "backend",
             "metadata_json",
             "integration_contract",
+            "operators",
+            "indicators",
             "plugin_binance",
             "plugin_tushare",
             "market_crypto",
@@ -1654,6 +1687,10 @@ def isolated_metadata_json(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("metadata_json",))
 
 
+def isolated_indicators(root: Path, destination: Path) -> Path:
+    return _isolated_modules(root, destination, ("operators", "indicators"))
+
+
 def isolated_integration_contract(root: Path, destination: Path) -> Path:
     """Public SPI with only pure exact-number/metadata dependencies."""
     return _isolated_modules(
@@ -1694,6 +1731,8 @@ def isolated_backend(root: Path, destination: Path) -> Path:
             "predicates",
             "domain",
             "calculation",
+            "operators",
+            "indicators",
             "market_data_construction",
             "strategy",
             "metadata_json",
@@ -2335,6 +2374,8 @@ def validate_sources(root: Path) -> None:
     validate_construction_sources(root)
     validate_delivery_sources(root)
     validate_calculation_sources(root)
+    _validate_pure_sources(root, "operators", set())
+    _validate_pure_sources(root, "indicators", set())
     validate_pipeline_sources(root)
     validate_strategy_sources(root)
     validate_order_sources(root)
@@ -2435,6 +2476,7 @@ def main(argv: list[str] | None = None) -> int:
         ("order", isolated_order),
         ("strategy", isolated_strategy),
         ("calculation", isolated_calculation),
+        ("indicators", isolated_indicators),
         ("calculation-bridge", isolated_calculation_bridge),
         ("market-data", isolated_pipeline),
         ("domain", isolated_domain),
@@ -2496,7 +2538,7 @@ def main(argv: list[str] | None = None) -> int:
     check_performance_reference(ROOT, env, target)
     check_backtest_result_reference(ROOT, env, target)
     check_order_reference(ROOT, env, target)
-    subprocess.run([sys.executable, str(ROOT / "scripts/calculation_worker_check.py")], cwd=ROOT, env=env, check=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/strategy_execution_check.py")], cwd=ROOT, env=env, check=True)
     if before != source_inputs(ROOT):
         raise ValueError("RUST_KERNEL_SOURCE_CHANGED")
 

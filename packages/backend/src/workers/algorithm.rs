@@ -92,7 +92,6 @@ impl ProcessControl for Control {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WorkerRole {
     Legacy,
-    Chart,
     Research,
     Trading,
 }
@@ -120,16 +119,35 @@ impl AlgorithmProcess {
     ) -> Result<Worker> {
         Self::new(interpreter.into()).connect(generation, artifact, true, deadline)
     }
-    pub fn chart(installation: &ChartInstallation, completion: Box<dyn Send>) -> Result<Worker> {
-        installation.verify()?;
-        Self::new(installation.root().join("bin/python")).spawn_bound(
-            installation.artifact_fingerprint().into(),
-            installation.artifact_fingerprint().into(),
-            false,
-            Some(installation.root()),
-            Some(completion),
-            WorkerRole::Chart,
-        )
+    pub fn native_chart(
+        executable: &std::fs::File,
+        artifact: &str,
+        completion: Box<dyn Send>,
+    ) -> Result<Worker> {
+        use std::os::fd::AsRawFd;
+
+        // The inherited descriptor remains open through exec path resolution.
+        // Close-on-exec prevents it from becoming a worker capability.
+        let executable = format!("/proc/self/fd/{}", executable.as_raw_fd());
+        let (parent, child) = UnixStream::pair().map_err(|_| WorkerError::Invalid)?;
+        let input: OwnedFd = child.try_clone().map_err(|_| WorkerError::Invalid)?.into();
+        let output: OwnedFd = child.into();
+        let child = Command::new(&executable)
+            .arg("--native-chart-worker")
+            .env_clear()
+            .current_dir("/")
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::from(output))
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| WorkerError::Invalid)?;
+        let control = Arc::new(Control(Arc::new(Mutex::new(ChildOwner {
+            child: Some(child),
+            completion: Some(completion),
+            uncertain: false,
+            failed_hold: None,
+        }))));
+        Worker::from_stream(parent, artifact.into(), artifact.into(), control, 8 * 1024 * 1024)
     }
     /// Static source resolver. The completion hold is retained until positive join.
     pub fn research_resolution(
@@ -195,7 +213,6 @@ impl AlgorithmProcess {
             "-m",
             match role {
                 WorkerRole::Legacy => "onlyalpha_calculation_worker.worker",
-                WorkerRole::Chart => "onlyalpha_backend_algorithms.chart_worker",
                 WorkerRole::Research => "onlyalpha_backend_algorithms.research_worker",
                 WorkerRole::Trading => "onlyalpha_backend_algorithms.trading_worker",
             },

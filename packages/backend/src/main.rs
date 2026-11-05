@@ -93,8 +93,18 @@ fn configuration(user_data: PathBuf) -> Result<Configuration, &'static str> {
         listen,
     })
 }
+fn main() {
+    if std::env::args_os().skip(1).eq(["--native-chart-worker"]) {
+        if onlyalpha_backend::application::chart::run_native_worker().is_err() {
+            std::process::exit(1);
+        }
+        return;
+    }
+    product_main();
+}
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn product_main() {
     if let Err(code) = run().await {
         eprintln!("{code}");
         std::process::exit(1);

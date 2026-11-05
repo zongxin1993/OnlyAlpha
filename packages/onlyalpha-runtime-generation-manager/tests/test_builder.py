@@ -13,24 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
-    ONLY_PRIVATE_FACTOR_API_V1,
-    OnlyPrivateFactorExecutableClosureV1,
-    OnlyPrivateFactorIsolatedProgramHost,
-)
-from onlyalpha_plugin_indicators.provider import quant_asset_provider as indicator_provider
-from onlyalpha_plugin_operators.provider import quant_asset_provider
-from onlyalpha_runtime_generation_manager import (
-    OnlyHistoricalExecutableRuntimeGenerationResolver,
-    OnlyHistoricalGenerationHostManager,
-    OnlyLocalImmutableArtifactStore,
-    OnlyRuntimeGenerationBuilder,
-    OnlyRuntimeGenerationRegistry,
-)
-from onlyalpha_runtime_generation_manager import builder as runtime_builder_module
-from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
-from onlyalpha_runtime_generation_manager.hosted import _verify_installed_wheel
-
 from onlyalpha.application.catalog_context import (
     OnlyExactCatalogContextQueryService,
     OnlyExactCatalogContextUnavailable,
@@ -52,6 +34,23 @@ from onlyalpha.runtime.generation import (
     OnlyDistributionArtifactManifest,
     OnlyDistributionArtifactRole,
 )
+from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
+    ONLY_PRIVATE_FACTOR_API_V1,
+    OnlyPrivateFactorExecutableClosureV1,
+    OnlyPrivateFactorIsolatedProgramHost,
+)
+from onlyalpha_plugin_operators.provider import quant_asset_provider
+from onlyalpha_runtime_generation_manager import (
+    OnlyHistoricalExecutableRuntimeGenerationResolver,
+    OnlyHistoricalGenerationHostManager,
+    OnlyLocalImmutableArtifactStore,
+    OnlyRuntimeGenerationBuilder,
+    OnlyRuntimeGenerationRegistry,
+)
+from onlyalpha_runtime_generation_manager import builder as runtime_builder_module
+from onlyalpha_runtime_generation_manager.catalog_context import OnlyRuntimeGenerationExactCatalogDescriptorReader
+from onlyalpha_runtime_generation_manager.hosted import _verify_installed_wheel
+
 from tests.support.runtime_distribution_wheels import build_wheel as _build_wheel
 from tests.support.runtime_distribution_wheels import installed_distribution_wheel as _installed_distribution_wheel
 from tests.support.runtime_distribution_wheels import plain_artifact as _plain_artifact
@@ -63,27 +62,30 @@ NOW = datetime(2026, 9, 5, tzinfo=UTC)
 def test_exact_catalog_probe_emits_complete_readiness_and_legacy_empty_support(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], legacy: bool
 ) -> None:
+    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
     from onlyalpha_runtime_generation_manager import hosted
 
-    from onlyalpha.runtime.generation import OnlyRuntimeGenerationValidationEvidence
-
-    catalog = OnlyQuantAssetCatalogGeneration((indicator_provider(),))
-    providers = catalog.providers
-    if legacy:
-        providers = tuple(
-            SimpleNamespace(
-                manifest=provider.manifest,
-                calculation_registrations=tuple(
-                    SimpleNamespace(
-                        type_definition=item.type_definition,
-                        backend=item.backend,
-                        implementation_manifest=item.implementation_manifest,
-                    )
-                    for item in provider.calculation_registrations
-                ),
-            )
-            for provider in providers
+    catalog = OnlyQuantAssetCatalogGeneration((quant_asset_provider(),))
+    providers = tuple(
+        SimpleNamespace(
+            manifest=provider.manifest,
+            calculation_registrations=tuple(
+                SimpleNamespace(
+                    type_definition=item.type_definition,
+                    backend=item.backend,
+                    implementation_manifest=item.implementation_manifest,
+                    **(
+                        {"readiness_contract_versions": (1,)}
+                        if not legacy and item.type_definition.type_id == "onlyalpha.operator.rolling_mean"
+                        and item.backend.value == "RESEARCH"
+                        else {}
+                    ),
+                )
+                for item in provider.calculation_registrations
+            ),
         )
+        for provider in catalog.providers
+    )
     selected = SimpleNamespace(providers=providers, descriptor=catalog.descriptor)
     monkeypatch.setattr(hosted, "only_load_hosted_quant_asset_catalog", lambda evidence: selected)
     monkeypatch.setattr(OnlyRuntimeGenerationValidationEvidence, "from_dict", lambda payload: object())
@@ -95,7 +97,7 @@ def test_exact_catalog_probe_emits_complete_readiness_and_legacy_empty_support(
     assert len(rows) == sum(len(provider.calculation_registrations) for provider in catalog.providers)
     for row in rows:
         expected = (
-            [1] if not legacy and row["type_id"] == "onlyalpha.indicator.sma" and row["backend"] == "RESEARCH" else []
+            [1] if not legacy and row["type_id"] == "onlyalpha.operator.rolling_mean" and row["backend"] == "RESEARCH" else []
         )
         assert row["readiness_contract_versions"] == expected
 

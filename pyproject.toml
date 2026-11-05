@@ -52,7 +52,6 @@ dev = [
     "onlyalpha-test-plugin",
     "onlyalpha-test-factor-provider",
     "onlyalpha-plugin-operators",
-    "onlyalpha-plugin-indicators",
     "onlyalpha-gateway-protocol",
     "onlyalpha-backend-algorithms",
     "onlyalpha-calculation-worker",
@@ -77,7 +76,6 @@ members = [
     "plugs/onlyalpha-data-source-tushare",
     "plugs/onlyalpha-data-source-binance",
     "plugs/onlyalpha-broker-binance",
-    "packages/onlyalpha-indicators",
     "packages/onlyalpha-operators",
     "packages/backend/python/gateway_protocol",
     "packages/backend/python/algorithms",
@@ -91,29 +89,10 @@ requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/onlyalpha"]
+packages = ["packages/backend/python/algorithms/sdk/onlyalpha"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "database/postgres/migrations" = "onlyalpha/persistence/postgres/migrations"
-"packages/backend/python/algorithms/sdk/onlyalpha/canonical.py" = "onlyalpha/canonical.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/definition.py" = "onlyalpha/calculation/definition.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/compatibility.py" = "onlyalpha/calculation/compatibility.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/graph.py" = "onlyalpha/calculation/graph.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/implementation.py" = "onlyalpha/calculation/implementation.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/decimal_execution.py" = "onlyalpha/calculation/decimal_execution.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/chart_decimal.py" = "onlyalpha/calculation/chart_decimal.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/chart_study.py" = "onlyalpha/calculation/chart_study.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/value_semantics.py" = "onlyalpha/calculation/value_semantics.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/__init__.py" = "onlyalpha/algorithm/__init__.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/batch.py" = "onlyalpha/algorithm/batch.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/private_factor.py" = "onlyalpha/algorithm/private_factor.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/calculation/registry.py" = "onlyalpha/calculation/registry.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/quant_assets/private_factor_provider_snapshot.py" = "onlyalpha/quant_assets/private_factor_provider_snapshot.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/codec.py" = "onlyalpha/algorithm/codec.py"
-"packages/backend/python/algorithms/sdk/onlyalpha/algorithm/type_declaration.py" = "onlyalpha/algorithm/type_declaration.py"
-
-[tool.hatch.build.targets.sdist.force-include]
-"packages/backend/python/algorithms/sdk" = "packages/backend/python/algorithms/sdk"
 
 [tool.hatch.build]
 exclude = ["src/onlyalpha/_build_provenance.json", "src/onlyalpha/_build_provenance.sha256"]
@@ -142,8 +121,7 @@ python_version = "3.12"
 strict = true
 mypy_path = ["packages/backend/python/algorithms/sdk"]
 files = [
-    "src/onlyalpha",
-    "packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators",
+    "packages/backend/python/algorithms/sdk/onlyalpha",
     "packages/onlyalpha-operators/src/onlyalpha_plugin_operators",
     "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets",
     "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol",
@@ -164,7 +142,6 @@ ignore_errors = true
 onlyalpha-test-plugin = { path = "test-data/external_plugins/onlyalpha_test_plugin", editable = true }
 onlyalpha-test-factor-provider = { path = "test-data/runtime_factor_provider", editable = true }
 onlyalpha-plugin-operators = { workspace = true }
-onlyalpha-plugin-indicators = { workspace = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-backend-algorithms = { workspace = true }
 onlyalpha-calculation-worker = { workspace = true }
@@ -185,7 +162,6 @@ testpaths = [
     "plugs/onlyalpha-data-source-binance/tests",
     "plugs/onlyalpha-broker-binance/tests",
     "plugs/onlyalpha-data-source-tushare/tests",
-    "packages/onlyalpha-indicators/tests",
     "packages/onlyalpha-operators/tests",
     "packages/backend/python/algorithms/tests",
     "packages/backend/tests/transport",
@@ -273,7 +249,6 @@ forbidden_modules = [
     "onlyalpha_market_crypto",
     "onlyalpha_broker_binance",
     "onlyalpha_plugin_binance",
-    "onlyalpha_plugin_indicators",
     "onlyalpha_plugin_operators",
     "onlyalpha_backend_algorithms.targets",
     "onlyalpha_test_factor_provider",

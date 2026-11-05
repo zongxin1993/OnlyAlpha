@@ -34,9 +34,7 @@ QUANT_ASSET_VERSION_PROJECTIONS = {
     Path("packages/onlyalpha-operators/src/onlyalpha_plugin_operators/metadata.py"): re.compile(
         r'(?m)^(?P<prefix>DISTRIBUTION_VERSION\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>[ \t]*)$'
     ),
-    Path("packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators/provider.py"): re.compile(
-        r'(?m)^(?P<prefix>\s*distribution_version\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>,\s*)$'
-    ),
+
 }
 
 
@@ -318,6 +316,7 @@ def workspace_graph_errors(
     units = load_release_units(root)
     distributions = load_workspace_distributions(root)
     formal_index = distribution_index(distributions)
+    distributions_by_directory = {distribution.path.parent: distribution for distribution in distributions}
     errors: list[str] = []
     for distribution in distributions:
         expected = units[_python_unit(distribution, root)]
@@ -341,7 +340,7 @@ def workspace_graph_errors(
         errors.append(f"invalid Web lock: {error}")
     for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
         path = root / relative
-        plugin = formal_index.get(canonicalize_name(relative.parts[1]))
+        plugin = distributions_by_directory.get(root.joinpath(*relative.parts[:2]))
         if plugin is not None or path.exists():
             matches = tuple(pattern.finditer(path.read_text())) if path.is_file() else ()
             if (
@@ -399,6 +398,7 @@ def rewrite_unit(
     documents: dict[Path, Any] = {}
     distributions = load_workspace_distributions(root)
     changed_names = frozenset(d.canonical_name for d in distributions if _python_unit(d, root) == unit)
+    changed_directories = {d.path.parent for d in distributions if d.canonical_name in changed_names}
     for distribution in (*distributions, *load_test_distributions(root, test_distribution_paths)):
         document = read_document(distribution.path)
         project = document["project"]
@@ -440,7 +440,7 @@ def rewrite_unit(
     providers = []
     for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
         path = root / relative
-        if path.exists() and canonicalize_name(relative.parts[1]) in changed_names:
+        if path.exists() and root.joinpath(*relative.parts[:2]) in changed_directories:
             providers.append(
                 (
                     path,

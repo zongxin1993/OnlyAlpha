@@ -1,4 +1,4 @@
-"""Regenerate technical Web mutation vectors using native owners and the pure SDK.
+"""Regenerate technical Web mutation vectors using native owners.
 
 No vector is served by Shipping. Run only in the frozen canonical serial test
 namespace: the producer resets its guarded test schema and dedicated CH database.
@@ -14,7 +14,6 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -23,7 +22,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 FIXTURE = ROOT / "test-data/web/chart-studies/query.json"
-NUMERIC_CASES = FIXTURE.with_name("numeric-cases.json")
 SUPPORT = ROOT / "packages/backend/tests/application/support"
 
 
@@ -45,17 +43,14 @@ def _clear(directory: Path) -> None:
 
 
 @functools.lru_cache(maxsize=1)
-def _produce() -> tuple[str, str]:
+def _produce() -> str:
     import psycopg
-    from onlyalpha.persistence.clickhouse import (
-        OnlyClickHouseClient,
-        OnlyClickHouseConfig,
-        OnlyClickHouseMigrationAuthority,
-        only_assert_clickhouse_test_database,
-    )
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
     from scripts.database_guard import assert_test_database
     from scripts.dev_verification import CUT_METADATA, source_inputs
+    from scripts.native_http_contract import native_executable
+    from scripts.native_web_e2e import clickhouse_namespace
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
@@ -65,27 +60,11 @@ def _produce() -> tuple[str, str]:
         raise ValueError("CHART_VECTOR_FROZEN_CANONICAL_SOURCE_REQUIRED")
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     assert_test_database(dsn)
-    database = "onlyalpha_test_chart_query_vector"
-    only_assert_clickhouse_test_database(database)
-    ch = OnlyClickHouseClient(
-        OnlyClickHouseConfig(
-            os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
-            database=database,
-            user=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_USER", "default"),
-            password=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD", ""),
-            storage_policy=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY", "hot_cold"),
-        )
-    )
-    # The ordinary product database is forbidden by the guard above. This
-    # producer shares the canonical serial test lifecycle, never business state.
-    with psycopg.connect(dsn, autocommit=True) as connection:
-        connection.execute("DROP SCHEMA public CASCADE")
-        connection.execute("CREATE SCHEMA public")
-    subprocess.run([sys.executable, "-m", "scripts.database", "migrate"], cwd=ROOT, check=True)
-    ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
-    OnlyClickHouseMigrationAuthority(ch).migrate()
-    # A stable original build/install path is necessary: both actual native ELF
-    # bytes and exact SDK installation are deliberate fingerprint inputs.
+    if conninfo_to_dict(dsn).get("sslmode") not in (None, "disable"):
+        raise ValueError("CHART_VECTOR_CONTAINED_POSTGRES_TRANSPORT_REQUIRED")
+    database = "onlyalpha_test_chart_query_" + operation.replace("-", "")
+    backend = native_executable()
+    # The native ELF bytes deliberately bind the worker and capability identities.
     root = ROOT / "test-results/chart-query-vector"
     _clear(root)
     root.mkdir()
@@ -102,6 +81,16 @@ def _produce() -> tuple[str, str]:
     environment = compiler_environment(os.environ, ROOT / "test-results/rust-kernel/target")
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute("DROP SCHEMA public CASCADE")
+        connection.execute("CREATE SCHEMA public")
+    command(
+        [str(backend), "--migrate-postgres-schema", str(ROOT / "database/postgres/migrations")],
+        {**os.environ, "ONLYALPHA_POSTGRES_DSN": make_conninfo(dsn, sslmode="disable")},
+        evidence / "postgres-migration.log",
+        ROOT,
+    )
+    clickhouse_namespace(backend, database, initialize=True)
     try:
         manifest = isolated_backend(ROOT, root / "closure")
         consumer = manifest.parent / "native-consumer"
@@ -179,27 +168,10 @@ def _produce() -> tuple[str, str]:
         for node in json.loads((evidence / "metadata.json").read_text())["resolve"]["nodes"]:
             if node["id"].startswith("registry+"):
                 assert set(node["features"]) <= known[node["id"]], "unreviewed chart vector feature"
-        installation = root / "algorithms"
-        installation_log = evidence / "algorithm-installation.log"
-        command(
-            [
-                sys.executable,
-                str(ROOT / "scripts/build_algorithm_sdk.py"),
-                str(root / "wheels"),
-                "--install",
-                str(installation),
-            ],
-            environment,
-            installation_log,
-            ROOT,
-        )
-        artifact = installation_log.read_text().strip()
-        assert len(artifact) == 64 and all(c in "0123456789abcdef" for c in artifact)
-        assert hashlib.sha256((installation / "algorithm-installation.json").read_bytes()).hexdigest() == artifact
         environment.update(
-            ONLYALPHA_NATIVE_CHART_INSTALLATION=str(installation),
-            ONLYALPHA_NATIVE_CHART_ARTIFACT=artifact,
+            ONLYALPHA_NATIVE_CHART_WORKER=str(backend),
             ONLYALPHA_NATIVE_MARKET_WAL=str(root / "wal"),
+            ONLYALPHA_NATIVE_CHART_CLICKHOUSE_DATABASE=database,
             ONLYALPHA_NATIVE_CHART_VECTOR=str(evidence / "native-query.json"),
         )
         (root / "wal").mkdir(mode=0o700)
@@ -247,7 +219,6 @@ def _produce() -> tuple[str, str]:
                 {
                     "artifact": artifacts[0],
                     "sha256": hashlib.sha256(executable_bytes).hexdigest(),
-                    "algorithm_artifact": artifact,
                     "source_inputs": inputs,
                 },
                 indent=2,
@@ -259,37 +230,15 @@ def _produce() -> tuple[str, str]:
             evidence / "native-query.log",
             consumer,
         )
-        numeric = json.loads((installation / "algorithm-installation.json").read_text())
-        numeric_code = (
-            "import sys;sys.path="
-            + repr(numeric["python_paths"])
-            + ";exec("
-            + repr((SUPPORT / "chart_numeric_fixture.py").read_text())
-            + ")"
-        )
-        command(
-            [str(installation / "bin/python"), "-B", "-I", "-c", numeric_code],
-            environment,
-            evidence / "numeric.json",
-            ROOT,
-        )
         if source_inputs(ROOT) != inputs:
             raise ValueError("CHART_VECTOR_SOURCE_CHANGED")
-        rendered = [
-            json.dumps(json.loads((evidence / name).read_text()), indent=2, sort_keys=True) + "\n"
-            for name in ("native-query.json", "numeric.json")
-        ]
-        return rendered[0], rendered[1]
+        return json.dumps(json.loads((evidence / "native-query.json").read_text()), indent=2, sort_keys=True) + "\n"
     finally:
-        ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+        clickhouse_namespace(backend, database, initialize=False)
 
 
 def render() -> str:
-    return _produce()[0]
-
-
-def render_numeric_cases() -> str:
-    return _produce()[1]
+    return _produce()
 
 
 def main() -> None:
@@ -299,13 +248,12 @@ def main() -> None:
         "--output-dir", type=Path, help="write generated technical outputs without mutating frozen source"
     )
     args = parser.parse_args()
-    query, numeric = _produce()
+    query = _produce()
     if args.mode == "write":
         destination = args.output_dir or FIXTURE.parent
         destination.mkdir(parents=True, exist_ok=True)
         (destination / FIXTURE.name).write_text(query)
-        (destination / NUMERIC_CASES.name).write_text(numeric)
-    elif FIXTURE.read_text() != query or NUMERIC_CASES.read_text() != numeric:
+    elif FIXTURE.read_text() != query:
         raise SystemExit("Chart Query vector stale; regenerate with the native producer")
 
 

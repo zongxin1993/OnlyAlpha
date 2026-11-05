@@ -1,14 +1,10 @@
 from decimal import Decimal, localcontext
 
 import pytest
-from onlyalpha_calculation_worker.backend import resolve
 from onlyalpha_calculation_worker.contracts import decode, encode, scalar
 
 
-def test_component_decimal_quantum_is_canonical_and_context_independent():
-    record = resolve({"period": 3})["definition"]
-    assert record["schema_version"] == 3
-    assert record["numeric"]["output_quantum"] == "0.000000000001"
+def test_component_decimal_encoding_is_canonical_and_context_independent():
     with localcontext() as context:
         context.prec = 2
         assert scalar(Decimal("123456789.00")) == {"type": "DECIMAL", "value": "123456789"}

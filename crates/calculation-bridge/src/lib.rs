@@ -1,13 +1,9 @@
 //! Supplied algorithm transport and reusable calculation adapters. No official Runtime admission.
-mod client;
 mod process;
-pub use client::{Checkpoint, Client, Resolution, fingerprint};
 pub use process::{
     Cancellation, ProcessControl, ProcessState, Result, Worker, WorkerConnector, WorkerError,
+    serve_chart,
 };
-
-mod pipeline_adapter;
-pub use pipeline_adapter::{PipelineCalculations, SmaRequest};
 
 mod strategy_adapter;
 pub use strategy_adapter::StrategyNodes;
@@ -21,3 +17,12 @@ pub use chart_installation::ChartInstallation;
 pub mod native_predicates;
 
 pub mod protocol;
+
+/// Fingerprint the exact bytes of a private calculation artifact or record.
+pub fn fingerprint(raw: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(raw)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}

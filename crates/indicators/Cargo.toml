@@ -1,0 +1,14 @@
+[package]
+name = "onlyalpha-indicators"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+num-bigint = { version = "=0.4.8", default-features = false, features = ["std"] }
+num-integer = { version = "=0.1.46", default-features = false }
+onlyalpha-operators = { path = "../operators" }

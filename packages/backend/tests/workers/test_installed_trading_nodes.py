@@ -83,7 +83,9 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     }
 
 
-def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = False) -> None:
+def installed_trading_case(
+    tmp_path: Path, selector: str, *, release: bool = False, build_timeout: int | None = 120
+) -> str:
     from scripts.build_algorithm_sdk import ROOT
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
@@ -115,7 +117,7 @@ def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = Fal
         capture_output=True,
         text=True,
         check=False,
-        timeout=120,
+        timeout=build_timeout,
     )
     assert built.returncode == 0, built.stdout + built.stderr
     executables = [
@@ -144,6 +146,7 @@ def installed_trading_case(tmp_path: Path, selector: str, *, release: bool = Fal
         timeout=150,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout + result.stderr
 
 
 @pytest.mark.timeout(180)

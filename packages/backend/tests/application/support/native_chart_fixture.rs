@@ -90,7 +90,7 @@ async fn produce() {
     let app = Application::default();
     let ch = ClickHouse::new(ClickHouseConfig {
         url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL").unwrap(),
-        database: "onlyalpha_test_chart_query_vector".into(),
+        database: std::env::var("ONLYALPHA_NATIVE_CHART_CLICKHOUSE_DATABASE").unwrap(),
         user: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_USER").unwrap_or("default".into()),
         password: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD").unwrap_or_default(),
         timeout: Duration::from_secs(5),
@@ -202,12 +202,13 @@ async fn produce() {
     let query = chart_query();
     eprintln!("chart-vector: capabilities");
     let caps = query.capabilities(&source_session).unwrap();
+    assert_eq!(caps["capabilities"].as_array().unwrap().len(), 14);
     verify_fixed_metadata_projection(&query, &source_session, &caps);
     let capability = caps["capabilities"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["type_id"] == "onlyalpha.indicator.sma")
+        .find(|c| c["type_id"] == "onlyalpha.indicator.sma" && c["semantic_version"] == "2")
         .unwrap();
     let request = chart_request(&history, capability, None);
     eprintln!("chart-vector: evaluate");
@@ -227,6 +228,31 @@ async fn produce() {
     fence.check().unwrap();
     assert_eq!(evaluation["query_status"], "DISPLAYABLE");
     assert_eq!(evaluation["authority"], "DISPLAY_ONLY");
+    assert_eq!(evaluation["calculation"]["implementation_fingerprint"], capability["implementation_fingerprint"]);
+    let wma = caps["capabilities"]
+        .as_array().unwrap().iter()
+        .find(|c| c["type_id"] == "onlyalpha.indicator.wma" && c["semantic_version"] == "2")
+        .unwrap();
+    let prepared = query.prepare(
+        &app, resolved.as_ref(), &source_session,
+        &mut store(business.client_mut().await.unwrap(), &ch),
+        onlyalpha_backend::application::chart::ChartInput {
+            raw: &chart_request(&history, wma, None).to_string(),
+            preview_stream: None,
+            clock_ns: NOW,
+        },
+    ).await.unwrap();
+    assert!(prepared.cancellation().unwrap().is_some());
+    let (weighted, fence) = prepared.execute().unwrap().into_parts().unwrap();
+    fence.check().unwrap();
+    assert_eq!(weighted["calculation"]["implementation_fingerprint"], wma["implementation_fingerprint"]);
+    let points = weighted["series"][0]["points"].as_array().unwrap();
+    assert_eq!(points.len(), 2000);
+    assert_eq!(points[18]["readiness"], "PARTIAL");
+    assert!(points[18]["value"].is_null());
+    assert_eq!(points[19]["readiness"], "READY");
+    assert!(points[19]["value"].is_string());
+
     std::fs::write(
         std::env::var("ONLYALPHA_NATIVE_CHART_VECTOR").unwrap(),
         serde_json::to_vec(
@@ -251,38 +277,11 @@ async fn produce() {
     business.close().await.unwrap();
 }
 
-// Technical regression using the actual sealed SDK and native metadata API.
-// Metadata declarations do not promise that another worker can currently launch.
 fn verify_fixed_metadata_projection(query: &ChartQuery, session: &Session, expected: &Value) {
-    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
-    struct RestoreMode(PathBuf, fs::Permissions);
-    impl Drop for RestoreMode {
-        fn drop(&mut self) {
-            fs::set_permissions(&self.0, self.1.clone()).unwrap();
-        }
-    }
-    let root = PathBuf::from(std::env::var("ONLYALPHA_NATIVE_CHART_INSTALLATION").unwrap());
-    let interpreter = root.join("bin/python");
-    let restore = RestoreMode(
-        interpreter.clone(),
-        fs::metadata(&interpreter).unwrap().permissions(),
-    );
-    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o444)).unwrap();
-    let warm = query.capabilities(session);
-    assert!(
-        warm.is_ok(),
-        "fixed metadata must not launch another worker: {warm:?}"
-    );
-    assert_eq!(&warm.unwrap(), expected);
-    // An uninitialized query must still perform the actual bootstrap. Failure
-    // cannot publish a partially admitted projection or masquerade as support.
-    let cold = chart_query();
-    assert!(cold.capabilities(session).is_err());
-    drop(restore);
-    assert_eq!(&cold.capabilities(session).unwrap(), expected);
-    cold.close().unwrap();
-    assert!(cold.capabilities(session).is_err());
-    eprintln!("chart-vector: fixed metadata/no-worker/init-failure/shutdown relations proved");
+    assert_eq!(&query.capabilities(session).unwrap(), expected);
+    let closed = chart_query();
+    closed.close().unwrap();
+    assert!(closed.capabilities(session).is_err());
 }
 
 // Controlled Source and real sealed algorithm process; not Shipping UI evidence.
@@ -336,6 +335,87 @@ async fn verify_temporary_batch(
         "source_reference":{"integration_id":window["source_selection"]["integration_id"],"integration_revision_fingerprint":window["source_selection"]["integration_revision_fingerprint"],"expected_type_id":window["source_selection"]["type_id"]},
         "instrument_id":window["instrument_id"],"bar_semantic":window["bar_semantic"],
         "window":{"anchor_kind":"BEFORE_TIME","before_ns":window["resolved_end_ns"],"target_bar_count":2000},"expected_window_fingerprint":window["window_fingerprint"]});
+    let mut native_request = common.clone();
+    native_request["calculations"] = json!(["sma", "wma", "roc", "rolling_return"].map(|family| {
+        let capability = caps["capabilities"].as_array().unwrap().iter().find(|entry| {
+            entry["type_id"] == format!("onlyalpha.indicator.{family}") && entry["semantic_version"] == "2"
+        }).unwrap();
+        chart_request(history, capability, None)["calculation"].clone()
+    }));
+    let mut unknown = native_request.clone();
+    unknown["calculations"][0]["semantic_version"] = json!("1");
+    assert!(matches!(
+        query.prepare_temporary_batch_before(
+            app, resolved, session, &unknown.to_string(), NOW, deadline()
+        ).await,
+        Err(onlyalpha_backend::application::chart::Error::Unavailable)
+    ));
+    let prepared = query.prepare_temporary_batch_before(
+        app, resolved, session, &native_request.to_string(), NOW, deadline()
+    ).await.unwrap();
+    let cancellation = prepared.cancellation().unwrap().expect("owned Rust worker");
+    assert_eq!(cancellation.state(), onlyalpha_calculation_bridge::ProcessState::Running);
+    let (native_batch, fence) = prepared.execute().unwrap().into_parts().unwrap();
+    assert_eq!(cancellation.state(), onlyalpha_calculation_bridge::ProcessState::Joined);
+    fence.check().unwrap();
+    let results = native_batch["results"].as_array().unwrap();
+    assert_eq!(results.len(), 4);
+    for result in results {
+        assert_eq!(result["evaluation"]["query_status"], "DISPLAYABLE");
+    }
+    let roc = &results[2]["evaluation"]["series"][0]["points"];
+    let rolling_return = &results[3]["evaluation"]["series"][0]["points"];
+    assert_eq!(roc, rolling_return);
+    let points = roc.as_array().unwrap();
+    assert_eq!(points[19]["readiness"], "PARTIAL");
+    assert!(points[19]["value"].is_null());
+    assert_eq!(points[20]["readiness"], "READY");
+    assert!(points[20]["value"].is_string());
+    eprintln!("chart-vector: native SMA/WMA/ROC/rolling return batch completed in a Rust worker");
+
+    let mut changed = native_request;
+    changed["calculations"][2]["expected_implementation_fingerprint"] = json!("0".repeat(64));
+    assert!(matches!(
+        query.prepare_temporary_batch_before(
+            app, resolved, session, &changed.to_string(), NOW, deadline()
+        ).await,
+        Err(onlyalpha_backend::application::chart::Error::Changed)
+    ));
+
+    for group in [
+        &["ema", "rsi", "atr", "macd"][..],
+        &["bollinger", "rolling_volatility", "zscore", "obv"][..],
+        &["vwap", "stochastic"][..],
+    ] {
+        let mut request = common.clone();
+        request["calculations"] = json!(group.iter().map(|family| {
+            let capability = caps["capabilities"].as_array().unwrap().iter().find(|entry| {
+                entry["type_id"] == format!("onlyalpha.indicator.{family}")
+                    && entry["provider_id"] == "onlyalpha.indicator.native"
+            }).unwrap();
+            chart_request(history, capability, None)["calculation"].clone()
+        }).collect::<Vec<_>>());
+        let prepared = query.prepare_temporary_batch_before(
+            app, resolved, session, &request.to_string(), NOW, deadline()
+        ).await.unwrap();
+        assert!(prepared.cancellation().unwrap().is_some());
+        let (batch, fence) = prepared.execute().unwrap().into_parts().unwrap();
+        fence.check().unwrap();
+        let results = batch["results"].as_array().unwrap();
+        assert_eq!(results.len(), group.len());
+        for (result, family) in results.iter().zip(group) {
+            let evaluation = &result["evaluation"];
+            assert_eq!(evaluation["query_status"], "DISPLAYABLE", "{family}");
+            assert_eq!(evaluation["calculation"]["type_id"], format!("onlyalpha.indicator.{family}"));
+            for series in evaluation["series"].as_array().unwrap() {
+                let points = series["points"].as_array().unwrap();
+                assert_eq!(points.len(), 2000, "{family}");
+                assert_eq!(points[1999]["readiness"], "READY", "{family}");
+            }
+        }
+    }
+    eprintln!("chart-vector: all fourteen native families evaluated over the controlled Source");
+
     verify_two_owned_chart_workers(app, resolved, session, &common, &calculations).await;
     let mut singles = Vec::new();
     for calculation in &calculations {
@@ -373,32 +453,9 @@ async fn verify_temporary_batch(
             )
             .await
             .unwrap();
-        // Existing process must serve all calculations. A new request must
-        // still launch a new process, even while a fixed declaration exists.
-        use std::os::unix::fs::PermissionsExt;
-        let interpreter =
-            std::path::PathBuf::from(std::env::var("ONLYALPHA_NATIVE_CHART_INSTALLATION").unwrap())
-                .join("bin/python");
-        let permissions = std::fs::metadata(&interpreter).unwrap().permissions();
-        std::fs::set_permissions(&interpreter, std::fs::Permissions::from_mode(0o444)).unwrap();
-        let result = prepared.execute();
-        let fresh = query
-            .prepare_temporary_batch_before(
-                app,
-                resolved,
-                session,
-                &request.to_string(),
-                NOW,
-                deadline(),
-            )
-            .await;
-        std::fs::set_permissions(&interpreter, permissions).unwrap();
-        assert!(
-            fresh.is_err(),
-            "every later request must spawn its own worker"
-        );
-        query.drain().unwrap();
-        let (value, fence) = result.unwrap().into_parts().unwrap();
+        let control = prepared.cancellation().unwrap().expect("owned Rust worker");
+        let (value, fence) = prepared.execute().unwrap().into_parts().unwrap();
+        assert_eq!(control.state(), onlyalpha_calculation_bridge::ProcessState::Joined);
         fence.check().unwrap();
         for (index, original) in order.into_iter().enumerate() {
             assert_eq!(value["results"][index]["request_index"], index);
@@ -458,7 +515,7 @@ async fn verify_temporary_batch(
         )
         .await
         .unwrap();
-    prepared.cancellation().unwrap().cancel().unwrap();
+    prepared.cancellation().unwrap().expect("Rust worker cancellation").cancel().unwrap();
     assert!(prepared.execute().is_err());
     query.drain().unwrap();
     let prepared = query
@@ -499,12 +556,12 @@ async fn verify_two_owned_chart_workers(
         .prepare_temporary_batch_before(app, resolved, session, &raw, NOW, deadline())
         .await
         .unwrap();
-    let first_control = first.cancellation().unwrap();
+    let first_control = first.cancellation().unwrap().expect("Rust worker cancellation");
     let second = query
         .prepare_temporary_batch_before(app, resolved, session, &raw, NOW, deadline())
         .await
         .unwrap();
-    let second_control = second.cancellation().unwrap();
+    let second_control = second.cancellation().unwrap().expect("Rust worker cancellation");
     assert_eq!(first_control.state(), ProcessState::Running);
     assert_eq!(second_control.state(), ProcessState::Running);
     assert!(matches!(
@@ -523,7 +580,7 @@ async fn verify_two_owned_chart_workers(
         .prepare_temporary_batch_before(app, resolved, session, &raw, NOW, deadline())
         .await
         .unwrap();
-    let replacement_control = replacement.cancellation().unwrap();
+    let replacement_control = replacement.cancellation().unwrap().expect("Rust worker cancellation");
     query.close().unwrap();
     assert_eq!(second_control.state(), ProcessState::Joined);
     assert_eq!(replacement_control.state(), ProcessState::Joined);

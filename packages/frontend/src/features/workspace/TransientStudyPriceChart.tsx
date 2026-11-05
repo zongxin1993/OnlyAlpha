@@ -600,6 +600,16 @@ export function TransientStudyPriceChart({
                         onTransientRevalidated?.(capability, [instance.instanceId]);
                         continue;
                     }
+                    // A request belongs to one exact execution worker. Keep
+                    // incompatible invocations separate within the same view.
+                    const first = pending[0]?.intent.capability;
+                    if (
+                        first !== undefined &&
+                        first.invocation_implementation_fingerprint !==
+                            capability.invocation_implementation_fingerprint &&
+                        !(await flush())
+                    )
+                        return;
                     const occurrence = {
                         key: instanceKey(instance),
                         evidence: [] as readonly StudySeriesEvidence[]

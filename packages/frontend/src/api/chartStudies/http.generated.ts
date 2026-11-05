@@ -14,6 +14,8 @@ const ChartStudyNumericDtoOutputQuantumSchema = z.literal("0.000000000001");
 const Version28Schema = z.literal(28);
 const ChartStudyNumericDtoRepresentationSchema = z.literal("DECIMAL");
 const ChartStudyNumericDtoRoundingSchema = z.enum(["CONTEXT", "ROUND_HALF_EVEN"]);
+const Version38Schema = z.literal(38);
+const ChartStudyNumericBindingDtoEffectiveRoundingSchema = z.literal("ROUND_HALF_EVEN");
 const ChartStudyParameterDescriptorDtoDefaultSchema = z.union([
     z.number().int(),
     z.string(),
@@ -75,10 +77,11 @@ const ChartStudyDecimalPolicyDtoTrappedSignalsItemSchema = z.enum([
 ]);
 const ChartStudyNumericBindingDtoDeclaredRoundingSchema = z.enum(["CONTEXT", "ROUND_HALF_EVEN"]);
 const ChartStudyNumericBindingDtoDomainSchema = z.literal("onlyalpha.chart-study.decimal-binding");
-const ChartStudyNumericBindingDtoEffectiveRoundingSchema = z.literal("ROUND_HALF_EVEN");
 const ChartStudyNumericBindingDtoOutputQuantumSchema = z.literal("0.000000000001");
 const ChartStudyNumericBindingDtoRepresentationSchema = z.literal("DECIMAL");
 const ChartStudyNumericBindingDtoResolutionPolicySchema = z.literal("CONTEXT_HALF_EVEN_V1");
+const ChartStudyFixedScalePolicyDtoDomainSchema = z.literal("onlyalpha.decimal.fixed-scale");
+const ChartStudyFixedScaleResolutionPolicyDtoSchema = z.literal("FIXED_SCALE_HALF_EVEN_V1");
 const ChartStudyPresentationDtoDefaultParametersItemSchema = z.union([
     z.number().int(),
     z.string(),
@@ -88,7 +91,7 @@ const ChartStudyPresentationDtoPlacementSchema = z.enum(["PRICE_OVERLAY", "SEPAR
 const ChartStudyPresentationSeriesDtoKindSchema = z.enum(["LINE", "HISTOGRAM"]);
 const ChartStudyPresentationSeriesDtoUnitSchema = z.enum(["PRICE", "RATIO", "VOLUME", "SCALAR"]);
 const ChartStudyProviderManifestDtoKindSchema = z.literal("INDICATOR");
-const ChartStudyDistributionDtoKindSchema = z.literal("DISTRIBUTION");
+const ChartStudyDistributionDtoKindSchema = z.enum(["DISTRIBUTION", "NATIVE_DISTRIBUTION"]);
 const ChartStudyCapabilityProjectionDtoPublicationStatusSchema = z.literal("NOT_A_RESEARCH_RESULT");
 const ChartStudyCapabilityProjectionDtoSourceKindSchema = z.literal("CHART_STUDY_TRANSIENT");
 const ChartStudyCapabilityProjectionDtoSupportedShapeSchema = z.literal("TIME_SERIES/BAR_FIELDS");
@@ -200,11 +203,17 @@ const ChartStudyPortDtoSchema = z.strictObject({
     semantic_type: z.string().min(1).max(256),
     unit: z.string().nullable()
 });
-const ChartStudyNumericDtoSchema = z.strictObject({
+const ChartStudyContextNumericDtoSchema = z.strictObject({
     output_quantum: ChartStudyNumericDtoOutputQuantumSchema,
     precision: Version28Schema,
     representation: ChartStudyNumericDtoRepresentationSchema,
     rounding: ChartStudyNumericDtoRoundingSchema
+});
+const ChartStudyFixedScaleNumericDtoSchema = z.strictObject({
+    output_quantum: ChartStudyNumericDtoOutputQuantumSchema,
+    precision: Version38Schema,
+    representation: ChartStudyNumericDtoRepresentationSchema,
+    rounding: ChartStudyNumericBindingDtoEffectiveRoundingSchema
 });
 const ChartStudyParameterDescriptorDtoSchema = z.strictObject({
     default: z.union([ChartStudyParameterDescriptorDtoDefaultSchema, z.null()]),
@@ -247,6 +256,11 @@ const ChartStudyDecimalPolicyDtoSchema = z.strictObject({
     policy_id: ChartStudyDecimalPolicyDtoPolicyIdSchema,
     semantic_version: ChartStudyDecimalPolicyDtoSemanticVersionSchema,
     trapped_signals: z.array(ChartStudyDecimalPolicyDtoTrappedSignalsItemSchema).min(3).max(3)
+});
+const ChartStudyFixedScalePolicyDtoSchema = z.strictObject({
+    domain: ChartStudyFixedScalePolicyDtoDomainSchema,
+    output_quantum: ChartStudyNumericBindingDtoOutputQuantumSchema,
+    schema_version: Version1Schema
 });
 const ChartStudyPresentationSeriesDtoSchema = z.strictObject({
     color: z.string().regex(new RegExp("^#[0-9A-Fa-f]{6}$")),
@@ -390,20 +404,10 @@ const TemporaryChartStudyInputDtoSchema = z.strictObject({
     target_bar_count: z.number().int().min(1).max(2000),
     window_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$"))
 });
-const ChartStudyDescriptorDtoSchema = z.strictObject({
-    execution_shape: ChartStudyDescriptorDtoExecutionShapeSchema,
-    factor_kind: z.json(),
-    inputs: z.array(ChartStudyPortDtoSchema).min(1).max(16),
-    kind: ChartStudyDescriptorDtoKindSchema,
-    missing_values: ChartStudyDescriptorDtoMissingValuesSchema,
-    numeric: ChartStudyNumericDtoSchema,
-    outputs: z.array(ChartStudyPortDtoSchema).min(1).max(16),
-    parameters: z.array(ChartStudyParameterDescriptorDtoSchema).max(16),
-    semantic_bounds: z.record(z.string(), z.union([z.array(z.string()), z.null()])),
-    semantic_version: z.string().min(1).max(256),
-    timestamp: ChartStudyDescriptorDtoTimestampSchema,
-    type_id: z.string().min(1).max(256)
-});
+const ChartStudyNumericDtoSchema = z.union([
+    ChartStudyContextNumericDtoSchema,
+    ChartStudyFixedScaleNumericDtoSchema
+]);
 const ChartStudyManifestDtoSchema = z.strictObject({
     backend_kind: ChartStudyManifestDtoBackendKindSchema,
     calculation_type_reference: ChartStudyTypeReferenceDtoSchema,
@@ -414,7 +418,7 @@ const ChartStudyManifestDtoSchema = z.strictObject({
     schema_version: Version1Schema,
     semantic_dependencies: z.array(ChartStudyDependencyDtoSchema).min(1).max(8)
 });
-const ChartStudyNumericBindingDtoSchema = z.strictObject({
+const ChartStudyContextNumericBindingDtoSchema = z.strictObject({
     core_policy: ChartStudyDecimalPolicyDtoSchema,
     core_policy_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
     declared_rounding: ChartStudyNumericBindingDtoDeclaredRoundingSchema,
@@ -424,6 +428,18 @@ const ChartStudyNumericBindingDtoSchema = z.strictObject({
     precision: Version28Schema,
     representation: ChartStudyNumericBindingDtoRepresentationSchema,
     resolution_policy: ChartStudyNumericBindingDtoResolutionPolicySchema,
+    schema_version: Version1Schema
+});
+const ChartStudyFixedScaleNumericBindingDtoSchema = z.strictObject({
+    core_policy: ChartStudyFixedScalePolicyDtoSchema,
+    core_policy_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    declared_rounding: ChartStudyNumericBindingDtoEffectiveRoundingSchema,
+    domain: ChartStudyNumericBindingDtoDomainSchema,
+    effective_rounding: ChartStudyNumericBindingDtoEffectiveRoundingSchema,
+    output_quantum: ChartStudyNumericBindingDtoOutputQuantumSchema,
+    precision: Version38Schema,
+    representation: ChartStudyNumericBindingDtoRepresentationSchema,
+    resolution_policy: ChartStudyFixedScaleResolutionPolicyDtoSchema,
     schema_version: Version1Schema
 });
 const ChartStudyPresentationDtoSchema = z.strictObject({
@@ -456,6 +472,58 @@ const ChartStudyCalculationRequestDtoTypedParametersItemSchema = z.union([
     ChartStudyDecimalDtoSchema,
     ChartStudyBooleanDtoSchema
 ]);
+const ChartStudyCalculationDtoNormalizedTypedParametersItemSchema = z.union([
+    ChartStudyIntegerDtoSchema,
+    ChartStudyStringDtoSchema,
+    ChartStudyDecimalDtoSchema,
+    ChartStudyBooleanDtoSchema
+]);
+const ChartStudyPreviewSeriesDtoSchema = z.strictObject({
+    output_name: z.string().min(1).max(256),
+    point: ChartStudyPreviewPointDtoSchema
+});
+const ChartStudySeriesDtoSchema = z.strictObject({
+    output_name: z.string().min(1).max(256),
+    points: z.array(ChartStudyPointDtoSchema).min(1).max(2000)
+});
+const ChartStudyDescriptorDtoSchema = z.strictObject({
+    execution_shape: ChartStudyDescriptorDtoExecutionShapeSchema,
+    factor_kind: z.json(),
+    inputs: z.array(ChartStudyPortDtoSchema).min(1).max(16),
+    kind: ChartStudyDescriptorDtoKindSchema,
+    missing_values: ChartStudyDescriptorDtoMissingValuesSchema,
+    numeric: ChartStudyNumericDtoSchema,
+    outputs: z.array(ChartStudyPortDtoSchema).min(1).max(16),
+    parameters: z.array(ChartStudyParameterDescriptorDtoSchema).max(16),
+    semantic_bounds: z.record(z.string(), z.union([z.array(z.string()), z.null()])),
+    semantic_version: z.string().min(1).max(256),
+    timestamp: ChartStudyDescriptorDtoTimestampSchema,
+    type_id: z.string().min(1).max(256)
+});
+const ChartStudyNumericBindingDtoSchema = z.union([
+    ChartStudyContextNumericBindingDtoSchema,
+    ChartStudyFixedScaleNumericBindingDtoSchema
+]);
+const MarketDataBarSemanticDtoSchema = z.strictObject({
+    adjustment_policy: MarketDataBarSemanticDtoAdjustmentPolicySchema,
+    formation: MarketDataBarSemanticDtoFormationSchema,
+    price_type: OnlyPriceTypeSchema,
+    schema_version: Version3Schema
+});
+const ChartStudyCalculationRequestDtoSchema = z.strictObject({
+    expected_capability_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    expected_descriptor_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    expected_implementation_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    kind: ChartStudyCalculationRequestDtoKindSchema,
+    output_members: z
+        .array(z.string())
+        .min(1)
+        .max(8)
+        .refine((value) => new Set(value).size === value.length),
+    semantic_version: z.string().min(1).max(256),
+    type_id: z.string().min(1).max(256),
+    typed_parameters: z.record(z.string(), ChartStudyCalculationRequestDtoTypedParametersItemSchema)
+});
 const ChartStudyDefinitionDtoSchema = z.strictObject({
     extensions: ChartStudyExtensionsDtoSchema,
     factor_kind: z.json(),
@@ -472,19 +540,13 @@ const ChartStudyDefinitionDtoSchema = z.strictObject({
     type_id: z.string().min(1).max(256),
     warmup: ChartStudyWarmupDtoSchema
 });
-const ChartStudyCalculationDtoNormalizedTypedParametersItemSchema = z.union([
-    ChartStudyIntegerDtoSchema,
-    ChartStudyStringDtoSchema,
-    ChartStudyDecimalDtoSchema,
-    ChartStudyBooleanDtoSchema
-]);
-const ChartStudyPreviewSeriesDtoSchema = z.strictObject({
-    output_name: z.string().min(1).max(256),
-    point: ChartStudyPreviewPointDtoSchema
-});
-const ChartStudySeriesDtoSchema = z.strictObject({
-    output_name: z.string().min(1).max(256),
-    points: z.array(ChartStudyPointDtoSchema).min(1).max(2000)
+const ChartStudyPreviewDtoSchema = z.strictObject({
+    bar_end_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
+    bar_start_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
+    revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
+    series: z.array(ChartStudyPreviewSeriesDtoSchema).min(1).max(16),
+    source_kind: ChartStudyPreviewDtoSourceKindSchema,
+    stream_id: z.string().min(1).max(256)
 });
 const ChartStudyCapabilityProjectionDtoSchema = z.strictObject({
     authority: ChartStudyCapabilityProjectionDtoAuthoritySchema,
@@ -508,26 +570,6 @@ const ChartStudyCapabilityProjectionDtoSchema = z.strictObject({
     source_kind: ChartStudyCapabilityProjectionDtoSourceKindSchema,
     supported_shape: ChartStudyCapabilityProjectionDtoSupportedShapeSchema
 });
-const MarketDataBarSemanticDtoSchema = z.strictObject({
-    adjustment_policy: MarketDataBarSemanticDtoAdjustmentPolicySchema,
-    formation: MarketDataBarSemanticDtoFormationSchema,
-    price_type: OnlyPriceTypeSchema,
-    schema_version: Version3Schema
-});
-const ChartStudyCalculationRequestDtoSchema = z.strictObject({
-    expected_capability_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
-    expected_descriptor_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
-    expected_implementation_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
-    kind: ChartStudyCalculationRequestDtoKindSchema,
-    output_members: z
-        .array(z.string())
-        .min(1)
-        .max(8)
-        .refine((value) => new Set(value).size === value.length),
-    semantic_version: z.string().min(1).max(256),
-    type_id: z.string().min(1).max(256),
-    typed_parameters: z.record(z.string(), ChartStudyCalculationRequestDtoTypedParametersItemSchema)
-});
 const ChartStudyCalculationDtoSchema = z.strictObject({
     backend: ChartStudyCalculationDtoBackendSchema,
     capability_projection_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
@@ -550,14 +592,6 @@ const ChartStudyCalculationDtoSchema = z.strictObject({
     provider_version: z.string().min(1).max(256),
     semantic_version: z.string().min(1).max(256),
     type_id: z.string().min(1).max(256)
-});
-const ChartStudyPreviewDtoSchema = z.strictObject({
-    bar_end_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
-    bar_start_ns: z.string().regex(new RegExp("^[1-9][0-9]{0,18}$")),
-    revision_fingerprint: z.string().regex(new RegExp("^[0-9a-f]{64}$")),
-    series: z.array(ChartStudyPreviewSeriesDtoSchema).min(1).max(16),
-    source_kind: ChartStudyPreviewDtoSourceKindSchema,
-    stream_id: z.string().min(1).max(256)
 });
 const ChartStudyCapabilityDtoSchema = z.strictObject({
     backend: ChartStudyCapabilityDtoBackendSchema,

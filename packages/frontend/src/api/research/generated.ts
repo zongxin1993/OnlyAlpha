@@ -2572,6 +2572,24 @@ export interface components {
         ChartStudyCapabilityProjectionDtoSourceKind: "CHART_STUDY_TRANSIENT";
         /** @enum {string} */
         ChartStudyCapabilityProjectionDtoSupportedShape: "TIME_SERIES/BAR_FIELDS";
+        ChartStudyContextNumericBindingDto: {
+            core_policy: components["schemas"]["ChartStudyDecimalPolicyDto"];
+            core_policy_fingerprint: string;
+            declared_rounding: components["schemas"]["ChartStudyNumericBindingDtoDeclaredRounding"];
+            domain: components["schemas"]["ChartStudyNumericBindingDtoDomain"];
+            effective_rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
+            output_quantum: components["schemas"]["ChartStudyNumericBindingDtoOutputQuantum"];
+            precision: components["schemas"]["Version28"];
+            representation: components["schemas"]["ChartStudyNumericBindingDtoRepresentation"];
+            resolution_policy: components["schemas"]["ChartStudyNumericBindingDtoResolutionPolicy"];
+            schema_version: components["schemas"]["Version1"];
+        };
+        ChartStudyContextNumericDto: {
+            output_quantum: components["schemas"]["ChartStudyNumericDtoOutputQuantum"];
+            precision: components["schemas"]["Version28"];
+            representation: components["schemas"]["ChartStudyNumericDtoRepresentation"];
+            rounding: components["schemas"]["ChartStudyNumericDtoRounding"];
+        };
         ChartStudyDecimalDto: {
             type: components["schemas"]["ChartStudyDecimalDtoType"];
             value: string;
@@ -2663,7 +2681,7 @@ export interface components {
             kind: components["schemas"]["ChartStudyDistributionDtoKind"];
         };
         /** @enum {string} */
-        ChartStudyDistributionDtoKind: "DISTRIBUTION";
+        ChartStudyDistributionDtoKind: "DISTRIBUTION" | "NATIVE_DISTRIBUTION";
         ChartStudyEvaluateDto: {
             authority: components["schemas"]["ChartStudyEvaluateDtoAuthority"];
             bar_semantic: components["schemas"]["MarketDataBarSemanticDto"];
@@ -2699,6 +2717,33 @@ export interface components {
             window: components["schemas"]["ChartStudyWindowDto"];
         };
         ChartStudyExtensionsDto: Record<string, never>;
+        ChartStudyFixedScaleNumericBindingDto: {
+            core_policy: components["schemas"]["ChartStudyFixedScalePolicyDto"];
+            core_policy_fingerprint: string;
+            declared_rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
+            domain: components["schemas"]["ChartStudyNumericBindingDtoDomain"];
+            effective_rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
+            output_quantum: components["schemas"]["ChartStudyNumericBindingDtoOutputQuantum"];
+            precision: components["schemas"]["Version38"];
+            representation: components["schemas"]["ChartStudyNumericBindingDtoRepresentation"];
+            resolution_policy: components["schemas"]["ChartStudyFixedScaleResolutionPolicyDto"];
+            schema_version: components["schemas"]["Version1"];
+        };
+        ChartStudyFixedScaleNumericDto: {
+            output_quantum: components["schemas"]["ChartStudyNumericDtoOutputQuantum"];
+            precision: components["schemas"]["Version38"];
+            representation: components["schemas"]["ChartStudyNumericDtoRepresentation"];
+            rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
+        };
+        ChartStudyFixedScalePolicyDto: {
+            domain: components["schemas"]["ChartStudyFixedScalePolicyDtoDomain"];
+            output_quantum: components["schemas"]["ChartStudyNumericBindingDtoOutputQuantum"];
+            schema_version: components["schemas"]["Version1"];
+        };
+        /** @enum {string} */
+        ChartStudyFixedScalePolicyDtoDomain: "onlyalpha.decimal.fixed-scale";
+        /** @enum {string} */
+        ChartStudyFixedScaleResolutionPolicyDto: "FIXED_SCALE_HALF_EVEN_V1";
         ChartStudyInputBindingDto: {
             /** @default null */
             node_fingerprint: unknown;
@@ -2777,18 +2822,7 @@ export interface components {
         };
         /** @enum {string} */
         ChartStudyManifestDtoBackendKind: "RESEARCH";
-        ChartStudyNumericBindingDto: {
-            core_policy: components["schemas"]["ChartStudyDecimalPolicyDto"];
-            core_policy_fingerprint: string;
-            declared_rounding: components["schemas"]["ChartStudyNumericBindingDtoDeclaredRounding"];
-            domain: components["schemas"]["ChartStudyNumericBindingDtoDomain"];
-            effective_rounding: components["schemas"]["ChartStudyNumericBindingDtoEffectiveRounding"];
-            output_quantum: components["schemas"]["ChartStudyNumericBindingDtoOutputQuantum"];
-            precision: components["schemas"]["Version28"];
-            representation: components["schemas"]["ChartStudyNumericBindingDtoRepresentation"];
-            resolution_policy: components["schemas"]["ChartStudyNumericBindingDtoResolutionPolicy"];
-            schema_version: components["schemas"]["Version1"];
-        };
+        ChartStudyNumericBindingDto: components["schemas"]["ChartStudyContextNumericBindingDto"] | components["schemas"]["ChartStudyFixedScaleNumericBindingDto"];
         /** @enum {string} */
         ChartStudyNumericBindingDtoDeclaredRounding: "CONTEXT" | "ROUND_HALF_EVEN";
         /** @enum {string} */
@@ -2801,12 +2835,7 @@ export interface components {
         ChartStudyNumericBindingDtoRepresentation: "DECIMAL";
         /** @enum {string} */
         ChartStudyNumericBindingDtoResolutionPolicy: "CONTEXT_HALF_EVEN_V1";
-        ChartStudyNumericDto: {
-            output_quantum: components["schemas"]["ChartStudyNumericDtoOutputQuantum"];
-            precision: components["schemas"]["Version28"];
-            representation: components["schemas"]["ChartStudyNumericDtoRepresentation"];
-            rounding: components["schemas"]["ChartStudyNumericDtoRounding"];
-        };
+        ChartStudyNumericDto: components["schemas"]["ChartStudyContextNumericDto"] | components["schemas"]["ChartStudyFixedScaleNumericDto"];
         /** @enum {string} */
         ChartStudyNumericDtoOutputQuantum: "0.000000000001";
         /** @enum {string} */
@@ -4352,6 +4381,8 @@ export interface components {
         Version28: 28;
         /** @enum {integer} */
         Version3: 3;
+        /** @enum {integer} */
+        Version38: 38;
         /** @enum {integer} */
         Version999999: 999999;
         /** @enum {boolean} */

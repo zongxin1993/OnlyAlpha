@@ -1,6 +1,6 @@
 [workspace]
 members = ["plugs/onlyalpha-market-crypto", "plugs/onlyalpha-data-source-binance", "plugs/onlyalpha-data-source-tushare", "crates/metadata-json", "crates/integration-contract", "packages/backend", "crates/backtest", "crates/runtime", "crates/margin","crates/settlement","crates/broker",
-    "crates/fee", "crates/execution", "crates/risk", "crates/strategy-ledger", "crates/account", "crates/position", "crates/order", "crates/strategy", "crates/calculation-bridge", "crates/domain", "crates/calculation", "crates/predicates", "crates/clock", "crates/event", "crates/market-data-construction", "crates/market-data"]
+    "crates/fee", "crates/execution", "crates/risk", "crates/strategy-ledger", "crates/account", "crates/position", "crates/order", "crates/strategy", "crates/calculation-bridge", "crates/domain", "crates/calculation", "crates/operators", "crates/indicators", "crates/predicates", "crates/clock", "crates/event", "crates/market-data-construction", "crates/market-data"]
 resolver = "3"
 
 [workspace.package]

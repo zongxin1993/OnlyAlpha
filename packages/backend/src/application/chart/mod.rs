@@ -1,5 +1,8 @@
 //! Disposable chart Product composition. Storage/Source own input truth; the
-//! selected installed Python factory owns mathematics, never business authority.
+//! selected implementation owns mathematics, never business authority.
+mod native_indicators;
+mod worker_sandbox;
+pub use native_indicators::run_worker as run_native_worker;
 use crate::application::market_product::{
     self, Application, Authorized, HistoryContext, PreviewSource, Resolved, SendFence,
     WindowRequest,
@@ -7,7 +10,7 @@ use crate::application::market_product::{
 use crate::application::source_access::{Permission, Session};
 use crate::persistence::market_data::Storage;
 use onlyalpha_calculation::product::{Definition, TypeDeclaration};
-use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, ProcessState, Worker};
+use onlyalpha_calculation_bridge::{Cancellation, ProcessState, Worker};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarSemantic};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -130,14 +133,31 @@ struct Entry {
     capability: Value,
 }
 struct Composition {
-    worker: Worker,
+    worker: Option<Worker>,
+    slot: Arc<tokio::sync::Semaphore>,
     algorithm_artifact: Value,
     entries: BTreeMap<(String, String), Entry>,
 }
-enum CatalogProjection {
-    Empty,
-    Fixed { invocation: Value, catalog: Value },
-    Rejected,
+impl Composition {
+    fn worker(&mut self) -> Result<&mut Worker> {
+        self.worker.as_mut().ok_or(Error::Unavailable)
+    }
+
+    fn cancellation(&self) -> Result<Option<Cancellation>> {
+        Ok(self.worker.as_ref().map(Worker::cancellation).transpose()?)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        if let Some(worker) = &mut self.worker {
+            worker.terminate()?;
+        } else {
+            return Err(Error::Unavailable);
+        }
+        if self.slot.is_closed() {
+            return Err(Error::Unavailable);
+        }
+        Ok(())
+    }
 }
 pub enum ChartSource<'a> {
     Current(&'a Resolved),
@@ -162,31 +182,27 @@ impl ChartSource<'_> {
     }
 }
 pub struct ChartQuery {
-    installation: Arc<ChartInstallation>,
-    invocation: Value,
+    native_invocation: Value,
+    native_executable: std::fs::File,
     slot: Arc<tokio::sync::Semaphore>,
     active: Mutex<Vec<Cancellation>>,
-    catalog: Mutex<CatalogProjection>,
 }
 impl ChartQuery {
     pub const MAX_CONCURRENT_INVOCATIONS: usize = 2;
-    pub fn new(installation: ChartInstallation) -> Result<Self> {
-        let executable = std::fs::read(std::env::current_exe().map_err(|_| Error::Unavailable)?)
-            .map_err(|_| Error::Unavailable)?;
-        let invocation = manifest(
-            json!({"kind":"INDICATOR","type_id":"onlyalpha.chart-study.invocation","semantic_version":"3"}),
-            json!([{"relative_path":"native-product-executable","byte_sha256":hash(&executable)}]),
-            json!([{"dependency_id":"onlyalpha.algorithm-installation","semantic_version":"1","artifact_fingerprint":installation.artifact_fingerprint()}]),
-            "onlyalpha_product_runtime.chart:ChartQuery",
-        )?;
+    pub fn new() -> Result<Self> {
+        Self::with_native_executable("/proc/self/exe".into())
+    }
+
+    pub fn with_native_executable(native_executable: std::path::PathBuf) -> Result<Self> {
+        let native_executable = std::fs::File::open(native_executable).map_err(|_| Error::Unavailable)?;
+        let native_invocation = native_indicators::worker_invocation(&native_executable)?;
         Ok(Self {
-            installation: Arc::new(installation),
-            invocation,
+            native_invocation,
+            native_executable,
             slot: Arc::new(tokio::sync::Semaphore::new(
                 Self::MAX_CONCURRENT_INVOCATIONS,
             )),
             active: Mutex::new(Vec::new()),
-            catalog: Mutex::new(CatalogProjection::Empty),
         })
     }
     pub fn process_state(&self) -> ProcessState {
@@ -227,166 +243,17 @@ impl ChartQuery {
         self.active.clear_poison();
         Ok(())
     }
-    /// A declaration is pinned only after successful worker shutdown. Conflicting
-    /// declarations cannot replace the fixed installation's original identity.
-    fn check_catalog(&self, observed: &Value, publish: bool) -> Result<()> {
-        let mut catalog = self.catalog.lock().map_err(|_| Error::Unavailable)?;
-        match &*catalog {
-            CatalogProjection::Empty => {
-                if publish {
-                    *catalog = CatalogProjection::Fixed {
-                        invocation: self.invocation.clone(),
-                        catalog: observed.clone(),
-                    };
-                }
-                Ok(())
-            }
-            CatalogProjection::Fixed {
-                invocation,
-                catalog: fixed,
-            } if *invocation == self.invocation && fixed == observed => Ok(()),
-            _ => {
-                *catalog = CatalogProjection::Rejected;
-                Err(Error::Changed)
-            }
-        }
+    fn native_entries(&self) -> Result<BTreeMap<(String, String), Entry>> {
+        native_indicators::entries(&self.native_invocation)
     }
-    fn compose(&self, end: Instant) -> Result<(Composition, Value)> {
-        remaining(end)?;
-        let permit = self
-            .slot
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Error::Capacity)?;
-        let mut active = self.active.lock().map_err(|_| Error::Unavailable)?;
-        if self.is_closed() || active.iter().any(|c| c.state() == ProcessState::Uncertain) {
-            return Err(Error::Unavailable);
-        }
-        active.retain(|c| c.state() != ProcessState::Joined);
-        remaining(end)?;
-        let mut worker = crate::workers::algorithm::AlgorithmProcess::chart(
-            &self.installation,
-            Box::new(permit),
-        )?;
-        active.push(worker.cancellation()?);
-        drop(active);
-        worker.handshake_chart(remaining(end)?)?;
-        let observed = worker.exchange_chart(json!({"op":"CATALOG"}), remaining(end)?)?;
-        let entries = self.admit_catalog(&observed)?;
-        self.check_catalog(&observed, false)?;
-        Ok((
-            Composition {
-                worker,
-                algorithm_artifact: observed["artifact_fingerprint"].clone(),
-                entries,
-            },
-            observed,
-        ))
-    }
-    fn admit_catalog(&self, observed: &Value) -> Result<BTreeMap<(String, String), Entry>> {
-        exact(observed, &["artifact_fingerprint", "entries"])?;
-        sha(&observed["artifact_fingerprint"])?;
-        let rows = observed["entries"]
-            .as_array()
-            .filter(|r| !r.is_empty() && r.len() <= 64)
-            .ok_or(Error::Unavailable)?;
-        let provider = json!({"schema_version":1,"provider_id":"onlyalpha.indicator.library","provider_version":"18","kind":"INDICATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-plugin-indicators","distribution_version":self.installation.installed_distribution_version("onlyalpha-plugin-indicators")?}});
-        let content = fp(
-            &json!({"provider_manifest":provider,"installed_algorithm_artifact":observed["artifact_fingerprint"],"installation":self.installation.artifact_fingerprint(),"registrations":rows}),
-        )?;
-        let generation =
-            fp(&json!({"domain":"onlyalpha.chart.installed-catalog","provider":content}))?;
-        let mut entries = BTreeMap::new();
-        let mut required_resources = BTreeSet::new();
-        for row in rows {
-            exact(
-                row,
-                &[
-                    "schema_version",
-                    "descriptor",
-                    "parameter_values",
-                    "implementation_fingerprint",
-                    "implementation",
-                    "artifact_fingerprint",
-                    "support",
-                    "numeric_binding",
-                ],
-            )?;
-            if row["artifact_fingerprint"] != observed["artifact_fingerprint"] {
-                return Err(Error::Unavailable);
-            }
-            let d = &row["descriptor"];
-            let declaration=TypeDeclaration::from_record(&json!({"schema_version":row["schema_version"],"descriptor":d,"parameter_values":row["parameter_values"]}),WORK).map_err(|_|Error::Unavailable)?;
-            if d["kind"] != "INDICATOR" || d["execution_shape"] != "TIME_SERIES" {
-                return Err(Error::Unavailable);
-            }
-            let m = &row["implementation"];
-            let expected = manifest(
-                json!({"kind":d["kind"],"type_id":d["type_id"],"semantic_version":d["semantic_version"]}),
-                m["resources"].clone(),
-                m["semantic_dependencies"].clone(),
-                text(&m["entrypoint_identity"])?,
-            )?;
-            if *m != expected
-                || m["implementation_fingerprint"] != row["implementation_fingerprint"]
-            {
-                return Err(Error::Unavailable);
-            }
-            for resource in m["resources"].as_array().ok_or(Error::Unavailable)? {
-                required_resources.insert((
-                    text(&resource["relative_path"])?.to_owned(),
-                    sha(&resource["byte_sha256"])?.to_owned(),
-                ));
-            }
-            let numeric = &row["numeric_binding"];
-            if numeric["declared_rounding"] != d["numeric"]["rounding"]
-                || numeric["effective_rounding"] != "ROUND_HALF_EVEN"
-                || numeric["representation"] != "DECIMAL"
-                || numeric["precision"] != 28
-                || numeric["output_quantum"] != "0.000000000001"
-                || numeric["resolution_policy"] != "CONTEXT_HALF_EVEN_V1"
-                || fp(&numeric["core_policy"])? != sha(&numeric["core_policy_fingerprint"])?
-            {
-                return Err(Error::Unavailable);
-            }
-            let members = row["support"]["series"]
-                .as_array()
-                .filter(|a| !a.is_empty() && a.len() <= 8)
-                .ok_or(Error::Unavailable)?
-                .iter()
-                .map(|s| text(&s["output_name"]).map(str::to_owned))
-                .collect::<Result<Vec<_>>>()?;
-            let declared = d["outputs"].as_array().ok_or(Error::Unavailable)?;
-            if members.iter().collect::<BTreeSet<_>>().len() != members.len()
-                || members.iter().any(|name| {
-                    !declared
-                        .iter()
-                        .any(|p| p["name"] == *name && p["data_type"] == "DECIMAL")
-                })
-            {
-                return Err(Error::Unavailable);
-            }
-            let projection = json!({"domain":"onlyalpha.chart-study.capability-projection","schema_version":2,"source_kind":"CHART_STUDY_TRANSIENT","authority":"DISPLAY_ONLY","publication_status":"NOT_A_RESEARCH_RESULT","descriptor":d,"backend":"RESEARCH","implementation":m,"invocation":self.invocation,"provider_manifest":provider,"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_versions":[1],"output_members":members,"supported_shape":"TIME_SERIES/BAR_FIELDS","input_support":{"instrument_policy":"EXACT_SOURCE_CATALOG","resolution_mode":"VERIFIED_NATIVE_OR_DERIVED","bar_formation":"FIXED_DURATION","alignment":"UTC_24X7","closed_only":false,"preview_mode":"OWNING_STREAM_SNAPSHOT","coverage_policy":"COMPLETE_VERIFIED_WINDOW"},"finite_initialization":"PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START","limits":{"max_input_rows":2000,"max_period":10000,"max_concurrent_invocations":Self::MAX_CONCURRENT_INVOCATIONS},"numeric_binding":row["numeric_binding"],"presentation":row["support"]});
-            let capability = json!({"kind":"INDICATOR","type_id":d["type_id"],"semantic_version":d["semantic_version"],"descriptor":d,"descriptor_fingerprint":fp(d)?,"backend":"RESEARCH","implementation_fingerprint":row["implementation_fingerprint"],"provider_id":provider["provider_id"],"provider_version":provider["provider_version"],"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_version":1,"execution_shape":"TIME_SERIES","output_members":members,"limits":projection["limits"],"numeric_execution_binding":row["numeric_binding"],"invocation_implementation_fingerprint":self.invocation["implementation_fingerprint"],"presentation":row["support"],"capability_projection":projection,"capability_projection_fingerprint":fp(&projection)?});
-            let key = (
-                text(&d["type_id"])?.into(),
-                text(&d["semantic_version"])?.into(),
-            );
-            if entries
-                .insert(
-                    key,
-                    Entry {
-                        declaration,
-                        capability,
-                    },
-                )
-                .is_some()
-            {
-                return Err(Error::Unavailable);
-            }
-        }
-        self.installation.require_resources(&required_resources)?;
-        Ok(entries)
+
+    fn project_capability(
+        invocation: &Value, row: &Value, provider: &Value, content: &str, generation: &str, members: &[String],
+    ) -> Result<Value> {
+        let d = &row["descriptor"];
+        let m = &row["implementation"];
+        let projection = json!({"domain":"onlyalpha.chart-study.capability-projection","schema_version":2,"source_kind":"CHART_STUDY_TRANSIENT","authority":"DISPLAY_ONLY","publication_status":"NOT_A_RESEARCH_RESULT","descriptor":d,"backend":"RESEARCH","implementation":m,"invocation":invocation,"provider_manifest":provider,"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_versions":[1],"output_members":members,"supported_shape":"TIME_SERIES/BAR_FIELDS","input_support":{"instrument_policy":"EXACT_SOURCE_CATALOG","resolution_mode":"VERIFIED_NATIVE_OR_DERIVED","bar_formation":"FIXED_DURATION","alignment":"UTC_24X7","closed_only":false,"preview_mode":"OWNING_STREAM_SNAPSHOT","coverage_policy":"COMPLETE_VERIFIED_WINDOW"},"finite_initialization":"PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START","limits":{"max_input_rows":2000,"max_period":10000,"max_concurrent_invocations":Self::MAX_CONCURRENT_INVOCATIONS},"numeric_binding":row["numeric_binding"],"presentation":row["support"]});
+        Ok(json!({"kind":"INDICATOR","type_id":d["type_id"],"semantic_version":d["semantic_version"],"descriptor":d,"descriptor_fingerprint":fp(d)?,"backend":"RESEARCH","implementation_fingerprint":row["implementation_fingerprint"],"provider_id":provider["provider_id"],"provider_version":provider["provider_version"],"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_version":1,"execution_shape":"TIME_SERIES","output_members":members,"limits":projection["limits"],"numeric_execution_binding":row["numeric_binding"],"invocation_implementation_fingerprint":invocation["implementation_fingerprint"],"presentation":row["support"],"capability_projection":projection,"capability_projection_fingerprint":fp(&projection)?}))
     }
     pub fn capabilities(&self, session: &Session) -> Result<Value> {
         self.capabilities_before(session, Instant::now() + Duration::from_secs(10))
@@ -401,50 +268,10 @@ impl ChartQuery {
     /// This method grants no Source, computation or execution capability.
     pub fn registered_capabilities_before(&self, deadline: Instant) -> Result<Value> {
         let deadline = deadline.min(Instant::now() + Duration::from_secs(10));
+        let mut composition = self.compose(deadline)?;
+        let value = json!({"schema_version":2,"capabilities":composition.entries.values().map(|entry| &entry.capability).collect::<Vec<_>>()});
+        composition.finish()?;
         remaining(deadline)?;
-        let observed = {
-            let catalog = self.catalog.lock().map_err(|_| Error::Unavailable)?;
-            match &*catalog {
-                CatalogProjection::Empty => None,
-                CatalogProjection::Fixed {
-                    invocation,
-                    catalog,
-                } if *invocation == self.invocation => Some(catalog.clone()),
-                _ => return Err(Error::Changed),
-            }
-        };
-        if let Some(observed) = observed {
-            let _permit = self
-                .slot
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| Error::Capacity)?;
-            let active = self.active.lock().map_err(|_| Error::Unavailable)?;
-            if active.iter().any(|c| c.state() == ProcessState::Uncertain) {
-                return Err(Error::Unavailable);
-            }
-            // No retained freshness or worker-availability proof: re-read the
-            // complete sealed installation and every exact resource binding.
-            self.installation.verify()?;
-            let entries = self.admit_catalog(&observed)?;
-            self.check_catalog(&observed, false)?;
-            remaining(deadline)?;
-            if self.is_closed() {
-                return Err(Error::Unavailable);
-            }
-            drop(active);
-            return Ok(
-                json!({"schema_version":2,"capabilities":entries.values().map(|e|e.capability.clone()).collect::<Vec<_>>()}),
-            );
-        }
-        let (composition, observed) = self.compose(deadline)?;
-        let value = json!({"schema_version":2,"capabilities":composition.entries.values().map(|e|e.capability.clone()).collect::<Vec<_>>()});
-        composition.worker.terminate()?;
-        remaining(deadline)?;
-        if self.is_closed() {
-            return Err(Error::Unavailable);
-        }
-        self.check_catalog(&observed, true)?;
         Ok(value)
     }
     pub fn catalog(&self, session: &Session) -> Result<Value> {
@@ -457,17 +284,26 @@ impl ChartQuery {
         Ok(value)
     }
     pub fn registered_catalog_before(&self, deadline: Instant) -> Result<Value> {
-        let caps = self.registered_capabilities_before(deadline)?;
-        let rows = caps["capabilities"].as_array().ok_or(Error::Unavailable)?;
-        let mut calculations = vec![];
-        for row in rows {
-            let d = &row["descriptor"];
-            let parameters=d["parameters"].as_array().ok_or(Error::Unavailable)?.iter().map(|p|{
-    let scalar=|v:&Value|json!({"type":if v.is_null(){"NULL"}else{p["parameter_type"].as_str().unwrap_or("")},"value":v});
-    json!({"name":p["name"],"type":p["parameter_type"],"required":p["required"],"default":scalar(&p["default"]),"minimum":if p["minimum"].is_null(){Value::Null}else{scalar(&p["minimum"])},"maximum":if p["maximum"].is_null(){Value::Null}else{scalar(&p["maximum"])},"enum_values":p["enum_values"].as_array().map(|a|a.iter().map(scalar).collect::<Vec<_>>()).unwrap_or_default(),"uppercase":p["uppercase"]})
-   }).collect::<Vec<_>>();
-            calculations.push(json!({"kind":d["kind"],"type_reference":{"kind":d["kind"],"type_id":d["type_id"],"semantic_version":d["semantic_version"]},"parameters":parameters,"inputs":d["inputs"],"outputs":d["outputs"],"parameter_sweep_allowed":true}));
-        }
+        let deadline = deadline.min(Instant::now() + Duration::from_secs(10));
+        let mut composition = self.compose(deadline)?;
+        let calculations = composition.entries.values().map(|entry| {
+            let record = entry.declaration.to_record();
+            let descriptor = &record["descriptor"];
+            let specs = descriptor["parameters"].as_array().ok_or(Error::Unavailable)?;
+            let values = record["parameter_values"].as_array().ok_or(Error::Unavailable)?;
+            let parameters = specs.iter().zip(values).map(|(spec, value)| {
+                let bound = |name: &str| if value[name]["type"] == "NULL" {
+                    Value::Null
+                } else {
+                    value[name].clone()
+                };
+                json!({"name":spec["name"],"type":spec["parameter_type"],"required":spec["required"],"default":value["default"],"minimum":bound("minimum"),"maximum":bound("maximum"),"enum_values":value["enum_values"],"uppercase":spec["uppercase"]})
+            }).collect::<Vec<_>>();
+            // This is discovery metadata. Rust Chart execution grants no Research sweep.
+            Ok(json!({"kind":descriptor["kind"],"type_reference":{"kind":descriptor["kind"],"type_id":descriptor["type_id"],"semantic_version":descriptor["semantic_version"]},"parameters":parameters,"inputs":descriptor["inputs"],"outputs":descriptor["outputs"],"parameter_sweep_allowed":false}))
+        }).collect::<Result<Vec<_>>>()?;
+        composition.finish()?;
+        remaining(deadline)?;
         Ok(json!({"schema_version":2,"calculations":calculations}))
     }
     pub async fn prepare<'a>(
@@ -669,15 +505,41 @@ impl ChartQuery {
     // Both explicit input owners use the same registration, parameter validation,
     // installed factory and definition admission. No input authority crosses here.
     fn prepare_calculation(&self, c: &Value, end: Instant) -> Result<(Composition, Calculation)> {
-        let (mut composition, _) = self.compose(end)?;
-        let calculation = self.resolve_calculation(c, &mut composition, end)?;
+        let composition = self.compose(end)?;
+        let calculation = self.resolve_calculation(c, &composition)?;
         Ok((composition, calculation))
+    }
+    fn compose(&self, end: Instant) -> Result<Composition> {
+        remaining(end)?;
+        let permit = self.slot.clone().try_acquire_owned().map_err(|_| Error::Capacity)?;
+        let mut active = self.active.lock().map_err(|_| Error::Unavailable)?;
+        if self.is_closed() || active.iter().any(|control| control.state() == ProcessState::Uncertain) {
+            return Err(Error::Unavailable);
+        }
+        active.retain(|control| control.state() != ProcessState::Joined);
+        remaining(end)?;
+        let artifact = &self.native_invocation["resources"][0]["byte_sha256"];
+        let mut worker = crate::workers::algorithm::AlgorithmProcess::native_chart(
+            &self.native_executable, text(artifact)?, Box::new(permit),
+        )?;
+        active.push(worker.cancellation()?);
+        drop(active);
+        let entries = self.native_entries()?;
+        let observed = worker.exchange_chart(json!({"op":"CATALOG"}), remaining(end)?)?;
+        if observed != native_indicators::catalog(&entries) {
+            return Err(Error::Changed);
+        }
+        Ok(Composition {
+            worker: Some(worker),
+            slot: Arc::clone(&self.slot),
+            algorithm_artifact: artifact.clone(),
+            entries,
+        })
     }
     fn resolve_calculation(
         &self,
         c: &Value,
-        composition: &mut Composition,
-        end: Instant,
+        composition: &Composition,
     ) -> Result<Calculation> {
         exact(
             c,
@@ -741,12 +603,7 @@ impl ChartQuery {
         }
         let parameters = parameters(&entry.declaration, &c["typed_parameters"])?;
         let base = json!({"type_id":key.0,"semantic_version":key.1,"parameters":parameters,"implementation_fingerprint":entry.capability["implementation_fingerprint"]});
-        let mut resolve = base.clone();
-        resolve["op"] = json!("RESOLVE");
-        let resolved = composition
-            .worker
-            .exchange_chart(resolve, remaining(end)?)?;
-        let definition = resolved_definition(entry, &resolved)?;
+        let definition = native_indicators::resolve(entry, &parameters)?;
         let capability = entry.capability.clone();
         let declaration = entry.declaration.to_record();
         Ok(Calculation {
@@ -759,60 +616,6 @@ impl ChartQuery {
     }
 }
 
-fn resolved_definition(entry: &Entry, resolved: &Value) -> Result<Definition> {
-    exact(resolved, &["definition", "definition_fingerprint"]).map_err(|_| Error::Unavailable)?;
-    let definition = entry
-        .declaration
-        .validate_candidate(&resolved["definition"], WORK)
-        .map_err(|_| Error::Unavailable)?;
-    let record = definition.to_record();
-    let descriptor = entry.declaration.descriptor();
-    for field in [
-        "inputs",
-        "outputs",
-        "numeric",
-        "timestamp",
-        "missing_values",
-        "factor_kind",
-    ] {
-        if record[field] != descriptor[field] {
-            return Err(Error::Unavailable);
-        }
-    }
-    for binding in record["input_bindings"]
-        .as_object()
-        .ok_or(Error::Unavailable)?
-        .values()
-    {
-        if !binding["node_fingerprint"].is_null()
-            || !matches!(
-                binding["source"].as_str(),
-                Some(
-                    "bar.open"
-                        | "bar.high"
-                        | "bar.low"
-                        | "bar.close"
-                        | "bar.volume"
-                        | "bar.start_ns"
-                )
-            )
-        {
-            return Err(Error::Unavailable);
-        }
-    }
-    if !definition.to_record()["warmup"]["minimum_observations"]
-        .as_u64()
-        .is_some_and(|n| (1..=10000).contains(&n))
-    {
-        return Err(Error::Unavailable);
-    }
-    if definition.fingerprint()
-        != text(&resolved["definition_fingerprint"]).map_err(|_| Error::Unavailable)?
-    {
-        return Err(Error::Unavailable);
-    }
-    Ok(definition)
-}
 fn utc_continuous_calendar(calendar: &Value) -> bool {
     let Some(sessions) = calendar["sessions"].as_array() else {
         return false;
@@ -976,8 +779,8 @@ impl ChartFence {
 impl PreparedChart {
     /// Move into an owned blocking task. Dropping an HTTP future cannot release its
     /// capacity while the actual child remains unjoined; Drop is only best effort.
-    pub fn cancellation(&self) -> Result<onlyalpha_calculation_bridge::Cancellation> {
-        Ok(self.composition.worker.cancellation()?)
+    pub fn cancellation(&self) -> Result<Option<Cancellation>> {
+        self.composition.cancellation()
     }
     pub fn execute(mut self) -> Result<ChartResult> {
         let (window, history) = self.history.into_parts()?;
@@ -1001,7 +804,8 @@ impl PreparedChart {
             self.end,
         )?;
         // Capacity remains owned until positive worker join.
-        self.composition.worker.terminate()?;
+        self.composition.finish()?;
+        remaining(self.end)?;
         history.check()?;
         let mut preview = preview.map(|p| p.1);
         if let Some(fence) = &preview {
@@ -1087,7 +891,7 @@ impl Calculation {
             call["op"] = json!("EXECUTE");
             call["inputs"] = json!(columns);
             call["input_fingerprint"] = json!(input);
-            let value = composition.worker.exchange_chart(call, remaining(end)?)?;
+            let value = composition.worker()?.exchange_chart(call, remaining(end)?)?;
             execution_result(
                 &value,
                 &self.declaration,
@@ -1097,11 +901,12 @@ impl Calculation {
                 &self.capability,
                 bars.len(),
             )?;
+            let outputs = &value["outputs"];
             for name in &self.selected {
                 let points = (0..closed_count)
                     .map(|index| {
                         point(
-                            &value["outputs"][name],
+                            &outputs[name],
                             index,
                             &bars[index]["bar_start_ns"],
                             false,
@@ -1111,7 +916,7 @@ impl Calculation {
                 series.push(json!({"output_name":name,"points":points}));
             }
             if let Some(p) = preview {
-                preview_output = json!({"source_kind":"PREVIEW_UNCLOSED","stream_id":p["stream_id"],"revision_fingerprint":p["revision_fingerprint"],"bar_start_ns":p["bar"]["bar_start_ns"],"bar_end_ns":p["bar"]["bar_end_ns"],"series":self.selected.iter().map(|name|Ok(json!({"output_name":name,"point":point(&value["outputs"][name],closed_count,&bars[closed_count]["bar_start_ns"],true)?}))).collect::<Result<Vec<_>>>()?});
+                preview_output = json!({"source_kind":"PREVIEW_UNCLOSED","stream_id":p["stream_id"],"revision_fingerprint":p["revision_fingerprint"],"bar_start_ns":p["bar"]["bar_start_ns"],"bar_end_ns":p["bar"]["bar_end_ns"],"series":self.selected.iter().map(|name|Ok(json!({"output_name":name,"point":point(&outputs[name],closed_count,&bars[closed_count]["bar_start_ns"],true)?}))).collect::<Result<Vec<_>>>()?});
             }
         }
         let mut calculation = self.capability.clone();
@@ -1349,8 +1154,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod admission_tests;
 
 mod temporary;
 pub use temporary::PreparedTemporaryBatch;

@@ -319,9 +319,8 @@ mod distribution_tests {
         ));
         std::fs::create_dir(&root).unwrap();
         let relative =
-            "lib/python3.12/site-packages/onlyalpha_plugin_indicators-0.2.0.dist-info/METADATA";
-        let metadata =
-            b"Metadata-Version: 2.1\nName: onlyalpha-plugin-indicators\nVersion: 0.2.0\n";
+            "lib/python3.12/site-packages/onlyalpha_plugin_operators-0.2.0.dist-info/METADATA";
+        let metadata = b"Metadata-Version: 2.1\nName: onlyalpha-plugin-operators\nVersion: 0.2.0\n";
         let path = root.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, metadata).unwrap();
@@ -340,43 +339,39 @@ mod distribution_tests {
         assert_eq!(installed.distribution_version().unwrap(), "0.7.0");
         assert_eq!(
             installed
-                .installed_distribution_version("onlyalpha-plugin-indicators")
+                .installed_distribution_version("onlyalpha-plugin-operators")
                 .unwrap(),
             "0.2.0"
         );
         assert!(installed.installed_distribution_version("missing").is_err());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        std::fs::write(
-            &path,
-            b"Name: onlyalpha-plugin-indicators\nVersion: 0.3.0\n",
-        )
-        .unwrap();
+        std::fs::write(&path, b"Name: onlyalpha-plugin-operators\nVersion: 0.3.0\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
         assert!(
             installed
-                .installed_distribution_version("onlyalpha-plugin-indicators")
+                .installed_distribution_version("onlyalpha-plugin-operators")
                 .is_err()
         );
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         std::fs::write(&path, metadata).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
         let duplicate =
-            "lib/python3.12/site-packages/onlyalpha_plugin_indicators-0.3.0.dist-info/METADATA";
+            "lib/python3.12/site-packages/onlyalpha_plugin_operators-0.3.0.dist-info/METADATA";
         manifest["files"][duplicate] = json!(hash(metadata));
         assert!(
             seal(&manifest)
-                .installed_distribution_version("onlyalpha-plugin-indicators")
+                .installed_distribution_version("onlyalpha-plugin-operators")
                 .is_err()
         );
         manifest["files"].as_object_mut().unwrap().remove(duplicate);
-        let conflicting = b"Name: onlyalpha-plugin-indicators\nVersion: 0.2.0\nVersion: 0.3.0\n";
+        let conflicting = b"Name: onlyalpha-plugin-operators\nVersion: 0.2.0\nVersion: 0.3.0\n";
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         std::fs::write(&path, conflicting).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
         manifest["files"][relative] = json!(hash(conflicting));
         assert!(
             seal(&manifest)
-                .installed_distribution_version("onlyalpha-plugin-indicators")
+                .installed_distribution_version("onlyalpha-plugin-operators")
                 .is_err()
         );
         std::fs::remove_dir_all(root).unwrap();

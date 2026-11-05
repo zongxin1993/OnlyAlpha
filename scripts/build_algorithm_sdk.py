@@ -47,17 +47,8 @@ SDK = (
     "algorithm/codec.py",
     "algorithm/type_declaration.py",
 )
-INDICATORS = (
-    "definitions.py",
-    "research.py",
-    "chart.py",
-    "calibrated.py",
-    "financial_semantics.py",
-    "chart_factory.py",
-)
 OPERATORS = ("metadata.py", "registration.py", "semantics.py", "research.py", "trading.py")
 WORKER = (
-    "chart_worker.py",
     "chart_isolation.py",
     "worker_io.py",
     "research_worker.py",
@@ -135,13 +126,6 @@ def build(output: Path) -> list[Path]:
         "onlyalpha/" + name: (ROOT / "packages/backend/python/algorithms/sdk/onlyalpha" / name).read_bytes()
         for name in SDK
     }
-    plugin = {
-        "onlyalpha_plugin_indicators/" + name: (
-            ROOT / "packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators" / name
-        ).read_bytes()
-        for name in INDICATORS
-    }
-    plugin["onlyalpha_plugin_indicators/__init__.py"] = b'"""Installed pure Indicator algorithms."""\n'
     operators = {
         "onlyalpha_plugin_operators/" + name: (
             ROOT / "packages/onlyalpha-operators/src/onlyalpha_plugin_operators" / name
@@ -166,7 +150,6 @@ def build(output: Path) -> list[Path]:
         ).read_bytes()
     return [
         wheel(output, "onlyalpha", sdk, ()),
-        wheel(output, "onlyalpha-plugin-indicators", plugin, ("onlyalpha", "pyarrow")),
         wheel(output, "onlyalpha-plugin-operators", operators, ("onlyalpha", "pyarrow")),
         wheel(
             output,

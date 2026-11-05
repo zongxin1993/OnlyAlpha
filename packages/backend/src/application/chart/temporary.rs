@@ -167,11 +167,11 @@ impl ChartQuery {
         let history = self
             .temporary_input(app, source, session, &request, end)
             .await?;
-        let (mut composition, _) = self.compose(end)?;
+        let composition = self.compose(end)?;
         let mut admitted = Vec::with_capacity(calculations.len());
         for calculation in calculations {
             history.parts()?;
-            match self.resolve_calculation(&calculation, &mut composition, end) {
+            match self.resolve_calculation(&calculation, &composition) {
                 Ok(value) => admitted.push(Some(value)),
                 // Only a proved per-item request rejection is locally scoped.
                 Err(Error::Invalid) => admitted.push(None),
@@ -183,7 +183,6 @@ impl ChartQuery {
             composition,
             history,
             calculations: admitted,
-            installation: Arc::clone(&self.installation),
             end,
         })
     }
@@ -225,12 +224,11 @@ pub struct PreparedTemporaryBatch {
     composition: Composition,
     history: Authorized<Value>,
     calculations: Vec<Option<Calculation>>,
-    installation: Arc<ChartInstallation>,
     end: Instant,
 }
 impl PreparedTemporaryBatch {
-    pub fn cancellation(&self) -> Result<Cancellation> {
-        Ok(self.composition.worker.cancellation()?)
+    pub fn cancellation(&self) -> Result<Option<Cancellation>> {
+        self.composition.cancellation()
     }
     pub fn execute(mut self) -> Result<ChartResult> {
         let (window, history) = self.history.into_parts()?;
@@ -262,9 +260,7 @@ impl PreparedTemporaryBatch {
         if payload.to_string().len() > WORK {
             return Err(Error::Unavailable);
         }
-        self.composition.worker.terminate()?;
-        // A retained declaration never substitutes for current physical proof.
-        self.installation.verify()?;
+        self.composition.finish()?;
         remaining(self.end)?;
         history.check()?;
         Ok(ChartResult {

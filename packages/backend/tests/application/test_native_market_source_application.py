@@ -21,14 +21,6 @@ from typing import Any
 
 import pytest
 
-from onlyalpha.persistence.clickhouse import (
-    OnlyClickHouseClient,
-    OnlyClickHouseConfig,
-    OnlyClickHouseMigrationAuthority,
-    only_assert_clickhouse_test_database,
-)
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
 ROOT = Path(__file__).resolve().parents[4]
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(240)]
 
@@ -114,6 +106,14 @@ def _native_command(
 
 @pytest.fixture
 def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
+    from onlyalpha.persistence.clickhouse import (
+        OnlyClickHouseClient,
+        OnlyClickHouseConfig,
+        OnlyClickHouseMigrationAuthority,
+        only_assert_clickhouse_test_database,
+    )
+    from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
     OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
@@ -255,6 +255,9 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
             (evidence / "algorithm-artifact.json").write_text(
                 json.dumps({"artifact_fingerprint": artifact, "root": str(installation)})
             )
+            from scripts.native_http_contract import native_executable
+
+            environment["ONLYALPHA_NATIVE_CHART_WORKER"] = str(native_executable(release=False))
             environment["ONLYALPHA_NATIVE_CHART_INSTALLATION"] = str(installation)
             environment["ONLYALPHA_NATIVE_CHART_ARTIFACT"] = artifact
             (Path(wal_temporary) / "wal").mkdir(mode=0o700)

@@ -30,6 +30,7 @@ CUT_METADATA = ".onlyalpha-dev-source-cut.json"
 BROWSER_RESET_FENCE = Path("test-results/dev-verification/browser-reset.pending.json")
 CONTROLLED_HOSTS = Path("/etc/hosts")
 CONTROLLED_HOSTNAME = b"data-api.binance.vision"
+CONTROLLED_STREAM_HOSTNAME = b"data-stream.binance.vision"
 CONTROLLED_HOSTS_BACKUPS = Path("/root/onlyalpha-dev-controlled-https")
 # Immutable historical regression inputs, not mutable release baselines. These
 # two original commits prove the non-reusable ADR 0109 authorization guard.
@@ -89,7 +90,6 @@ def environment_inputs(root: Path) -> dict[str, str]:
             (
                 "packages/backend/python/algorithms/",
                 "packages/backend/python/gateway_protocol/src/",
-                "packages/onlyalpha-indicators/src/",
                 "packages/onlyalpha-operators/src/",
                 "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets/",
             )
@@ -412,17 +412,21 @@ def controlled_https_command(command: list[str]) -> bool:
     )
 
 
-def controlled_hosts_bytes(original: bytes, operation_id: str) -> bytes:
+def controlled_hostnames(chart_stream: bool) -> tuple[bytes, ...]:
+    return (CONTROLLED_HOSTNAME, CONTROLLED_STREAM_HOSTNAME) if chart_stream else (CONTROLLED_HOSTNAME,)
+
+
+def controlled_hosts_bytes(original: bytes, operation_id: str, *, chart_stream: bool = False) -> bytes:
     if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
         raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
-    if b"onlyalpha-dev-controlled-https:" in original or CONTROLLED_HOSTNAME in original.lower():
+    if b"onlyalpha-dev-controlled-https:" in original or any(host in original.lower() for host in controlled_hostnames(chart_stream)):
         raise ValueError("DEV_CONTROLLED_HTTPS_EXISTING_MAPPING_REFUSED")
     newline = b"" if original.endswith(b"\n") else b"\n"
     return (
         original
         + newline
         + b"127.0.0.1 "
-        + CONTROLLED_HOSTNAME
+        + b" ".join(controlled_hostnames(chart_stream))
         + b" # onlyalpha-dev-controlled-https:"
         + operation_id.encode("ascii")
         + b"\n"
@@ -493,7 +497,7 @@ def validate_controlled_proof(proof: Any, operation_id: str, action: str) -> dic
     return proof
 
 
-def controlled_https_root(action: str, operation_id: str) -> dict[str, Any]:
+def controlled_https_root(action: str, operation_id: str, *, chart_stream: bool = False) -> dict[str, Any]:
     """Fixed resource lifecycle only; no command, path, credential or key argument."""
     if os.geteuid() != 0 or ROOT != Path("/workspace") or action not in {"begin", "restore"}:
         raise ValueError("DEV_CONTROLLED_HTTPS_ROOT_REQUIRED")
@@ -536,7 +540,7 @@ def controlled_https_root(action: str, operation_id: str) -> dict[str, Any]:
                 return hashlib.sha256(raw).hexdigest()
 
             if action == "begin":
-                mapped = controlled_hosts_bytes(current, operation_id)
+                mapped = controlled_hosts_bytes(current, operation_id, chart_stream=chart_stream)
                 evidence = {
                     "operation_id": operation_id,
                     "device": identity.st_dev,
@@ -558,7 +562,7 @@ def controlled_https_root(action: str, operation_id: str) -> dict[str, Any]:
                     or evidence.get("original_sha256") != sha(original)
                 ):
                     raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_IDENTITY_REFUSED")
-                mapped = controlled_hosts_bytes(original, operation_id)
+                mapped = controlled_hosts_bytes(original, operation_id, chart_stream=chart_stream)
                 if evidence.get("mapped_sha256") != sha(mapped):
                     raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_CAS_REFUSED")
                 try:
@@ -598,18 +602,19 @@ def controlled_https_root(action: str, operation_id: str) -> dict[str, Any]:
             return proof
 
 
-def controlled_https_mapping(raw: bytes, operation_id: str) -> bool:
-    line = b"127.0.0.1 " + CONTROLLED_HOSTNAME + b" # onlyalpha-dev-controlled-https:" + operation_id.encode("ascii")
+def controlled_https_mapping(raw: bytes, operation_id: str, *, chart_stream: bool = False) -> bool:
+    names = controlled_hostnames(chart_stream)
+    line = b"127.0.0.1 " + b" ".join(names) + b" # onlyalpha-dev-controlled-https:" + operation_id.encode("ascii")
     aliases = [
         entry
         for entry in raw.splitlines()
-        if CONTROLLED_HOSTNAME in [name.lower() for name in entry.split(b"#", 1)[0].split()[1:]]
+        if set(names) & {name.lower() for name in entry.split(b"#", 1)[0].split()[1:]}
     ]
     return len(raw) <= 1024 * 1024 and raw.count(b"onlyalpha-dev-controlled-https:") == 1 and aliases == [line]
 
 
 def _controlled_https_exec(
-    container: dict[str, Any], operation_id: str, source_sha256: str, action: str, environment: dict[str, str]
+    container: dict[str, Any], operation_id: str, source_sha256: str, action: str, environment: dict[str, str], *, chart_stream: bool = False
 ) -> dict[str, Any]:
     container_id = container["Id"]
     image_id = container["Image"]
@@ -636,6 +641,7 @@ def _controlled_https_exec(
             "/workspace/scripts/dev_verification.py",
             "--operation-id",
             operation_id,
+            *(["--controlled-chart-stream"] if chart_stream else []),
             "controlled-https-" + action,
         ],
         env=environment,
@@ -706,7 +712,7 @@ def run_inside(
                     or identity.st_uid != 0
                     or identity.st_nlink != 1
                     or identity.st_mode & 0o022
-                    or not controlled_https_mapping(hosts.read(1024 * 1024 + 1), operation_id)
+                    or not controlled_https_mapping(hosts.read(1024 * 1024 + 1), operation_id, chart_stream="--chart-sma-market-input" in command)
                 ):
                     raise ValueError("DEV_CONTROLLED_HTTPS_MAPPING_UNPROVEN")
         artifacts = ROOT / "test-results/dev-verification"
@@ -918,7 +924,7 @@ def run_host(
         if cut.get("operation_id") != reservation["operation_id"]:
             raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_CUT_REFUSED")
         source_sha256 = hashlib.sha256(json.dumps(cut["inputs"], sort_keys=True).encode()).hexdigest()
-        begin = _controlled_https_exec(records[0], reservation["operation_id"], source_sha256, "begin", environment)
+        begin = _controlled_https_exec(records[0], reservation["operation_id"], source_sha256, "begin", environment, chart_stream="--chart-sma-market-input" in command)
     status = subprocess.run(invocation, cwd=ROOT, env=environment, check=False).returncode
     outcome = json.loads((ROOT / "test-results/dev-verification/last-outcome.json").read_text())
     if outcome.get("operation_id") != reservation["operation_id"] or outcome.get("completed") is not True:
@@ -939,7 +945,8 @@ def run_host(
         ):
             raise ValueError("DEV_CONTROLLED_HTTPS_CONTAINER_REFUSED")
         restored = _controlled_https_exec(
-            current[0], reservation["operation_id"], begin["source_sha256"], "restore", environment
+            current[0], reservation["operation_id"], begin["source_sha256"], "restore", environment,
+            chart_stream="--chart-sma-market-input" in command,
         )
         if any(
             restored.get(key) != begin.get(key)
@@ -970,6 +977,7 @@ def main() -> int:
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--operation-id", default="")
     parser.add_argument("--controlled-source-https", action="store_true")
+    parser.add_argument("--controlled-chart-stream", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -978,11 +986,13 @@ def main() -> int:
             raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
         print(
             json.dumps(
-                controlled_https_root(args.mode.removeprefix("controlled-https-"), args.operation_id), sort_keys=True
+                controlled_https_root(args.mode.removeprefix("controlled-https-"), args.operation_id, chart_stream=args.controlled_chart_stream), sort_keys=True
             ),
             flush=True,
         )
         return 0
+    if args.controlled_chart_stream:
+        raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
     if args.mode == "inside":
         # This receipt is emitted only for pre-command admission refusal; errors
         # after command startup must leave completion UNKNOWN.

@@ -1,6 +1,6 @@
 //! Registered node Infrastructure; all semantic state belongs to Strategy.
 use crate::protocol::{CalculationNode, calculation_request::Operation};
-use crate::{Worker, WorkerConnector, WorkerError, client::keys, process::MAX_FRAME};
+use crate::{Worker, WorkerConnector, WorkerError, process::MAX_FRAME};
 use onlyalpha_calculation::{Definition, ExecutionBinding, product::TypeDeclaration};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarType};
 use onlyalpha_strategy::{NodeDescriptor, NodeFailure, NodePort, NodeRequest, Program};
@@ -197,4 +197,10 @@ impl NodePort for StrategyNodes {
         }
         Ok(candidate)
     }
+}
+
+fn keys(value: &Value, fields: &[&str]) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.len() == fields.len() && fields.iter().all(|key| object.contains_key(*key))
+    })
 }

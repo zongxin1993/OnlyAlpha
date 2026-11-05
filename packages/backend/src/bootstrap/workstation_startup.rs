@@ -355,10 +355,10 @@ impl Running {
             WORK,
         )
         .map_err(|e| Failure::unavailable(e.code()))?;
-        let chart_installation =
+        let algorithm_installation =
             ChartInstallation::open(&config.algorithms, &config.algorithm_artifact)
                 .map_err(|_| Failure::unavailable("ALGORITHM_INSTALLATION_INVALID"))?;
-        if chart_installation
+        if algorithm_installation
             .distribution_version()
             .map_err(|_| Failure::unavailable("ALGORITHM_INSTALLATION_INVALID"))?
             != env!("CARGO_PKG_VERSION")
@@ -366,7 +366,7 @@ impl Running {
             return Err(Failure::unavailable("ALGORITHM_RELEASE_MISMATCH"));
         }
         let chart = Arc::new(
-            crate::application::chart::ChartQuery::new(chart_installation)
+            crate::application::chart::ChartQuery::new()
                 .map_err(|e| Failure::unavailable(e.code()))?,
         );
         let catalog = Arc::new(

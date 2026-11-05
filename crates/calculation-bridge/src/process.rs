@@ -205,22 +205,6 @@ impl Worker {
     pub fn terminate(&self) -> Result<()> {
         self.cancellation()?.cancel()
     }
-    /// Called only after the Chart consumer has retained this owner's control handle.
-    pub fn handshake_chart(&mut self, deadline: Duration) -> Result<()> {
-        let result = self.exchange(
-            calculation_request::Operation::Handshake(CalculationEmpty {}),
-            deadline,
-        )?;
-        if result
-            != serde_json::json!({"schema_version":1,"max_rows":2001,"max_frame":8*1024*1024,"isolation":"LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"})
-        {
-            return self.poison("CHART_HANDSHAKE");
-        }
-        Ok(())
-    }
-    pub(crate) fn uncertain(&self) -> bool {
-        self.poisoned || self.cancelled.load(Ordering::SeqCst)
-    }
     pub fn last_compute_time(&self) -> Duration {
         Duration::from_nanos(self.last_compute_ns)
     }
@@ -378,6 +362,66 @@ impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.socket.shutdown(Shutdown::Both);
         let _ = self.control.terminate(false);
+    }
+}
+
+/// Serves only the bounded Chart operation over the private calculation channel.
+pub fn serve_chart(
+    input: &mut impl Read,
+    output: &mut impl Write,
+    artifact: &str,
+    mut calculate: impl FnMut(Value) -> Option<Value>,
+) -> std::io::Result<()> {
+    use crate::protocol::CalculationRecord;
+    use std::io::{Error, ErrorKind};
+
+    const LIMIT: usize = 8 * 1024 * 1024;
+    let invalid = || Error::from(ErrorKind::InvalidData);
+    let mut sequence = 0_u64;
+    loop {
+        let mut head = [0; 4];
+        if input.read(&mut head[..1])? == 0 {
+            return Ok(());
+        }
+        input.read_exact(&mut head[1..])?;
+        let size = u32::from_be_bytes(head) as usize;
+        if !(1..=LIMIT).contains(&size) {
+            return Err(invalid());
+        }
+        let mut bytes = vec![0; size];
+        input.read_exact(&mut bytes)?;
+        let request = CalculationRequest::decode(bytes.as_slice()).map_err(|_| invalid())?;
+        sequence = sequence.checked_add(1).ok_or_else(invalid)?;
+        if sequence > 5
+            || request.protocol_version != 1
+            || request.generation != artifact
+            || request.sequence != sequence
+        {
+            return Err(invalid());
+        }
+        let Some(calculation_request::Operation::Chart(request)) = request.operation else {
+            return Err(invalid());
+        };
+        let start = Instant::now();
+        let request = serde_json::from_slice(&request.request_json).map_err(|_| invalid())?;
+        let record = calculate(request).ok_or_else(invalid)?;
+        let response = CalculationResponse {
+            protocol_version: 1,
+            generation: artifact.into(),
+            sequence,
+            artifact_fingerprint: artifact.into(),
+            diagnostic_compute_ns: u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+            outcome: Some(calculation_response::Outcome::Result(CalculationRecord {
+                record_json: record.to_string().into_bytes(),
+            })),
+        }
+        .encode_to_vec();
+        if response.len() > LIMIT {
+            return Err(invalid());
+        }
+        output.write_all(&(response.len() as u32).to_be_bytes())?;
+        output.write_all(&response)?;
+        output.flush()?;
     }
 }
 

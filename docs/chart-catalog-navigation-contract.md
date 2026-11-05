@@ -133,6 +133,12 @@ the registered legacy Definition and algorithm are unchanged. Explicit ROUND_HAL
 invocation closure. Missing proof is unavailable; only a complete different capability identity is changed. Neither the handoff,
 capability identity nor the structural value/readiness carrier is a scientific execution seal or Research publication.
 
+Rust 内置指标接收最多 26 位整数和 12 位小数的精确十进制输入，输出按 12 位小数做半偶数舍入。
+SMA 和 WMA 精确累加后舍入，EMA、MACD、Wilder 平滑和慢速 Stochastic 的计算保留额外小数精度。
+Chart 能力通过 `FIXED_SCALE_HALF_EVEN_V1` 公开输出策略，并绑定实际后端可执行文件的摘要。
+每个 Rust 指标拥有独立的语义版本。Chart 目录发布当前 Rust 指标，未安装的语义版本返回不可用。Rust Chart 指标提供
+展示计算，Research 目录和参数扫描按各自正式执行能力发布。
+
 ## Exact read relation
 
 `GET /api/v2/research/runtime-generations/active` observes the Runtime Authority's current
@@ -284,19 +290,12 @@ height after multiple instances, not just populated point counters or absence of
 
 ## Native transient composition and retained metadata
 
-The native Product composition uses one exact installed minimal algorithm artifact,
-not a Runtime Generation or Trading worker registration. The canonical private
-`calculation.proto` ChartBatch operation carries catalog, resolution and bounded
-batch requests. All wire projections are generated from that canonical protocol.
-The retained selected factory owns its declaration, normalization, implementation
-resources, numeric policy and atomic value/readiness result. The Product owner
-checks the installed resource bytes and full capability relation before admission.
-An unavailable installation is unavailable, never an empty ready catalog.
+Chart 目录和有界批量执行由独立 Rust worker 提供。后端在准入前核对实际执行工件和完整能力目录。
+每个批次使用一个 worker，保留原请求期限和 Source 释放栅栏。worker 回收后，后端重新核对期限和 Source 授权。
 
 `POST /api/v2/chart/temporary-studies/evaluate-batch` accepts one to four ordered Calculation intents sharing one exact
-page, Source/Integration Revision, Instrument, BarSemantic and closed-window fingerprint. It retains the same ten-second
-budget, one owned child per request and original Source release fence as the single-item temporary Query. One newly isolated worker
-serves that request only; each intent resolves its own Definition and independent value/readiness output. Equal configurations
+page, Source/Integration Revision, Instrument, BarSemantic and closed-window fingerprint. Each intent resolves its own
+Definition and independent value/readiness output. Equal configurations
 may occupy different request indexes. The response echoes each exact index once, in order; absent, duplicate, reordered or
 cross-bound entries invalidate the response. The browser validates the entire envelope and every successful result before
 issuing any new presentation evidence. Only `CHART_STUDY_REQUEST_INVALID` item rejections proved by Rust request validation are local failures.

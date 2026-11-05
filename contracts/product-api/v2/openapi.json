@@ -1491,6 +1491,79 @@
         ],
         "type": "string"
       },
+      "ChartStudyContextNumericBindingDto": {
+        "additionalProperties": false,
+        "properties": {
+          "core_policy": {
+            "$ref": "#/components/schemas/ChartStudyDecimalPolicyDto"
+          },
+          "core_policy_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "declared_rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoDeclaredRounding"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoDomain"
+          },
+          "effective_rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoEffectiveRounding"
+          },
+          "output_quantum": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoOutputQuantum"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/Version28"
+          },
+          "representation": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoRepresentation"
+          },
+          "resolution_policy": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoResolutionPolicy"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "core_policy",
+          "core_policy_fingerprint",
+          "declared_rounding",
+          "domain",
+          "effective_rounding",
+          "output_quantum",
+          "precision",
+          "representation",
+          "resolution_policy",
+          "schema_version"
+        ],
+        "type": "object"
+      },
+      "ChartStudyContextNumericDto": {
+        "additionalProperties": false,
+        "properties": {
+          "output_quantum": {
+            "$ref": "#/components/schemas/ChartStudyNumericDtoOutputQuantum"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/Version28"
+          },
+          "representation": {
+            "$ref": "#/components/schemas/ChartStudyNumericDtoRepresentation"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericDtoRounding"
+          }
+        },
+        "required": [
+          "output_quantum",
+          "precision",
+          "representation",
+          "rounding"
+        ],
+        "type": "object"
+      },
       "ChartStudyDecimalDto": {
         "additionalProperties": false,
         "properties": {
@@ -1890,7 +1963,8 @@
       },
       "ChartStudyDistributionDtoKind": {
         "enum": [
-          "DISTRIBUTION"
+          "DISTRIBUTION",
+          "NATIVE_DISTRIBUTION"
         ],
         "type": "string"
       },
@@ -2045,6 +2119,111 @@
       "ChartStudyExtensionsDto": {
         "additionalProperties": false,
         "type": "object"
+      },
+      "ChartStudyFixedScaleNumericBindingDto": {
+        "additionalProperties": false,
+        "properties": {
+          "core_policy": {
+            "$ref": "#/components/schemas/ChartStudyFixedScalePolicyDto"
+          },
+          "core_policy_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "declared_rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoEffectiveRounding"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoDomain"
+          },
+          "effective_rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoEffectiveRounding"
+          },
+          "output_quantum": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoOutputQuantum"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/Version38"
+          },
+          "representation": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoRepresentation"
+          },
+          "resolution_policy": {
+            "$ref": "#/components/schemas/ChartStudyFixedScaleResolutionPolicyDto"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "core_policy",
+          "core_policy_fingerprint",
+          "declared_rounding",
+          "domain",
+          "effective_rounding",
+          "output_quantum",
+          "precision",
+          "representation",
+          "resolution_policy",
+          "schema_version"
+        ],
+        "type": "object"
+      },
+      "ChartStudyFixedScaleNumericDto": {
+        "additionalProperties": false,
+        "properties": {
+          "output_quantum": {
+            "$ref": "#/components/schemas/ChartStudyNumericDtoOutputQuantum"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/Version38"
+          },
+          "representation": {
+            "$ref": "#/components/schemas/ChartStudyNumericDtoRepresentation"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoEffectiveRounding"
+          }
+        },
+        "required": [
+          "output_quantum",
+          "precision",
+          "representation",
+          "rounding"
+        ],
+        "type": "object"
+      },
+      "ChartStudyFixedScalePolicyDto": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/ChartStudyFixedScalePolicyDtoDomain"
+          },
+          "output_quantum": {
+            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoOutputQuantum"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/Version1"
+          }
+        },
+        "required": [
+          "domain",
+          "schema_version",
+          "output_quantum"
+        ],
+        "type": "object"
+      },
+      "ChartStudyFixedScalePolicyDtoDomain": {
+        "enum": [
+          "onlyalpha.decimal.fixed-scale"
+        ],
+        "type": "string"
+      },
+      "ChartStudyFixedScaleResolutionPolicyDto": {
+        "enum": [
+          "FIXED_SCALE_HALF_EVEN_V1"
+        ],
+        "type": "string"
       },
       "ChartStudyInputBindingDto": {
         "additionalProperties": false,
@@ -2367,53 +2546,14 @@
         "type": "string"
       },
       "ChartStudyNumericBindingDto": {
-        "additionalProperties": false,
-        "properties": {
-          "core_policy": {
-            "$ref": "#/components/schemas/ChartStudyDecimalPolicyDto"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ChartStudyContextNumericBindingDto"
           },
-          "core_policy_fingerprint": {
-            "pattern": "^[0-9a-f]{64}$",
-            "type": "string"
-          },
-          "declared_rounding": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoDeclaredRounding"
-          },
-          "domain": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoDomain"
-          },
-          "effective_rounding": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoEffectiveRounding"
-          },
-          "output_quantum": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoOutputQuantum"
-          },
-          "precision": {
-            "$ref": "#/components/schemas/Version28"
-          },
-          "representation": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoRepresentation"
-          },
-          "resolution_policy": {
-            "$ref": "#/components/schemas/ChartStudyNumericBindingDtoResolutionPolicy"
-          },
-          "schema_version": {
-            "$ref": "#/components/schemas/Version1"
+          {
+            "$ref": "#/components/schemas/ChartStudyFixedScaleNumericBindingDto"
           }
-        },
-        "required": [
-          "core_policy",
-          "core_policy_fingerprint",
-          "declared_rounding",
-          "domain",
-          "effective_rounding",
-          "output_quantum",
-          "precision",
-          "representation",
-          "resolution_policy",
-          "schema_version"
-        ],
-        "type": "object"
+        ]
       },
       "ChartStudyNumericBindingDtoDeclaredRounding": {
         "enum": [
@@ -2453,28 +2593,14 @@
         "type": "string"
       },
       "ChartStudyNumericDto": {
-        "additionalProperties": false,
-        "properties": {
-          "output_quantum": {
-            "$ref": "#/components/schemas/ChartStudyNumericDtoOutputQuantum"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ChartStudyContextNumericDto"
           },
-          "precision": {
-            "$ref": "#/components/schemas/Version28"
-          },
-          "representation": {
-            "$ref": "#/components/schemas/ChartStudyNumericDtoRepresentation"
-          },
-          "rounding": {
-            "$ref": "#/components/schemas/ChartStudyNumericDtoRounding"
+          {
+            "$ref": "#/components/schemas/ChartStudyFixedScaleNumericDto"
           }
-        },
-        "required": [
-          "output_quantum",
-          "precision",
-          "representation",
-          "rounding"
-        ],
-        "type": "object"
+        ]
       },
       "ChartStudyNumericDtoOutputQuantum": {
         "enum": [
@@ -9236,6 +9362,12 @@
       "Version3": {
         "enum": [
           3
+        ],
+        "type": "integer"
+      },
+      "Version38": {
+        "enum": [
+          38
         ],
         "type": "integer"
       },

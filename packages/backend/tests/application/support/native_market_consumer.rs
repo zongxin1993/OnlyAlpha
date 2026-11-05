@@ -51,11 +51,8 @@ fn emit(kind: &str, value: &Value) {
     writeln!(file, "{}", json!({"kind":kind,"value":value})).unwrap();
 }
 fn chart_query() -> ChartQuery {
-    let root =
-        std::path::PathBuf::from(std::env::var("ONLYALPHA_NATIVE_CHART_INSTALLATION").unwrap());
-    let artifact = std::env::var("ONLYALPHA_NATIVE_CHART_ARTIFACT").unwrap();
-    ChartQuery::new(
-        onlyalpha_calculation_bridge::ChartInstallation::open(&root, &artifact).unwrap(),
+    ChartQuery::with_native_executable(
+        std::path::PathBuf::from(std::env::var_os("ONLYALPHA_NATIVE_CHART_WORKER").unwrap()),
     )
     .unwrap()
 }
@@ -1300,8 +1297,20 @@ async fn native_source_application() {
     let query = chart_query();
     let caps = query.capabilities(&source_session).unwrap();
     emit("chart_capabilities", &caps);
-    emit("chart_catalog", &query.catalog(&source_session).unwrap());
-    assert_eq!(caps["capabilities"].as_array().unwrap().len(), 14);
+    let catalog = query.catalog(&source_session).unwrap();
+    emit("chart_catalog", &catalog);
+    let entries = caps["capabilities"].as_array().unwrap();
+    assert_eq!(entries.len(), 14);
+    assert_eq!(entries.iter().filter(|entry| entry["provider_id"] == "onlyalpha.indicator.native").count(), 14);
+    assert_eq!(
+        entries.iter().filter(|entry| entry["type_id"] == "onlyalpha.indicator.sma"
+            && entry["semantic_version"] == "2").count(),
+        1
+    );
+    assert_eq!(catalog["calculations"].as_array().unwrap().len(), 14);
+    assert!(catalog["calculations"].as_array().unwrap().iter().all(|entry| {
+        entry["parameter_sweep_allowed"] == false
+    }));
     let original = app
         .window(
             &resolved,
@@ -1424,7 +1433,7 @@ async fn native_source_application() {
         query.capabilities(&source_session),
         Err(onlyalpha_backend::application::chart::Error::Capacity)
     ));
-    let cancellation = pending.cancellation().unwrap();
+    let cancellation = pending.cancellation().unwrap().expect("legacy worker cancellation");
     cancellation.cancel().unwrap();
     assert_eq!(
         cancellation.state(),
@@ -1436,7 +1445,7 @@ async fn native_source_application() {
         pending.execute().is_err(),
         "cancelled invocation cannot retry a fresh process"
     );
-    let second_cancellation = second_pending.cancellation().unwrap();
+    let second_cancellation = second_pending.cancellation().unwrap().expect("legacy worker cancellation");
     assert_eq!(
         second_cancellation.state(),
         onlyalpha_calculation_bridge::ProcessState::Running
@@ -1458,7 +1467,7 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    let control = dropped.cancellation().unwrap();
+    let control = dropped.cancellation().unwrap().expect("legacy worker cancellation");
     drop(dropped);
     assert_eq!(
         control.state(),
@@ -1480,7 +1489,7 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    let control = prepared.cancellation().unwrap();
+    let control = prepared.cancellation().unwrap().expect("legacy worker cancellation");
     drop(closing);
     assert_eq!(
         control.state(),

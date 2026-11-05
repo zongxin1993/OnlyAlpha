@@ -9,11 +9,6 @@ from enum import Enum
 from functools import cache
 from typing import Any, cast
 
-from onlyalpha_plugin_indicators.registration import OnlyIndicatorBackendRequest
-from onlyalpha_plugin_indicators.registration import registrations as indicators
-from onlyalpha_plugin_operators.registration import registrations as operators
-from onlyalpha_plugin_operators.trading import OnlyOfficialTradingStatefulOperatorBackend
-
 from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.decimal_execution import only_decimal_context
 from onlyalpha.calculation.definition import (
@@ -39,6 +34,9 @@ from onlyalpha.indicator.base import OnlyBarIndicator
 from onlyalpha.indicator.identifiers import OnlyIndicatorId
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
 from onlyalpha.strategy.execution import only_invoke_trading_calculation
+from onlyalpha_plugin_operators.registration import registrations as operators
+from onlyalpha_plugin_operators.trading import OnlyOfficialTradingStatefulOperatorBackend
+
 from onlyalpha_calculation_worker.contracts import (
     MAX_INSTANCES,
     _plain,
@@ -54,10 +52,16 @@ from onlyalpha_calculation_worker.contracts import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _TradingNodeRequest:
+    indicator_id: OnlyIndicatorId
+    bar_type: OnlyBarType
+
+
 @cache
 def registry() -> OnlyCalculationRegistry:
     result = OnlyCalculationRegistry()
-    for registration in (*indicators(), *operators()):
+    for registration in operators():
         if registration.backend is OnlyCalculationBackendKind.TRADING:
             result.register(registration)
     only_register_trading_predicate_primitives(result)
@@ -144,7 +148,7 @@ class _Node:
 
     def fresh(self) -> Any:
         return OnlyTradingCalculationBackendResolver(self.calculations).create(
-            self.native, OnlyIndicatorBackendRequest(OnlyIndicatorId(self.binding["scope"]), self.bar_type)
+            self.native, _TradingNodeRequest(OnlyIndicatorId(self.binding["scope"]), self.bar_type)
         )
 
     def plugin(self, instance: Any) -> object:
@@ -292,7 +296,7 @@ class NodeBackend:
         input_record = {"schema_version": 1, "binding": node.binding, "bar": bar.to_dict(), "inputs": r["inputs"]}
         if digest(encode(input_record)) != sha(r["input_digest"]):
             raise ValueError("NODE_INPUT_DIGEST")
-        # CONTEXT is bound by the same explicit worker numeric policy as the SMA lane.
+        # CONTEXT is bound by the explicit worker numeric policy.
         numeric = (
             replace(node.native.numeric, rounding="ROUND_HALF_EVEN")
             if node.native.numeric.rounding == "CONTEXT"

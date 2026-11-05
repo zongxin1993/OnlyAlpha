@@ -74,14 +74,14 @@ jobs:
               raise SystemExit("\n".join(failures))
           PY
 
-      - name: Reject Core imports of concrete plugins
+      - name: Reject algorithm SDK imports of concrete plugins
         shell: bash
         run: |
           if git grep -n -E \
             '(^|[[:space:]])(from|import)[[:space:]]+onlyalpha_plugin_' \
-            -- src/onlyalpha
+            -- packages/backend/python/algorithms/sdk/onlyalpha
           then
-            echo "Core must not import concrete onlyalpha_plugin_* implementations."
+            echo "The algorithm SDK must not import concrete onlyalpha_plugin_* implementations."
             exit 1
           fi
 
@@ -119,18 +119,18 @@ jobs:
       - name: Synchronize workspace
         run: uv sync --frozen --all-packages --all-groups
 
-      - name: Ruff lint Core, tests and examples
-        run: uv run ruff check src tests examples
+      - name: Ruff lint algorithm SDK, backend Python tests and examples
+        run: uv run ruff check packages/backend/python/algorithms/sdk packages/backend/python/algorithms/tests packages/backend/python/gateway_protocol/tests examples
 
-      - name: Ruff format Core, tests and examples
-        run: uv run ruff format --check src tests examples
+      - name: Ruff format algorithm SDK, backend Python tests and examples
+        run: uv run ruff format --check packages/backend/python/algorithms/sdk packages/backend/python/algorithms/tests packages/backend/python/gateway_protocol/tests examples
 
-      - name: Mypy Core
-        run: uv run mypy src/onlyalpha packages/onlyalpha-operators/src/onlyalpha_plugin_operators packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets
+      - name: Mypy algorithm SDK and built-in calculations
+        run: uv run mypy packages/backend/python/algorithms/sdk/onlyalpha packages/onlyalpha-operators/src/onlyalpha_plugin_operators packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets
 
-      - name: Run Core tests
+      - name: Run backend Python tests
         run: >-
-          uv run pytest tests -q
+          uv run pytest packages/backend/python/algorithms/tests packages/backend/python/gateway_protocol/tests -q
           -m "not external
           and not requires_network
           and not requires_tushare"
@@ -351,13 +351,17 @@ jobs:
           import os
           from importlib.metadata import distribution, version
           import pyarrow
-          import onlyalpha_backend_algorithms.chart_worker
+          import onlyalpha_backend_algorithms.research_worker
           assert version("onlyalpha") == os.environ["EXPECTED_VERSION"]
           assert version("onlyalpha-backend-algorithms") == os.environ["EXPECTED_VERSION"]
           for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
               assert importlib.util.find_spec(name) is None, name
-          for name in ("onlyalpha", "onlyalpha-backend-algorithms", "onlyalpha-plugin-indicators", "onlyalpha-gateway-protocol"):
+          for name in ("onlyalpha", "onlyalpha-plugin-operators", "onlyalpha-gateway-protocol"):
               assert not distribution(name).entry_points, name
+          entries = distribution("onlyalpha-backend-algorithms").entry_points
+          assert [(entry.group, entry.name, entry.value) for entry in entries] == [
+              ("onlyalpha.calculations", "official-targets", "onlyalpha_backend_algorithms.targets.registration:registrations")
+          ], entries
           '
 
   # ---------------------------------------------------------------------------

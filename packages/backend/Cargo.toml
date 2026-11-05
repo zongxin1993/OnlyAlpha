@@ -56,12 +56,17 @@ httparse = { version = "=1.10.1", default-features = false, features = ["std"] }
 utoipa = { version = "=6.0.0", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "=0.3.0", default-features = false }
 onlyalpha-calculation = { path = "../../crates/calculation" }
+onlyalpha-indicators = { path = "../../crates/indicators" }
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 base64 = { version = "=0.23.1", default-features = false, features = ["alloc"] }
 aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 hkdf = { version = "=0.13.0", default-features = false }
 hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
 onlyalpha-strategy = { path = "../../crates/strategy" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "=0.2.191", default-features = false }
+seccompiler = { version = "=0.5.0", default-features = false }
 
 [dev-dependencies]
 onlyalpha-runtime = { path = "../../crates/runtime" }
@@ -170,10 +175,6 @@ path = "tests/transport/startup.rs"
 [[test]]
 name = "transport_web_assets"
 path = "tests/transport/web_assets.rs"
-
-[[example]]
-name = "calculation-bridge-check"
-path = "examples/bridge_check/main.rs"
 
 [[example]]
 name = "native-backtest-reference"

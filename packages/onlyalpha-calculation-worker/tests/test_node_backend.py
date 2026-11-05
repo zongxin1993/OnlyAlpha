@@ -9,7 +9,7 @@ from onlyalpha_calculation_worker.contracts import digest, encode
 from onlyalpha_calculation_worker.node_backend import NodeBackend
 
 
-def resolution(type_id="onlyalpha.indicator.sma", period=3):
+def resolution(type_id="onlyalpha.operator.rolling_mean", period=3):
     return {
         "schema_version": 1,
         "op": "RESOLVE",
@@ -101,12 +101,12 @@ def test_resolver_uses_exact_registry_and_declared_state():
         elif change == "parameter":
             r["parameters"]["period"] = {"type": "BOOLEAN", "value": True}
         else:
-            r["input_bindings"]["value"]["source"] = "bar.open"
+            r["input_bindings"] = {}
         with pytest.raises((ValueError, TypeError)):
             backend.dispatch(r)
 
 
-def test_registered_sma_atomic_rejection_and_fresh_continuation():
+def test_registered_operator_atomic_rejection_and_fresh_continuation():
     a = NodeBackend("a" * 64, "b" * 64)
     binding, bar, initial = create(a)
     for i in range(1, 4):
@@ -194,10 +194,9 @@ def test_old_full_operator_window_is_rejected_under_new_receipt():
 
 
 def test_exact_admitted_registry_can_resolve_existing_python_factor_without_builtin_substitution() -> None:
-    from onlyalpha_test_factor_provider.registration import registrations
-
     from onlyalpha.calculation.definition import OnlyCalculationBackendKind
     from onlyalpha.calculation.registry import OnlyCalculationRegistry
+    from onlyalpha_test_factor_provider.registration import registrations
 
     calculations = OnlyCalculationRegistry()
     for registration in registrations():
@@ -257,8 +256,7 @@ def test_resolution_carries_original_product_values_from_the_same_real_resolver(
     assert set(response) == {"schema_version", "descriptor", "product_definition", "type_declaration"}
     native = OnlyCalculationDefinition.from_dict(response["product_definition"])
     assert native.fingerprint == response["descriptor"]["native_definition"]
-    assert native.parameters == {"period": 3, "price_field": "CLOSE"}
+    assert native.parameters == {"period": 3}
     declaration = response["type_declaration"]
     assert declaration["descriptor"]["type_id"] == native.type_id
-    assert declaration["parameter_values"][0]["default"] == {"type": "INTEGER", "value": 20}
-    assert declaration["parameter_values"][1]["default"] == {"type": "STRING", "value": "CLOSE"}
+    assert declaration["parameter_values"][0]["default"] == {"type": "NULL", "value": None}

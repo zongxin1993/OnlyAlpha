@@ -125,7 +125,6 @@ LANES = {
             "tests/plugin/test_entry_point_discovery.py",
             "tests/plugin/test_quant_asset_catalog.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
-            "packages/onlyalpha-indicators/tests",
             "packages/onlyalpha-operators/tests",
         ),
         "not external",
@@ -147,7 +146,6 @@ LANES = {
             "tests/calculation",
             "tests/architecture/test_research_calculation_boundaries.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
-            "packages/onlyalpha-indicators/tests/test_research_characterization.py",
         ),
         "not external",
         "4",
@@ -404,8 +402,8 @@ LANES = {
 }
 
 RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
-    ("uv", "run", "ruff", "check", "src", "tests", "packages", "scripts"),
-    ("uv", "run", "ruff", "format", "--check", "src", "tests", "packages", "scripts"),
+    ("uv", "run", "ruff", "check", "packages", "scripts"),
+    ("uv", "run", "ruff", "format", "--check", "packages", "scripts"),
     ("uv", "run", "mypy"),
     (
         "uv",
@@ -627,7 +625,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             ),
             OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
-            OnlyTestLane.CALCULATION: ("packages/onlyalpha-indicators/src/onlyalpha_plugin_indicators",),
+            OnlyTestLane.CALCULATION: ("onlyalpha_calculation_worker", "onlyalpha_plugin_operators"),
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (

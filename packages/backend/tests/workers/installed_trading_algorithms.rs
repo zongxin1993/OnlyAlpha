@@ -265,6 +265,33 @@ fn actual_installed_nodes_keep_native_predicates_and_restore_factory_state()
             .to_record(),
         original.to_record()
     );
+    let before_cancel = executor.capture_checkpoint()?;
+    let control = executor.port().cancellation()?.ok_or("installed math child")?;
+    assert_eq!(control.state(), ProcessState::Running);
+    control.cancel()?;
+    assert_eq!(control.state(), ProcessState::Joined);
+    let next = bar(&case["base"], 22)?;
+    let next_time = OnlyTimestamp::from_datetime(*next.bar_end());
+    assert!(executor.process(&next, &next_time, &"d".repeat(64)).is_err());
+    assert!(executor.is_failed());
+    assert!(executor.capture_checkpoint().is_err());
+
+    let mut resumed = executor.restored_candidate(
+        before_cancel.to_string().as_bytes(),
+        &record_fingerprint(&before_cancel),
+    )?;
+    let resumed_control = resumed.port().cancellation()?.ok_or("fresh math child")?;
+    assert!(!control.same_owner(&resumed_control));
+    assert_eq!(resumed_control.state(), ProcessState::Running);
+    assert_eq!(resumed.capture_checkpoint()?, before_cancel);
+    assert_eq!(
+        resumed.process(&next, &next_time, &"d".repeat(64))?.to_record(),
+        restored.process(&next, &next_time, &"d".repeat(64))?.to_record()
+    );
+    assert_eq!(resumed.capture_checkpoint()?, restored.capture_checkpoint()?);
+    drop(resumed);
+    assert_eq!(resumed_control.state(), ProcessState::Joined);
+    eprintln!("Strategy execution, original child cancellation and fresh continuation verified");
     drop(executor);
     drop(restored);
     assert_eq!(

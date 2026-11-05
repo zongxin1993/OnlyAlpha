@@ -351,17 +351,9 @@ matching receipts. It has no Domain, process, plugin or transport dependency and
 fingerprints bind generation, worker artifact, component Definition3, native Definition2, native implementation and input context;
 instance scope is explicit. These identity domains remain distinct.
 
-`packages/onlyalpha-calculation-worker/` owns the Python process and Rust client/transport. It invokes the existing registered
-SMA plugin, preserves native implementation identity, applies an explicit canonical Decimal context, and validates candidate
-updates/restores before replacing state. Canonical Protobuf authoring/projections remain under the existing Gateway ownership.
-The inherited same-host channel has no public listener; timeout/cancel/crash poisons its owner as UNKNOWN, with no retry/fallback.
-Exact generation admission, checkpoint persistence, historical materialization and official Runtime integration remain their
-existing owners' responsibilities. Process isolation is not authorization or a security sandbox.
-
-See the [execution design](superpowers/specs/2026-10-18-rust-calculation-worker-design.md). `scripts/calculation_worker_check.py`
-compares actual Rust/Python processes, independently expected SMA results and fresh-process continuation in both profiles; it
-reports startup, backend and whole-client batch timing separately. This technical command is not a human business entry point,
-Shipping Web UI acceptance, durable service upgrade proof, product-latency claim or Runtime activation.
+策略技术探针通过 `scripts/strategy_execution_check.py` 调用正式的 Rust Strategy Executor 和
+`InstalledTradingNodes`。Rust 负责策略状态、谓词、结果和恢复校验。已封存的 Python 数值接口仅负责
+声明的算子或因子计算。探针验证真实子进程的取消和回收，从同一检查点启动新子进程，并比较后续决策与状态。
 
 Generate Python projections with `scripts/gateway_protocol.py write`; generate Rust projections in the admitted Linux tool
 environment with `scripts/gateway_protocol.py write-rust`. The Rust canonical lane checks the Rust projection; the existing

@@ -121,6 +121,7 @@ integer_literal!(Version1, 1);
 integer_literal!(Version2, 2);
 integer_literal!(Version3, 3);
 integer_literal!(Version28, 28);
+integer_literal!(Version38, 38);
 integer_literal!(Version2000, 2000);
 integer_literal!(Version10000, 10000);
 integer_literal!(Version999999, 999999);
@@ -562,6 +563,8 @@ strict_object!(ChartStudyDescriptorDto);
 pub enum ChartStudyDistributionDtoKind {
     #[serde(rename = "DISTRIBUTION")]
     DISTRIBUTION,
+    #[serde(rename = "NATIVE_DISTRIBUTION")]
+    NativeDistribution,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -890,8 +893,23 @@ pub enum ChartStudyNumericBindingDtoResolutionPolicy {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum ChartStudyFixedScalePolicyDtoDomain {
+    #[serde(rename = "onlyalpha.decimal.fixed-scale")]
+    FixedScale,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
-pub struct ChartStudyNumericBindingDto {
+pub struct ChartStudyFixedScalePolicyDto {
+    pub domain: ChartStudyFixedScalePolicyDtoDomain,
+    pub schema_version: Version1,
+    pub output_quantum: ChartStudyNumericBindingDtoOutputQuantum,
+}
+strict_object!(ChartStudyFixedScalePolicyDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct ChartStudyContextNumericBindingDto {
     pub core_policy: ChartStudyDecimalPolicyDto,
     #[schema(pattern = "^[0-9a-f]{64}$")]
     pub core_policy_fingerprint: String,
@@ -904,7 +922,37 @@ pub struct ChartStudyNumericBindingDto {
     pub resolution_policy: ChartStudyNumericBindingDtoResolutionPolicy,
     pub schema_version: Version1,
 }
-strict_object!(ChartStudyNumericBindingDto);
+strict_object!(ChartStudyContextNumericBindingDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum ChartStudyFixedScaleResolutionPolicyDto {
+    #[serde(rename = "FIXED_SCALE_HALF_EVEN_V1")]
+    FixedScaleHalfEvenV1,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct ChartStudyFixedScaleNumericBindingDto {
+    pub core_policy: ChartStudyFixedScalePolicyDto,
+    #[schema(pattern = "^[0-9a-f]{64}$")]
+    pub core_policy_fingerprint: String,
+    pub declared_rounding: ChartStudyNumericBindingDtoEffectiveRounding,
+    pub domain: ChartStudyNumericBindingDtoDomain,
+    pub effective_rounding: ChartStudyNumericBindingDtoEffectiveRounding,
+    pub output_quantum: ChartStudyNumericBindingDtoOutputQuantum,
+    pub precision: Version38,
+    pub representation: ChartStudyNumericBindingDtoRepresentation,
+    pub resolution_policy: ChartStudyFixedScaleResolutionPolicyDto,
+    pub schema_version: Version1,
+}
+strict_object!(ChartStudyFixedScaleNumericBindingDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum ChartStudyNumericBindingDto {
+    Context(ChartStudyContextNumericBindingDto),
+    FixedScale(ChartStudyFixedScaleNumericBindingDto),
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub enum ChartStudyNumericDtoOutputQuantum {
@@ -928,13 +976,30 @@ pub enum ChartStudyNumericDtoRounding {
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
-pub struct ChartStudyNumericDto {
+pub struct ChartStudyContextNumericDto {
     pub output_quantum: ChartStudyNumericDtoOutputQuantum,
     pub precision: Version28,
     pub representation: ChartStudyNumericDtoRepresentation,
     pub rounding: ChartStudyNumericDtoRounding,
 }
-strict_object!(ChartStudyNumericDto);
+strict_object!(ChartStudyContextNumericDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct ChartStudyFixedScaleNumericDto {
+    pub output_quantum: ChartStudyNumericDtoOutputQuantum,
+    pub precision: Version38,
+    pub representation: ChartStudyNumericDtoRepresentation,
+    pub rounding: ChartStudyNumericBindingDtoEffectiveRounding,
+}
+strict_object!(ChartStudyFixedScaleNumericDto);
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum ChartStudyNumericDto {
+    Context(ChartStudyContextNumericDto),
+    FixedScale(ChartStudyFixedScaleNumericDto),
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub enum ChartStudyOutputDtoDataType {

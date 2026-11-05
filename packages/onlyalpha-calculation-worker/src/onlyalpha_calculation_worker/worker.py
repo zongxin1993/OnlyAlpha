@@ -13,11 +13,10 @@ from importlib import metadata
 from typing import BinaryIO
 
 from google.protobuf.message import DecodeError
+from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
 
-from onlyalpha.calculation.registry import OnlyCalculationRegistry
 from onlyalpha_calculation_worker.artifact import manifest
-from onlyalpha_calculation_worker.backend import Backend, resolve
 from onlyalpha_calculation_worker.contracts import MAX_BATCH, MAX_FRAME, MAX_INSTANCES, decode, encode, sha
 from onlyalpha_calculation_worker.node_backend import NodeBackend
 
@@ -44,8 +43,7 @@ def _hosted_registry(generation: str) -> OnlyCalculationRegistry:
 
 def serve(generation: str, reader: BinaryIO, writer: BinaryIO, *, hosted: bool = False) -> None:
     artifact = manifest().implementation_fingerprint
-    backend = Backend(sha(generation), artifact)
-    nodes = NodeBackend(generation, artifact, calculations=_hosted_registry(generation) if hosted else None)
+    nodes = NodeBackend(sha(generation), artifact, calculations=_hosted_registry(generation) if hosted else None)
     sequence = 0
     while True:
         try:
@@ -66,8 +64,6 @@ def serve(generation: str, reader: BinaryIO, writer: BinaryIO, *, hosted: bool =
         try:
             if operation == "handshake":
                 result = {"schema_version": 1, "max_batch": MAX_BATCH, "max_instances": MAX_INSTANCES}
-            elif operation == "resolve":
-                result = resolve(decode(request.resolve.parameters_json))
             elif operation == "replay":
                 from onlyalpha_calculation_worker.backtest_external import dispatch
 
@@ -76,40 +72,9 @@ def serve(generation: str, reader: BinaryIO, writer: BinaryIO, *, hosted: bool =
                 record = decode(request.node.request_json)
                 if type(record) is not dict:
                     raise ValueError("NODE_REQUEST")
-                if record.get("op") == "CREATE" and backend.instance_count() + len(nodes.nodes) >= MAX_INSTANCES:
+                if record.get("op") == "CREATE" and len(nodes.nodes) >= MAX_INSTANCES:
                     raise ValueError("INSTANCE_BUDGET")
                 result = nodes.dispatch(record)
-            elif operation == "create":
-                if backend.instance_count() + len(nodes.nodes) >= MAX_INSTANCES:
-                    raise ValueError("INSTANCE_BUDGET")
-                create_request = request.create
-                result = backend.create(
-                    decode(create_request.binding_json),
-                    decode(create_request.definition_json),
-                    decode(create_request.bar_type_json),
-                    decode(create_request.parameters_json),
-                    create_request.source_fingerprint,
-                )
-            elif operation == "update":
-                update_request = request.update
-                result = backend.update(
-                    update_request.instance.scope,
-                    update_request.instance.revision,
-                    list(update_request.bars_json),
-                    update_request.input_digest,
-                )
-            elif operation == "restore":
-                restore_request = request.restore
-                result = backend.restore(
-                    restore_request.instance.scope,
-                    restore_request.instance.revision,
-                    restore_request.checkpoint_json,
-                    restore_request.expected_sha256,
-                )
-            elif operation in {"reset", "checkpoint", "close"}:
-                instance = getattr(request, operation)
-                call = {"reset": backend.reset, "checkpoint": backend.capture, "close": backend.close}[operation]
-                result = call(instance.scope, instance.revision)
             else:
                 raise ValueError("OPERATION_INVALID")
             response.result.record_json = encode(result)
